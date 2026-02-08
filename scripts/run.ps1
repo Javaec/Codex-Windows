@@ -11,7 +11,7 @@ if (-not $node) {
   throw "node is required but not found in PATH."
 }
 
-$cliScript = Join-Path $PSScriptRoot "node\cli.cjs"
+$cliScript = Join-Path $PSScriptRoot "node\run.js"
 if (-not (Test-Path $cliScript)) {
   throw "Missing Node CLI script: $cliScript"
 }

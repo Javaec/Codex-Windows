@@ -13,3 +13,4 @@
 
 # Keep local references out of default commits.
 /reference/
+/node_modules/

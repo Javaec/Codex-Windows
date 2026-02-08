@@ -1,0 +1,13 @@
+{
+  "name": "codex-windows-runner",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build:runner": "tsc -p tsconfig.json",
+    "runner": "node scripts/node/run.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.10",
+    "typescript": "^5.9.3"
+  }
+}

@@ -96,9 +96,13 @@ build.cmd -DmgPath .\Codex.dmg
 ## 🧠 Вход через Node-ядро
 
 ```cmd
-node .\scripts\node\cli.cjs run -DmgPath .\Codex.dmg -Reuse -NoLaunch
-node .\scripts\node\cli.cjs build -DmgPath .\Codex.dmg -Reuse -NoLaunch
+node .\scripts\node\run.js run -DmgPath .\Codex.dmg -Reuse -NoLaunch
+node .\scripts\node\run.js build -DmgPath .\Codex.dmg -Reuse -NoLaunch
 ```
+
+Исходник TypeScript:
+- `scripts\ts\run.ts`
+- команда сборки: `npm run build:runner`
 
 ## 🔍 Проверка совместимости Windows внутри Codex
 

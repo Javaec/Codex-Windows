@@ -104,9 +104,13 @@ Options:
 ## 🧠 Node core entrypoint
 
 ```cmd
-node .\scripts\node\cli.cjs run -DmgPath .\Codex.dmg -Reuse -NoLaunch
-node .\scripts\node\cli.cjs build -DmgPath .\Codex.dmg -Reuse -NoLaunch
+node .\scripts\node\run.js run -DmgPath .\Codex.dmg -Reuse -NoLaunch
+node .\scripts\node\run.js build -DmgPath .\Codex.dmg -Reuse -NoLaunch
 ```
+
+TypeScript source:
+- `scripts\ts\run.ts`
+- build command: `npm run build:runner`
 
 ## 🧪 Dev profile isolation
 

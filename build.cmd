@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "SCRIPT=%~dp0scripts\node\cli.cjs"
+set "SCRIPT=%~dp0scripts\node\run.js"
 if not exist "%SCRIPT%" (
   echo Missing %SCRIPT%
   exit /b 1
