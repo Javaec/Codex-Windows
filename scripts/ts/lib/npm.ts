@@ -7,12 +7,6 @@ export interface NpmInvokeResult {
   stderr: string;
 }
 
-function quoteForCmd(value: string): string {
-  if (value === "") return '""';
-  if (!/[\s"&()^|<>]/.test(value)) return value;
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 function runViaCmd(
   scriptPath: string,
   args: string[],
@@ -20,9 +14,8 @@ function runViaCmd(
   capture: boolean,
 ): NpmInvokeResult {
   const cmd = resolveCmdPath() ?? "cmd.exe";
-  // Use `call` and avoid `/s`; this is more reliable for .cmd shims with spaces in paths.
-  const line = ["call", quoteForCmd(scriptPath), ...args.map(quoteForCmd)].join(" ");
-  const result = runCommand(cmd, ["/d", "/c", line], {
+  // Pass tokens separately to avoid fragile string re-quoting under localized cmd.exe.
+  const result = runCommand(cmd, ["/d", "/c", "call", scriptPath, ...args], {
     cwd,
     capture,
     allowNonZero: true,
@@ -59,5 +52,12 @@ export function invokeNpx(args: string[], cwd?: string, passThruOutput = false):
 }
 
 export function invokeNpmCapture(args: string[], cwd?: string): string {
-  return invokeNpmWithResult(args, cwd, false).stdout || "";
+  const cmd = resolveCmdPath() ?? "cmd.exe";
+  const npm = resolveNpmCommand();
+  const result = runCommand(cmd, ["/d", "/c", "call", npm, ...args], {
+    cwd,
+    capture: true,
+    allowNonZero: true,
+  });
+  return result.stdout || "";
 }
