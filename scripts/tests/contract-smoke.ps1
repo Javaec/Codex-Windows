@@ -14,6 +14,7 @@ foreach ($moduleName in @("Common.ps1", "Environment.ps1")) {
 }
 
 Ensure-WindowsEnvironment
+Ensure-RipgrepInPath -WorkDir $WorkDir | Out-Null
 Write-Header "Host environment contract"
 Assert-EnvironmentContract -Strict:$Strict | Out-Null
 

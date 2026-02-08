@@ -27,6 +27,7 @@ Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`.
 - Codex CLI: `npm i -g @openai/codex`
 - 7-Zip (`7z` in PATH)  
   If missing, the script tries `winget` or a portable 7z download.
+- ripgrep (`rg`) is auto-resolved by the script (winget first, then portable fallback in `work\tools`).
 
 ## 📦 Setup
 
@@ -66,6 +67,7 @@ Options:
 - `-NoLaunch`
 - `-DevProfile` (uses isolated dev profile paths)
 - `-ProfileName dev` (custom profile name; default is `default`)
+- `-PersistRipgrepPath` (persist portable `rg` path in user `PATH`)
 
 ## 🧳 Build portable
 
@@ -87,6 +89,7 @@ Options:
 - `-CodexCliPath C:\path\to\codex.exe`
 - `-DevProfile`
 - `-ProfileName dev`
+- `-PersistRipgrepPath`
 
 ## 🛠️ PowerShell examples
 

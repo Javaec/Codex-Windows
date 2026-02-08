@@ -154,6 +154,101 @@ function Ensure-WindowsEnvironment() {
   }
 }
 
+function Get-UserPathEntries() {
+  $userPath = Get-RegistryValue "HKCU:\Environment" "Path"
+  if (-not $userPath) { return @() }
+  return ($userPath -split ";") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+}
+
+function Add-UserPathEntry([string]$Entry) {
+  if (-not $Entry) { return }
+  $resolvedEntry = [Environment]::ExpandEnvironmentVariables($Entry).Trim().Trim('"')
+  if (-not $resolvedEntry) { return }
+
+  $entries = New-Object System.Collections.Generic.List[string]
+  foreach ($current in (Get-UserPathEntries)) {
+    $entries.Add($current)
+  }
+
+  $exists = $false
+  foreach ($current in $entries) {
+    if ($current.ToLowerInvariant() -eq $resolvedEntry.ToLowerInvariant()) {
+      $exists = $true
+      break
+    }
+  }
+  if ($exists) { return }
+
+  $entries.Add($resolvedEntry)
+  $newPath = ($entries -join ";")
+  Set-ItemProperty -Path "HKCU:\Environment" -Name "Path" -Value $newPath -Type ExpandString
+}
+
+function Resolve-RipgrepCommand() {
+  $cmd = Get-Command rg -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Path }
+  return $null
+}
+
+function Ensure-RipgrepInPath(
+  [string]$WorkDir,
+  [switch]$PersistUserPath
+) {
+  $existing = Resolve-RipgrepCommand
+  if ($existing) { return [pscustomobject]@{ installed = $false; path = $existing; source = "path" } }
+
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if ($winget) {
+    try {
+      & winget install --id BurntSushi.ripgrep -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
+      Ensure-WindowsEnvironment
+      $afterWinget = Resolve-RipgrepCommand
+      if ($afterWinget) {
+        return [pscustomobject]@{ installed = $true; path = $afterWinget; source = "winget" }
+      }
+    } catch {
+      # Fall through to portable mode.
+    }
+  }
+
+  if (-not $WorkDir) {
+    return [pscustomobject]@{ installed = $false; path = $null; source = "unavailable" }
+  }
+
+  $toolsDir = Join-Path $WorkDir "tools"
+  $rgRoot = Join-Path $toolsDir "ripgrep"
+  New-Item -ItemType Directory -Force -Path $rgRoot | Out-Null
+  $version = "14.1.1"
+  $zipName = "ripgrep-$version-x86_64-pc-windows-msvc.zip"
+  $zipPath = Join-Path $rgRoot $zipName
+  $extractDir = Join-Path $rgRoot "ripgrep-$version-x86_64-pc-windows-msvc"
+  $rgExe = Join-Path $extractDir "rg.exe"
+  $url = "https://github.com/BurntSushi/ripgrep/releases/download/$version/$zipName"
+
+  if (-not (Test-Path $rgExe)) {
+    if (-not (Test-Path $zipPath)) {
+      Invoke-WebRequest -Uri $url -OutFile $zipPath
+    }
+    if (Test-Path $extractDir) {
+      Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+    }
+    Expand-Archive -Path $zipPath -DestinationPath $rgRoot -Force
+  }
+
+  if (Test-Path $rgExe) {
+    if ($env:PATH -notlike "*$extractDir*") {
+      $env:PATH = "$extractDir;$env:PATH"
+      $env:Path = $env:PATH
+    }
+    if ($PersistUserPath) {
+      Add-UserPathEntry $extractDir
+    }
+    return [pscustomobject]@{ installed = $true; path = $rgExe; source = "portable" }
+  }
+
+  return [pscustomobject]@{ installed = $false; path = $null; source = "unavailable" }
+}
+
 function New-ContractCheck([string]$Name, [bool]$Passed, [string]$Details) {
   return [pscustomobject]@{
     name = $Name
@@ -175,6 +270,10 @@ function Invoke-EnvironmentContractChecks() {
   $pwshCmd = Resolve-PwshPath
   $pwshDetails = if ($pwshCmd) { $pwshCmd } else { "pwsh and fallback powershell not found" }
   $checks.Add((New-ContractCheck "pwsh/powershell resolver" ([bool]$pwshCmd) $pwshDetails))
+
+  $rgCmd = Resolve-RipgrepCommand
+  $rgDetails = if ($rgCmd) { $rgCmd } else { "rg not found in current PATH" }
+  $checks.Add((New-ContractCheck "rg (ripgrep) available" ([bool]$rgCmd) $rgDetails))
 
   if ($cmdPath) {
     try {

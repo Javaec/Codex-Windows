@@ -8,6 +8,7 @@ param(
   [switch]$BuildPortable,
   [switch]$DevProfile,
   [string]$ProfileName = "default",
+  [switch]$PersistRipgrepPath,
   [switch]$StrictContract
 )
 
@@ -46,6 +47,13 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $resolvedDmgPath = Resolve-DmgPath -Explicit $DmgPath -RepoRoot $repoRoot
 $WorkDir = (Resolve-Path (New-Item -ItemType Directory -Force -Path $WorkDir)).Path
 $DistDir = (Resolve-Path (New-Item -ItemType Directory -Force -Path $DistDir)).Path
+
+$ripgrep = Ensure-RipgrepInPath -WorkDir $WorkDir -PersistUserPath:$PersistRipgrepPath
+if ($ripgrep.path) {
+  Write-Host "Using rg: $($ripgrep.path) (source=$($ripgrep.source))" -ForegroundColor DarkGray
+} else {
+  Write-Host "rg (ripgrep) is still unavailable." -ForegroundColor Yellow
+}
 
 $effectiveProfile = Normalize-ProfileName $ProfileName
 if ($DevProfile -and $effectiveProfile -eq "default") {
