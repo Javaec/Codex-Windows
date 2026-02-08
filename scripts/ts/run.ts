@@ -27,7 +27,6 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Promise<number> {
   ensureWindowsEnvironment();
   mustResolveCommand("node.exe");
-  mustResolveCommand("npm.cmd");
 
   for (const key of [
     "npm_config_runtime",
