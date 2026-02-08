@@ -19,6 +19,7 @@ Windows-first перепаковка Codex на базе `reference/Codex-Window
 - Пересобирает native-модули под Windows (`better-sqlite3`, `node-pty`)
 - Запускает Codex из `work/` (direct mode)
 - Собирает portable-пакет в `dist/`
+- Использует Node.js-ядро оркестрации с PowerShell-адаптерами совместимости
 
 ## 🧰 Требования
 
@@ -90,6 +91,13 @@ build.cmd -DmgPath .\Codex.dmg
 .\scripts\run.ps1 -DmgPath .\Codex.dmg
 .\scripts\run.ps1 -DmgPath .\Codex.dmg -BuildPortable
 .\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
+```
+
+## 🧠 Вход через Node-ядро
+
+```cmd
+node .\scripts\node\cli.cjs run -DmgPath .\Codex.dmg -Reuse -NoLaunch
+node .\scripts\node\cli.cjs build -DmgPath .\Codex.dmg -Reuse -NoLaunch
 ```
 
 ## 🔍 Проверка совместимости Windows внутри Codex

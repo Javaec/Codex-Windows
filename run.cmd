@@ -1,24 +1,28 @@
 @echo off
 setlocal
 
-set "SCRIPT=%~dp0scripts\run.ps1"
+set "SCRIPT=%~dp0scripts\node\cli.cjs"
 if not exist "%SCRIPT%" (
   echo [ERROR] Missing %SCRIPT%
   call :maybe_pause
   exit /b 1
 )
 
-set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-if not exist "%PS_EXE%" set "PS_EXE=powershell.exe"
-
 if /I "%~1"=="-h" goto usage
 if /I "%~1"=="--help" goto usage
 
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" %*
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] node.exe not found in PATH.
+  call :maybe_pause
+  exit /b 1
+)
+
+node "%SCRIPT%" run %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
   echo.
-  echo [ERROR] run.ps1 exited with code %RC%.
+  echo [ERROR] run pipeline exited with code %RC%.
   call :maybe_pause
   exit /b %RC%
 )
