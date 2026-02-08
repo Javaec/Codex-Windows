@@ -20,7 +20,9 @@ This project fixes that by:
 - prepending core Windows directories
 - adding typical Node and PowerShell install paths
 - setting `COMSPEC` and `CODEX_PWSH_PATH`
-- applying an app-side environment shim for portable builds
+- applying an app-side environment shim
+- patching `child_process` spawn/exec in app main process so every child process
+  (including Codex CLI tool shells) gets a full Windows environment
 
 ## Quick start
 

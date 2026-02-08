@@ -337,69 +337,198 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   $mainJs = Join-Path $AppDir ".vite\build\main.js"
   if (-not (Test-Path $mainJs)) { return }
   $raw = Get-Content -Raw $mainJs
-  $marker = "/* CODEX-WINDOWS-ENV-SHIM */"
+  $marker = "/* CODEX-WINDOWS-ENV-SHIM-V2 */"
   if ($raw -like "*$marker*") { return }
 
   $safeBuildNumber = Escape-JsString $BuildNumber
   $safeBuildFlavor = Escape-JsString $BuildFlavor
 
   $shimTemplate = @'
-/* CODEX-WINDOWS-ENV-SHIM */
+/* CODEX-WINDOWS-ENV-SHIM-V2 */
 (function () {
   try {
     const fs = require("node:fs");
     const path = require("node:path");
     const url = require("node:url");
+    const cp = require("node:child_process");
     const winRoot = process.env.SystemRoot || "C:\\Windows";
-    const parts = (process.env.PATH || "").split(";").filter(Boolean);
-    const seen = new Set(parts.map((p) => p.toLowerCase()));
-    const add = (p) => {
-      if (!p) return;
-      try {
-        if (!fs.existsSync(p)) return;
-      } catch {
-        return;
-      }
-      const key = p.toLowerCase();
-      if (!seen.has(key)) {
-        parts.unshift(p);
+
+    function normalizePathEnv(baseEnv) {
+      const env = Object.assign({}, process.env, baseEnv || {});
+      const parts = [];
+      const seen = new Set();
+      const include = (candidate, prepend) => {
+        if (!candidate || typeof candidate !== "string") return;
+        const value = candidate.trim().replace(/^"+|"+$/g, "");
+        if (!value) return;
+        let exists = false;
+        try {
+          exists = fs.existsSync(value);
+        } catch {
+          exists = false;
+        }
+        if (!exists) return;
+        const key = value.toLowerCase();
+        if (seen.has(key)) return;
         seen.add(key);
+        if (prepend) parts.unshift(value);
+        else parts.push(value);
+      };
+      const includeList = (value, prepend) => {
+        if (!value || typeof value !== "string") return;
+        for (const p of value.split(";")) include(p, prepend);
+      };
+
+      includeList(env.PATH, false);
+      includeList(env.Path, false);
+      includeList(process.env.PATH, false);
+      includeList(process.env.Path, false);
+
+      const preferred = [
+        path.join(winRoot, "System32"),
+        path.join(winRoot, "System32", "Wbem"),
+        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"),
+        path.join(winRoot, "System32", "OpenSSH"),
+        winRoot,
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "PowerShell", "7") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "cmd") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "bin") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "nodejs") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "cmd") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "bin") : "",
+        process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "",
+        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "fnm") : "",
+        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Volta", "bin") : "",
+        process.env.NVM_SYMLINK || ""
+      ];
+      for (const p of preferred) include(p, true);
+
+      const fullPath = parts.join(";");
+      env.PATH = fullPath;
+      env.Path = fullPath;
+
+      if (!env.PATHEXT) {
+        env.PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
       }
+
+      if (!env.COMSPEC) {
+        const cmd = path.join(winRoot, "System32", "cmd.exe");
+        if (fs.existsSync(cmd)) env.COMSPEC = cmd;
+      }
+
+      const pwshCandidates = [
+        env.CODEX_PWSH_PATH,
+        process.env.CODEX_PWSH_PATH,
+        path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
+        path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
+        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      ].filter(Boolean);
+      for (const c of pwshCandidates) {
+        if (fs.existsSync(c)) {
+          env.CODEX_PWSH_PATH = c;
+          break;
+        }
+      }
+
+      return env;
+    }
+
+    const normalizedProcessEnv = normalizePathEnv(process.env);
+    for (const [k, v] of Object.entries(normalizedProcessEnv)) {
+      if (typeof v === "string") process.env[k] = v;
+    }
+
+    const patchOptionsEnv = (options) => {
+      if (!options || typeof options !== "object") options = {};
+      options.env = normalizePathEnv(options.env || process.env);
+      return options;
     };
 
-    add(path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"));
-    add(path.join(winRoot, "System32", "Wbem"));
-    add(path.join(winRoot, "System32"));
-    add(winRoot);
-    if (process.env.ProgramFiles) {
-      add(path.join(process.env.ProgramFiles, "PowerShell", "7"));
-      add(path.join(process.env.ProgramFiles, "nodejs"));
-    }
-    if (process.env["ProgramFiles(x86)"]) {
-      add(path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7"));
-      add(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
-    }
-    if (process.env.APPDATA) {
-      add(path.join(process.env.APPDATA, "npm"));
-    }
-    process.env.PATH = parts.join(";");
+    if (!globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__) {
+      globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__ = true;
 
-    if (!process.env.COMSPEC) {
-      const cmd = path.join(winRoot, "System32", "cmd.exe");
-      if (fs.existsSync(cmd)) process.env.COMSPEC = cmd;
-    }
+      const origSpawn = cp.spawn;
+      cp.spawn = function patchedSpawn(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origSpawn.call(this, file, args, options);
+      };
 
-    const pwshCandidates = [
-      process.env.CODEX_PWSH_PATH,
-      path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
-      path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
-      path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    ].filter(Boolean);
-    for (const c of pwshCandidates) {
-      if (fs.existsSync(c)) {
-        process.env.CODEX_PWSH_PATH = c;
-        break;
-      }
+      const origSpawnSync = cp.spawnSync;
+      cp.spawnSync = function patchedSpawnSync(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origSpawnSync.call(this, file, args, options);
+      };
+
+      const origExec = cp.exec;
+      cp.exec = function patchedExec(command, options, callback) {
+        if (typeof options === "function") {
+          callback = options;
+          options = {};
+        }
+        options = patchOptionsEnv(options);
+        if (typeof callback === "function") {
+          return origExec.call(this, command, options, callback);
+        }
+        return origExec.call(this, command, options);
+      };
+
+      const origExecSync = cp.execSync;
+      cp.execSync = function patchedExecSync(command, options) {
+        options = patchOptionsEnv(options);
+        return origExecSync.call(this, command, options);
+      };
+
+      const origExecFile = cp.execFile;
+      cp.execFile = function patchedExecFile(file, args, options, callback) {
+        if (typeof args === "function") {
+          callback = args;
+          args = [];
+          options = {};
+        } else if (!Array.isArray(args)) {
+          callback = options;
+          options = args;
+          args = [];
+        }
+        if (typeof options === "function") {
+          callback = options;
+          options = {};
+        }
+        options = patchOptionsEnv(options);
+        if (typeof callback === "function") {
+          return origExecFile.call(this, file, args, options, callback);
+        }
+        return origExecFile.call(this, file, args, options);
+      };
+
+      const origExecFileSync = cp.execFileSync;
+      cp.execFileSync = function patchedExecFileSync(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origExecFileSync.call(this, file, args, options);
+      };
+
+      const origFork = cp.fork;
+      cp.fork = function patchedFork(modulePath, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origFork.call(this, modulePath, args, options);
+      };
     }
 
     if (!process.env.ELECTRON_RENDERER_URL) {
