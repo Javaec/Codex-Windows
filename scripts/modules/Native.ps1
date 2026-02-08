@@ -281,21 +281,26 @@ function Invoke-NativeStage(
     $bsPrebuild = Get-ChildItem -Path (Join-Path $NativeDir "node_modules\better-sqlite3") -Filter "better_sqlite3.node" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($bsPrebuild) { $bsSrc = $bsPrebuild.FullName }
   }
-  if (-not (Test-Path $bsSrc)) { throw "better_sqlite3.node not found after native build." }
-
-  $bsDstDir = Split-Path $bsDst -Parent
-  New-Item -ItemType Directory -Force -Path $bsDstDir | Out-Null
-  $bsDstFile = Join-Path $bsDstDir "better_sqlite3.node"
+  $bsSrcAvailable = Test-Path $bsSrc
   $bsCopySkippedDueToLock = $false
-  try {
-    Copy-Item -Force $bsSrc $bsDstFile
-  } catch [System.IO.IOException] {
-    if (Test-Path $bsDstFile) {
-      Write-Host "better-sqlite3 artifact is currently locked; keeping existing app copy." -ForegroundColor Yellow
-      $bsCopySkippedDueToLock = $true
-    } else {
-      throw
+  if ($bsSrcAvailable) {
+    $bsDstDir = Split-Path $bsDst -Parent
+    New-Item -ItemType Directory -Force -Path $bsDstDir | Out-Null
+    $bsDstFile = Join-Path $bsDstDir "better_sqlite3.node"
+    try {
+      Copy-Item -Force $bsSrc $bsDstFile
+    } catch [System.IO.IOException] {
+      if (Test-Path $bsDstFile) {
+        Write-Host "better-sqlite3 artifact is currently locked; keeping existing app copy." -ForegroundColor Yellow
+        $bsCopySkippedDueToLock = $true
+      } else {
+        throw
+      }
     }
+  } elseif ($skipNative -and (Test-Path $bsDst)) {
+    Write-Host "Native better-sqlite3 artifact is missing in native-builds; using existing validated app binary." -ForegroundColor Yellow
+  } else {
+    throw "better_sqlite3.node not found after native build."
   }
 
   $ptyCopied = $false
