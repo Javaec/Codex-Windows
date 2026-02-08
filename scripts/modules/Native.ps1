@@ -1,6 +1,69 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Resolve-PythonForNodeGyp() {
+  $candidates = New-Object System.Collections.Generic.List[string]
+
+  if ($env:PYTHON) { $candidates.Add($env:PYTHON) }
+  foreach ($name in @("python.exe", "python3.exe")) {
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if ($cmd) { $candidates.Add($cmd.Path) }
+  }
+
+  $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+  if ($pyLauncher) {
+    try {
+      $pyExe = (& $pyLauncher.Path -3 -c "import sys; print(sys.executable)").Trim()
+      if ($pyExe) { $candidates.Add($pyExe) }
+    } catch {}
+  }
+
+  $commonLocations = @(
+    (Join-Path $env:LocalAppData "Programs\Python\Python312\python.exe"),
+    (Join-Path $env:LocalAppData "Programs\Python\Python311\python.exe"),
+    (Join-Path $env:ProgramFiles "Python312\python.exe"),
+    (Join-Path $env:ProgramFiles "Python311\python.exe")
+  )
+  foreach ($location in $commonLocations) {
+    if ($location) { $candidates.Add($location) }
+  }
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (-not $candidate -or -not (Test-Path $candidate)) { continue }
+    try {
+      & $candidate -c "import sys; print(sys.version_info[0])" | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        return (Resolve-Path $candidate).Path
+      }
+    } catch {}
+  }
+
+  return $null
+}
+
+function Ensure-PythonForNodeGyp() {
+  $python = Resolve-PythonForNodeGyp
+  if (-not $python) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+      Write-Host "Python not found for node-gyp. Trying to install via winget..." -ForegroundColor Yellow
+      try {
+        & $winget.Path install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
+      } catch {}
+      $python = Resolve-PythonForNodeGyp
+    }
+  }
+
+  if (-not $python) {
+    throw "Python 3 is required for native module rebuild (node-gyp). Install Python and rerun."
+  }
+
+  $env:PYTHON = $python
+  $env:npm_config_python = $python
+  Write-Host "Using Python for node-gyp: $python" -ForegroundColor DarkGray
+  return $python
+}
+
 function Test-ElectronRequire(
   [string]$ElectronExe,
   [string]$WorkingDir,
@@ -101,6 +164,7 @@ function Invoke-NativeStage(
 
   if (-not $skipNative) {
     New-Item -ItemType Directory -Force -Path $NativeDir | Out-Null
+    [void](Ensure-PythonForNodeGyp)
     Push-Location $NativeDir
     try {
       if (-not (Test-Path (Join-Path $NativeDir "package.json"))) {
