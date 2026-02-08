@@ -26,12 +26,19 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
   const mainJs = path.join(appDir, ".vite", "build", "main.js");
   if (!fileExists(mainJs)) return;
   let raw = fs.readFileSync(mainJs, "utf8");
-  raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V[234] \*\/[\s\S]*?\}\)\;\s*/, "");
-  const marker = "/* CODEX-WINDOWS-ENV-SHIM-V4 */";
-  if (raw.includes(marker)) {
-    fs.writeFileSync(mainJs, raw, "utf8");
-    return;
-  }
+  // Recover a clean main runtime segment if previous runs injected broken prefixes.
+  const runtimeStart =
+    raw.match(/(["'])use strict\1;require\(["']electron["']\);[\s\S]*/) ??
+    raw.match(/require\(["']electron["']\);[\s\S]*/);
+  if (runtimeStart) raw = runtimeStart[0];
+
+  // Remove previously injected shims. A legacy bad regex could leave duplicated tail blocks;
+  // clean those too before inserting a fresh shim.
+  raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V\d+ \*\/[\s\S]*?\}\)\(\);\s*/g, "");
+  raw = raw.replace(
+    /\n\s*const parts = \[\];[\s\S]*?if \(!process\.env\.NODE_ENV\) process\.env\.NODE_ENV = "production";\s*\}\s*catch \{\s*\/\/ no-op\s*\}\s*\}\)\(\);\s*/g,
+    "\n",
+  );
 
   const safeBuildNumber = escapeJsString(buildNumber);
   const safeBuildFlavor = escapeJsString(buildFlavor);

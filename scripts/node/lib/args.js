@@ -8,6 +8,7 @@ function parseArgs(argv) {
         reuse: false,
         noLaunch: false,
         buildPortable: false,
+        buildSingleExe: false,
         devProfile: false,
         profileName: "default",
         persistRipgrepPath: false,
@@ -76,6 +77,9 @@ function parseArgs(argv) {
             case "buildportable":
                 options.buildPortable = true;
                 break;
+            case "singleexe":
+                options.buildSingleExe = true;
+                break;
             case "devprofile":
                 options.devProfile = true;
                 break;
@@ -108,7 +112,7 @@ function printUsage() {
     process.stdout.write("  -WorkDir <path>\n");
     process.stdout.write("  -DistDir <path>\n");
     process.stdout.write("  -CodexCliPath <path>\n");
-    process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -DevProfile\n");
+    process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <name>  -PersistRipgrepPath  -StrictContract\n");
 }
 function normalizeProfileName(profileName) {

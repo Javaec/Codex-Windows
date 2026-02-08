@@ -20,6 +20,7 @@ import {
 import { ensureGitOnPath, patchMainForWindowsEnvironment, patchPreload, startCodexDirectLaunch } from "./lib/launch";
 import { invokeNativeStage } from "./lib/native";
 import { invokePortableBuild } from "./lib/portable";
+import { invokeSingleExeBuild } from "./lib/sfx";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
@@ -154,15 +155,33 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     writeSuccess(`Launcher: ${portable.launcherPath}`);
     writeSuccess(`CLI trace: ${cliTracePath}`);
 
+    let singleExePath: string | null = null;
+    if (options.buildSingleExe) {
+      writeHeader("Packaging single EXE (SFX)");
+      const single = invokeSingleExeBuild(portable.outputDir, distDir, workDir);
+      singleExePath = single.outputExe;
+      writeSuccess(`Single-file EXE ready: ${singleExePath}`);
+    }
+
     if (!options.noLaunch) {
-      writeHeader("Launching portable build");
-      const cmdPath = resolveCmdPath();
-      if (!cmdPath) throw new Error("cmd.exe not found for portable launch.");
-      const status = runCommand(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
-        cwd: portable.outputDir,
-        allowNonZero: true,
-        capture: false,
-      }).status;
+      let status = 0;
+      if (singleExePath) {
+        writeHeader("Launching single EXE");
+        status = runCommand(singleExePath, [], {
+          cwd: distDir,
+          allowNonZero: true,
+          capture: false,
+        }).status;
+      } else {
+        writeHeader("Launching portable build");
+        const cmdPath = resolveCmdPath();
+        if (!cmdPath) throw new Error("cmd.exe not found for portable launch.");
+        status = runCommand(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
+          cwd: portable.outputDir,
+          allowNonZero: true,
+          capture: false,
+        }).status;
+      }
       if (status !== 0) return status;
     }
     return 0;

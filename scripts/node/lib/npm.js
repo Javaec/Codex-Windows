@@ -18,8 +18,9 @@ function quoteForCmd(value) {
 }
 function runViaCmd(scriptPath, args, cwd, capture) {
     const cmd = (0, env_1.resolveCmdPath)() ?? "cmd.exe";
-    const line = [quoteForCmd(scriptPath), ...args.map(quoteForCmd)].join(" ");
-    const result = (0, exec_1.runCommand)(cmd, ["/d", "/s", "/c", line], {
+    // Use `call` and avoid `/s`; this is more reliable for .cmd shims with spaces in paths.
+    const line = ["call", quoteForCmd(scriptPath), ...args.map(quoteForCmd)].join(" ");
+    const result = (0, exec_1.runCommand)(cmd, ["/d", "/c", line], {
         cwd,
         capture,
         allowNonZero: true,

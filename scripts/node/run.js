@@ -44,6 +44,7 @@ const manifest_1 = require("./lib/manifest");
 const launch_1 = require("./lib/launch");
 const native_1 = require("./lib/native");
 const portable_1 = require("./lib/portable");
+const sfx_1 = require("./lib/sfx");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 async function runPipeline(options) {
     (0, env_1.ensureWindowsEnvironment)();
@@ -133,16 +134,34 @@ async function runPipeline(options) {
         (0, exec_1.writeSuccess)(`Portable build ready: ${portable.outputDir}`);
         (0, exec_1.writeSuccess)(`Launcher: ${portable.launcherPath}`);
         (0, exec_1.writeSuccess)(`CLI trace: ${cliTracePath}`);
+        let singleExePath = null;
+        if (options.buildSingleExe) {
+            (0, exec_1.writeHeader)("Packaging single EXE (SFX)");
+            const single = (0, sfx_1.invokeSingleExeBuild)(portable.outputDir, distDir, workDir);
+            singleExePath = single.outputExe;
+            (0, exec_1.writeSuccess)(`Single-file EXE ready: ${singleExePath}`);
+        }
         if (!options.noLaunch) {
-            (0, exec_1.writeHeader)("Launching portable build");
-            const cmdPath = (0, env_1.resolveCmdPath)();
-            if (!cmdPath)
-                throw new Error("cmd.exe not found for portable launch.");
-            const status = (0, exec_1.runCommand)(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
-                cwd: portable.outputDir,
-                allowNonZero: true,
-                capture: false,
-            }).status;
+            let status = 0;
+            if (singleExePath) {
+                (0, exec_1.writeHeader)("Launching single EXE");
+                status = (0, exec_1.runCommand)(singleExePath, [], {
+                    cwd: distDir,
+                    allowNonZero: true,
+                    capture: false,
+                }).status;
+            }
+            else {
+                (0, exec_1.writeHeader)("Launching portable build");
+                const cmdPath = (0, env_1.resolveCmdPath)();
+                if (!cmdPath)
+                    throw new Error("cmd.exe not found for portable launch.");
+                status = (0, exec_1.runCommand)(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
+                    cwd: portable.outputDir,
+                    allowNonZero: true,
+                    capture: false,
+                }).status;
+            }
             if (status !== 0)
                 return status;
         }

@@ -88,9 +88,20 @@ Options:
 - `-Reuse`
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
+- `-SingleExe` (build a single self-extracting `*.exe` via 7-Zip SFX)
 - `-DevProfile`
 - `-ProfileName dev`
 - `-PersistRipgrepPath`
+
+### Single EXE (SFX)
+
+```cmd
+build.cmd -DmgPath .\Codex.dmg -SingleExe
+```
+
+Output:
+
+- `dist\Codex-win32-x64-single.exe`
 
 ## 🛠️ PowerShell examples
 

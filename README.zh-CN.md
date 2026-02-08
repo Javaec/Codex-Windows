@@ -83,6 +83,17 @@ build.cmd -DmgPath .\Codex.dmg
 - `-Reuse`
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
+- `-SingleExe`（通过 7-Zip SFX 生成单文件 `*.exe`）
+
+### 单文件 EXE（SFX）
+
+```cmd
+build.cmd -DmgPath .\Codex.dmg -SingleExe
+```
+
+输出：
+
+- `dist\Codex-win32-x64-single.exe`
 
 ## 🛠️ PowerShell 示例
 

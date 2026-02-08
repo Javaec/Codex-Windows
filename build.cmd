@@ -9,7 +9,6 @@ if not exist "%SCRIPT%" (
 
 if /I "%~1"=="-h" goto usage
 if /I "%~1"=="--help" goto usage
-if "%~1"=="" goto usage
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -26,6 +25,7 @@ echo   build.cmd
 echo   build.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -DistDir .\dist  -Reuse  -NoLaunch  -CodexCliPath C:\path\to\codex.exe
+echo   -SingleExe
 echo   -DevProfile      -ProfileName dev
 echo   -PersistRipgrepPath
 exit /b 0

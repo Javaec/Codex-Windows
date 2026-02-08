@@ -34,7 +34,7 @@ echo   run.cmd
 echo   run.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -CodexCliPath C:\path\to\codex.exe  -Reuse  -NoLaunch
-echo   -BuildPortable   -DistDir .\dist
+echo   -BuildPortable   -SingleExe   -DistDir .\dist
 echo   -DevProfile      -ProfileName dev
 echo   -PersistRipgrepPath
 exit /b 0

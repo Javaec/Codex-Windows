@@ -20,8 +20,9 @@ function runViaCmd(
   capture: boolean,
 ): NpmInvokeResult {
   const cmd = resolveCmdPath() ?? "cmd.exe";
-  const line = [quoteForCmd(scriptPath), ...args.map(quoteForCmd)].join(" ");
-  const result = runCommand(cmd, ["/d", "/s", "/c", line], {
+  // Use `call` and avoid `/s`; this is more reliable for .cmd shims with spaces in paths.
+  const line = ["call", quoteForCmd(scriptPath), ...args.map(quoteForCmd)].join(" ");
+  const result = runCommand(cmd, ["/d", "/c", line], {
     cwd,
     capture,
     allowNonZero: true,
