@@ -104,7 +104,7 @@ function Invoke-NativeStage(
     Push-Location $NativeDir
     try {
       if (-not (Test-Path (Join-Path $NativeDir "package.json"))) {
-        $npmInitExit = Invoke-Npm -Args @("init", "-y")
+        $npmInitExit = Invoke-Npm -NpmArgs @("init", "-y")
         if ($npmInitExit -ne 0) { throw "npm init failed." }
       }
 
@@ -126,7 +126,7 @@ function Invoke-NativeStage(
           "prebuild-install",
           "electron@$ElectronVersion"
         )
-        $npmInstallExit = Invoke-Npm -Args (@("install", "--no-save") + $deps)
+        $npmInstallExit = Invoke-Npm -NpmArgs (@("install", "--no-save") + $deps)
         if ($npmInstallExit -ne 0) { throw "npm install failed." }
 
         Write-Host "Rebuilding native modules for Electron $ElectronVersion..." -ForegroundColor Cyan

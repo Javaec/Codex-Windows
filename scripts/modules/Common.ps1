@@ -21,8 +21,18 @@ function Resolve-NpmCommand() {
   return $null
 }
 
+function Resolve-NpxCommand() {
+  $npxCmd = Get-Command npx.cmd -ErrorAction SilentlyContinue
+  if ($npxCmd) { return $npxCmd.Path }
+
+  $npx = Get-Command npx -ErrorAction SilentlyContinue
+  if ($npx) { return $npx.Path }
+
+  return $null
+}
+
 function Invoke-Npm(
-  [string[]]$Args,
+  [string[]]$NpmArgs,
   [switch]$PassThruOutput
 ) {
   $npmExe = Resolve-NpmCommand
@@ -31,9 +41,26 @@ function Invoke-Npm(
   }
 
   if ($PassThruOutput) {
-    & $npmExe @Args
+    & $npmExe @NpmArgs | Out-Host
   } else {
-    & $npmExe @Args | Out-Null
+    & $npmExe @NpmArgs | Out-Null
+  }
+  return $LASTEXITCODE
+}
+
+function Invoke-Npx(
+  [string[]]$NpxArgs,
+  [switch]$PassThruOutput
+) {
+  $npxExe = Resolve-NpxCommand
+  if (-not $npxExe) {
+    throw "npx not found."
+  }
+
+  if ($PassThruOutput) {
+    & $npxExe @NpxArgs | Out-Host
+  } else {
+    & $npxExe @NpxArgs | Out-Null
   }
   return $LASTEXITCODE
 }

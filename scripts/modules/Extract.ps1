@@ -116,7 +116,7 @@ function Invoke-ExtractionStage(
   Write-Header "Unpacking app.asar"
   $asar = Join-Path $electronDir "Codex Installer\Codex.app\Contents\Resources\app.asar"
   if (-not (Test-Path $asar)) { throw "app.asar not found." }
-  $npmExit = Invoke-Npm -Args @(
+  $npmExit = Invoke-Npm -PassThruOutput -NpmArgs @(
     "exec",
     "--yes",
     "--package",
@@ -127,7 +127,19 @@ function Invoke-ExtractionStage(
     $asar,
     $appDir
   )
-  if ($npmExit -ne 0) { throw "npm exec asar extract failed." }
+  if ($npmExit -ne 0) {
+    Write-Host "npm exec failed (exit=$npmExit). Retrying with npx..." -ForegroundColor Yellow
+    $npxExit = Invoke-Npx -PassThruOutput -NpxArgs @(
+      "-y",
+      "@electron/asar",
+      "extract",
+      $asar,
+      $appDir
+    )
+    if ($npxExit -ne 0) {
+      throw "app.asar extraction failed via npm exec (exit=$npmExit) and npx (exit=$npxExit)."
+    }
+  }
 
   Write-Header "Syncing app.asar.unpacked"
   $unpacked = Join-Path $electronDir "Codex Installer\Codex.app\Contents\Resources\app.asar.unpacked"
