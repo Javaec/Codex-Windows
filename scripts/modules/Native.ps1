@@ -1,6 +1,60 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Resolve-VisualStudioForNodeGyp() {
+  $candidates = New-Object System.Collections.Generic.List[string]
+
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path $vswhere) {
+    try {
+      $installPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+      if ($installPath) { $candidates.Add($installPath) }
+    } catch {}
+  }
+
+  foreach ($edition in @("BuildTools", "Community", "Professional", "Enterprise")) {
+    $path2022 = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\2022\$edition"
+    if (Test-Path $path2022) { $candidates.Add($path2022) }
+  }
+
+  foreach ($root in ($candidates | Select-Object -Unique)) {
+    $msbuild = Join-Path $root "MSBuild\Current\Bin\MSBuild.exe"
+    if (-not (Test-Path $msbuild)) { continue }
+    $vcvars = Join-Path $root "VC\Auxiliary\Build\vcvars64.bat"
+    if (-not (Test-Path $vcvars)) { continue }
+    return [pscustomobject]@{
+      root = (Resolve-Path $root).Path
+      msbuild = (Resolve-Path $msbuild).Path
+      vcvars = (Resolve-Path $vcvars).Path
+    }
+  }
+
+  return $null
+}
+
+function Ensure-VisualStudioForNodeGyp() {
+  $vs = Resolve-VisualStudioForNodeGyp
+  if (-not $vs) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+      Write-Host "Visual Studio Build Tools not found. Trying to install via winget..." -ForegroundColor Yellow
+      try {
+        & $winget.Path install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --accept-package-agreements --accept-source-agreements --silent --override "--wait --quiet --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre" | Out-Null
+      } catch {}
+      $vs = Resolve-VisualStudioForNodeGyp
+    }
+  }
+
+  if (-not $vs) {
+    throw "Visual Studio C++ Build Tools are required for native rebuild (node-gyp). Install 'Visual Studio 2022 Build Tools' with C++ workload and rerun."
+  }
+
+  $env:GYP_MSVS_VERSION = "2022"
+  $env:npm_config_msvs_version = "2022"
+  Write-Host "Using Visual Studio for node-gyp: $($vs.root)" -ForegroundColor DarkGray
+  return $vs
+}
+
 function Resolve-PythonForNodeGyp() {
   $candidates = New-Object System.Collections.Generic.List[string]
 
@@ -255,6 +309,7 @@ function Invoke-NativeStage(
   if (-not $skipNative) {
     New-Item -ItemType Directory -Force -Path $NativeDir | Out-Null
     [void](Ensure-PythonForNodeGyp -WorkDir $workDir)
+    [void](Ensure-VisualStudioForNodeGyp)
     Push-Location $NativeDir
     try {
       if (-not (Test-Path (Join-Path $NativeDir "package.json"))) {
