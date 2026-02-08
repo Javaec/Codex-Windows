@@ -23,4 +23,5 @@ echo   build.cmd
 echo   build.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -DistDir .\dist  -Reuse  -NoLaunch  -CodexCliPath C:\path\to\codex.exe
+echo   -DevProfile      -ProfileName dev
 exit /b 0

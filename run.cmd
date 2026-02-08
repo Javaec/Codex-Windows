@@ -31,6 +31,7 @@ echo   run.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -CodexCliPath C:\path\to\codex.exe  -Reuse  -NoLaunch
 echo   -BuildPortable   -DistDir .\dist
+echo   -DevProfile      -ProfileName dev
 exit /b 0
 
 :maybe_pause

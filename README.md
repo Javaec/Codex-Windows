@@ -64,6 +64,8 @@ Options:
 - `-CodexCliPath C:\path\to\codex.exe`
 - `-Reuse`
 - `-NoLaunch`
+- `-DevProfile` (uses isolated dev profile paths)
+- `-ProfileName dev` (custom profile name; default is `default`)
 
 ## 🧳 Build portable
 
@@ -83,6 +85,8 @@ Options:
 - `-Reuse`
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
+- `-DevProfile`
+- `-ProfileName dev`
 
 ## 🛠️ PowerShell examples
 
@@ -90,7 +94,16 @@ Options:
 .\scripts\run.ps1 -DmgPath .\Codex.dmg
 .\scripts\run.ps1 -DmgPath .\Codex.dmg -BuildPortable
 .\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
+.\scripts\run.ps1 -DmgPath .\Codex.dmg -DevProfile -NoLaunch
 ```
+
+## 🧪 Dev profile isolation
+
+Use `-DevProfile` (or `-ProfileName <name>`) to isolate local development from your default profile.
+
+- separate user data / cache directories (`work\userdata-<profile>`, `work\cache-<profile>`)
+- separate state manifest (`work\state.manifest.<profile>.json`)
+- separate CLI resolver trace (`work\diagnostics\<profile>\cli-resolution.log`)
 
 ## 🔍 Verify Windows compatibility in Codex
 
