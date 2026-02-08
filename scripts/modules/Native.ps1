@@ -142,6 +142,50 @@ function Test-ElectronRequire(
   return $true
 }
 
+function Test-BetterSqlite3Usable(
+  [string]$ElectronExe,
+  [string]$WorkingDir,
+  [string]$Label
+) {
+  if (-not (Test-Path $ElectronExe)) {
+    Write-Host "${Label}: electron runtime not found at $ElectronExe" -ForegroundColor Yellow
+    return $false
+  }
+  if (-not (Test-Path $WorkingDir)) {
+    Write-Host "${Label}: working dir not found at $WorkingDir" -ForegroundColor Yellow
+    return $false
+  }
+
+  $exitCode = 1
+  Push-Location $WorkingDir
+  try {
+    $env:ELECTRON_RUN_AS_NODE = "1"
+    $script = @'
+try {
+  const Database = require('./node_modules/better-sqlite3');
+  const db = new Database(':memory:');
+  db.prepare('select 1 as ok').get();
+  db.close();
+  process.exit(0);
+} catch (e) {
+  console.error(e && e.stack ? e.stack : e);
+  process.exit(1);
+}
+'@
+    & $ElectronExe -e $script | Out-Null
+    $exitCode = $LASTEXITCODE
+  } finally {
+    Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+    Pop-Location
+  }
+
+  if ($exitCode -ne 0) {
+    Write-Host "$Label failed (exit code $exitCode)." -ForegroundColor Yellow
+    return $false
+  }
+  return $true
+}
+
 function Invoke-NativeStage(
   [string]$AppDir,
   [string]$NativeDir,
@@ -198,7 +242,7 @@ function Invoke-NativeStage(
 
   $skipNative = $false
   if ($appArtifactsPresent) {
-    $appBetterOk = Test-ElectronRequire $electronExe $AppDir "./node_modules/better-sqlite3" "App better-sqlite3 smoke test (cache)"
+    $appBetterOk = Test-BetterSqlite3Usable $electronExe $AppDir "App better-sqlite3 usability test (cache)"
     $appPtyOk = Test-ElectronRequire $electronExe $AppDir "./node_modules/node-pty" "App node-pty smoke test (cache)"
     if ($appBetterOk -and $appPtyOk) {
       Write-Host "Native cache hit: reusing existing binaries and syncing them into app." -ForegroundColor Cyan
@@ -223,7 +267,7 @@ function Invoke-NativeStage(
       $haveNative = (Test-Path $bsSrcProbe) -and (Test-Path $ptySrcProbe) -and (Test-Path $electronExe)
 
       if ($haveNative) {
-        $nativeBetterOk = Test-ElectronRequire $electronExe $NativeDir "./node_modules/better-sqlite3" "Native cached better-sqlite3 smoke test"
+        $nativeBetterOk = Test-BetterSqlite3Usable $electronExe $NativeDir "Native cached better-sqlite3 usability test"
         $nativePtyOk = Test-ElectronRequire $electronExe $NativeDir "./node_modules/node-pty" "Native cached node-pty smoke test"
         $haveNative = $nativeBetterOk -and $nativePtyOk
       }
@@ -260,7 +304,7 @@ function Invoke-NativeStage(
       }
 
       if (-not (Test-Path $electronExe)) { throw "electron.exe not found." }
-      if (-not (Test-ElectronRequire $electronExe $NativeDir "./node_modules/better-sqlite3" "Native better-sqlite3 validation")) {
+      if (-not (Test-BetterSqlite3Usable $electronExe $NativeDir "Native better-sqlite3 usability validation")) {
         throw "better-sqlite3 failed to load from native-builds."
       }
       $nativePtyReady = Test-ElectronRequire $electronExe $NativeDir "./node_modules/node-pty" "Native node-pty validation"
@@ -348,7 +392,7 @@ function Invoke-NativeStage(
     throw "node-pty prebuilt/rebuilt binary (pty.node) not found. Install Spectre-mitigated MSVC libs or use a version with prebuilt binaries."
   }
 
-  if (-not (Test-ElectronRequire $electronExe $AppDir "./node_modules/better-sqlite3" "App better-sqlite3 validation")) {
+  if (-not (Test-BetterSqlite3Usable $electronExe $AppDir "App better-sqlite3 usability validation")) {
     if ($bsCopySkippedDueToLock) {
       throw "better-sqlite3 app artifact is locked by another process and current in-app copy failed validation. Close running Codex and rerun."
     }
