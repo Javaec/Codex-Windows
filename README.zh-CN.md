@@ -1,5 +1,8 @@
 # 🚀 Codex-Windows: DMG -> Full Windows Runtime（简体中文）
 
+> ## 🌐 语言切换
+> **[🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)**
+
 这是一个基于 `reference/Codex-Windows-main-1` 的 Windows-first Codex 重打包方案，重点是实现 **100% 实用级 Windows 兼容性**：
 
 - ✅ 在 Codex 内可直接识别 `Node.js`
@@ -23,6 +26,12 @@
   若未安装，脚本会尝试使用 `winget` 或下载便携版 7z。
 
 ## 📦 准备步骤
+
+### 📥 获取最新 DMG
+
+- 版本监控页面：[codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
+- 从该页面下载最新 `Codex.dmg`，并放到：
+  - `C:\Codex-Windows\Codex.dmg`
 
 1. 将 `Codex.dmg` 放到仓库根目录：
    - `C:\Codex-Windows\Codex.dmg`

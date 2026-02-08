@@ -1,5 +1,8 @@
 # 🚀 Codex-Windows: DMG -> Full Windows Runtime (English)
 
+> ## 🌐 Language Switcher
+> **[🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)**
+
 Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`, improved for **100% practical Windows compatibility**:
 
 - ✅ `Node.js` is visible inside Codex
@@ -23,6 +26,12 @@ Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`, impro
   If missing, the script tries `winget` or a portable 7z download.
 
 ## 📦 Setup
+
+### 📥 Download the latest DMG
+
+- Live version monitor: [codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
+- Use the latest `Codex.dmg` from there, then place it in:
+  - `C:\Codex-Windows\Codex.dmg`
 
 1. Put `Codex.dmg` in repository root:
    - `C:\Codex-Windows\Codex.dmg`
