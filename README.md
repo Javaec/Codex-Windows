@@ -1,14 +1,17 @@
-# 🚀 Codex-Windows: DMG -> Full Windows Runtime (English)
+# 🚀 Codex-Windows (EN)
 
+> [!IMPORTANT]
 > ## 🌐 Language Switcher
-> **[🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)**
+> **✨ [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md) ✨**
 
-Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`, improved for **100% practical Windows compatibility**:
+> [!TIP]
+> ## 🪟💯 100% Windows Runtime Support
+> - ✅ `Node.js` works inside Codex
+> - ✅ `PowerShell` / `pwsh` work inside Codex
+> - ✅ `PATH` is normalized for Windows tools (`cmd`, `where`, `npm`, `git`)
+> - ✅ Native Windows commands run reliably
 
-- ✅ `Node.js` is visible inside Codex
-- ✅ `PowerShell`/`pwsh` is visible inside Codex
-- ✅ `PATH` is normalized for Windows tools (`cmd`, `where`, etc.)
-- ✅ Native Windows command execution works as expected
+Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`.
 
 ## ✨ What this project does
 
@@ -44,8 +47,16 @@ npm i -g @openai/codex
 ## ▶️ Run (direct mode)
 
 ```cmd
+run.cmd
+```
+
+If your DMG is in a custom location:
+
+```cmd
 run.cmd -DmgPath .\Codex.dmg
 ```
+
+You can also launch by double-clicking `run.cmd`.
 
 Options:
 

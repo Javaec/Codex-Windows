@@ -314,6 +314,40 @@ function Ensure-GitOnPath() {
   }
 }
 
+function Test-ElectronRequire(
+  [string]$ElectronExe,
+  [string]$WorkingDir,
+  [string]$RequireTarget,
+  [string]$Label
+) {
+  if (-not (Test-Path $ElectronExe)) {
+    Write-Host "${Label}: electron runtime not found at $ElectronExe" -ForegroundColor Yellow
+    return $false
+  }
+  if (-not (Test-Path $WorkingDir)) {
+    Write-Host "${Label}: working dir not found at $WorkingDir" -ForegroundColor Yellow
+    return $false
+  }
+
+  $exitCode = 1
+  Push-Location $WorkingDir
+  try {
+    $env:ELECTRON_RUN_AS_NODE = "1"
+    $script = "try{require('$RequireTarget');process.exit(0)}catch(e){console.error(e&&e.stack?e.stack:e);process.exit(1)}"
+    & $ElectronExe -e $script | Out-Null
+    $exitCode = $LASTEXITCODE
+  } finally {
+    Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+    Pop-Location
+  }
+
+  if ($exitCode -ne 0) {
+    Write-Host "$Label failed (exit code $exitCode)." -ForegroundColor Yellow
+    return $false
+  }
+  return $true
+}
+
 function Patch-Preload([string]$AppDir) {
   $preload = Join-Path $AppDir ".vite\build\preload.js"
   if (-not (Test-Path $preload)) { return }
@@ -337,9 +371,8 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   $mainJs = Join-Path $AppDir ".vite\build\main.js"
   if (-not (Test-Path $mainJs)) { return }
   $raw = Get-Content -Raw $mainJs
-  # Remove older aggressive shim to keep behavior maintainable.
-  $raw = [regex]::Replace($raw, '(?s)/\* CODEX-WINDOWS-ENV-SHIM-V2 \*/.*?\}\)\;\s*', '', 1)
-  $marker = "/* CODEX-WINDOWS-ENV-SHIM-V3 */"
+  $raw = [regex]::Replace($raw, '(?s)/\* CODEX-WINDOWS-ENV-SHIM-V[234] \*/.*?\}\)\;\s*', '', 1)
+  $marker = "/* CODEX-WINDOWS-ENV-SHIM-V4 */"
   if ($raw -like "*$marker*") {
     Set-Content -NoNewline -Path $mainJs -Value $raw
     return
@@ -349,73 +382,193 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   $safeBuildFlavor = Escape-JsString $BuildFlavor
 
   $shimTemplate = @'
-/* CODEX-WINDOWS-ENV-SHIM-V3 */
+/* CODEX-WINDOWS-ENV-SHIM-V4 */
 (function () {
   try {
     const fs = require("node:fs");
     const path = require("node:path");
     const url = require("node:url");
+    const cp = require("node:child_process");
     const winRoot = process.env.SystemRoot || "C:\\Windows";
 
-    const existing = (process.env.PATH || process.env.Path || "").split(";").filter(Boolean);
-    const seen = new Set(existing.map((p) => p.toLowerCase()));
-    const add = (candidate) => {
-      if (!candidate) return;
-      if (!fs.existsSync(candidate)) return;
-      const key = candidate.toLowerCase();
-      if (seen.has(key)) return;
-      existing.unshift(candidate);
-      seen.add(key);
-    };
+    function normalizePathEnv(baseEnv) {
+      const env = Object.assign({}, process.env, baseEnv || {});
+      const parts = [];
+      const seen = new Set();
 
-    add(path.join(winRoot, "System32"));
-    add(path.join(winRoot, "System32", "Wbem"));
-    add(path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"));
-    add(path.join(winRoot, "System32", "OpenSSH"));
-    add(winRoot);
-    if (process.env.ProgramFiles) {
-      add(path.join(process.env.ProgramFiles, "PowerShell", "7"));
-      add(path.join(process.env.ProgramFiles, "nodejs"));
-      add(path.join(process.env.ProgramFiles, "Git", "cmd"));
-      add(path.join(process.env.ProgramFiles, "Git", "bin"));
-    }
-    if (process.env["ProgramFiles(x86)"]) {
-      add(path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7"));
-      add(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
-      add(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd"));
-      add(path.join(process.env["ProgramFiles(x86)"], "Git", "bin"));
-    }
-    if (process.env.APPDATA) add(path.join(process.env.APPDATA, "npm"));
-    if (process.env.LOCALAPPDATA) {
-      add(path.join(process.env.LOCALAPPDATA, "fnm"));
-      add(path.join(process.env.LOCALAPPDATA, "Volta", "bin"));
-    }
-    if (process.env.NVM_SYMLINK) add(process.env.NVM_SYMLINK);
+      const include = (candidate, prepend) => {
+        if (!candidate || typeof candidate !== "string") return;
+        const value = candidate.trim().replace(/^"+|"+$/g, "");
+        if (!value) return;
+        let exists = false;
+        try {
+          exists = fs.existsSync(value);
+        } catch {
+          exists = false;
+        }
+        if (!exists) return;
+        const key = value.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        if (prepend) parts.unshift(value);
+        else parts.push(value);
+      };
 
-    const normalizedPath = existing.join(";");
-    process.env.PATH = normalizedPath;
-    process.env.Path = normalizedPath;
+      const includeList = (value, prepend) => {
+        if (!value || typeof value !== "string") return;
+        for (const p of value.split(";")) include(p, prepend);
+      };
 
-    if (!process.env.PATHEXT) {
-      process.env.PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
-    }
+      includeList(env.PATH, false);
+      includeList(env.Path, false);
+      includeList(process.env.PATH, false);
+      includeList(process.env.Path, false);
 
-    if (!process.env.COMSPEC) {
-      const cmd = path.join(winRoot, "System32", "cmd.exe");
-      if (fs.existsSync(cmd)) process.env.COMSPEC = cmd;
-    }
+      const preferred = [
+        path.join(winRoot, "System32"),
+        path.join(winRoot, "System32", "Wbem"),
+        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"),
+        path.join(winRoot, "System32", "OpenSSH"),
+        winRoot,
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "PowerShell", "7") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "cmd") : "",
+        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "bin") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "nodejs") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "cmd") : "",
+        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "bin") : "",
+        process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "",
+        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "fnm") : "",
+        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Volta", "bin") : "",
+        process.env.NVM_SYMLINK || ""
+      ];
+      for (const p of preferred) include(p, true);
 
-    const pwshCandidates = [
-      process.env.CODEX_PWSH_PATH,
-      path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
-      path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
-      path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    ].filter(Boolean);
-    for (const candidate of pwshCandidates) {
-      if (fs.existsSync(candidate)) {
-        process.env.CODEX_PWSH_PATH = candidate;
-        break;
+      const fullPath = parts.join(";");
+      env.PATH = fullPath;
+      env.Path = fullPath;
+
+      if (!env.PATHEXT) {
+        env.PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
       }
+
+      if (!env.COMSPEC) {
+        const cmd = path.join(winRoot, "System32", "cmd.exe");
+        if (fs.existsSync(cmd)) env.COMSPEC = cmd;
+      }
+
+      const pwshCandidates = [
+        env.CODEX_PWSH_PATH,
+        process.env.CODEX_PWSH_PATH,
+        path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
+        path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
+        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      ].filter(Boolean);
+      for (const c of pwshCandidates) {
+        if (fs.existsSync(c)) {
+          env.CODEX_PWSH_PATH = c;
+          break;
+        }
+      }
+
+      return env;
+    }
+
+    const normalizedProcessEnv = normalizePathEnv(process.env);
+    for (const [k, v] of Object.entries(normalizedProcessEnv)) {
+      if (typeof v === "string") process.env[k] = v;
+    }
+
+    if (!globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__) {
+      globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__ = true;
+
+      const patchOptionsEnv = (options) => {
+        if (!options || typeof options !== "object") options = {};
+        options.env = normalizePathEnv(options.env || process.env);
+        return options;
+      };
+
+      const origSpawn = cp.spawn;
+      cp.spawn = function patchedSpawn(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origSpawn.call(this, file, args, options);
+      };
+
+      const origSpawnSync = cp.spawnSync;
+      cp.spawnSync = function patchedSpawnSync(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origSpawnSync.call(this, file, args, options);
+      };
+
+      const origExec = cp.exec;
+      cp.exec = function patchedExec(command, options, callback) {
+        if (typeof options === "function") {
+          callback = options;
+          options = {};
+        }
+        options = patchOptionsEnv(options);
+        if (typeof callback === "function") {
+          return origExec.call(this, command, options, callback);
+        }
+        return origExec.call(this, command, options);
+      };
+
+      const origExecSync = cp.execSync;
+      cp.execSync = function patchedExecSync(command, options) {
+        options = patchOptionsEnv(options);
+        return origExecSync.call(this, command, options);
+      };
+
+      const origExecFile = cp.execFile;
+      cp.execFile = function patchedExecFile(file, args, options, callback) {
+        if (typeof args === "function") {
+          callback = args;
+          args = [];
+          options = {};
+        } else if (!Array.isArray(args)) {
+          callback = options;
+          options = args;
+          args = [];
+        }
+        if (typeof options === "function") {
+          callback = options;
+          options = {};
+        }
+        options = patchOptionsEnv(options);
+        if (typeof callback === "function") {
+          return origExecFile.call(this, file, args, options, callback);
+        }
+        return origExecFile.call(this, file, args, options);
+      };
+
+      const origExecFileSync = cp.execFileSync;
+      cp.execFileSync = function patchedExecFileSync(file, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origExecFileSync.call(this, file, args, options);
+      };
+
+      const origFork = cp.fork;
+      cp.fork = function patchedFork(modulePath, args, options) {
+        if (!Array.isArray(args)) {
+          options = args;
+          args = [];
+        }
+        options = patchOptionsEnv(options);
+        return origFork.call(this, modulePath, args, options);
+      };
     }
 
     if (!process.env.ELECTRON_RENDERER_URL) {
@@ -572,8 +725,16 @@ $bsDst = Join-Path $appDir "node_modules\better-sqlite3\build\Release\better_sql
 $ptyDstPre = Join-Path $appDir "node_modules\node-pty\prebuilds\$arch"
 $skipNative = $NoLaunch -and $Reuse -and (Test-Path $bsDst) -and (Test-Path (Join-Path $ptyDstPre "pty.node")) -and (Test-Path $electronExe)
 if ($skipNative) {
-  Write-Host "Native modules already present in app. Skipping rebuild." -ForegroundColor Cyan
-} else {
+  $appSmokeOk = Test-ElectronRequire $electronExe $appDir "./node_modules/better-sqlite3" "App better-sqlite3 smoke test (reuse)"
+  if ($appSmokeOk) {
+    Write-Host "Native modules already present in app. Skipping rebuild." -ForegroundColor Cyan
+  } else {
+    Write-Host "App native module smoke test failed. Forcing rebuild." -ForegroundColor Yellow
+    $skipNative = $false
+  }
+}
+
+if (-not $skipNative) {
   New-Item -ItemType Directory -Force -Path $nativeDir | Out-Null
   Push-Location $nativeDir
   if (-not (Test-Path (Join-Path $nativeDir "package.json"))) {
@@ -583,6 +744,15 @@ if ($skipNative) {
   $bsSrcProbe = Join-Path $nativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
   $ptySrcProbe = Join-Path $nativeDir "node_modules\node-pty\prebuilds\$arch\pty.node"
   $haveNative = (Test-Path $bsSrcProbe) -and (Test-Path $ptySrcProbe) -and (Test-Path $electronExe)
+  if ($haveNative) {
+    $nativeSmokeOk = Test-ElectronRequire $electronExe $nativeDir "./node_modules/better-sqlite3" "Cached native better-sqlite3 smoke test"
+    if (-not $nativeSmokeOk) {
+      Write-Host "Cached native modules are invalid for current runtime. Reinstalling..." -ForegroundColor Yellow
+      Remove-Item -Recurse -Force (Join-Path $nativeDir "node_modules\better-sqlite3") -ErrorAction SilentlyContinue
+      Remove-Item -Recurse -Force (Join-Path $nativeDir "node_modules\node-pty") -ErrorAction SilentlyContinue
+      $haveNative = $false
+    }
+  }
 
   if (-not $haveNative) {
     $deps = @(
@@ -594,11 +764,10 @@ if ($skipNative) {
     )
     npm install --no-save @deps
     if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
+    Write-Host "Rebuilding native modules for Electron $electronVersion..." -ForegroundColor Cyan
   } else {
-    Write-Host "Native modules already present. Skipping rebuild." -ForegroundColor Cyan
+    Write-Host "Cached native modules are valid. Skipping rebuild." -ForegroundColor Cyan
   }
-
-  Write-Host "Rebuilding native modules for Electron $electronVersion..." -ForegroundColor Cyan
   $rebuildOk = $true
   if (-not $haveNative) {
     try {
@@ -623,14 +792,10 @@ if ($skipNative) {
     }
   }
 
-  $env:ELECTRON_RUN_AS_NODE = "1"
-  if (-not (Test-Path $electronExe)) { throw "electron.exe not found." }
-  if (-not (Test-Path (Join-Path $nativeDir "node_modules\better-sqlite3"))) {
-    throw "better-sqlite3 not installed."
+  if (-not (Test-Path (Join-Path $nativeDir "node_modules\better-sqlite3"))) { throw "better-sqlite3 not installed." }
+  if (-not (Test-ElectronRequire $electronExe $nativeDir "./node_modules/better-sqlite3" "Native better-sqlite3 validation")) {
+    throw "better-sqlite3 failed to load from native-builds."
   }
-  & $electronExe -e "try{require('./node_modules/better-sqlite3');process.exit(0)}catch(e){console.error(e);process.exit(1)}" | Out-Null
-  Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
-  if ($LASTEXITCODE -ne 0) { throw "better-sqlite3 failed to load." }
 
   Pop-Location
 
@@ -652,6 +817,10 @@ if ($skipNative) {
       Copy-Item -Force $src (Join-Path $ptyDstPre $f)
       Copy-Item -Force $src (Join-Path $ptyDstRel $f)
     }
+  }
+
+  if (-not (Test-ElectronRequire $electronExe $appDir "./node_modules/better-sqlite3" "App better-sqlite3 validation")) {
+    throw "better-sqlite3 failed to load from app directory."
   }
 }
 

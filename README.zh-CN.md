@@ -1,14 +1,17 @@
-# 🚀 Codex-Windows: DMG -> Full Windows Runtime（简体中文）
+# 🚀 Codex-Windows (ZH-CN)
 
+> [!IMPORTANT]
 > ## 🌐 语言切换
-> **[🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)**
+> **✨ [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md) ✨**
 
-这是一个基于 `reference/Codex-Windows-main-1` 的 Windows-first Codex 重打包方案，重点是实现 **100% 实用级 Windows 兼容性**：
+> [!TIP]
+> ## 🪟💯 100% Windows Runtime Support
+> - ✅ 在 Codex 内可稳定使用 `Node.js`
+> - ✅ 在 Codex 内可稳定使用 `PowerShell` / `pwsh`
+> - ✅ 已为 Windows 工具链规范化 `PATH`（`cmd`、`where`、`npm`、`git`）
+> - ✅ 原生 Windows 命令可可靠执行
 
-- ✅ 在 Codex 内可直接识别 `Node.js`
-- ✅ 在 Codex 内可直接识别 `PowerShell`/`pwsh`
-- ✅ 自动修正 Windows `PATH`（`cmd`、`where` 等可用）
-- ✅ 原生 Windows 命令执行稳定可用
+这是一个基于 `reference/Codex-Windows-main-1` 的 Windows-first Codex 重打包方案。
 
 ## ✨ 项目功能
 
@@ -44,8 +47,16 @@ npm i -g @openai/codex
 ## ▶️ 运行（direct mode）
 
 ```cmd
+run.cmd
+```
+
+如果你的 DMG 在自定义路径：
+
+```cmd
 run.cmd -DmgPath .\Codex.dmg
 ```
+
+也可以直接双击 `run.cmd` 启动。
 
 可选参数：
 
