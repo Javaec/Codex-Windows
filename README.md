@@ -1,60 +1,62 @@
-# 🚀 Codex-Windows: DMG -> Full Windows Runtime
+# 🚀 Codex-Windows: DMG -> Full Windows Runtime (English)
 
-Лёгкая перепаковка Codex из macOS `Codex.dmg` в рабочий Windows-раннер/portable-сборку.
+Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`, improved for **100% practical Windows compatibility**:
 
-База решения: `reference/Codex-Windows-main-1`, плюс исправления Windows-окружения (`PATH`, `cmd`, `powershell/pwsh`, `node`) без тяжёлых и хрупких runtime-хаков.
+- ✅ `Node.js` is visible inside Codex
+- ✅ `PowerShell`/`pwsh` is visible inside Codex
+- ✅ `PATH` is normalized for Windows tools (`cmd`, `where`, etc.)
+- ✅ Native Windows command execution works as expected
 
-## ✨ Что умеет
+## ✨ What this project does
 
-- ✅ Извлекает `app.asar` из `Codex.dmg`
-- ✅ Подкладывает Windows-native модули (`better-sqlite3`, `node-pty`)
-- ✅ Запускает Codex напрямую из `work/`
-- ✅ Собирает portable-папку `dist/Codex-win32-x64` (или `arm64`)
-- ✅ Нормализует окружение Windows перед запуском
+- Extracts `app.asar` from `Codex.dmg`
+- Rebuilds native modules for Windows (`better-sqlite3`, `node-pty`)
+- Launches Codex from `work/` (direct mode)
+- Builds a portable package in `dist/`
 
-## 🧰 Требования
+## 🧰 Requirements
 
 - Windows 10/11
 - Node.js
-- Codex CLI (`npm i -g @openai/codex`)
-- 7-Zip (`7z`)  
-  Если не найден, скрипт пытается поставить через `winget` или скачать portable `7z`.
+- Codex CLI: `npm i -g @openai/codex`
+- 7-Zip (`7z` in PATH)  
+  If missing, the script tries `winget` or a portable 7z download.
 
-## 📦 Подготовка
+## 📦 Setup
 
-1. Положите `Codex.dmg` в корень репозитория:
+1. Put `Codex.dmg` in repository root:
    - `C:\Codex-Windows\Codex.dmg`
-2. Установите CLI:
+2. Install Codex CLI:
 
 ```powershell
 npm i -g @openai/codex
 ```
 
-## ▶️ Запуск (direct mode)
+## ▶️ Run (direct mode)
 
 ```cmd
 run.cmd -DmgPath .\Codex.dmg
 ```
 
-Опции:
+Options:
 
 - `-WorkDir .\work`
 - `-CodexCliPath C:\path\to\codex.exe`
 - `-Reuse`
 - `-NoLaunch`
 
-## 🧳 Portable-сборка
+## 🧳 Build portable
 
 ```cmd
 build.cmd -DmgPath .\Codex.dmg
 ```
 
-Результат:
+Output:
 
 - `dist\Codex-win32-x64\Codex.exe`
-- `dist\Codex-win32-x64\Launch-Codex.cmd` (рекомендуемый старт)
+- `dist\Codex-win32-x64\Launch-Codex.cmd` (recommended entry point)
 
-Опции:
+Options:
 
 - `-WorkDir .\work`
 - `-DistDir .\dist`
@@ -62,7 +64,7 @@ build.cmd -DmgPath .\Codex.dmg
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
 
-## 🛠️ PowerShell-варианты
+## 🛠️ PowerShell examples
 
 ```powershell
 .\scripts\run.ps1 -DmgPath .\Codex.dmg
@@ -70,25 +72,21 @@ build.cmd -DmgPath .\Codex.dmg
 .\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
 ```
 
-## 🔍 Быстрая проверка среды внутри Codex
+## 🔍 Verify Windows compatibility in Codex
 
 ```cmd
-cmd /c where powershell
 cmd /c where node
+cmd /c where powershell
 cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
 cmd /c node -v
 ```
 
-## 🧠 Что взято из `main-1` и что улучшено
+## 🌍 Other languages
 
-- Сохранён простой и надёжный пайплайн `main-1`
-- Убраны хрупкие патчи minified `main-*.js`
-- Убраны глобальные monkey-patch перехваты `child_process`
-- Сохранён только минимальный shim в `main.js` для переменных окружения/флагов
-- Упорядочены `run.cmd`/`build.cmd` (явная передача аргументов)
-- Документация и сценарии запуска приведены к более операционному формату
+- Russian: `README.ru.md`
+- Chinese: `README.zh-CN.md`
 
-## ⚠️ Важно
+## ⚠️ Disclaimer
 
-- Это не официальный проект OpenAI.
-- Не распространяйте бинарники OpenAI и `Codex.dmg`.
+- This is not an official OpenAI project.
+- Do not redistribute OpenAI binaries or `Codex.dmg`.
