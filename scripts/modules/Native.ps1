@@ -240,6 +240,90 @@ try {
   return $true
 }
 
+function Get-NativeDonorAppDirs([string]$WorkDir) {
+  $dirs = New-Object System.Collections.Generic.List[string]
+
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Codex\resources\app"),
+    (Join-Path $env:LOCALAPPDATA "Programs\OpenAI Codex\resources\app"),
+    (Join-Path $env:LOCALAPPDATA "Programs\codex\resources\app")
+  )
+
+  $repoRoot = Split-Path $WorkDir -Parent
+  if ($repoRoot) {
+    $distRoot = Join-Path $repoRoot "dist"
+    if (Test-Path $distRoot) {
+      $distApps = Get-ChildItem -Path $distRoot -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName "resources\app" }
+      $candidates += $distApps
+    }
+  }
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if ($candidate -and (Test-Path $candidate)) {
+      $dirs.Add((Resolve-Path $candidate).Path)
+    }
+  }
+
+  return $dirs
+}
+
+function Try-RecoverNativeFromDonors(
+  [string]$AppDir,
+  [string]$NativeDir,
+  [string]$Arch,
+  [string]$ElectronExe,
+  [string]$WorkDir
+) {
+  $donors = Get-NativeDonorAppDirs $WorkDir
+  if (-not $donors -or $donors.Count -eq 0) { return $false }
+
+  $bsDstApp = Join-Path $AppDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+  $ptyDstAppPre = Join-Path $AppDir "node_modules\node-pty\prebuilds\$Arch"
+  $ptyDstAppRel = Join-Path $AppDir "node_modules\node-pty\build\Release"
+
+  $bsDstNative = Join-Path $NativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+  $ptyDstNative = Join-Path $NativeDir "node_modules\node-pty\prebuilds\$Arch"
+
+  foreach ($donorAppDir in $donors) {
+    $donorBs = Join-Path $donorAppDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+    if (-not (Test-Path $donorBs)) { continue }
+
+    $donorPtyDir = Join-Path $donorAppDir "node_modules\node-pty\prebuilds\$Arch"
+    if (-not (Test-Path (Join-Path $donorPtyDir "pty.node"))) {
+      $donorPtyDir = Join-Path $donorAppDir "node_modules\node-pty\build\Release"
+    }
+    if (-not (Test-Path (Join-Path $donorPtyDir "pty.node"))) { continue }
+
+    Write-Host "Trying native donor artifacts from: $donorAppDir" -ForegroundColor Yellow
+
+    New-Item -ItemType Directory -Force -Path (Split-Path $bsDstApp -Parent) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path $bsDstNative -Parent) | Out-Null
+    Copy-Item -Force $donorBs $bsDstApp
+    Copy-Item -Force $donorBs $bsDstNative
+
+    New-Item -ItemType Directory -Force -Path $ptyDstAppPre | Out-Null
+    New-Item -ItemType Directory -Force -Path $ptyDstAppRel | Out-Null
+    New-Item -ItemType Directory -Force -Path $ptyDstNative | Out-Null
+    foreach ($f in @("pty.node", "conpty.node", "conpty_console_list.node")) {
+      $src = Join-Path $donorPtyDir $f
+      if (-not (Test-Path $src)) { continue }
+      Copy-Item -Force $src (Join-Path $ptyDstAppPre $f)
+      Copy-Item -Force $src (Join-Path $ptyDstAppRel $f)
+      Copy-Item -Force $src (Join-Path $ptyDstNative $f)
+    }
+
+    $betterOk = Test-BetterSqlite3Usable $ElectronExe $AppDir "App better-sqlite3 donor validation"
+    $ptyOk = Test-ElectronRequire $ElectronExe $AppDir "./node_modules/node-pty" "App node-pty donor validation"
+    if ($betterOk -and $ptyOk) {
+      Write-Host "Recovered native modules from donor artifacts." -ForegroundColor Green
+      return $true
+    }
+  }
+
+  return $false
+}
+
 function Invoke-NativeStage(
   [string]$AppDir,
   [string]$NativeDir,
@@ -302,7 +386,12 @@ function Invoke-NativeStage(
       Write-Host "Native cache hit: reusing existing binaries and syncing them into app." -ForegroundColor Cyan
       $skipNative = $true
     } else {
-      Write-Host "Native cache signature matches but smoke check failed; forcing rebuild." -ForegroundColor Yellow
+      $recovered = Try-RecoverNativeFromDonors -AppDir $AppDir -NativeDir $NativeDir -Arch $Arch -ElectronExe $electronExe -WorkDir $workDir
+      if ($recovered) {
+        $skipNative = $true
+      } else {
+        Write-Host "Native cache signature matches but smoke check failed; forcing rebuild." -ForegroundColor Yellow
+      }
     }
   }
 
@@ -375,14 +464,18 @@ function Invoke-NativeStage(
     }
   }
 
-  $bsSrc = Join-Path $NativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
-  if (-not (Test-Path $bsSrc)) {
-    $bsPrebuild = Get-ChildItem -Path (Join-Path $NativeDir "node_modules\better-sqlite3") -Filter "better_sqlite3.node" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($bsPrebuild) { $bsSrc = $bsPrebuild.FullName }
-  }
-  $bsSrcAvailable = Test-Path $bsSrc
   $bsCopySkippedDueToLock = $false
-  if ($bsSrcAvailable) {
+  $ptyCopied = $false
+  $ptyCopySkippedDueToLock = $false
+
+  if (-not $skipNative) {
+    $bsSrc = Join-Path $NativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+    if (-not (Test-Path $bsSrc)) {
+      $bsPrebuild = Get-ChildItem -Path (Join-Path $NativeDir "node_modules\better-sqlite3") -Filter "better_sqlite3.node" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($bsPrebuild) { $bsSrc = $bsPrebuild.FullName }
+    }
+    if (-not (Test-Path $bsSrc)) { throw "better_sqlite3.node not found after native build." }
+
     $bsDstDir = Split-Path $bsDst -Parent
     New-Item -ItemType Directory -Force -Path $bsDstDir | Out-Null
     $bsDstFile = Join-Path $bsDstDir "better_sqlite3.node"
@@ -396,55 +489,51 @@ function Invoke-NativeStage(
         throw
       }
     }
-  } elseif ($skipNative -and (Test-Path $bsDst)) {
-    Write-Host "Native better-sqlite3 artifact is missing in native-builds; using existing validated app binary." -ForegroundColor Yellow
-  } else {
-    throw "better_sqlite3.node not found after native build."
-  }
 
-  $ptyCopied = $false
-  $ptyCopySkippedDueToLock = $false
-  $ptySrcDir = Join-Path $NativeDir "node_modules\node-pty\prebuilds\$Arch"
-  if (-not (Test-Path (Join-Path $ptySrcDir "pty.node"))) {
-    $ptyAny = Get-ChildItem -Path (Join-Path $NativeDir "node_modules\node-pty\prebuilds") -Filter "pty.node" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($ptyAny) { $ptySrcDir = Split-Path $ptyAny.FullName -Parent }
-  }
-  if (Test-Path (Join-Path $ptySrcDir "pty.node")) {
-    New-Item -ItemType Directory -Force -Path $ptyDstPre | Out-Null
-    New-Item -ItemType Directory -Force -Path $ptyDstRel | Out-Null
-    foreach ($f in @("pty.node", "conpty.node", "conpty_console_list.node")) {
-      $src = Join-Path $ptySrcDir $f
-      if (Test-Path $src) {
-        $dstPreFile = Join-Path $ptyDstPre $f
-        $dstRelFile = Join-Path $ptyDstRel $f
-        $copiedThisFile = $false
-        try {
-          Copy-Item -Force $src $dstPreFile
-          $copiedThisFile = $true
-        } catch [System.IO.IOException] {
-          if (Test-Path $dstPreFile) {
-            $ptyCopySkippedDueToLock = $true
-          } else {
-            throw
-          }
-        }
-        try {
-          Copy-Item -Force $src $dstRelFile
-          $copiedThisFile = $true
-        } catch [System.IO.IOException] {
-          if (Test-Path $dstRelFile) {
-            $ptyCopySkippedDueToLock = $true
-          } else {
-            throw
-          }
-        }
-        if ($copiedThisFile) { $ptyCopied = $true }
-      }
+    $ptySrcDir = Join-Path $NativeDir "node_modules\node-pty\prebuilds\$Arch"
+    if (-not (Test-Path (Join-Path $ptySrcDir "pty.node"))) {
+      $ptyAny = Get-ChildItem -Path (Join-Path $NativeDir "node_modules\node-pty\prebuilds") -Filter "pty.node" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($ptyAny) { $ptySrcDir = Split-Path $ptyAny.FullName -Parent }
     }
-  } elseif ($appNodePtyWasWorking) {
-    Write-Host "Keeping existing app node-pty binaries because rebuild/prebuild was unavailable, but baseline app node-pty works." -ForegroundColor Yellow
+    if (Test-Path (Join-Path $ptySrcDir "pty.node")) {
+      New-Item -ItemType Directory -Force -Path $ptyDstPre | Out-Null
+      New-Item -ItemType Directory -Force -Path $ptyDstRel | Out-Null
+      foreach ($f in @("pty.node", "conpty.node", "conpty_console_list.node")) {
+        $src = Join-Path $ptySrcDir $f
+        if (Test-Path $src) {
+          $dstPreFile = Join-Path $ptyDstPre $f
+          $dstRelFile = Join-Path $ptyDstRel $f
+          $copiedThisFile = $false
+          try {
+            Copy-Item -Force $src $dstPreFile
+            $copiedThisFile = $true
+          } catch [System.IO.IOException] {
+            if (Test-Path $dstPreFile) {
+              $ptyCopySkippedDueToLock = $true
+            } else {
+              throw
+            }
+          }
+          try {
+            Copy-Item -Force $src $dstRelFile
+            $copiedThisFile = $true
+          } catch [System.IO.IOException] {
+            if (Test-Path $dstRelFile) {
+              $ptyCopySkippedDueToLock = $true
+            } else {
+              throw
+            }
+          }
+          if ($copiedThisFile) { $ptyCopied = $true }
+        }
+      }
+    } elseif ($appNodePtyWasWorking) {
+      Write-Host "Keeping existing app node-pty binaries because rebuild/prebuild was unavailable, but baseline app node-pty works." -ForegroundColor Yellow
+    } else {
+      throw "node-pty prebuilt/rebuilt binary (pty.node) not found. Install Spectre-mitigated MSVC libs or use a version with prebuilt binaries."
+    }
   } else {
-    throw "node-pty prebuilt/rebuilt binary (pty.node) not found. Install Spectre-mitigated MSVC libs or use a version with prebuilt binaries."
+    Write-Host "Skip sync from native-builds in cache mode; keeping validated app native binaries." -ForegroundColor DarkGray
   }
 
   if (-not (Test-BetterSqlite3Usable $electronExe $AppDir "App better-sqlite3 usability validation")) {
