@@ -555,6 +555,21 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   Set-Content -NoNewline -Path $mainJs -Value $raw
 }
 
+function Patch-NotConnectedBroadcast([string]$AppDir) {
+  $buildDir = Join-Path $AppDir ".vite\build"
+  if (-not (Test-Path $buildDir)) { return }
+
+  $targets = Get-ChildItem -Path $buildDir -File -Filter "main-*.js" -ErrorAction SilentlyContinue
+  foreach ($target in $targets) {
+    $raw = Get-Content -Raw $target.FullName
+    if ($raw -notlike "*not-connected*") { continue }
+    $updated = $raw -replace 'if\(!this\.socket\|\|!this\.socket\.writable\)throw new Error\("not-connected"\);', 'if(!this.socket||!this.socket.writable){return;}'
+    if ($updated -ne $raw) {
+      Set-Content -NoNewline -Path $target.FullName -Value $updated
+    }
+  }
+}
+
 function Write-PortableLauncher([string]$OutputDir) {
   $launcherPath = Join-Path $OutputDir "Launch-Codex.cmd"
   $launcher = @'
@@ -769,6 +784,7 @@ if ($skipNative) {
 }
 
 Patch-MainForWindowsEnvironment $appDir $buildNumber $buildFlavor
+Patch-NotConnectedBroadcast $appDir
 
 if ($BuildPortable) {
   Write-Header "Packaging portable app"
@@ -800,6 +816,7 @@ if ($BuildPortable) {
   if (Test-Path $defaultAsar) { Remove-Item -Force $defaultAsar }
 
   Patch-MainForWindowsEnvironment $appDstDir $buildNumber $buildFlavor
+  Patch-NotConnectedBroadcast $appDstDir
 
   Write-Header "Bundling Codex CLI"
   $cli = Resolve-CodexCliPath $CodexCliPath
