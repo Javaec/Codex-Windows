@@ -41,7 +41,7 @@ function Resolve-PythonForNodeGyp() {
   return $null
 }
 
-function Ensure-PythonForNodeGyp() {
+function Ensure-PythonForNodeGyp([string]$WorkDir) {
   $python = Resolve-PythonForNodeGyp
   if (-not $python) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
@@ -54,8 +54,52 @@ function Ensure-PythonForNodeGyp() {
     }
   }
 
+  if (-not $python -and $WorkDir) {
+    $toolsDir = Join-Path $WorkDir "tools"
+    $pythonRoot = Join-Path $toolsDir "python"
+    New-Item -ItemType Directory -Force -Path $pythonRoot | Out-Null
+
+    $isArm64 = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
+    $archTag = if ($isArm64) { "arm64" } else { "amd64" }
+    $versions = @("3.12.8", "3.12.7", "3.12.6")
+    $portablePython = $null
+
+    foreach ($version in $versions) {
+      $zipName = "python-$version-embed-$archTag.zip"
+      $zipPath = Join-Path $pythonRoot $zipName
+      $extractDir = Join-Path $pythonRoot "python-$version-embed-$archTag"
+      $candidate = Join-Path $extractDir "python.exe"
+      if (Test-Path $candidate) {
+        $portablePython = $candidate
+        break
+      }
+
+      $url = "https://www.python.org/ftp/python/$version/$zipName"
+      Write-Host "Python not found. Trying portable Python: $url" -ForegroundColor Yellow
+      try {
+        if (-not (Test-Path $zipPath)) {
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+        }
+        if (Test-Path $extractDir) {
+          Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+        }
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        if (Test-Path $candidate) {
+          $portablePython = $candidate
+          break
+        }
+      } catch {
+        # Try next version candidate.
+      }
+    }
+
+    if ($portablePython) {
+      $python = (Resolve-Path $portablePython).Path
+    }
+  }
+
   if (-not $python) {
-    throw "Python 3 is required for native module rebuild (node-gyp). Install Python and rerun."
+    throw "Python 3 is required for native module rebuild (node-gyp). Install Python or allow script internet access for portable Python fallback."
   }
 
   $env:PYTHON = $python
@@ -110,6 +154,8 @@ function Invoke-NativeStage(
   [string]$ManifestPath,
   [string]$NativeSignature
 ) {
+  $workDir = Split-Path $NativeDir -Parent
+
   function Invoke-PrebuiltInstall(
     [string]$ModuleDir,
     [string]$ModuleName,
@@ -151,7 +197,7 @@ function Invoke-NativeStage(
   }
 
   $skipNative = $false
-  if ($manifestCurrent -and $appArtifactsPresent) {
+  if ($appArtifactsPresent) {
     $appBetterOk = Test-ElectronRequire $electronExe $AppDir "./node_modules/better-sqlite3" "App better-sqlite3 smoke test (cache)"
     $appPtyOk = Test-ElectronRequire $electronExe $AppDir "./node_modules/node-pty" "App node-pty smoke test (cache)"
     if ($appBetterOk -and $appPtyOk) {
@@ -164,7 +210,7 @@ function Invoke-NativeStage(
 
   if (-not $skipNative) {
     New-Item -ItemType Directory -Force -Path $NativeDir | Out-Null
-    [void](Ensure-PythonForNodeGyp)
+    [void](Ensure-PythonForNodeGyp -WorkDir $workDir)
     Push-Location $NativeDir
     try {
       if (-not (Test-Path (Join-Path $NativeDir "package.json"))) {
@@ -174,7 +220,7 @@ function Invoke-NativeStage(
 
       $bsSrcProbe = Join-Path $NativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
       $ptySrcProbe = Join-Path $NativeDir "node_modules\node-pty\prebuilds\$Arch\pty.node"
-      $haveNative = (Test-Path $bsSrcProbe) -and (Test-Path $ptySrcProbe) -and (Test-Path $electronExe) -and $manifestCurrent
+      $haveNative = (Test-Path $bsSrcProbe) -and (Test-Path $ptySrcProbe) -and (Test-Path $electronExe)
 
       if ($haveNative) {
         $nativeBetterOk = Test-ElectronRequire $electronExe $NativeDir "./node_modules/better-sqlite3" "Native cached better-sqlite3 smoke test"
