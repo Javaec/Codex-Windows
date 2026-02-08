@@ -1,0 +1,26 @@
+{
+  "arch": "win32-x64",
+  "electron": "40.0.0",
+  "modules": {
+    "better-sqlite3": {
+      "binary": "app/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+      "sha256": "715DC7EADD3FA56A68716EBA485E45FFC687A16A3AFFB7C592FA1C246CEDADD5"
+    },
+    "node-pty": {
+      "binaries": {
+        "pty.node": {
+          "path": "app/node_modules/node-pty/prebuilds/win32-x64/pty.node",
+          "sha256": "AE323EDD0835EE7B9E18CC96A7B2BB4B8173FF768317D178AF2788406FEB71FF"
+        },
+        "conpty.node": {
+          "path": "app/node_modules/node-pty/prebuilds/win32-x64/conpty.node",
+          "sha256": "EE8F4E6F4DAD71939EECFDA11DE249400E34BFEFE4C8B48AF13F3B5476F4035B"
+        },
+        "conpty_console_list.node": {
+          "path": "app/node_modules/node-pty/prebuilds/win32-x64/conpty_console_list.node",
+          "sha256": "879DD94CFC79F1E263A00077597AE9448A5394B7D193381AAA50D992A1F91090"
+        }
+      }
+    }
+  }
+}
