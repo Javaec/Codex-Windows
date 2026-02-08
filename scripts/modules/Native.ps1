@@ -104,8 +104,8 @@ function Invoke-NativeStage(
     Push-Location $NativeDir
     try {
       if (-not (Test-Path (Join-Path $NativeDir "package.json"))) {
-        & npm init -y | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "npm init failed." }
+        $npmInitExit = Invoke-Npm -Args @("init", "-y")
+        if ($npmInitExit -ne 0) { throw "npm init failed." }
       }
 
       $bsSrcProbe = Join-Path $NativeDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
@@ -126,8 +126,8 @@ function Invoke-NativeStage(
           "prebuild-install",
           "electron@$ElectronVersion"
         )
-        & npm install --no-save @deps | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
+        $npmInstallExit = Invoke-Npm -Args (@("install", "--no-save") + $deps)
+        if ($npmInstallExit -ne 0) { throw "npm install failed." }
 
         Write-Host "Rebuilding native modules for Electron $ElectronVersion..." -ForegroundColor Cyan
         $rebuildOk = $true

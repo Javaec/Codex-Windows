@@ -11,6 +11,33 @@ function Ensure-Command([string]$Name) {
   }
 }
 
+function Resolve-NpmCommand() {
+  $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
+  if ($npmCmd) { return $npmCmd.Path }
+
+  $npm = Get-Command npm -ErrorAction SilentlyContinue
+  if ($npm) { return $npm.Path }
+
+  return $null
+}
+
+function Invoke-Npm(
+  [string[]]$Args,
+  [switch]$PassThruOutput
+) {
+  $npmExe = Resolve-NpmCommand
+  if (-not $npmExe) {
+    throw "npm not found."
+  }
+
+  if ($PassThruOutput) {
+    & $npmExe @Args
+  } else {
+    & $npmExe @Args | Out-Null
+  }
+  return $LASTEXITCODE
+}
+
 function Escape-JsString([string]$Value) {
   if ($null -eq $Value) { return "" }
   return (($Value -replace '\\', '\\\\') -replace '"', '\"')
