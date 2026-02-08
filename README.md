@@ -1,73 +1,94 @@
-# Codex-Windows (DMG -> Full Windows Runtime)
+# 🚀 Codex-Windows: DMG -> Full Windows Runtime
 
-This repository contains a practical Windows repack flow based on the
-lightweight `Codex-Windows-main-1` approach, with one critical addition:
-the launcher force-restores a full Windows runtime environment so Codex can
-see standard Windows tools (`cmd`, `powershell`/`pwsh`, `node`, `where`, etc.).
+Лёгкая перепаковка Codex из macOS `Codex.dmg` в рабочий Windows-раннер/portable-сборку.
 
-## Why this exists
+База решения: `reference/Codex-Windows-main-1`, плюс исправления Windows-окружения (`PATH`, `cmd`, `powershell/pwsh`, `node`) без тяжёлых и хрупких runtime-хаков.
 
-A common issue with DMG-based Codex runners on Windows is a broken process
-environment (mostly `PATH`). In that case Codex can start, but inside it:
+## ✨ Что умеет
 
-- `node` is "not found" even though Node is installed
-- PowerShell commands fail
-- even basic Windows tools are missing
+- ✅ Извлекает `app.asar` из `Codex.dmg`
+- ✅ Подкладывает Windows-native модули (`better-sqlite3`, `node-pty`)
+- ✅ Запускает Codex напрямую из `work/`
+- ✅ Собирает portable-папку `dist/Codex-win32-x64` (или `arm64`)
+- ✅ Нормализует окружение Windows перед запуском
 
-This project fixes that by:
+## 🧰 Требования
 
-- rebuilding `PATH` from machine/user registry values
-- prepending core Windows directories
-- adding typical Node and PowerShell install paths
-- setting `COMSPEC` and `CODEX_PWSH_PATH`
-- applying an app-side environment shim
-- patching `child_process` spawn/exec in app main process so every child process
-  (including Codex CLI tool shells) gets a full Windows environment
+- Windows 10/11
+- Node.js
+- Codex CLI (`npm i -g @openai/codex`)
+- 7-Zip (`7z`)  
+  Если не найден, скрипт пытается поставить через `winget` или скачать portable `7z`.
 
-## Quick start
+## 📦 Подготовка
 
-1. Put your `Codex.dmg` in this repo root.
-2. Make sure Node.js is installed.
-3. Install Codex CLI:
+1. Положите `Codex.dmg` в корень репозитория:
+   - `C:\Codex-Windows\Codex.dmg`
+2. Установите CLI:
 
 ```powershell
 npm i -g @openai/codex
 ```
 
-4. Run direct mode:
+## ▶️ Запуск (direct mode)
 
 ```cmd
-run.cmd
+run.cmd -DmgPath .\Codex.dmg
 ```
 
-5. Or build a portable Windows package:
+Опции:
+
+- `-WorkDir .\work`
+- `-CodexCliPath C:\path\to\codex.exe`
+- `-Reuse`
+- `-NoLaunch`
+
+## 🧳 Portable-сборка
 
 ```cmd
-build.cmd
+build.cmd -DmgPath .\Codex.dmg
 ```
 
-Portable output goes to:
+Результат:
 
-- `dist\Codex-win32-x64` (or `dist\Codex-win32-arm64`)
+- `dist\Codex-win32-x64\Codex.exe`
+- `dist\Codex-win32-x64\Launch-Codex.cmd` (рекомендуемый старт)
 
-## Commands
+Опции:
 
-- `run.cmd`
-  Extracts DMG, rebuilds native modules, launches Codex from `work\`.
+- `-WorkDir .\work`
+- `-DistDir .\dist`
+- `-Reuse`
+- `-NoLaunch`
+- `-CodexCliPath C:\path\to\codex.exe`
 
-- `build.cmd`
-  Extracts/builds, then repacks to a portable Windows app folder and launches it.
-
-## PowerShell usage
+## 🛠️ PowerShell-варианты
 
 ```powershell
-.\scripts\run.ps1
-.\scripts\run.ps1 -BuildPortable
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse
-.\scripts\run.ps1 -BuildPortable -NoLaunch
+.\scripts\run.ps1 -DmgPath .\Codex.dmg
+.\scripts\run.ps1 -DmgPath .\Codex.dmg -BuildPortable
+.\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
 ```
 
-## Notes
+## 🔍 Быстрая проверка среды внутри Codex
 
-- This is not an official OpenAI project.
-- Do not redistribute OpenAI binaries or DMG files.
+```cmd
+cmd /c where powershell
+cmd /c where node
+cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
+cmd /c node -v
+```
+
+## 🧠 Что взято из `main-1` и что улучшено
+
+- Сохранён простой и надёжный пайплайн `main-1`
+- Убраны хрупкие патчи minified `main-*.js`
+- Убраны глобальные monkey-patch перехваты `child_process`
+- Сохранён только минимальный shim в `main.js` для переменных окружения/флагов
+- Упорядочены `run.cmd`/`build.cmd` (явная передача аргументов)
+- Документация и сценарии запуска приведены к более операционному формату
+
+## ⚠️ Важно
+
+- Это не официальный проект OpenAI.
+- Не распространяйте бинарники OpenAI и `Codex.dmg`.

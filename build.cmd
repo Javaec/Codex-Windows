@@ -12,6 +12,7 @@ if not exist "%PS_EXE%" set "PS_EXE=powershell.exe"
 
 if /I "%~1"=="-h" goto usage
 if /I "%~1"=="--help" goto usage
+if "%~1"=="" goto usage
 
 "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -BuildPortable %*
 exit /b %ERRORLEVEL%

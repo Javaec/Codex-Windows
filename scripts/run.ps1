@@ -337,198 +337,85 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   $mainJs = Join-Path $AppDir ".vite\build\main.js"
   if (-not (Test-Path $mainJs)) { return }
   $raw = Get-Content -Raw $mainJs
-  $marker = "/* CODEX-WINDOWS-ENV-SHIM-V2 */"
-  if ($raw -like "*$marker*") { return }
+  # Remove older aggressive shim to keep behavior maintainable.
+  $raw = [regex]::Replace($raw, '(?s)/\* CODEX-WINDOWS-ENV-SHIM-V2 \*/.*?\}\)\;\s*', '', 1)
+  $marker = "/* CODEX-WINDOWS-ENV-SHIM-V3 */"
+  if ($raw -like "*$marker*") {
+    Set-Content -NoNewline -Path $mainJs -Value $raw
+    return
+  }
 
   $safeBuildNumber = Escape-JsString $BuildNumber
   $safeBuildFlavor = Escape-JsString $BuildFlavor
 
   $shimTemplate = @'
-/* CODEX-WINDOWS-ENV-SHIM-V2 */
+/* CODEX-WINDOWS-ENV-SHIM-V3 */
 (function () {
   try {
     const fs = require("node:fs");
     const path = require("node:path");
     const url = require("node:url");
-    const cp = require("node:child_process");
     const winRoot = process.env.SystemRoot || "C:\\Windows";
 
-    function normalizePathEnv(baseEnv) {
-      const env = Object.assign({}, process.env, baseEnv || {});
-      const parts = [];
-      const seen = new Set();
-      const include = (candidate, prepend) => {
-        if (!candidate || typeof candidate !== "string") return;
-        const value = candidate.trim().replace(/^"+|"+$/g, "");
-        if (!value) return;
-        let exists = false;
-        try {
-          exists = fs.existsSync(value);
-        } catch {
-          exists = false;
-        }
-        if (!exists) return;
-        const key = value.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        if (prepend) parts.unshift(value);
-        else parts.push(value);
-      };
-      const includeList = (value, prepend) => {
-        if (!value || typeof value !== "string") return;
-        for (const p of value.split(";")) include(p, prepend);
-      };
-
-      includeList(env.PATH, false);
-      includeList(env.Path, false);
-      includeList(process.env.PATH, false);
-      includeList(process.env.Path, false);
-
-      const preferred = [
-        path.join(winRoot, "System32"),
-        path.join(winRoot, "System32", "Wbem"),
-        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"),
-        path.join(winRoot, "System32", "OpenSSH"),
-        winRoot,
-        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "PowerShell", "7") : "",
-        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs") : "",
-        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "cmd") : "",
-        process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "bin") : "",
-        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7") : "",
-        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "nodejs") : "",
-        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "cmd") : "",
-        process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "bin") : "",
-        process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "",
-        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "fnm") : "",
-        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Volta", "bin") : "",
-        process.env.NVM_SYMLINK || ""
-      ];
-      for (const p of preferred) include(p, true);
-
-      const fullPath = parts.join(";");
-      env.PATH = fullPath;
-      env.Path = fullPath;
-
-      if (!env.PATHEXT) {
-        env.PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
-      }
-
-      if (!env.COMSPEC) {
-        const cmd = path.join(winRoot, "System32", "cmd.exe");
-        if (fs.existsSync(cmd)) env.COMSPEC = cmd;
-      }
-
-      const pwshCandidates = [
-        env.CODEX_PWSH_PATH,
-        process.env.CODEX_PWSH_PATH,
-        path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
-        path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
-        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-      ].filter(Boolean);
-      for (const c of pwshCandidates) {
-        if (fs.existsSync(c)) {
-          env.CODEX_PWSH_PATH = c;
-          break;
-        }
-      }
-
-      return env;
-    }
-
-    const normalizedProcessEnv = normalizePathEnv(process.env);
-    for (const [k, v] of Object.entries(normalizedProcessEnv)) {
-      if (typeof v === "string") process.env[k] = v;
-    }
-
-    const patchOptionsEnv = (options) => {
-      if (!options || typeof options !== "object") options = {};
-      options.env = normalizePathEnv(options.env || process.env);
-      return options;
+    const existing = (process.env.PATH || process.env.Path || "").split(";").filter(Boolean);
+    const seen = new Set(existing.map((p) => p.toLowerCase()));
+    const add = (candidate) => {
+      if (!candidate) return;
+      if (!fs.existsSync(candidate)) return;
+      const key = candidate.toLowerCase();
+      if (seen.has(key)) return;
+      existing.unshift(candidate);
+      seen.add(key);
     };
 
-    if (!globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__) {
-      globalThis.__CODEX_WINDOWS_CHILD_ENV_PATCHED__ = true;
+    add(path.join(winRoot, "System32"));
+    add(path.join(winRoot, "System32", "Wbem"));
+    add(path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"));
+    add(path.join(winRoot, "System32", "OpenSSH"));
+    add(winRoot);
+    if (process.env.ProgramFiles) {
+      add(path.join(process.env.ProgramFiles, "PowerShell", "7"));
+      add(path.join(process.env.ProgramFiles, "nodejs"));
+      add(path.join(process.env.ProgramFiles, "Git", "cmd"));
+      add(path.join(process.env.ProgramFiles, "Git", "bin"));
+    }
+    if (process.env["ProgramFiles(x86)"]) {
+      add(path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7"));
+      add(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
+      add(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd"));
+      add(path.join(process.env["ProgramFiles(x86)"], "Git", "bin"));
+    }
+    if (process.env.APPDATA) add(path.join(process.env.APPDATA, "npm"));
+    if (process.env.LOCALAPPDATA) {
+      add(path.join(process.env.LOCALAPPDATA, "fnm"));
+      add(path.join(process.env.LOCALAPPDATA, "Volta", "bin"));
+    }
+    if (process.env.NVM_SYMLINK) add(process.env.NVM_SYMLINK);
 
-      const origSpawn = cp.spawn;
-      cp.spawn = function patchedSpawn(file, args, options) {
-        if (!Array.isArray(args)) {
-          options = args;
-          args = [];
-        }
-        options = patchOptionsEnv(options);
-        return origSpawn.call(this, file, args, options);
-      };
+    const normalizedPath = existing.join(";");
+    process.env.PATH = normalizedPath;
+    process.env.Path = normalizedPath;
 
-      const origSpawnSync = cp.spawnSync;
-      cp.spawnSync = function patchedSpawnSync(file, args, options) {
-        if (!Array.isArray(args)) {
-          options = args;
-          args = [];
-        }
-        options = patchOptionsEnv(options);
-        return origSpawnSync.call(this, file, args, options);
-      };
+    if (!process.env.PATHEXT) {
+      process.env.PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+    }
 
-      const origExec = cp.exec;
-      cp.exec = function patchedExec(command, options, callback) {
-        if (typeof options === "function") {
-          callback = options;
-          options = {};
-        }
-        options = patchOptionsEnv(options);
-        if (typeof callback === "function") {
-          return origExec.call(this, command, options, callback);
-        }
-        return origExec.call(this, command, options);
-      };
+    if (!process.env.COMSPEC) {
+      const cmd = path.join(winRoot, "System32", "cmd.exe");
+      if (fs.existsSync(cmd)) process.env.COMSPEC = cmd;
+    }
 
-      const origExecSync = cp.execSync;
-      cp.execSync = function patchedExecSync(command, options) {
-        options = patchOptionsEnv(options);
-        return origExecSync.call(this, command, options);
-      };
-
-      const origExecFile = cp.execFile;
-      cp.execFile = function patchedExecFile(file, args, options, callback) {
-        if (typeof args === "function") {
-          callback = args;
-          args = [];
-          options = {};
-        } else if (!Array.isArray(args)) {
-          callback = options;
-          options = args;
-          args = [];
-        }
-        if (typeof options === "function") {
-          callback = options;
-          options = {};
-        }
-        options = patchOptionsEnv(options);
-        if (typeof callback === "function") {
-          return origExecFile.call(this, file, args, options, callback);
-        }
-        return origExecFile.call(this, file, args, options);
-      };
-
-      const origExecFileSync = cp.execFileSync;
-      cp.execFileSync = function patchedExecFileSync(file, args, options) {
-        if (!Array.isArray(args)) {
-          options = args;
-          args = [];
-        }
-        options = patchOptionsEnv(options);
-        return origExecFileSync.call(this, file, args, options);
-      };
-
-      const origFork = cp.fork;
-      cp.fork = function patchedFork(modulePath, args, options) {
-        if (!Array.isArray(args)) {
-          options = args;
-          args = [];
-        }
-        options = patchOptionsEnv(options);
-        return origFork.call(this, modulePath, args, options);
-      };
+    const pwshCandidates = [
+      process.env.CODEX_PWSH_PATH,
+      path.join(process.env.ProgramFiles || "", "PowerShell", "7", "pwsh.exe"),
+      path.join(process.env["ProgramFiles(x86)"] || "", "PowerShell", "7", "pwsh.exe"),
+      path.join(winRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    ].filter(Boolean);
+    for (const candidate of pwshCandidates) {
+      if (fs.existsSync(candidate)) {
+        process.env.CODEX_PWSH_PATH = candidate;
+        break;
+      }
     }
 
     if (!process.env.ELECTRON_RENDERER_URL) {
@@ -553,21 +440,6 @@ function Patch-MainForWindowsEnvironment([string]$AppDir, [string]$BuildNumber, 
   $shim = $shimTemplate.Replace("__BUILD_NUMBER__", $safeBuildNumber).Replace("__BUILD_FLAVOR__", $safeBuildFlavor)
   $raw = $shim + "`n" + $raw
   Set-Content -NoNewline -Path $mainJs -Value $raw
-}
-
-function Patch-NotConnectedBroadcast([string]$AppDir) {
-  $buildDir = Join-Path $AppDir ".vite\build"
-  if (-not (Test-Path $buildDir)) { return }
-
-  $targets = Get-ChildItem -Path $buildDir -File -Filter "main-*.js" -ErrorAction SilentlyContinue
-  foreach ($target in $targets) {
-    $raw = Get-Content -Raw $target.FullName
-    if ($raw -notlike "*not-connected*") { continue }
-    $updated = $raw -replace 'if\(!this\.socket\|\|!this\.socket\.writable\)throw new Error\("not-connected"\);', 'if(!this.socket||!this.socket.writable){return;}'
-    if ($updated -ne $raw) {
-      Set-Content -NoNewline -Path $target.FullName -Value $updated
-    }
-  }
 }
 
 function Write-PortableLauncher([string]$OutputDir) {
@@ -784,7 +656,6 @@ if ($skipNative) {
 }
 
 Patch-MainForWindowsEnvironment $appDir $buildNumber $buildFlavor
-Patch-NotConnectedBroadcast $appDir
 
 if ($BuildPortable) {
   Write-Header "Packaging portable app"
@@ -816,7 +687,6 @@ if ($BuildPortable) {
   if (Test-Path $defaultAsar) { Remove-Item -Force $defaultAsar }
 
   Patch-MainForWindowsEnvironment $appDstDir $buildNumber $buildFlavor
-  Patch-NotConnectedBroadcast $appDstDir
 
   Write-Header "Bundling Codex CLI"
   $cli = Resolve-CodexCliPath $CodexCliPath
