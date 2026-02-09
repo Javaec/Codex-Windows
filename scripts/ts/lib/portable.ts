@@ -9,6 +9,30 @@ export interface PortableBuildResult {
   launcherPath: string;
 }
 
+function isBusyDirectoryError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = String((error as { code?: unknown }).code || "").toUpperCase();
+  return code === "EBUSY" || code === "EPERM";
+}
+
+function preparePortableOutputDir(distDir: string, outputName: string): string {
+  const primary = path.join(distDir, outputName);
+  try {
+    fs.rmSync(primary, { recursive: true, force: true });
+    ensureDir(primary);
+    return primary;
+  } catch (error) {
+    if (!isBusyDirectoryError(error)) throw error;
+  }
+
+  const fallbackName = `${outputName}-next`;
+  const fallback = path.join(distDir, fallbackName);
+  fs.rmSync(fallback, { recursive: true, force: true });
+  ensureDir(fallback);
+  writeWarn(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
+  return fallback;
+}
+
 function writePortableLauncher(outputDir: string, profileName: string): string {
   const profile = normalizeProfileName(profileName);
   const isDefault = profile === "default";
@@ -62,9 +86,7 @@ export function invokePortableBuild(
   if (!fileExists(electronDistDir)) throw new Error("Electron runtime not found.");
 
   const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
-  const outputDir = path.join(distDir, outputName);
-  fs.rmSync(outputDir, { recursive: true, force: true });
-  ensureDir(outputDir);
+  const outputDir = preparePortableOutputDir(distDir, outputName);
 
   writeInfo("Copying Electron runtime...");
   runRobocopy(electronDistDir, outputDir);

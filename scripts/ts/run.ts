@@ -175,7 +175,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
         writeHeader("Launching portable build");
         const cmdPath = resolveCmdPath();
         if (!cmdPath) throw new Error("cmd.exe not found for portable launch.");
-        status = runCommand(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
+        status = runCommand(cmdPath, ["/d", "/c", "call", portable.launcherPath], {
           cwd: portable.outputDir,
           allowNonZero: true,
           capture: false,

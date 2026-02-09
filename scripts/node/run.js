@@ -155,7 +155,7 @@ async function runPipeline(options) {
                 const cmdPath = (0, env_1.resolveCmdPath)();
                 if (!cmdPath)
                     throw new Error("cmd.exe not found for portable launch.");
-                status = (0, exec_1.runCommand)(cmdPath, ["/d", "/s", "/c", `"${portable.launcherPath}"`], {
+                status = (0, exec_1.runCommand)(cmdPath, ["/d", "/c", "call", portable.launcherPath], {
                     cwd: portable.outputDir,
                     allowNonZero: true,
                     capture: false,
