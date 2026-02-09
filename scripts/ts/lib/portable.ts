@@ -9,6 +9,24 @@ export interface PortableBuildResult {
   launcherPath: string;
 }
 
+function bundleCodexCliResources(resourcesDir: string, bundledCliPath: string): void {
+  const cliSrcDir = path.dirname(bundledCliPath);
+  fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
+
+  for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase()) continue;
+    fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+  }
+
+  const vendorArchDir = path.resolve(cliSrcDir, "..");
+  const vendorPathDir = path.join(vendorArchDir, "path");
+  if (fileExists(vendorPathDir)) {
+    writeInfo("Bundling Codex CLI companion tools...");
+    runRobocopy(vendorPathDir, path.join(resourcesDir, "path"));
+  }
+}
+
 function isBusyDirectoryError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = String((error as { code?: unknown }).code || "").toUpperCase();
@@ -111,13 +129,7 @@ export function invokePortableBuild(
 
   if (bundledCliPath && fileExists(bundledCliPath)) {
     writeInfo("Bundling Codex CLI...");
-    const cliSrcDir = path.dirname(bundledCliPath);
-    fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
-    for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase()) continue;
-      fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
-    }
+    bundleCodexCliResources(resourcesDir, bundledCliPath);
   } else {
     writeWarn("codex.exe not found; portable build will rely on PATH auto-detection.");
   }

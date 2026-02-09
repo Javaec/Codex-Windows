@@ -39,6 +39,23 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const args_1 = require("./args");
 const launch_1 = require("./launch");
+function bundleCodexCliResources(resourcesDir, bundledCliPath) {
+    const cliSrcDir = path.dirname(bundledCliPath);
+    fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
+    for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
+        if (!entry.isFile())
+            continue;
+        if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase())
+            continue;
+        fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+    }
+    const vendorArchDir = path.resolve(cliSrcDir, "..");
+    const vendorPathDir = path.join(vendorArchDir, "path");
+    if ((0, exec_1.fileExists)(vendorPathDir)) {
+        (0, exec_1.writeInfo)("Bundling Codex CLI companion tools...");
+        (0, exec_1.runRobocopy)(vendorPathDir, path.join(resourcesDir, "path"));
+    }
+}
 function isBusyDirectoryError(error) {
     if (!error || typeof error !== "object")
         return false;
@@ -127,15 +144,7 @@ function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavo
     (0, launch_1.patchMainForWindowsEnvironment)(appDstDir, buildNumber, buildFlavor);
     if (bundledCliPath && (0, exec_1.fileExists)(bundledCliPath)) {
         (0, exec_1.writeInfo)("Bundling Codex CLI...");
-        const cliSrcDir = path.dirname(bundledCliPath);
-        fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
-        for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
-            if (!entry.isFile())
-                continue;
-            if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase())
-                continue;
-            fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
-        }
+        bundleCodexCliResources(resourcesDir, bundledCliPath);
     }
     else {
         (0, exec_1.writeWarn)("codex.exe not found; portable build will rely on PATH auto-detection.");
