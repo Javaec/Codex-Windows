@@ -1,22 +1,27 @@
 @echo off
 setlocal
 
-set "SCRIPT=%~dp0scripts\node\run.js"
-if not exist "%SCRIPT%" (
-  echo Missing %SCRIPT%
+set "ENTRY=%~dp0scripts\run.ps1"
+if not exist "%ENTRY%" (
+  echo Missing %ENTRY%
   exit /b 1
 )
 
 if /I "%~1"=="-h" goto usage
 if /I "%~1"=="--help" goto usage
 
-where node >nul 2>nul
-if errorlevel 1 (
-  echo Missing node.exe in PATH
+set "PS_EXE="
+for %%I in (pwsh.exe powershell.exe) do (
+  if not defined PS_EXE (
+    where %%I >nul 2>nul && set "PS_EXE=%%I"
+  )
+)
+if not defined PS_EXE (
+  echo Missing PowerShell executable in PATH
   exit /b 1
 )
 
-node "%SCRIPT%" build %*
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable %*
 exit /b %ERRORLEVEL%
 
 :usage

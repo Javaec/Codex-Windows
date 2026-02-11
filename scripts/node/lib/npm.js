@@ -42,18 +42,7 @@ exports.invokeNpx = invokeNpx;
 exports.invokeNpmCapture = invokeNpmCapture;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const env_1 = require("./env");
 const exec_1 = require("./exec");
-function runViaCmd(scriptPath, args, cwd, capture) {
-    const cmd = (0, env_1.resolveCmdPath)() ?? "cmd.exe";
-    // Pass tokens separately to avoid fragile string re-quoting under localized cmd.exe.
-    const result = (0, exec_1.runCommand)(cmd, ["/d", "/c", "call", scriptPath, ...args], {
-        cwd,
-        capture,
-        allowNonZero: true,
-    });
-    return result;
-}
 function resolveNodeCommand() {
     const node = (0, exec_1.resolveCommand)("node.exe") ?? (0, exec_1.resolveCommand)("node");
     if (!node)
@@ -62,18 +51,20 @@ function resolveNodeCommand() {
 }
 function resolveNpmCliScript() {
     const npm = resolveNpmCommand();
-    if (npm.toLowerCase().endsWith(".js"))
+    if (npm.toLowerCase().endsWith(".js")) {
+        if (!fs.existsSync(npm))
+            throw new Error(`npm CLI script does not exist: ${npm}`);
         return npm;
+    }
     const npmDir = path.dirname(npm);
     const npmCli = path.join(npmDir, "node_modules", "npm", "bin", "npm-cli.js");
-    if (fs.existsSync(npmCli))
-        return npmCli;
-    return null;
+    if (!fs.existsSync(npmCli)) {
+        throw new Error(`npm-cli.js not found next to npm command: ${npmCli}`);
+    }
+    return npmCli;
 }
 function runViaNodeNpm(args, cwd, capture) {
     const npmCli = resolveNpmCliScript();
-    if (!npmCli)
-        return null;
     const node = resolveNodeCommand();
     return (0, exec_1.runCommand)(node, [npmCli, ...args], {
         cwd,
@@ -116,16 +107,10 @@ function resolveNpxCommand() {
     return npx;
 }
 function invokeNpmWithResult(args, cwd, passThruOutput = false) {
-    const nodeResult = runViaNodeNpm(args, cwd, !passThruOutput);
-    if (nodeResult)
-        return nodeResult;
-    return runViaCmd(resolveNpmCommand(), args, cwd, !passThruOutput);
+    return runViaNodeNpm(args, cwd, !passThruOutput);
 }
 function invokeNpxWithResult(args, cwd, passThruOutput = false) {
-    const nodeResult = runViaNodeNpm(translateNpxArgsToNpmExec(args), cwd, !passThruOutput);
-    if (nodeResult)
-        return nodeResult;
-    return runViaCmd(resolveNpxCommand(), args, cwd, !passThruOutput);
+    return runViaNodeNpm(translateNpxArgsToNpmExec(args), cwd, !passThruOutput);
 }
 function invokeNpm(args, cwd, passThruOutput = false) {
     return invokeNpmWithResult(args, cwd, passThruOutput).status;
@@ -134,11 +119,6 @@ function invokeNpx(args, cwd, passThruOutput = false) {
     return invokeNpxWithResult(args, cwd, passThruOutput).status;
 }
 function invokeNpmCapture(args, cwd) {
-    const nodeResult = runViaNodeNpm(args, cwd, true);
-    if (nodeResult)
-        return nodeResult.stdout || "";
-    const cmd = (0, env_1.resolveCmdPath)() ?? "cmd.exe";
-    const npm = resolveNpmCommand();
-    const result = (0, exec_1.runCommand)(cmd, ["/d", "/c", "call", npm, ...args], { cwd, capture: true, allowNonZero: true });
+    const result = runViaNodeNpm(args, cwd, true);
     return result.stdout || "";
 }

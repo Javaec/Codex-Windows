@@ -133,7 +133,7 @@ async function runPipeline(options) {
         (0, exec_1.writeSuccess)(`Portable build ready: ${portable.outputDir}`);
         (0, exec_1.writeSuccess)(`Launcher: ${portable.launcherPath}`);
         (0, exec_1.writeSuccess)(`CLI trace: ${cliTracePath}`);
-        let singleExePath = null;
+        let singleExePath = "";
         if (options.buildSingleExe) {
             (0, exec_1.writeHeader)("Packaging single EXE (SFX)");
             const single = (0, sfx_1.invokeSingleExeBuild)(portable.outputDir, distDir, workDir);
@@ -152,14 +152,7 @@ async function runPipeline(options) {
             }
             else {
                 (0, exec_1.writeHeader)("Launching portable build");
-                const cmdPath = (0, env_1.resolveCmdPath)();
-                if (!cmdPath)
-                    throw new Error("cmd.exe not found for portable launch.");
-                status = (0, exec_1.runCommand)(cmdPath, ["/d", "/c", "call", portable.launcherPath], {
-                    cwd: portable.outputDir,
-                    allowNonZero: true,
-                    capture: false,
-                }).status;
+                status = (0, portable_1.startPortableDirectLaunch)(portable.outputDir, effectiveProfile);
             }
             if (status !== 0)
                 return status;

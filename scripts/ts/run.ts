@@ -7,7 +7,6 @@ import {
   ensureRipgrepInPath,
   ensureWindowsEnvironment,
   invokeElectronChildEnvironmentContract,
-  resolveCmdPath,
 } from "./lib/env";
 import { mustResolveCommand, runCommand, writeError, writeHeader, writeSuccess, writeWarn } from "./lib/exec";
 import { invokeExtractionStage, resolveDmgPath } from "./lib/extract";
@@ -19,7 +18,7 @@ import {
 } from "./lib/manifest";
 import { ensureGitOnPath, patchMainForWindowsEnvironment, patchPreload, startCodexDirectLaunch } from "./lib/launch";
 import { invokeNativeStage } from "./lib/native";
-import { invokePortableBuild } from "./lib/portable";
+import { invokePortableBuild, startPortableDirectLaunch } from "./lib/portable";
 import { invokeSingleExeBuild } from "./lib/sfx";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -154,7 +153,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     writeSuccess(`Launcher: ${portable.launcherPath}`);
     writeSuccess(`CLI trace: ${cliTracePath}`);
 
-    let singleExePath: string | null = null;
+    let singleExePath = "";
     if (options.buildSingleExe) {
       writeHeader("Packaging single EXE (SFX)");
       const single = invokeSingleExeBuild(portable.outputDir, distDir, workDir);
@@ -173,13 +172,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
         }).status;
       } else {
         writeHeader("Launching portable build");
-        const cmdPath = resolveCmdPath();
-        if (!cmdPath) throw new Error("cmd.exe not found for portable launch.");
-        status = runCommand(cmdPath, ["/d", "/c", "call", portable.launcherPath], {
-          cwd: portable.outputDir,
-          allowNonZero: true,
-          capture: false,
-        }).status;
+        status = startPortableDirectLaunch(portable.outputDir, effectiveProfile);
       }
       if (status !== 0) return status;
     }

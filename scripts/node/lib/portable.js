@@ -33,12 +33,43 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.startPortableDirectLaunch = startPortableDirectLaunch;
 exports.invokePortableBuild = invokePortableBuild;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const args_1 = require("./args");
 const launch_1 = require("./launch");
+function composePortablePath(basePath) {
+    const entries = basePath.split(";").filter(Boolean);
+    const seen = new Set();
+    const include = (value) => {
+        const normalized = value.trim().replace(/^"+|"+$/g, "");
+        if (!normalized)
+            return;
+        if (!fs.existsSync(normalized))
+            return;
+        const key = normalized.toLowerCase();
+        if (seen.has(key))
+            return;
+        seen.add(key);
+        entries.unshift(normalized);
+    };
+    const winRoot = process.env.SystemRoot || "C:\\Windows";
+    include(path.join(winRoot, "System32"));
+    include(winRoot);
+    include(path.join(winRoot, "System32", "Wbem"));
+    include(path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"));
+    if (process.env.ProgramFiles)
+        include(path.join(process.env.ProgramFiles, "PowerShell", "7"));
+    if (process.env.ProgramFiles)
+        include(path.join(process.env.ProgramFiles, "nodejs"));
+    if (process.env["ProgramFiles(x86)"])
+        include(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
+    if (process.env.APPDATA)
+        include(path.join(process.env.APPDATA, "npm"));
+    return entries.join(";");
+}
 function bundleCodexCliResources(resourcesDir, bundledCliPath) {
     const cliSrcDir = path.dirname(bundledCliPath);
     fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
@@ -114,6 +145,32 @@ exit /b %ERRORLEVEL%
 `;
     fs.writeFileSync(launcherPath, launcher, "ascii");
     return launcherPath;
+}
+function startPortableDirectLaunch(outputDir, profileName) {
+    const profile = (0, args_1.normalizeProfileName)(profileName);
+    const isDefault = profile === "default";
+    const userDataFolder = isDefault ? "userdata" : `userdata-${profile}`;
+    const cacheFolder = isDefault ? "cache" : `cache-${profile}`;
+    const exePath = path.join(outputDir, "Codex.exe");
+    if (!(0, exec_1.fileExists)(exePath))
+        throw new Error(`Portable executable not found: ${exePath}`);
+    const userDataDir = path.join(outputDir, userDataFolder);
+    const cacheDir = path.join(outputDir, cacheFolder);
+    (0, exec_1.ensureDir)(userDataDir);
+    (0, exec_1.ensureDir)(cacheDir);
+    const env = { ...process.env };
+    const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "");
+    env.PATH = normalizedPath;
+    env.Path = normalizedPath;
+    env.PATHEXT = env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+    env.CODEX_WINDOWS_PROFILE = profile;
+    env.ELECTRON_FORCE_IS_PACKAGED = "1";
+    env.NODE_ENV = "production";
+    const codexCliPath = path.join(outputDir, "resources", "codex.exe");
+    if ((0, exec_1.fileExists)(codexCliPath))
+        env.CODEX_CLI_PATH = codexCliPath;
+    const status = (0, exec_1.runCommand)(exePath, ["--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: outputDir, env, capture: false, allowNonZero: true }).status;
+    return status;
 }
 function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavor, bundledCliPath, profileName) {
     const profile = (0, args_1.normalizeProfileName)(profileName);

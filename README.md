@@ -19,7 +19,7 @@ Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`.
 - Rebuilds native modules for Windows (`better-sqlite3`, `node-pty`)
 - Launches Codex from `work/` (direct mode)
 - Builds a portable package in `dist/`
-- Uses a Node.js orchestration core with PowerShell compatibility adapters
+- Uses a Node.js orchestration core with a single thin PowerShell entrypoint (`scripts/run.ps1`)
 
 ## 🧰 Requirements
 
