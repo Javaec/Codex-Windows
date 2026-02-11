@@ -1,133 +1,165 @@
 # 🚀 Codex-Windows (RU)
 
 > [!IMPORTANT]
-> ## 🌐 Переключение языков
-> **✨ [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md) ✨**
+> 🌐 **Переключение языков**: [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)
 
 > [!TIP]
-> ## 🪟💯 100% Windows Runtime Support
-> - ✅ `Node.js` стабильно работает внутри Codex
-> - ✅ `PowerShell` / `pwsh` стабильно работают внутри Codex
-> - ✅ `PATH` нормализован для Windows-инструментов (`cmd`, `where`, `npm`, `git`)
-> - ✅ Нативные Windows-команды выполняются корректно и предсказуемо
+> 🧭 Windows-first пайплайн перепаковки Codex с **Node.js-ядром оркестрации** и **тонким PowerShell-адаптером**.
 
-Windows-first перепаковка Codex на базе `reference/Codex-Windows-main-1`.
+## ✨ Что Вы Получаете
 
-## ✨ Что делает проект
+- 🧩 Извлечение `app.asar` из `Codex.dmg`
+- 🛠️ Применение Windows runtime-патчей (`PATH`, shell-инструменты, резолв CLI)
+- ✅ Валидация native-модулей (`better-sqlite3`, `node-pty`) из donor/seed артефактов
+- ⚡ Запуск Codex напрямую из `work/` (direct mode)
+- 📦 Сборка portable-версии в `dist/`
+- 🧷 Опциональная сборка single EXE через 7-Zip SFX
 
-- Извлекает `app.asar` из `Codex.dmg`
-- Пересобирает native-модули под Windows (`better-sqlite3`, `node-pty`)
-- Запускает Codex из `work/` (direct mode)
-- Собирает portable-пакет в `dist/`
-- Использует Node.js-ядро оркестрации и один тонкий PowerShell-вход (`scripts/run.ps1`)
+## 🏗️ Архитектура (Коротко)
+
+```text
+run.cmd / build.cmd
+  -> scripts/run.ps1          (тонкий входной адаптер)
+    -> scripts/node/run.js    (скомпилированный раннер)
+      -> scripts/ts/run.ts    (исходный оркестратор)
+        -> extract -> patch -> native validate -> package -> launch
+```
+
+- 📁 Файловые операции (copy/move/delete) выполняются через Node `fs` с ретраями
+- 🚫 Минимум хрупких shell one-liner в pipeline
+- 📂 Распаковка `app.asar` делается нативным Node extractor (без `npm exec asar`)
 
 ## 🧰 Требования
 
-- Windows 10/11
-- Node.js
-- Codex CLI: `npm i -g @openai/codex`
-- 7-Zip (`7z` в PATH)  
-  Если отсутствует, скрипт пробует `winget` или portable 7z.
+- 🪟 Windows 10/11
+- 🟢 Node.js
+- 🧠 Codex CLI: `npm i -g @openai/codex`
+- 🗜️ 7-Zip (`7z`) доступен в системе (PATH или через `winget`)
+- 🔎 `rg` (ripgrep) резолвится автоматически (PATH -> winget -> portable fallback)
 
-## 📦 Подготовка
+> [!NOTE]
+> - Для стандартного потока **не нужны** Python / Visual Studio Build Tools.
+> - Native rebuild через `node-gyp` по умолчанию отключен политикой этого репозитория.
 
-### 📥 Где взять последнюю версию DMG
+## 📥 Подготовка DMG
 
 - Монитор версий: [codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
-- Возьмите оттуда актуальный `Codex.dmg` и поместите в:
-  - `C:\Codex-Windows\Codex.dmg`
+- Положите DMG сюда:
 
-1. Положите `Codex.dmg` в корень репозитория:
-   - `C:\Codex-Windows\Codex.dmg`
-2. Установите Codex CLI:
+```text
+C:\Codex-Windows\Codex.dmg
+```
+
+## ⚡ Быстрый Старт
+
+1. Установите Codex CLI:
 
 ```powershell
 npm i -g @openai/codex
 ```
 
-## ▶️ Запуск (direct mode)
+2. Запустите direct mode:
 
 ```cmd
 run.cmd
 ```
 
-Если `Codex.dmg` лежит в другом месте:
-
-```cmd
-run.cmd -DmgPath .\Codex.dmg
-```
-
-Также можно запускать двойным кликом по `run.cmd`.
-
-Опции:
-
-- `-WorkDir .\work`
-- `-CodexCliPath C:\path\to\codex.exe`
-- `-Reuse`
-- `-NoLaunch`
-
-## 🧳 Portable-сборка
+3. Соберите portable-версию:
 
 ```cmd
 build.cmd -DmgPath .\Codex.dmg
 ```
 
-Результат:
+## 🖥️ Шпаргалка Команд
 
-- `dist\Codex-win32-x64\Codex.exe`
-- `dist\Codex-win32-x64\Launch-Codex.cmd` (рекомендуемый вход)
+| Сценарий | Команда |
+|---|---|
+| Прямой запуск | `run.cmd` |
+| Прямой запуск с DMG | `run.cmd -DmgPath .\Codex.dmg` |
+| Сборка portable | `build.cmd -DmgPath .\Codex.dmg` |
+| Сборка single EXE | `build.cmd -DmgPath .\Codex.dmg -SingleExe` |
+| Node runner (run) | `node .\scripts\node\run.js run -DmgPath .\Codex.dmg` |
+| Node runner (build) | `node .\scripts\node\run.js build -DmgPath .\Codex.dmg` |
 
-Опции:
+## 🎛️ Полезные Опции
 
 - `-WorkDir .\work`
 - `-DistDir .\dist`
 - `-Reuse`
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
-- `-SingleExe` (собрать один self-extracting `*.exe` через 7-Zip SFX)
+- `-SingleExe`
+- `-DevProfile`
+- `-ProfileName dev`
+- `-PersistRipgrepPath`
 
-### Single EXE (SFX)
+## 📦 Структура Выхода
+
+Portable:
+
+```text
+dist\Codex-win32-x64\Codex.exe
+dist\Codex-win32-x64\Launch-Codex.cmd   (рекомендуемая точка входа)
+```
+
+Single-file:
+
+```text
+dist\Codex-win32-x64-single.exe
+```
+
+## 🧪 Изоляция Профилей
+
+Используйте `-DevProfile` или `-ProfileName <name>`:
+
+- `work\userdata-<profile>`
+- `work\cache-<profile>`
+- `work\state.manifest.<profile>.json`
+- `work\diagnostics\<profile>\cli-resolution.log`
+
+## 🧯 Troubleshooting
+
+### 🔒 `rejected: blocked by policy`
+
+Это **ограничение среды Codex tool**, а не Windows PowerShell `ExecutionPolicy`.
+
+Рекомендации:
+
+- ✅ Использовать команды pipeline проекта (`run.cmd`, `build.cmd`)
+- ❌ Избегать вложенных one-liner (`pwsh -> cmd /c -> ...`)
+- 🧹 Для аварийной очистки в ограниченной среде:
 
 ```cmd
-build.cmd -DmgPath .\Codex.dmg -SingleExe
+cmd /d /c "if exist ""C:\path\dir"" rd /s /q ""C:\path\dir"""
 ```
 
-Результат:
+### 🧵 Ошибки экранирования/путей в ручных командах
 
-- `dist\Codex-win32-x64-single.exe`
-
-## 🛠️ Примеры PowerShell
-
-```powershell
-.\scripts\run.ps1 -DmgPath .\Codex.dmg
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -BuildPortable
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
-```
-
-## 🧠 Вход через Node-ядро
+Небезопасный паттерн в PowerShell:
 
 ```cmd
-node .\scripts\node\run.js run -DmgPath .\Codex.dmg -Reuse -NoLaunch
-node .\scripts\node\run.js build -DmgPath .\Codex.dmg -Reuse -NoLaunch
+cmd /c if not exist ... & if not exist ...
 ```
 
-Исходник TypeScript:
-- `scripts\ts\run.ts`
-- команда сборки: `npm run build:runner`
+Безопасный паттерн:
 
-## 🔍 Проверка совместимости Windows внутри Codex
+```cmd
+cmd /d /c "if not exist ""C:\A"" mkdir ""C:\A"" && if not exist ""C:\B"" mkdir ""C:\B"""
+```
+
+## ✅ Проверка Windows Контракта Внутри Codex
 
 ```cmd
 cmd /c where node
 cmd /c where powershell
-cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
 cmd /c node -v
+cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
 ```
 
-## 🌍 Другие языки
+## ❓ Почему Есть И `.ts`, И `.js`
 
-- English (default): `README.md`
-- Chinese: `README.zh-CN.md`
+- `scripts/ts/*` -> исходники
+- `scripts/node/*` -> скомпилированные артефакты, используемые лаунчером/runtime
 
 ## ⚠️ Дисклеймер
 

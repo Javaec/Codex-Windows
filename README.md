@@ -1,149 +1,165 @@
 # 🚀 Codex-Windows (EN)
 
 > [!IMPORTANT]
-> ## 🌐 Language Switcher
-> **✨ [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md) ✨**
+> 🌐 **Language Switch**: [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)
 
 > [!TIP]
-> ## 🪟💯 100% Windows Runtime Support
-> - ✅ `Node.js` works inside Codex
-> - ✅ `PowerShell` / `pwsh` work inside Codex
-> - ✅ `PATH` is normalized for Windows tools (`cmd`, `where`, `npm`, `git`)
-> - ✅ Native Windows commands run reliably
+> 🧭 Windows-first Codex repack pipeline with a **Node.js orchestration core** and a **thin PowerShell adapter**.
 
-Windows-first Codex repack flow based on `reference/Codex-Windows-main-1`.
+## ✨ What You Get
 
-## ✨ What this project does
+- 🧩 Extract `app.asar` from `Codex.dmg`
+- 🛠️ Apply Windows runtime patches (`PATH`, shell tools, CLI resolution)
+- ✅ Validate native modules (`better-sqlite3`, `node-pty`) from donor/seed artifacts
+- ⚡ Run Codex directly from `work/` (direct mode)
+- 📦 Build portable output in `dist/`
+- 🧷 Optionally build a single self-extracting EXE (7-Zip SFX)
 
-- Extracts `app.asar` from `Codex.dmg`
-- Rebuilds native modules for Windows (`better-sqlite3`, `node-pty`)
-- Launches Codex from `work/` (direct mode)
-- Builds a portable package in `dist/`
-- Uses a Node.js orchestration core with a single thin PowerShell entrypoint (`scripts/run.ps1`)
+## 🏗️ Architecture (At a Glance)
+
+```text
+run.cmd / build.cmd
+  -> scripts/run.ps1          (thin entry adapter)
+    -> scripts/node/run.js    (compiled runner)
+      -> scripts/ts/run.ts    (source orchestrator)
+        -> extract -> patch -> native validate -> package -> launch
+```
+
+- 📁 File operations (copy/move/delete) use Node `fs` with retries
+- 🚫 No fragile shell one-liners for pipeline file management
+- 📂 `app.asar` extraction is native Node-based (no `npm exec asar` dependency)
 
 ## 🧰 Requirements
 
-- Windows 10/11
-- Node.js
-- Codex CLI: `npm i -g @openai/codex`
-- 7-Zip (`7z` in PATH)  
-  If missing, the script tries `winget` or a portable 7z download.
-- ripgrep (`rg`) is auto-resolved by the script (winget first, then portable fallback in `work\tools`).
+- 🪟 Windows 10/11
+- 🟢 Node.js
+- 🧠 Codex CLI: `npm i -g @openai/codex`
+- 🗜️ 7-Zip (`7z`) available (PATH or `winget` install path)
+- 🔎 `rg` (ripgrep) is auto-resolved (PATH -> winget -> portable fallback)
 
-## 📦 Setup
+> [!NOTE]
+> - Default flow does **not** require Python / Visual Studio Build Tools.
+> - Native rebuild via `node-gyp` is disabled by default policy in this repo.
 
-### 📥 Download the latest DMG
+## 📥 Prepare DMG
 
-- Live version monitor: [codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
-- Use the latest `Codex.dmg` from there, then place it in:
-  - `C:\Codex-Windows\Codex.dmg`
+- Version monitor: [codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
+- Place DMG here:
 
-1. Put `Codex.dmg` in repository root:
-   - `C:\Codex-Windows\Codex.dmg`
-2. Install Codex CLI:
+```text
+C:\Codex-Windows\Codex.dmg
+```
+
+## ⚡ Quick Start
+
+1. Install Codex CLI:
 
 ```powershell
 npm i -g @openai/codex
 ```
 
-## ▶️ Run (direct mode)
+2. Run direct mode:
 
 ```cmd
 run.cmd
 ```
 
-If your DMG is in a custom location:
-
-```cmd
-run.cmd -DmgPath .\Codex.dmg
-```
-
-You can also launch by double-clicking `run.cmd`.
-
-Options:
-
-- `-WorkDir .\work`
-- `-CodexCliPath C:\path\to\codex.exe`
-- `-Reuse`
-- `-NoLaunch`
-- `-DevProfile` (uses isolated dev profile paths)
-- `-ProfileName dev` (custom profile name; default is `default`)
-- `-PersistRipgrepPath` (persist portable `rg` path in user `PATH`)
-
-## 🧳 Build portable
+3. Build portable:
 
 ```cmd
 build.cmd -DmgPath .\Codex.dmg
 ```
 
-Output:
+## 🖥️ Command Cheat Sheet
 
-- `dist\Codex-win32-x64\Codex.exe`
-- `dist\Codex-win32-x64\Launch-Codex.cmd` (recommended entry point)
+| Scenario | Command |
+|---|---|
+| Direct run | `run.cmd` |
+| Direct run with DMG | `run.cmd -DmgPath .\Codex.dmg` |
+| Portable build | `build.cmd -DmgPath .\Codex.dmg` |
+| Single EXE build | `build.cmd -DmgPath .\Codex.dmg -SingleExe` |
+| Node runner (run) | `node .\scripts\node\run.js run -DmgPath .\Codex.dmg` |
+| Node runner (build) | `node .\scripts\node\run.js build -DmgPath .\Codex.dmg` |
 
-Options:
+## 🎛️ Useful Options
 
 - `-WorkDir .\work`
 - `-DistDir .\dist`
 - `-Reuse`
 - `-NoLaunch`
 - `-CodexCliPath C:\path\to\codex.exe`
-- `-SingleExe` (build a single self-extracting `*.exe` via 7-Zip SFX)
+- `-SingleExe`
 - `-DevProfile`
 - `-ProfileName dev`
 - `-PersistRipgrepPath`
 
-### Single EXE (SFX)
+## 📦 Output Layout
+
+Portable output:
+
+```text
+dist\Codex-win32-x64\Codex.exe
+dist\Codex-win32-x64\Launch-Codex.cmd   (recommended entrypoint)
+```
+
+Single-file output:
+
+```text
+dist\Codex-win32-x64-single.exe
+```
+
+## 🧪 Dev Profile Isolation
+
+Use `-DevProfile` or `-ProfileName <name>` to isolate your environment:
+
+- `work\userdata-<profile>`
+- `work\cache-<profile>`
+- `work\state.manifest.<profile>.json`
+- `work\diagnostics\<profile>\cli-resolution.log`
+
+## 🧯 Troubleshooting
+
+### 🔒 `rejected: blocked by policy`
+
+This is a **Codex tool policy restriction**, not Windows PowerShell `ExecutionPolicy`.
+
+Recommendations:
+
+- ✅ Prefer project pipeline commands (`run.cmd`, `build.cmd`)
+- ❌ Avoid nested one-liners (`pwsh -> cmd /c -> ...`)
+- 🧹 For emergency cleanup in restricted env, use:
 
 ```cmd
-build.cmd -DmgPath .\Codex.dmg -SingleExe
+cmd /d /c "if exist ""C:\path\dir"" rd /s /q ""C:\path\dir"""
 ```
 
-Output:
+### 🧵 Quoting/path issues in manual commands
 
-- `dist\Codex-win32-x64-single.exe`
-
-## 🛠️ PowerShell examples
-
-```powershell
-.\scripts\run.ps1 -DmgPath .\Codex.dmg
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -BuildPortable
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -Reuse -NoLaunch
-.\scripts\run.ps1 -DmgPath .\Codex.dmg -DevProfile -NoLaunch
-```
-
-## 🧠 Node core entrypoint
+Unsafe pattern in PowerShell:
 
 ```cmd
-node .\scripts\node\run.js run -DmgPath .\Codex.dmg -Reuse -NoLaunch
-node .\scripts\node\run.js build -DmgPath .\Codex.dmg -Reuse -NoLaunch
+cmd /c if not exist ... & if not exist ...
 ```
 
-TypeScript source:
-- `scripts\ts\run.ts`
-- build command: `npm run build:runner`
+Safer pattern:
 
-## 🧪 Dev profile isolation
+```cmd
+cmd /d /c "if not exist ""C:\A"" mkdir ""C:\A"" && if not exist ""C:\B"" mkdir ""C:\B"""
+```
 
-Use `-DevProfile` (or `-ProfileName <name>`) to isolate local development from your default profile.
-
-- separate user data / cache directories (`work\userdata-<profile>`, `work\cache-<profile>`)
-- separate state manifest (`work\state.manifest.<profile>.json`)
-- separate CLI resolver trace (`work\diagnostics\<profile>\cli-resolution.log`)
-
-## 🔍 Verify Windows compatibility in Codex
+## ✅ Verify Windows Contract Inside Codex
 
 ```cmd
 cmd /c where node
 cmd /c where powershell
-cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
 cmd /c node -v
+cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
 ```
 
-## 🌍 Other languages
+## ❓ Why Both `.ts` and `.js` Exist
 
-- Russian: `README.ru.md`
-- Chinese: `README.zh-CN.md`
+- `scripts/ts/*` -> source code
+- `scripts/node/*` -> compiled artifacts consumed by launcher/runtime
 
 ## ⚠️ Disclaimer
 
