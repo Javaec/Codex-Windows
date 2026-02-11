@@ -9,7 +9,7 @@ export interface PortableBuildResult {
   launcherPath: string;
 }
 
-function composePortablePath(basePath: string): string {
+function composePortablePath(basePath: string, outputDir: string): string {
   const entries = basePath.split(";").filter(Boolean);
   const seen = new Set<string>();
   const include = (value: string): void => {
@@ -23,6 +23,9 @@ function composePortablePath(basePath: string): string {
   };
 
   const winRoot = process.env.SystemRoot || "C:\\Windows";
+  include(path.join(outputDir, "resources", "path"));
+  include(path.join(outputDir, "resources"));
+  include(outputDir);
   include(path.join(winRoot, "System32"));
   include(winRoot);
   include(path.join(winRoot, "System32", "Wbem"));
@@ -127,7 +130,7 @@ export function startPortableDirectLaunch(outputDir: string, profileName: string
   ensureDir(cacheDir);
 
   const env: NodeJS.ProcessEnv = { ...process.env };
-  const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "");
+  const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "", outputDir);
   env.PATH = normalizedPath;
   env.Path = normalizedPath;
   env.PATHEXT = env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
@@ -136,7 +139,16 @@ export function startPortableDirectLaunch(outputDir: string, profileName: string
   env.NODE_ENV = "production";
 
   const codexCliPath = path.join(outputDir, "resources", "codex.exe");
-  if (fileExists(codexCliPath)) env.CODEX_CLI_PATH = codexCliPath;
+  if (!fileExists(codexCliPath)) {
+    throw new Error(`Portable Codex CLI is missing: ${codexCliPath}`);
+  }
+  env.CODEX_CLI_PATH = codexCliPath;
+  const cliProbe = runCommand(codexCliPath, ["--version"], { capture: true, allowNonZero: true });
+  if (cliProbe.status !== 0) {
+    throw new Error(
+      `Portable Codex CLI failed preflight (exit=${cliProbe.status}): ${(cliProbe.stdout || cliProbe.stderr || "").trim()}`,
+    );
+  }
 
   const status = runCommand(
     exePath,

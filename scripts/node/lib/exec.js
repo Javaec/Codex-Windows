@@ -74,6 +74,25 @@ function writeError(text) {
 function fileExists(filePath) {
     return fs.existsSync(filePath);
 }
+function normalizeExecutablePath(input) {
+    let normalized = String(input || "").trim();
+    if (!normalized)
+        return normalized;
+    for (let i = 0; i < 4; i += 1) {
+        const before = normalized;
+        normalized = normalized
+            .replace(/^"+/, "")
+            .replace(/"+$/, "")
+            .replace(/^'+/, "")
+            .replace(/'+$/, "")
+            .replace(/^\\+"/, "")
+            .replace(/\\+"$/, "")
+            .trim();
+        if (normalized === before)
+            break;
+    }
+    return normalized;
+}
 function ensureDir(dirPath) {
     fs.mkdirSync(dirPath, { recursive: true });
     return dirPath;
@@ -88,7 +107,7 @@ function resolveCommand(name) {
         return null;
     const lines = (where.stdout || "")
         .split(/\r?\n/)
-        .map((line) => line.trim())
+        .map((line) => normalizeExecutablePath(line))
         .filter(Boolean);
     for (const line of lines) {
         if (fileExists(line))
@@ -103,8 +122,12 @@ function mustResolveCommand(name) {
     return resolved;
 }
 function runCommand(file, args, options) {
+    const executable = normalizeExecutablePath(file);
+    if (!executable) {
+        throw new Error(`Command executable is empty. Args=[${args.join(" ")}]`);
+    }
     const capture = Boolean(options?.capture);
-    const result = (0, node_child_process_1.spawnSync)(file, args, {
+    const result = (0, node_child_process_1.spawnSync)(executable, args, {
         cwd: options?.cwd,
         env: options?.env ?? process.env,
         windowsHide: false,
@@ -112,14 +135,14 @@ function runCommand(file, args, options) {
         stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
     });
     if (result.error) {
-        throw result.error;
+        throw new Error(`Failed to spawn [${executable}] ${args.join(" ")}: ${result.error.message}`);
     }
     const status = typeof result.status === "number" ? result.status : 1;
     const stdout = capture ? (result.stdout || "") : "";
     const stderr = capture ? (result.stderr || "") : "";
     if (!options?.allowNonZero && status !== 0) {
         const details = capture ? `\n${stdout}\n${stderr}` : "";
-        throw new Error(`${path.basename(file)} exited with code ${status}.${details}`.trim());
+        throw new Error(`${path.basename(executable)} exited with code ${status}.${details}`.trim());
     }
     return { status, stdout, stderr };
 }

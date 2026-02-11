@@ -132,6 +132,28 @@ function addUserPathEntry(entry: string): void {
   });
 }
 
+function extractZipArchive(zipPath: string, destinationDir: string): boolean {
+  const sevenZip = resolveCommand("7z.exe") ?? resolveCommand("7z");
+  if (sevenZip) {
+    const extracted = runCommand(sevenZip, ["x", "-y", zipPath, `-o${destinationDir}`], {
+      capture: true,
+      allowNonZero: true,
+    });
+    if (extracted.status === 0) return true;
+  }
+
+  const tar = resolveCommand("tar.exe") ?? resolveCommand("tar");
+  if (tar) {
+    const extracted = runCommand(tar, ["-xf", zipPath, "-C", destinationDir], {
+      capture: true,
+      allowNonZero: true,
+    });
+    if (extracted.status === 0) return true;
+  }
+
+  return false;
+}
+
 export async function ensureRipgrepInPath(workDir: string, persistUserPath: boolean): Promise<RipgrepResult> {
   const existing = resolveCommand("rg.exe") ?? resolveCommand("rg");
   if (existing) return { installed: false, path: existing, source: "path" };
@@ -171,13 +193,9 @@ export async function ensureRipgrepInPath(workDir: string, persistUserPath: bool
       const url = `https://github.com/BurntSushi/ripgrep/releases/download/${version}/${zipName}`;
       await downloadFile(url, zipPath);
     }
-    const pwsh = resolvePwshPath();
-    if (!pwsh) return { installed: false, path: null, source: "unavailable" };
-    runCommand(
-      pwsh,
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${rgRoot.replace(/'/g, "''")}' -Force`],
-      { capture: true, allowNonZero: false },
-    );
+    if (!extractZipArchive(zipPath, rgRoot)) {
+      return { installed: false, path: null, source: "unavailable" };
+    }
   }
 
   if (fileExists(rgExe)) {
@@ -190,8 +208,8 @@ export async function ensureRipgrepInPath(workDir: string, persistUserPath: bool
   return { installed: false, path: null, source: "unavailable" };
 }
 
-function runCmdCheck(cmdPath: string, command: string): number {
-  return runCommand(cmdPath, ["/d", "/s", "/c", command], {
+function runCmdCheck(cmdPath: string, args: string[]): number {
+  return runCommand(cmdPath, ["/d", "/c", ...args], {
     capture: true,
     allowNonZero: true,
   }).status;
@@ -216,11 +234,11 @@ export function invokeEnvironmentContractChecks(): ContractResult {
   checks.push(newContractCheck("rg (ripgrep) available", Boolean(rgPath), rgPath || "rg not found in current PATH"));
 
   if (cmdPath) {
-    const whereNode = runCmdCheck(cmdPath, "where node");
+    const whereNode = runCmdCheck(cmdPath, ["where", "node"]);
     checks.push(newContractCheck("cmd where node", whereNode === 0, `exit=${whereNode}`));
-    const nodeV = runCmdCheck(cmdPath, "node -v");
+    const nodeV = runCmdCheck(cmdPath, ["node", "-v"]);
     checks.push(newContractCheck("cmd node -v", nodeV === 0, `exit=${nodeV}`));
-    const wherePwsh = runCmdCheck(cmdPath, "where powershell");
+    const wherePwsh = runCmdCheck(cmdPath, ["where", "powershell"]);
     checks.push(newContractCheck("cmd where powershell", wherePwsh === 0, `exit=${wherePwsh}`));
   }
 
@@ -264,24 +282,21 @@ export function invokeElectronChildEnvironmentContract(
   }
 
   const script = String.raw`
-const cp=require('node:child_process');
-function run(command){
-  try{
-    cp.execSync(command,{stdio:'pipe'});
-    return true;
-  }catch{
-    return false;
-  }
+const cp=require("node:child_process");
+function run(file,args){
+  const result = cp.spawnSync(file,args,{stdio:"pipe",windowsHide:true});
+  if(result.error) return false;
+  return result.status===0;
 }
 const checks=[
-  ['child cmd where node','cmd.exe /d /s /c "where node"'],
-  ['child cmd node -v','cmd.exe /d /s /c "node -v"'],
-  ['child cmd where powershell','cmd.exe /d /s /c "where powershell"']
+  ["child where node","where.exe",["node"]],
+  ["child node -v","node.exe",["-v"]],
+  ["child where powershell","where.exe",["powershell"]]
 ];
 let ok=true;
-for(const [name,cmd] of checks){
-  const passed=run(cmd);
-  process.stdout.write('[electron-env] '+(passed?'OK':'FAIL')+' '+name+'\\n');
+for(const [name,file,args] of checks){
+  const passed=run(file,args);
+  process.stdout.write("[electron-env] "+(passed?"OK":"FAIL")+" "+name+"\\n");
   if(!passed) ok=false;
 }
 process.exit(ok?0:1);

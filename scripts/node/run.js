@@ -124,6 +124,10 @@ async function runPipeline(options) {
         (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
         if (cliResolution.found) {
             (0, exec_1.writeSuccess)(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
+            const probe = (0, cli_1.probeCodexCliExecutable)(cliResolution.path);
+            if (!probe.ok) {
+                throw new Error(`Codex CLI preflight failed for portable packaging: ${probe.details}`);
+            }
         }
         else {
             (0, exec_1.writeWarn)("codex.exe not found; portable build will rely on runtime PATH detection.");
@@ -164,6 +168,10 @@ async function runPipeline(options) {
         const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, true);
         (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
         (0, exec_1.writeSuccess)(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
+        const probe = (0, cli_1.probeCodexCliExecutable)(cliResolution.path);
+        if (!probe.ok) {
+            throw new Error(`Codex CLI preflight failed: ${probe.details}`);
+        }
         (0, launch_1.ensureGitOnPath)();
         (0, exec_1.writeHeader)("Electron child-process environment check");
         (0, env_1.invokeElectronChildEnvironmentContract)(electronExe, appDir, options.strictContract);

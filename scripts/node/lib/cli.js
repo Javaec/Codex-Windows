@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveCodexCliPathContract = resolveCodexCliPathContract;
 exports.writeCliResolutionTrace = writeCliResolutionTrace;
+exports.probeCodexCliExecutable = probeCodexCliExecutable;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
@@ -182,4 +183,25 @@ function writeCliResolutionTrace(resolution, tracePath) {
     for (const entry of resolution.trace)
         lines.push(`trace=${entry}`);
     fs.writeFileSync(tracePath, `${lines.join("\n")}\n`, "utf8");
+}
+function probeCodexCliExecutable(exePath) {
+    if (!exePath)
+        return { ok: false, details: "Empty CLI path." };
+    if (!(0, exec_1.fileExists)(exePath))
+        return { ok: false, details: `CLI path does not exist: ${exePath}` };
+    try {
+        const result = (0, exec_1.runCommand)(exePath, ["--version"], {
+            capture: true,
+            allowNonZero: true,
+        });
+        const out = (result.stdout || result.stderr || "").trim();
+        if (result.status !== 0) {
+            return { ok: false, details: `Exit=${result.status}; output=${out}` };
+        }
+        return { ok: true, details: out || "version command succeeded" };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, details: message };
+    }
 }

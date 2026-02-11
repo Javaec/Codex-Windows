@@ -50,6 +50,10 @@ function resolveNodeCommand() {
     return node;
 }
 function resolveNpmCliScript() {
+    const nodeDirCandidate = path.dirname(resolveNodeCommand());
+    const nodeLocalCli = path.join(nodeDirCandidate, "node_modules", "npm", "bin", "npm-cli.js");
+    if (fs.existsSync(nodeLocalCli))
+        return nodeLocalCli;
     const npm = resolveNpmCommand();
     if (npm.toLowerCase().endsWith(".js")) {
         if (!fs.existsSync(npm))
@@ -63,14 +67,42 @@ function resolveNpmCliScript() {
     }
     return npmCli;
 }
+function sanitizeNpmEnvironment() {
+    const env = { ...process.env };
+    const blockedKeys = [
+        "npm_execpath",
+        "npm_node_execpath",
+        "npm_command",
+        "npm_lifecycle_event",
+        "npm_lifecycle_script",
+    ];
+    for (const key of blockedKeys) {
+        delete env[key];
+        delete env[key.toUpperCase()];
+    }
+    return env;
+}
 function runViaNodeNpm(args, cwd, capture) {
-    const npmCli = resolveNpmCliScript();
+    const env = sanitizeNpmEnvironment();
     const node = resolveNodeCommand();
-    return (0, exec_1.runCommand)(node, [npmCli, ...args], {
-        cwd,
-        capture,
-        allowNonZero: true,
-    });
+    try {
+        const npmCli = resolveNpmCliScript();
+        return (0, exec_1.runCommand)(node, [npmCli, ...args], {
+            cwd,
+            env,
+            capture,
+            allowNonZero: true,
+        });
+    }
+    catch {
+        const npmCmd = resolveNpmCommand();
+        return (0, exec_1.runCommand)(npmCmd, args, {
+            cwd,
+            env,
+            capture,
+            allowNonZero: true,
+        });
+    }
 }
 function translateNpxArgsToNpmExec(args) {
     if (!args.length)

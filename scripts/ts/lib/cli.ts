@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, resolveCommand, uniqueExistingDirs } from "./exec";
+import { ensureDir, fileExists, resolveCommand, runCommand, uniqueExistingDirs } from "./exec";
 import { invokeNpmCapture } from "./npm";
 
 export interface CliResolution {
@@ -9,6 +9,11 @@ export interface CliResolution {
   source: string | null;
   preferredArch: string;
   trace: string[];
+}
+
+export interface CliProbeResult {
+  ok: boolean;
+  details: string;
 }
 
 function newCliResolveResult(preferredArch: string): CliResolution {
@@ -160,4 +165,23 @@ export function writeCliResolutionTrace(resolution: CliResolution, tracePath: st
   lines.push(`preferredArch=${resolution.preferredArch}`);
   for (const entry of resolution.trace) lines.push(`trace=${entry}`);
   fs.writeFileSync(tracePath, `${lines.join("\n")}\n`, "utf8");
+}
+
+export function probeCodexCliExecutable(exePath: string): CliProbeResult {
+  if (!exePath) return { ok: false, details: "Empty CLI path." };
+  if (!fileExists(exePath)) return { ok: false, details: `CLI path does not exist: ${exePath}` };
+  try {
+    const result = runCommand(exePath, ["--version"], {
+      capture: true,
+      allowNonZero: true,
+    });
+    const out = (result.stdout || result.stderr || "").trim();
+    if (result.status !== 0) {
+      return { ok: false, details: `Exit=${result.status}; output=${out}` };
+    }
+    return { ok: true, details: out || "version command succeeded" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, details: message };
+  }
 }

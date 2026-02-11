@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs, printUsage, normalizeProfileName } from "./lib/args";
-import { resolveCodexCliPathContract, writeCliResolutionTrace } from "./lib/cli";
+import { probeCodexCliExecutable, resolveCodexCliPathContract, writeCliResolutionTrace } from "./lib/cli";
 import {
   assertEnvironmentContract,
   ensureRipgrepInPath,
@@ -134,6 +134,10 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     writeCliResolutionTrace(cliResolution, cliTracePath);
     if (cliResolution.found) {
       writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
+      const probe = probeCodexCliExecutable(cliResolution.path as string);
+      if (!probe.ok) {
+        throw new Error(`Codex CLI preflight failed for portable packaging: ${probe.details}`);
+      }
     } else {
       writeWarn("codex.exe not found; portable build will rely on runtime PATH detection.");
     }
@@ -184,6 +188,10 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     const cliResolution = resolveCodexCliPathContract(options.codexCliPath, true);
     writeCliResolutionTrace(cliResolution, cliTracePath);
     writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
+    const probe = probeCodexCliExecutable(cliResolution.path as string);
+    if (!probe.ok) {
+      throw new Error(`Codex CLI preflight failed: ${probe.details}`);
+    }
 
     ensureGitOnPath();
     writeHeader("Electron child-process environment check");

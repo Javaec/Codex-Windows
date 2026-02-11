@@ -40,7 +40,7 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const args_1 = require("./args");
 const launch_1 = require("./launch");
-function composePortablePath(basePath) {
+function composePortablePath(basePath, outputDir) {
     const entries = basePath.split(";").filter(Boolean);
     const seen = new Set();
     const include = (value) => {
@@ -56,6 +56,9 @@ function composePortablePath(basePath) {
         entries.unshift(normalized);
     };
     const winRoot = process.env.SystemRoot || "C:\\Windows";
+    include(path.join(outputDir, "resources", "path"));
+    include(path.join(outputDir, "resources"));
+    include(outputDir);
     include(path.join(winRoot, "System32"));
     include(winRoot);
     include(path.join(winRoot, "System32", "Wbem"));
@@ -159,7 +162,7 @@ function startPortableDirectLaunch(outputDir, profileName) {
     (0, exec_1.ensureDir)(userDataDir);
     (0, exec_1.ensureDir)(cacheDir);
     const env = { ...process.env };
-    const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "");
+    const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "", outputDir);
     env.PATH = normalizedPath;
     env.Path = normalizedPath;
     env.PATHEXT = env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
@@ -167,8 +170,14 @@ function startPortableDirectLaunch(outputDir, profileName) {
     env.ELECTRON_FORCE_IS_PACKAGED = "1";
     env.NODE_ENV = "production";
     const codexCliPath = path.join(outputDir, "resources", "codex.exe");
-    if ((0, exec_1.fileExists)(codexCliPath))
-        env.CODEX_CLI_PATH = codexCliPath;
+    if (!(0, exec_1.fileExists)(codexCliPath)) {
+        throw new Error(`Portable Codex CLI is missing: ${codexCliPath}`);
+    }
+    env.CODEX_CLI_PATH = codexCliPath;
+    const cliProbe = (0, exec_1.runCommand)(codexCliPath, ["--version"], { capture: true, allowNonZero: true });
+    if (cliProbe.status !== 0) {
+        throw new Error(`Portable Codex CLI failed preflight (exit=${cliProbe.status}): ${(cliProbe.stdout || cliProbe.stderr || "").trim()}`);
+    }
     const status = (0, exec_1.runCommand)(exePath, ["--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: outputDir, env, capture: false, allowNonZero: true }).status;
     return status;
 }
