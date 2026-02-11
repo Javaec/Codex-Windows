@@ -70,6 +70,9 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
         if (!value || typeof value !== "string") return;
         for (const p of value.split(";")) include(p, prepend);
       };
+      const resourcesRoot = process.resourcesPath || path.join(__dirname, "..", "..", "..");
+      include(path.join(resourcesRoot, "path"), true);
+      include(path.join(resourcesRoot, "app", "path"), true);
       includeList(env.PATH, false);
       includeList(env.Path, false);
       includeList(process.env.PATH, false);
@@ -126,11 +129,19 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
       const chosen = fs.existsSync(unpacked) ? unpacked : (fs.existsSync(packaged) ? packaged : null);
       if (chosen) process.env.ELECTRON_RENDERER_URL = url.pathToFileURL(chosen).toString();
     }
+    if (!process.env.CODEX_CLI_PATH) {
+      const resourcesRoot = process.resourcesPath || path.join(__dirname, "..", "..", "..");
+      const bundledCli = path.join(resourcesRoot, "codex.exe");
+      const bundledAppCli = path.join(resourcesRoot, "app", "codex.exe");
+      if (fs.existsSync(bundledCli)) process.env.CODEX_CLI_PATH = bundledCli;
+      else if (fs.existsSync(bundledAppCli)) process.env.CODEX_CLI_PATH = bundledAppCli;
+    }
     if (!process.env.ELECTRON_FORCE_IS_PACKAGED) process.env.ELECTRON_FORCE_IS_PACKAGED = "1";
     if (!process.env.CODEX_BUILD_NUMBER) process.env.CODEX_BUILD_NUMBER = "__BUILD_NUMBER__";
     if (!process.env.CODEX_BUILD_FLAVOR) process.env.CODEX_BUILD_FLAVOR = "__BUILD_FLAVOR__";
     if (!process.env.BUILD_FLAVOR) process.env.BUILD_FLAVOR = "__BUILD_FLAVOR__";
     if (!process.env.NODE_ENV) process.env.NODE_ENV = "production";
+    if (!process.env.PWD) process.env.PWD = process.cwd();
   } catch {
     // no-op
   }
