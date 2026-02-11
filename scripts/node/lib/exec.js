@@ -148,7 +148,10 @@ function runCommand(file, args, options) {
 }
 function runRobocopy(sourceDir, destinationDir, extraArgs = ["/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS"]) {
     ensureDir(destinationDir);
-    const robocopy = resolveCommand("robocopy.exe") ?? "robocopy";
+    const robocopy = resolveCommand("robocopy.exe");
+    if (!robocopy) {
+        throw new Error("robocopy.exe not found in PATH.");
+    }
     const result = runCommand(robocopy, [sourceDir, destinationDir, ...extraArgs], {
         capture: true,
         allowNonZero: true,

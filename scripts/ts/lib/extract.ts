@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureDir, fileExists, resolveCommand, runCommand, runRobocopy, writeHeader, writeSuccess, writeWarn } from "./exec";
-import { invokeNpmWithResult, invokeNpxWithResult } from "./npm";
+import { extractAsarArchive } from "./asar";
 import {
   setManifestStepState,
   StateManifest,
@@ -181,48 +181,8 @@ export function invokeExtractionStage(
     }
   }
 
-  const npmResult = invokeNpmWithResult(
-    ["exec", "--yes", "--package", "@electron/asar", "--", "asar", "extract", asar, appDir],
-    undefined,
-    false,
-  );
-  if (npmResult.status !== 0) {
-    writeWarn(`npm exec failed (exit=${npmResult.status}). Retrying with npx...`);
-    const npxResult = invokeNpxWithResult(["-y", "@electron/asar", "extract", asar, appDir], undefined, false);
-    if (npxResult.status !== 0) {
-      const globalAsar = resolveCommand("asar.cmd") ?? resolveCommand("asar");
-      if (globalAsar) {
-        writeWarn(`npx failed (exit=${npxResult.status}). Retrying with global asar...`);
-        const asarResult = runCommand(globalAsar, ["extract", asar, appDir], {
-          capture: true,
-          allowNonZero: true,
-        });
-        if (asarResult.status === 0) {
-          writeSuccess("app.asar unpacked via global asar command.");
-        } else {
-          const npmDiag = (npmResult.stderr || npmResult.stdout || "").trim();
-          const npxDiag = (npxResult.stderr || npxResult.stdout || "").trim();
-          const asarDiag = (asarResult.stderr || asarResult.stdout || "").trim();
-          throw new Error(
-            `app.asar extraction failed via npm exec (exit=${npmResult.status}), npx (exit=${npxResult.status}), and global asar (exit=${asarResult.status}).` +
-              (npmDiag ? `\n[npm] ${npmDiag}` : "") +
-              (npxDiag ? `\n[npx] ${npxDiag}` : "") +
-              (asarDiag ? `\n[asar] ${asarDiag}` : ""),
-          );
-        }
-      } else {
-        const npmDiag = (npmResult.stderr || npmResult.stdout || "").trim();
-        const npxDiag = (npxResult.stderr || npxResult.stdout || "").trim();
-        throw new Error(
-          `app.asar extraction failed via npm exec (exit=${npmResult.status}) and npx (exit=${npxResult.status}).` +
-            (npmDiag ? `\n[npm] ${npmDiag}` : "") +
-            (npxDiag ? `\n[npx] ${npxDiag}` : ""),
-        );
-      }
-    } else {
-      writeSuccess("app.asar unpacked via npx fallback.");
-    }
-  }
+  extractAsarArchive(asar, appDir);
+  writeSuccess("app.asar unpacked via native Node extractor.");
 
   writeHeader("Syncing app.asar.unpacked");
   const unpacked = path.join(

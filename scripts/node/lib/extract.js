@@ -39,7 +39,7 @@ exports.invokeExtractionStage = invokeExtractionStage;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
-const npm_1 = require("./npm");
+const asar_1 = require("./asar");
 const manifest_1 = require("./manifest");
 function resolveDmgPath(explicit, repoRoot) {
     if (explicit) {
@@ -170,43 +170,8 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
             (0, exec_1.runRobocopy)(unpackedSource, `${asar}.unpacked`);
         }
     }
-    const npmResult = (0, npm_1.invokeNpmWithResult)(["exec", "--yes", "--package", "@electron/asar", "--", "asar", "extract", asar, appDir], undefined, false);
-    if (npmResult.status !== 0) {
-        (0, exec_1.writeWarn)(`npm exec failed (exit=${npmResult.status}). Retrying with npx...`);
-        const npxResult = (0, npm_1.invokeNpxWithResult)(["-y", "@electron/asar", "extract", asar, appDir], undefined, false);
-        if (npxResult.status !== 0) {
-            const globalAsar = (0, exec_1.resolveCommand)("asar.cmd") ?? (0, exec_1.resolveCommand)("asar");
-            if (globalAsar) {
-                (0, exec_1.writeWarn)(`npx failed (exit=${npxResult.status}). Retrying with global asar...`);
-                const asarResult = (0, exec_1.runCommand)(globalAsar, ["extract", asar, appDir], {
-                    capture: true,
-                    allowNonZero: true,
-                });
-                if (asarResult.status === 0) {
-                    (0, exec_1.writeSuccess)("app.asar unpacked via global asar command.");
-                }
-                else {
-                    const npmDiag = (npmResult.stderr || npmResult.stdout || "").trim();
-                    const npxDiag = (npxResult.stderr || npxResult.stdout || "").trim();
-                    const asarDiag = (asarResult.stderr || asarResult.stdout || "").trim();
-                    throw new Error(`app.asar extraction failed via npm exec (exit=${npmResult.status}), npx (exit=${npxResult.status}), and global asar (exit=${asarResult.status}).` +
-                        (npmDiag ? `\n[npm] ${npmDiag}` : "") +
-                        (npxDiag ? `\n[npx] ${npxDiag}` : "") +
-                        (asarDiag ? `\n[asar] ${asarDiag}` : ""));
-                }
-            }
-            else {
-                const npmDiag = (npmResult.stderr || npmResult.stdout || "").trim();
-                const npxDiag = (npxResult.stderr || npxResult.stdout || "").trim();
-                throw new Error(`app.asar extraction failed via npm exec (exit=${npmResult.status}) and npx (exit=${npxResult.status}).` +
-                    (npmDiag ? `\n[npm] ${npmDiag}` : "") +
-                    (npxDiag ? `\n[npx] ${npxDiag}` : ""));
-            }
-        }
-        else {
-            (0, exec_1.writeSuccess)("app.asar unpacked via npx fallback.");
-        }
-    }
+    (0, asar_1.extractAsarArchive)(asar, appDir);
+    (0, exec_1.writeSuccess)("app.asar unpacked via native Node extractor.");
     (0, exec_1.writeHeader)("Syncing app.asar.unpacked");
     const unpacked = path.join(electronDir, "Codex Installer", "Codex.app", "Contents", "Resources", "app.asar.unpacked");
     if ((0, exec_1.fileExists)(unpacked)) {
