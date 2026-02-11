@@ -42,6 +42,32 @@ export function fileExists(filePath: string): boolean {
   return fs.existsSync(filePath);
 }
 
+function normalizeErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code.toUpperCase() : "";
+}
+
+function isRetryableFsError(error: unknown): boolean {
+  const code = normalizeErrorCode(error);
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY" || code === "EACCES";
+}
+
+function runFsOperation<T>(label: string, operation: () => T, maxAttempts = 6): T {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableFsError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`${label} failed after ${maxAttempts} attempts: ${String(lastError)}`);
+}
+
 function normalizeExecutablePath(input: string): string {
   let normalized = String(input || "").trim();
   if (!normalized) return normalized;
@@ -65,6 +91,48 @@ function normalizeExecutablePath(input: string): string {
 export function ensureDir(dirPath: string): string {
   fs.mkdirSync(dirPath, { recursive: true });
   return dirPath;
+}
+
+export function removePath(targetPath: string): void {
+  if (!targetPath || !fileExists(targetPath)) return;
+  runFsOperation(`remove path ${targetPath}`, () => {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  });
+}
+
+export function copyFileSafe(sourcePath: string, destinationPath: string): void {
+  if (!fileExists(sourcePath)) {
+    throw new Error(`Source file not found: ${sourcePath}`);
+  }
+  ensureDir(path.dirname(destinationPath));
+  runFsOperation(`copy file ${sourcePath} -> ${destinationPath}`, () => {
+    fs.copyFileSync(sourcePath, destinationPath);
+  });
+}
+
+export function copyDirectory(sourceDir: string, destinationDir: string): void {
+  if (!fileExists(sourceDir)) {
+    throw new Error(`Source directory not found: ${sourceDir}`);
+  }
+  ensureDir(destinationDir);
+  runFsOperation(`copy directory ${sourceDir} -> ${destinationDir}`, () => {
+    fs.cpSync(sourceDir, destinationDir, {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+      dereference: true,
+    });
+  });
+}
+
+export function movePathSafe(sourcePath: string, destinationPath: string): void {
+  if (!fileExists(sourcePath)) {
+    throw new Error(`Source path not found: ${sourcePath}`);
+  }
+  ensureDir(path.dirname(destinationPath));
+  runFsOperation(`move path ${sourcePath} -> ${destinationPath}`, () => {
+    fs.renameSync(sourcePath, destinationPath);
+  });
 }
 
 export function resolveCommand(name: string): string | null {
@@ -132,20 +200,9 @@ export function runCommand(
 export function runRobocopy(
   sourceDir: string,
   destinationDir: string,
-  extraArgs: string[] = ["/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS"],
+  _extraArgs: string[] = ["/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS"],
 ): void {
-  ensureDir(destinationDir);
-  const robocopy = resolveCommand("robocopy.exe");
-  if (!robocopy) {
-    throw new Error("robocopy.exe not found in PATH.");
-  }
-  const result = runCommand(robocopy, [sourceDir, destinationDir, ...extraArgs], {
-    capture: true,
-    allowNonZero: true,
-  });
-  if (result.status >= 8) {
-    throw new Error(`robocopy failed with code ${result.status}.\n${result.stdout}\n${result.stderr}`.trim());
-  }
+  copyDirectory(sourceDir, destinationDir);
 }
 
 export function uniqueExistingDirs(candidates: string[]): string[] {

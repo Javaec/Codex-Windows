@@ -128,8 +128,7 @@ function extractAsarArchive(asarPath, outputDir) {
                 if (!(0, exec_1.fileExists)(unpackedSource)) {
                     throw new Error(`ASAR unpacked source missing: ${unpackedSource}`);
                 }
-                (0, exec_1.ensureDir)(path.dirname(destination));
-                fs.copyFileSync(unpackedSource, destination);
+                (0, exec_1.copyFileSafe)(unpackedSource, destination);
                 return;
             }
             if (typeof fileNode.offset !== "string") {

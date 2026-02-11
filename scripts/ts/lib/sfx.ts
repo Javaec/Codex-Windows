@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { runCommand, writeInfo } from "./exec";
+import { ensureDir, removePath, runCommand, writeInfo } from "./exec";
 import { resolve7z } from "./extract";
 
 export interface SingleExeBuildResult {
@@ -65,8 +65,8 @@ export function invokeSingleExeBuild(portableDir: string, distDir: string, workD
   const tempDir = path.join(workDir, "sfx-build", outputBaseName);
   const archivePath = path.join(tempDir, "payload.7z");
 
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  fs.mkdirSync(tempDir, { recursive: true });
+  removePath(tempDir);
+  ensureDir(tempDir);
 
   writeInfo("Compressing portable payload for SFX...");
   const archiveResult = runCommand(

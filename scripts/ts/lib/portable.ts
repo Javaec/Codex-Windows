@@ -1,6 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, runCommand, runRobocopy, writeInfo, writeWarn } from "./exec";
+import {
+  copyDirectory,
+  copyFileSafe,
+  ensureDir,
+  fileExists,
+  movePathSafe,
+  removePath,
+  runCommand,
+  writeInfo,
+  writeWarn,
+} from "./exec";
 import { normalizeProfileName } from "./args";
 import { patchMainForWindowsEnvironment } from "./launch";
 
@@ -39,19 +49,19 @@ function composePortablePath(basePath: string, outputDir: string): string {
 
 function bundleCodexCliResources(resourcesDir: string, bundledCliPath: string): void {
   const cliSrcDir = path.dirname(bundledCliPath);
-  fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
+  copyFileSafe(bundledCliPath, path.join(resourcesDir, "codex.exe"));
 
   for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase()) continue;
-    fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+    copyFileSafe(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
   }
 
   const vendorArchDir = path.resolve(cliSrcDir, "..");
   const vendorPathDir = path.join(vendorArchDir, "path");
   if (fileExists(vendorPathDir)) {
     writeInfo("Bundling Codex CLI companion tools...");
-    runRobocopy(vendorPathDir, path.join(resourcesDir, "path"));
+    copyDirectory(vendorPathDir, path.join(resourcesDir, "path"));
   }
 }
 
@@ -64,7 +74,7 @@ function isBusyDirectoryError(error: unknown): boolean {
 function preparePortableOutputDir(distDir: string, outputName: string): string {
   const primary = path.join(distDir, outputName);
   try {
-    fs.rmSync(primary, { recursive: true, force: true });
+    removePath(primary);
     ensureDir(primary);
     return primary;
   } catch (error) {
@@ -73,7 +83,7 @@ function preparePortableOutputDir(distDir: string, outputName: string): string {
 
   const fallbackName = `${outputName}-next`;
   const fallback = path.join(distDir, fallbackName);
-  fs.rmSync(fallback, { recursive: true, force: true });
+  removePath(fallback);
   ensureDir(fallback);
   writeWarn(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
   return fallback;
@@ -177,12 +187,12 @@ export function invokePortableBuild(
   const outputDir = preparePortableOutputDir(distDir, outputName);
 
   writeInfo("Copying Electron runtime...");
-  runRobocopy(electronDistDir, outputDir);
+  copyDirectory(electronDistDir, outputDir);
 
   const srcExe = path.join(outputDir, "electron.exe");
   const dstExe = path.join(outputDir, "Codex.exe");
   if (fileExists(srcExe)) {
-    fs.renameSync(srcExe, dstExe);
+    movePathSafe(srcExe, dstExe);
   } else if (!fileExists(dstExe)) {
     throw new Error("electron.exe not found in Electron dist.");
   }
@@ -190,10 +200,10 @@ export function invokePortableBuild(
   writeInfo("Copying app files...");
   const resourcesDir = ensureDir(path.join(outputDir, "resources"));
   const appDstDir = path.join(resourcesDir, "app");
-  runRobocopy(appDir, appDstDir);
+  copyDirectory(appDir, appDstDir);
 
   const defaultAsar = path.join(resourcesDir, "default_app.asar");
-  if (fileExists(defaultAsar)) fs.rmSync(defaultAsar, { force: true });
+  removePath(defaultAsar);
 
   patchMainForWindowsEnvironment(appDstDir, buildNumber, buildFlavor);
 

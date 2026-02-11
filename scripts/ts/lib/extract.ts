@@ -1,6 +1,17 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, resolveCommand, runCommand, runRobocopy, writeHeader, writeSuccess, writeWarn } from "./exec";
+import {
+  copyDirectory,
+  copyFileSafe,
+  ensureDir,
+  fileExists,
+  removePath,
+  resolveCommand,
+  runCommand,
+  writeHeader,
+  writeSuccess,
+  writeWarn,
+} from "./exec";
 import { extractAsarArchive } from "./asar";
 import {
   setManifestStepState,
@@ -93,7 +104,7 @@ export function invokeExtractionStage(
 
   writeHeader("Extracting DMG");
   for (const dir of [extractedDir, electronDir, appDir]) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    removePath(dir);
     ensureDir(dir);
   }
   const dmgExtract = runCommand(sevenZip, ["x", "-y", dmgPath, `-o${extractedDir}`], {
@@ -154,9 +165,9 @@ export function invokeExtractionStage(
     );
     const destBase = path.join(electronDir, "Codex Installer", "Codex.app", "Contents", "Resources");
     ensureDir(destBase);
-    fs.copyFileSync(directApp, path.join(destBase, "app.asar"));
+    copyFileSafe(directApp, path.join(destBase, "app.asar"));
     if (fileExists(directUnpacked)) {
-      runRobocopy(directUnpacked, path.join(destBase, "app.asar.unpacked"));
+      copyDirectory(directUnpacked, path.join(destBase, "app.asar.unpacked"));
     }
   }
 
@@ -168,16 +179,16 @@ export function invokeExtractionStage(
   let asar = asarSource;
   const resourcesAlias = path.join(workDir, "_resources");
   try {
-    fs.rmSync(resourcesAlias, { recursive: true, force: true });
+    removePath(resourcesAlias);
     fs.symlinkSync(resourcesDir, resourcesAlias, "junction");
     asar = path.join(resourcesAlias, "app.asar");
   } catch {
     // Fallback for environments where junction creation is blocked.
     asar = path.join(workDir, "input-app.asar");
-    fs.copyFileSync(asarSource, asar);
+    copyFileSafe(asarSource, asar);
     const unpackedSource = path.join(resourcesDir, "app.asar.unpacked");
     if (fileExists(unpackedSource)) {
-      runRobocopy(unpackedSource, `${asar}.unpacked`);
+      copyDirectory(unpackedSource, `${asar}.unpacked`);
     }
   }
 
@@ -194,7 +205,7 @@ export function invokeExtractionStage(
     "app.asar.unpacked",
   );
   if (fileExists(unpacked)) {
-    runRobocopy(unpacked, appDir);
+    copyDirectory(unpacked, appDir);
   }
 
   setManifestStepState(manifest, "extract", extractSignature, "ok", { dmgPath });

@@ -75,19 +75,19 @@ function composePortablePath(basePath, outputDir) {
 }
 function bundleCodexCliResources(resourcesDir, bundledCliPath) {
     const cliSrcDir = path.dirname(bundledCliPath);
-    fs.copyFileSync(bundledCliPath, path.join(resourcesDir, "codex.exe"));
+    (0, exec_1.copyFileSafe)(bundledCliPath, path.join(resourcesDir, "codex.exe"));
     for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
         if (!entry.isFile())
             continue;
         if (entry.name.toLowerCase() === path.basename(bundledCliPath).toLowerCase())
             continue;
-        fs.copyFileSync(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+        (0, exec_1.copyFileSafe)(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
     }
     const vendorArchDir = path.resolve(cliSrcDir, "..");
     const vendorPathDir = path.join(vendorArchDir, "path");
     if ((0, exec_1.fileExists)(vendorPathDir)) {
         (0, exec_1.writeInfo)("Bundling Codex CLI companion tools...");
-        (0, exec_1.runRobocopy)(vendorPathDir, path.join(resourcesDir, "path"));
+        (0, exec_1.copyDirectory)(vendorPathDir, path.join(resourcesDir, "path"));
     }
 }
 function isBusyDirectoryError(error) {
@@ -99,7 +99,7 @@ function isBusyDirectoryError(error) {
 function preparePortableOutputDir(distDir, outputName) {
     const primary = path.join(distDir, outputName);
     try {
-        fs.rmSync(primary, { recursive: true, force: true });
+        (0, exec_1.removePath)(primary);
         (0, exec_1.ensureDir)(primary);
         return primary;
     }
@@ -109,7 +109,7 @@ function preparePortableOutputDir(distDir, outputName) {
     }
     const fallbackName = `${outputName}-next`;
     const fallback = path.join(distDir, fallbackName);
-    fs.rmSync(fallback, { recursive: true, force: true });
+    (0, exec_1.removePath)(fallback);
     (0, exec_1.ensureDir)(fallback);
     (0, exec_1.writeWarn)(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
     return fallback;
@@ -191,11 +191,11 @@ function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavo
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
     const outputDir = preparePortableOutputDir(distDir, outputName);
     (0, exec_1.writeInfo)("Copying Electron runtime...");
-    (0, exec_1.runRobocopy)(electronDistDir, outputDir);
+    (0, exec_1.copyDirectory)(electronDistDir, outputDir);
     const srcExe = path.join(outputDir, "electron.exe");
     const dstExe = path.join(outputDir, "Codex.exe");
     if ((0, exec_1.fileExists)(srcExe)) {
-        fs.renameSync(srcExe, dstExe);
+        (0, exec_1.movePathSafe)(srcExe, dstExe);
     }
     else if (!(0, exec_1.fileExists)(dstExe)) {
         throw new Error("electron.exe not found in Electron dist.");
@@ -203,10 +203,9 @@ function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavo
     (0, exec_1.writeInfo)("Copying app files...");
     const resourcesDir = (0, exec_1.ensureDir)(path.join(outputDir, "resources"));
     const appDstDir = path.join(resourcesDir, "app");
-    (0, exec_1.runRobocopy)(appDir, appDstDir);
+    (0, exec_1.copyDirectory)(appDir, appDstDir);
     const defaultAsar = path.join(resourcesDir, "default_app.asar");
-    if ((0, exec_1.fileExists)(defaultAsar))
-        fs.rmSync(defaultAsar, { force: true });
+    (0, exec_1.removePath)(defaultAsar);
     (0, launch_1.patchMainForWindowsEnvironment)(appDstDir, buildNumber, buildFlavor);
     if (bundledCliPath && (0, exec_1.fileExists)(bundledCliPath)) {
         (0, exec_1.writeInfo)("Bundling Codex CLI...");

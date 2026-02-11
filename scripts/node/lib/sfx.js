@@ -88,8 +88,8 @@ function invokeSingleExeBuild(portableDir, distDir, workDir) {
     const outputExe = path.join(distDir, `${outputBaseName}-single.exe`);
     const tempDir = path.join(workDir, "sfx-build", outputBaseName);
     const archivePath = path.join(tempDir, "payload.7z");
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.mkdirSync(tempDir, { recursive: true });
+    (0, exec_1.removePath)(tempDir);
+    (0, exec_1.ensureDir)(tempDir);
     (0, exec_1.writeInfo)("Compressing portable payload for SFX...");
     const archiveResult = (0, exec_1.runCommand)(sevenZipExe, ["a", "-t7z", "-mx=9", "-mmt=on", archivePath, "*"], { cwd: portableDir, allowNonZero: true, capture: true });
     if (archiveResult.status !== 0 || !fs.existsSync(archivePath)) {

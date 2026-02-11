@@ -105,7 +105,7 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     }
     (0, exec_1.writeHeader)("Extracting DMG");
     for (const dir of [extractedDir, electronDir, appDir]) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        (0, exec_1.removePath)(dir);
         (0, exec_1.ensureDir)(dir);
     }
     const dmgExtract = (0, exec_1.runCommand)(sevenZip, ["x", "-y", dmgPath, `-o${extractedDir}`], {
@@ -144,9 +144,9 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
         const directUnpacked = path.join(extractedDir, "Codex Installer", "Codex.app", "Contents", "Resources", "app.asar.unpacked");
         const destBase = path.join(electronDir, "Codex Installer", "Codex.app", "Contents", "Resources");
         (0, exec_1.ensureDir)(destBase);
-        fs.copyFileSync(directApp, path.join(destBase, "app.asar"));
+        (0, exec_1.copyFileSafe)(directApp, path.join(destBase, "app.asar"));
         if ((0, exec_1.fileExists)(directUnpacked)) {
-            (0, exec_1.runRobocopy)(directUnpacked, path.join(destBase, "app.asar.unpacked"));
+            (0, exec_1.copyDirectory)(directUnpacked, path.join(destBase, "app.asar.unpacked"));
         }
     }
     (0, exec_1.writeHeader)("Unpacking app.asar");
@@ -157,17 +157,17 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     let asar = asarSource;
     const resourcesAlias = path.join(workDir, "_resources");
     try {
-        fs.rmSync(resourcesAlias, { recursive: true, force: true });
+        (0, exec_1.removePath)(resourcesAlias);
         fs.symlinkSync(resourcesDir, resourcesAlias, "junction");
         asar = path.join(resourcesAlias, "app.asar");
     }
     catch {
         // Fallback for environments where junction creation is blocked.
         asar = path.join(workDir, "input-app.asar");
-        fs.copyFileSync(asarSource, asar);
+        (0, exec_1.copyFileSafe)(asarSource, asar);
         const unpackedSource = path.join(resourcesDir, "app.asar.unpacked");
         if ((0, exec_1.fileExists)(unpackedSource)) {
-            (0, exec_1.runRobocopy)(unpackedSource, `${asar}.unpacked`);
+            (0, exec_1.copyDirectory)(unpackedSource, `${asar}.unpacked`);
         }
     }
     (0, asar_1.extractAsarArchive)(asar, appDir);
@@ -175,7 +175,7 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     (0, exec_1.writeHeader)("Syncing app.asar.unpacked");
     const unpacked = path.join(electronDir, "Codex Installer", "Codex.app", "Contents", "Resources", "app.asar.unpacked");
     if ((0, exec_1.fileExists)(unpacked)) {
-        (0, exec_1.runRobocopy)(unpacked, appDir);
+        (0, exec_1.copyDirectory)(unpacked, appDir);
     }
     (0, manifest_1.setManifestStepState)(manifest, "extract", extractSignature, "ok", { dmgPath });
     (0, manifest_1.writeStateManifest)(manifestPath, manifest);

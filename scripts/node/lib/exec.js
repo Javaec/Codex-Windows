@@ -40,6 +40,10 @@ exports.writeWarn = writeWarn;
 exports.writeError = writeError;
 exports.fileExists = fileExists;
 exports.ensureDir = ensureDir;
+exports.removePath = removePath;
+exports.copyFileSafe = copyFileSafe;
+exports.copyDirectory = copyDirectory;
+exports.movePathSafe = movePathSafe;
 exports.resolveCommand = resolveCommand;
 exports.mustResolveCommand = mustResolveCommand;
 exports.runCommand = runCommand;
@@ -74,6 +78,31 @@ function writeError(text) {
 function fileExists(filePath) {
     return fs.existsSync(filePath);
 }
+function normalizeErrorCode(error) {
+    if (!error || typeof error !== "object")
+        return "";
+    const code = error.code;
+    return typeof code === "string" ? code.toUpperCase() : "";
+}
+function isRetryableFsError(error) {
+    const code = normalizeErrorCode(error);
+    return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY" || code === "EACCES";
+}
+function runFsOperation(label, operation, maxAttempts = 6) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            return operation();
+        }
+        catch (error) {
+            lastError = error;
+            if (!isRetryableFsError(error) || attempt >= maxAttempts) {
+                throw error;
+            }
+        }
+    }
+    throw new Error(`${label} failed after ${maxAttempts} attempts: ${String(lastError)}`);
+}
 function normalizeExecutablePath(input) {
     let normalized = String(input || "").trim();
     if (!normalized)
@@ -96,6 +125,45 @@ function normalizeExecutablePath(input) {
 function ensureDir(dirPath) {
     fs.mkdirSync(dirPath, { recursive: true });
     return dirPath;
+}
+function removePath(targetPath) {
+    if (!targetPath || !fileExists(targetPath))
+        return;
+    runFsOperation(`remove path ${targetPath}`, () => {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+    });
+}
+function copyFileSafe(sourcePath, destinationPath) {
+    if (!fileExists(sourcePath)) {
+        throw new Error(`Source file not found: ${sourcePath}`);
+    }
+    ensureDir(path.dirname(destinationPath));
+    runFsOperation(`copy file ${sourcePath} -> ${destinationPath}`, () => {
+        fs.copyFileSync(sourcePath, destinationPath);
+    });
+}
+function copyDirectory(sourceDir, destinationDir) {
+    if (!fileExists(sourceDir)) {
+        throw new Error(`Source directory not found: ${sourceDir}`);
+    }
+    ensureDir(destinationDir);
+    runFsOperation(`copy directory ${sourceDir} -> ${destinationDir}`, () => {
+        fs.cpSync(sourceDir, destinationDir, {
+            recursive: true,
+            force: true,
+            errorOnExist: false,
+            dereference: true,
+        });
+    });
+}
+function movePathSafe(sourcePath, destinationPath) {
+    if (!fileExists(sourcePath)) {
+        throw new Error(`Source path not found: ${sourcePath}`);
+    }
+    ensureDir(path.dirname(destinationPath));
+    runFsOperation(`move path ${sourcePath} -> ${destinationPath}`, () => {
+        fs.renameSync(sourcePath, destinationPath);
+    });
 }
 function resolveCommand(name) {
     const where = (0, node_child_process_1.spawnSync)("where.exe", [name], {
@@ -146,19 +214,8 @@ function runCommand(file, args, options) {
     }
     return { status, stdout, stderr };
 }
-function runRobocopy(sourceDir, destinationDir, extraArgs = ["/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS"]) {
-    ensureDir(destinationDir);
-    const robocopy = resolveCommand("robocopy.exe");
-    if (!robocopy) {
-        throw new Error("robocopy.exe not found in PATH.");
-    }
-    const result = runCommand(robocopy, [sourceDir, destinationDir, ...extraArgs], {
-        capture: true,
-        allowNonZero: true,
-    });
-    if (result.status >= 8) {
-        throw new Error(`robocopy failed with code ${result.status}.\n${result.stdout}\n${result.stderr}`.trim());
-    }
+function runRobocopy(sourceDir, destinationDir, _extraArgs = ["/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS"]) {
+    copyDirectory(sourceDir, destinationDir);
 }
 function uniqueExistingDirs(candidates) {
     const out = [];

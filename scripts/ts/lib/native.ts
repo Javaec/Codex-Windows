@@ -1,6 +1,15 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, runCommand, runRobocopy, uniqueExistingDirs, writeSuccess, writeWarn } from "./exec";
+import {
+  copyDirectory,
+  copyFileSafe,
+  ensureDir,
+  fileExists,
+  runCommand,
+  uniqueExistingDirs,
+  writeSuccess,
+  writeWarn,
+} from "./exec";
 import { setManifestStepState, StateManifest, writeStateManifest } from "./manifest";
 import { invokeNpm } from "./npm";
 
@@ -74,9 +83,8 @@ try {
 }
 
 function copyNativeFile(sourcePath: string, destinationPath: string, label: string): void {
-  ensureDir(path.dirname(destinationPath));
   try {
-    fs.copyFileSync(sourcePath, destinationPath);
+    copyFileSafe(sourcePath, destinationPath);
   } catch (error) {
     if (fileExists(destinationPath)) {
       throw new Error(`${label} is locked by another process at ${destinationPath}. Close running Codex and rerun.`);
@@ -149,7 +157,7 @@ function ensureElectronRuntime(nativeDir: string, electronVersion: string, sourc
   for (const sourceAppDir of sourceAppDirs) {
     const srcDist = path.join(sourceAppDir, "node_modules", "electron", "dist");
     if (!fileExists(path.join(srcDist, "electron.exe"))) continue;
-    runRobocopy(srcDist, path.join(nativeDir, "node_modules", "electron", "dist"));
+    copyDirectory(srcDist, path.join(nativeDir, "node_modules", "electron", "dist"));
     if (fileExists(electronExe)) {
       writeSuccess(`Using Electron runtime from donor: ${sourceAppDir}`);
       return electronExe;

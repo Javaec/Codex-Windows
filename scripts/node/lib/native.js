@@ -94,9 +94,8 @@ try {
     return runValidationScript(electronExe, workingDir, script, label);
 }
 function copyNativeFile(sourcePath, destinationPath, label) {
-    (0, exec_1.ensureDir)(path.dirname(destinationPath));
     try {
-        fs.copyFileSync(sourcePath, destinationPath);
+        (0, exec_1.copyFileSafe)(sourcePath, destinationPath);
     }
     catch (error) {
         if ((0, exec_1.fileExists)(destinationPath)) {
@@ -160,7 +159,7 @@ function ensureElectronRuntime(nativeDir, electronVersion, sourceAppDirs) {
         const srcDist = path.join(sourceAppDir, "node_modules", "electron", "dist");
         if (!(0, exec_1.fileExists)(path.join(srcDist, "electron.exe")))
             continue;
-        (0, exec_1.runRobocopy)(srcDist, path.join(nativeDir, "node_modules", "electron", "dist"));
+        (0, exec_1.copyDirectory)(srcDist, path.join(nativeDir, "node_modules", "electron", "dist"));
         if ((0, exec_1.fileExists)(electronExe)) {
             (0, exec_1.writeSuccess)(`Using Electron runtime from donor: ${sourceAppDir}`);
             return electronExe;

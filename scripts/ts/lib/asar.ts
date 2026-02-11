@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, writeWarn } from "./exec";
+import { copyFileSafe, ensureDir, fileExists, writeWarn } from "./exec";
 
 interface AsarDirectoryNode {
   files: Record<string, AsarNode>;
@@ -117,8 +117,7 @@ export function extractAsarArchive(asarPath: string, outputDir: string): void {
         if (!fileExists(unpackedSource)) {
           throw new Error(`ASAR unpacked source missing: ${unpackedSource}`);
         }
-        ensureDir(path.dirname(destination));
-        fs.copyFileSync(unpackedSource, destination);
+        copyFileSafe(unpackedSource, destination);
         return;
       }
 
