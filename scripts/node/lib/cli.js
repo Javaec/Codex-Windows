@@ -75,11 +75,27 @@ function getNpmGlobalRoots() {
     return (0, exec_1.uniqueExistingDirs)(roots);
 }
 function findCodexVendorExeInRoot(root, preferredArch) {
-    const candidates = [
-        path.join(root, "@openai", "codex", "vendor", preferredArch, "codex", "codex.exe"),
-        path.join(root, "@openai", "codex", "vendor", "x86_64-pc-windows-msvc", "codex", "codex.exe"),
-        path.join(root, "@openai", "codex", "vendor", "aarch64-pc-windows-msvc", "codex", "codex.exe"),
-    ];
+    const packageFolderOrder = preferredArch === "aarch64-pc-windows-msvc"
+        ? ["codex-win32-arm64", "codex-win32-x64"]
+        : ["codex-win32-x64", "codex-win32-arm64"];
+    const archOrder = preferredArch === "aarch64-pc-windows-msvc"
+        ? ["aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"]
+        : ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"];
+    const candidates = [];
+    for (const arch of archOrder) {
+        // Legacy layout (0.98 and earlier):
+        // <root>/@openai/codex/vendor/<triple>/codex/codex.exe
+        candidates.push(path.join(root, "@openai", "codex", "vendor", arch, "codex", "codex.exe"));
+        // Optional package layout (0.99+), hoisted dependency:
+        // <root>/@openai/codex-win32-x64/vendor/<triple>/codex/codex.exe
+        // <root>/@openai/codex-win32-arm64/vendor/<triple>/codex/codex.exe
+        for (const packageFolder of packageFolderOrder) {
+            candidates.push(path.join(root, "@openai", packageFolder, "vendor", arch, "codex", "codex.exe"));
+            // Optional package nested under @openai/codex/node_modules (npm 0.99 observed layout):
+            // <root>/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/<triple>/codex/codex.exe
+            candidates.push(path.join(root, "@openai", "codex", "node_modules", "@openai", packageFolder, "vendor", arch, "codex", "codex.exe"));
+        }
+    }
     for (const candidate of candidates) {
         if ((0, exec_1.fileExists)(candidate))
             return path.resolve(candidate);
