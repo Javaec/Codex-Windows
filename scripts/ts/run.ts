@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs, printUsage, normalizeProfileName } from "./lib/args";
+import { ensureGitCapabilityCachePath } from "./lib/adapters/git-capability-cache";
+import { sanitizeWorkspaceRegistry } from "./lib/adapters/workspace-registry";
 import { probeCodexCliExecutable, resolveCodexCliPathContract, writeCliResolutionTrace } from "./lib/cli";
 import {
   assertEnvironmentContract,
@@ -77,6 +79,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   const nativeDir = path.join(workDir, "native-builds");
   const userDataDir = path.join(workDir, isDefaultProfile ? "userdata" : `userdata-${effectiveProfile}`);
   const cacheDir = path.join(workDir, isDefaultProfile ? "cache" : `cache-${effectiveProfile}`);
+  const diagDir = path.join(workDir, "diagnostics", effectiveProfile);
+  const gitCapabilityCachePath = ensureGitCapabilityCachePath(workDir, effectiveProfile);
 
   writeHeader("Patching preload");
   patchPreload(appDir);
@@ -125,7 +129,6 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   writeHeader("Environment contract checks");
   assertEnvironmentContract(options.strictContract);
 
-  const diagDir = path.join(workDir, "diagnostics", effectiveProfile);
   const cliTracePath = path.join(diagDir, "cli-resolution.log");
 
   if (options.buildPortable) {
@@ -166,6 +169,17 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     }
 
     if (!options.noLaunch) {
+      const portableUserDataDir = path.join(
+        portable.outputDir,
+        effectiveProfile === "default" ? "userdata" : `userdata-${effectiveProfile}`,
+      );
+      const sanitizeResult = sanitizeWorkspaceRegistry(portableUserDataDir, diagDir);
+      if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
+        writeSuccess(
+          `Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`,
+        );
+      }
+
       let status = 0;
       if (singleExePath) {
         writeHeader("Launching single EXE");
@@ -194,6 +208,12 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     }
 
     ensureGitOnPath();
+    const sanitizeResult = sanitizeWorkspaceRegistry(userDataDir, diagDir);
+    if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
+      writeSuccess(
+        `Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`,
+      );
+    }
     writeHeader("Electron child-process environment check");
     invokeElectronChildEnvironmentContract(electronExe, appDir, options.strictContract);
 
@@ -206,6 +226,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       cliResolution.path as string,
       buildNumber,
       buildFlavor,
+      gitCapabilityCachePath,
     );
   } else {
     const cliResolution = resolveCodexCliPathContract(options.codexCliPath, false);

@@ -10,6 +10,9 @@
 
 - 🧩 从 `Codex.dmg` 提取 `app.asar`
 - 🛠️ 应用 Windows 运行时补丁（`PATH`、shell 工具、CLI 解析）
+- 🧼 启动前自动清理 workspace registry 并剪枝失效路径
+- 🗃️ Git capability cache（缓存缺失 ref / 无效 cwd，减少重复 `rev-parse` 循环）
+- 🛡️ 运行时幂等守卫 + IPC 关闭监督器，进程退出更干净
 - ✅ 从 donor/seed 工件校验原生模块（`better-sqlite3`、`node-pty`）
 - ⚡ 从 `work/` 目录直接运行 Codex（direct mode）
 - 📦 在 `dist/` 生成便携版
@@ -28,6 +31,7 @@ run.cmd / build.cmd
 - 📁 文件操作（复制/移动/删除）统一走 Node `fs` + 重试
 - 🚫 尽量避免脆弱的 shell one-liner
 - 📂 `app.asar` 解包使用原生 Node extractor（不依赖 `npm exec asar`）
+- 🧱 Core pipeline 与 adapters 分层（`scripts/ts/lib/adapters/*`），更易迁移到其他游戏/包装器
 
 ## 🧰 环境要求
 

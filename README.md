@@ -10,6 +10,9 @@
 
 - 🧩 Extract `app.asar` from `Codex.dmg`
 - 🛠️ Apply Windows runtime patches (`PATH`, shell tools, CLI resolution)
+- 🧼 Auto-sanitize workspace registry and prune broken paths before launch
+- 🗃️ Git capability cache for missing refs/invalid CWDs (reduces repeated `rev-parse` loops)
+- 🛡️ Runtime idempotent guards + IPC shutdown supervisor for cleaner process teardown
 - ✅ Validate native modules (`better-sqlite3`, `node-pty`) from donor/seed artifacts
 - ⚡ Run Codex directly from `work/` (direct mode)
 - 📦 Build portable output in `dist/`
@@ -28,6 +31,7 @@ run.cmd / build.cmd
 - 📁 File operations (copy/move/delete) use Node `fs` with retries
 - 🚫 No fragile shell one-liners for pipeline file management
 - 📂 `app.asar` extraction is native Node-based (no `npm exec asar` dependency)
+- 🧱 Core pipeline + adapters split (`scripts/ts/lib/adapters/*`) to ease reuse in other game/tool wrappers
 
 ## 🧰 Requirements
 

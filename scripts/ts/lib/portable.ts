@@ -113,6 +113,7 @@ if not defined CODEX_PWSH_PATH if exist "%WINROOT%\\System32\\WindowsPowerShell\
 
 if exist "%BASE%resources\\codex.exe" set "CODEX_CLI_PATH=%BASE%resources\\codex.exe"
 set "CODEX_WINDOWS_PROFILE=${profile}"
+set "CODEX_GIT_CAPABILITY_CACHE=%BASE%resources\\git-capability-cache.json"
 set "ELECTRON_FORCE_IS_PACKAGED=1"
 set "NODE_ENV=production"
 
@@ -145,6 +146,7 @@ export function startPortableDirectLaunch(outputDir: string, profileName: string
   env.Path = normalizedPath;
   env.PATHEXT = env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
   env.CODEX_WINDOWS_PROFILE = profile;
+  env.CODEX_GIT_CAPABILITY_CACHE = path.join(outputDir, "resources", "git-capability-cache.json");
   env.ELECTRON_FORCE_IS_PACKAGED = "1";
   env.NODE_ENV = "production";
 
