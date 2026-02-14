@@ -14,6 +14,7 @@
 - 🗃️ Git capability cache для missing refs/invalid CWD (меньше повторных `rev-parse` циклов)
 - 🛡️ Idempotent runtime guards + IPC shutdown supervisor для более чистого завершения
 - 🎨 Брендинг `Codex.exe` (иконка + ProductName/FileDescription), чтобы ярлыки не были `Electron`
+  также применяется для direct-runtime (`work/native-builds/.../Codex.exe`)
 - ✅ Валидация native-модулей (`better-sqlite3`, `node-pty`) из donor/seed артефактов
 - ⚡ Запуск Codex напрямую из `work/` (direct mode)
 - 📦 Сборка portable-версии в `dist/`

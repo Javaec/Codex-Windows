@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { parseArgs, printUsage, normalizeProfileName } from "./lib/args";
 import { ensureGitCapabilityCachePath } from "./lib/adapters/git-capability-cache";
 import { sanitizeWorkspaceRegistry } from "./lib/adapters/workspace-registry";
+import { prepareDirectLaunchExecutable } from "./lib/branding";
 import { probeCodexCliExecutable, resolveCodexCliPathContract, writeCliResolutionTrace } from "./lib/cli";
 import {
   assertEnvironmentContract,
@@ -212,6 +213,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     }
 
     ensureGitOnPath();
+    const directLaunchExe = await prepareDirectLaunchExecutable(electronExe, appVersion, workDir);
     const sanitizeResult = sanitizeWorkspaceRegistry(userDataDir, diagDir);
     if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
       writeSuccess(
@@ -219,11 +221,11 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       );
     }
     writeHeader("Electron child-process environment check");
-    invokeElectronChildEnvironmentContract(electronExe, appDir, options.strictContract);
+    invokeElectronChildEnvironmentContract(directLaunchExe, appDir, options.strictContract);
 
     writeHeader("Launching Codex");
     startCodexDirectLaunch(
-      electronExe,
+      directLaunchExe,
       appDir,
       userDataDir,
       cacheDir,

@@ -14,6 +14,7 @@
 - 🗃️ Git capability cache for missing refs/invalid CWDs (reduces repeated `rev-parse` loops)
 - 🛡️ Runtime idempotent guards + IPC shutdown supervisor for cleaner process teardown
 - 🎨 `Codex.exe` branding (icon + ProductName/FileDescription) so shortcuts are not shown as `Electron`
+  including direct runtime (`work/native-builds/.../Codex.exe`)
 - ✅ Validate native modules (`better-sqlite3`, `node-pty`) from donor/seed artifacts
 - ⚡ Run Codex directly from `work/` (direct mode)
 - 📦 Build portable output in `dist/`

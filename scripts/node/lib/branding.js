@@ -37,6 +37,7 @@ exports.ensureRcedit = ensureRcedit;
 exports.resolveDefaultCodexIconPath = resolveDefaultCodexIconPath;
 exports.applyExecutableBranding = applyExecutableBranding;
 exports.copyCodexIconToOutput = copyCodexIconToOutput;
+exports.prepareDirectLaunchExecutable = prepareDirectLaunchExecutable;
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 async function downloadFile(url, outputPath) {
@@ -147,4 +148,33 @@ function copyCodexIconToOutput(iconPath, outputDir) {
     const destination = path.join(outputDir, "codex.ico");
     (0, exec_1.copyFileSafe)(iconPath, destination);
     return destination;
+}
+async function prepareDirectLaunchExecutable(electronExePath, appVersion, workDir) {
+    if (!(0, exec_1.fileExists)(electronExePath))
+        return electronExePath;
+    const targetExe = path.join(path.dirname(electronExePath), "Codex.exe");
+    try {
+        (0, exec_1.copyFileSafe)(electronExePath, targetExe);
+    }
+    catch (error) {
+        (0, exec_1.writeWarn)(`Failed to copy direct runtime to Codex.exe; falling back to electron.exe: ${error instanceof Error ? error.message : String(error)}`);
+        return electronExePath;
+    }
+    const iconPath = resolveDefaultCodexIconPath();
+    try {
+        const branded = await applyExecutableBranding(targetExe, {
+            productName: "Codex",
+            fileDescription: "Codex by OpenAI",
+            appVersion,
+            iconPath,
+            workDir,
+        });
+        if (!branded) {
+            (0, exec_1.writeWarn)("Direct runtime branding did not apply cleanly; executable name will still be Codex.exe.");
+        }
+    }
+    catch (error) {
+        (0, exec_1.writeWarn)(`Direct runtime branding failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return targetExe;
 }

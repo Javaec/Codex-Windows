@@ -14,6 +14,7 @@
 - 🗃️ Git capability cache（缓存缺失 ref / 无效 cwd，减少重复 `rev-parse` 循环）
 - 🛡️ 运行时幂等守卫 + IPC 关闭监督器，进程退出更干净
 - 🎨 `Codex.exe` 品牌化（图标 + ProductName/FileDescription），避免快捷方式显示为 `Electron`
+  并覆盖 direct runtime（`work/native-builds/.../Codex.exe`）
 - ✅ 从 donor/seed 工件校验原生模块（`better-sqlite3`、`node-pty`）
 - ⚡ 从 `work/` 目录直接运行 Codex（direct mode）
 - 📦 在 `dist/` 生成便携版

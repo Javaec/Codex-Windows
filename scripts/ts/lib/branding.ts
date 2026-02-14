@@ -124,3 +124,40 @@ export function copyCodexIconToOutput(iconPath: string, outputDir: string): stri
   return destination;
 }
 
+export async function prepareDirectLaunchExecutable(
+  electronExePath: string,
+  appVersion: string,
+  workDir: string,
+): Promise<string> {
+  if (!fileExists(electronExePath)) return electronExePath;
+
+  const targetExe = path.join(path.dirname(electronExePath), "Codex.exe");
+  try {
+    copyFileSafe(electronExePath, targetExe);
+  } catch (error) {
+    writeWarn(
+      `Failed to copy direct runtime to Codex.exe; falling back to electron.exe: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return electronExePath;
+  }
+
+  const iconPath = resolveDefaultCodexIconPath();
+  try {
+    const branded = await applyExecutableBranding(targetExe, {
+      productName: "Codex",
+      fileDescription: "Codex by OpenAI",
+      appVersion,
+      iconPath,
+      workDir,
+    });
+    if (!branded) {
+      writeWarn("Direct runtime branding did not apply cleanly; executable name will still be Codex.exe.");
+    }
+  } catch (error) {
+    writeWarn(`Direct runtime branding failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return targetExe;
+}

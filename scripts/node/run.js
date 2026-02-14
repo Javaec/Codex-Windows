@@ -38,6 +38,7 @@ const path = __importStar(require("node:path"));
 const args_1 = require("./lib/args");
 const git_capability_cache_1 = require("./lib/adapters/git-capability-cache");
 const workspace_registry_1 = require("./lib/adapters/workspace-registry");
+const branding_1 = require("./lib/branding");
 const cli_1 = require("./lib/cli");
 const env_1 = require("./lib/env");
 const exec_1 = require("./lib/exec");
@@ -182,14 +183,15 @@ async function runPipeline(options) {
             throw new Error(`Codex CLI preflight failed: ${probe.details}`);
         }
         (0, launch_1.ensureGitOnPath)();
+        const directLaunchExe = await (0, branding_1.prepareDirectLaunchExecutable)(electronExe, appVersion, workDir);
         const sanitizeResult = (0, workspace_registry_1.sanitizeWorkspaceRegistry)(userDataDir, diagDir);
         if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
             (0, exec_1.writeSuccess)(`Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`);
         }
         (0, exec_1.writeHeader)("Electron child-process environment check");
-        (0, env_1.invokeElectronChildEnvironmentContract)(electronExe, appDir, options.strictContract);
+        (0, env_1.invokeElectronChildEnvironmentContract)(directLaunchExe, appDir, options.strictContract);
         (0, exec_1.writeHeader)("Launching Codex");
-        (0, launch_1.startCodexDirectLaunch)(electronExe, appDir, userDataDir, cacheDir, cliResolution.path, buildNumber, buildFlavor, gitCapabilityCachePath);
+        (0, launch_1.startCodexDirectLaunch)(directLaunchExe, appDir, userDataDir, cacheDir, cliResolution.path, buildNumber, buildFlavor, gitCapabilityCachePath);
     }
     else {
         const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, false);
