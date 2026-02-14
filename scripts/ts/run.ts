@@ -89,6 +89,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   const pkgPath = path.join(appDir, "package.json");
   if (!fs.existsSync(pkgPath)) throw new Error("package.json not found.");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+    version?: string;
     devDependencies?: Record<string, string>;
     dependencies?: Record<string, string>;
     codexBuildNumber?: string;
@@ -100,6 +101,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   if (!electronVersion) throw new Error("Electron version not found.");
   const buildNumber = pkg.codexBuildNumber || "510";
   const buildFlavor = pkg.codexBuildFlavor || "prod";
+  const appVersion = pkg.version || buildNumber;
   const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
 
   const nativeSignature = getStepSignature({
@@ -146,7 +148,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     }
 
     writeHeader("Packaging portable app");
-    const portable = invokePortableBuild(
+    const portable = await invokePortableBuild(
       distDir,
       nativeDir,
       appDir,
@@ -154,6 +156,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       buildFlavor,
       cliResolution.path,
       effectiveProfile,
+      workDir,
+      appVersion,
     );
 
     writeSuccess(`Portable build ready: ${portable.outputDir}`);
@@ -163,7 +167,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     let singleExePath = "";
     if (options.buildSingleExe) {
       writeHeader("Packaging single EXE (SFX)");
-      const single = invokeSingleExeBuild(portable.outputDir, distDir, workDir);
+      const single = await invokeSingleExeBuild(portable.outputDir, distDir, workDir, appVersion);
       singleExePath = single.outputExe;
       writeSuccess(`Single-file EXE ready: ${singleExePath}`);
     }

@@ -13,6 +13,7 @@
 - 🧼 启动前自动清理 workspace registry 并剪枝失效路径
 - 🗃️ Git capability cache（缓存缺失 ref / 无效 cwd，减少重复 `rev-parse` 循环）
 - 🛡️ 运行时幂等守卫 + IPC 关闭监督器，进程退出更干净
+- 🎨 `Codex.exe` 品牌化（图标 + ProductName/FileDescription），避免快捷方式显示为 `Electron`
 - ✅ 从 donor/seed 工件校验原生模块（`better-sqlite3`、`node-pty`）
 - ⚡ 从 `work/` 目录直接运行 Codex（direct mode）
 - 📦 在 `dist/` 生成便携版
@@ -96,6 +97,10 @@ build.cmd -DmgPath .\Codex.dmg
 - `-DevProfile`
 - `-ProfileName dev`
 - `-PersistRipgrepPath`
+
+品牌化环境变量覆盖：
+- `CODEX_ICON_PATH`：自定义 `.ico` 路径
+- `CODEX_RCEDIT_PATH`：自定义 `rcedit.exe` 路径
 
 ## 📦 输出结构
 

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureDir, removePath, runCommand, writeInfo } from "./exec";
+import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "./branding";
 import { resolve7z } from "./extract";
 
 export interface SingleExeBuildResult {
@@ -51,7 +52,12 @@ function buildSfxConfigFile(tempDir: string): string {
   return configPath;
 }
 
-export function invokeSingleExeBuild(portableDir: string, distDir: string, workDir: string): SingleExeBuildResult {
+export async function invokeSingleExeBuild(
+  portableDir: string,
+  distDir: string,
+  workDir: string,
+  appVersion: string,
+): Promise<SingleExeBuildResult> {
   const sevenZipExe = resolve7z(workDir);
   const sfxModule = resolveSfxModule(sevenZipExe);
   if (!sfxModule) {
@@ -89,6 +95,18 @@ export function invokeSingleExeBuild(portableDir: string, distDir: string, workD
   if (!fs.existsSync(outputExe)) {
     throw new Error(`Failed to create single EXE at [${outputExe}]`);
   }
+
+  const iconPath = resolveDefaultCodexIconPath();
+  if (iconPath) {
+    copyCodexIconToOutput(iconPath, path.dirname(outputExe));
+  }
+  await applyExecutableBranding(outputExe, {
+    productName: "Codex",
+    fileDescription: "Codex Windows Portable",
+    appVersion,
+    iconPath,
+    workDir,
+  });
 
   return { outputExe };
 }

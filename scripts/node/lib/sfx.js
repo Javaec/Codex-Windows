@@ -37,6 +37,7 @@ exports.invokeSingleExeBuild = invokeSingleExeBuild;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
+const branding_1 = require("./branding");
 const extract_1 = require("./extract");
 function resolveSfxModule(sevenZipExe) {
     const candidates = [];
@@ -78,7 +79,7 @@ function buildSfxConfigFile(tempDir) {
     fs.writeFileSync(configPath, config, "utf8");
     return configPath;
 }
-function invokeSingleExeBuild(portableDir, distDir, workDir) {
+async function invokeSingleExeBuild(portableDir, distDir, workDir, appVersion) {
     const sevenZipExe = (0, extract_1.resolve7z)(workDir);
     const sfxModule = resolveSfxModule(sevenZipExe);
     if (!sfxModule) {
@@ -103,5 +104,16 @@ function invokeSingleExeBuild(portableDir, distDir, workDir) {
     if (!fs.existsSync(outputExe)) {
         throw new Error(`Failed to create single EXE at [${outputExe}]`);
     }
+    const iconPath = (0, branding_1.resolveDefaultCodexIconPath)();
+    if (iconPath) {
+        (0, branding_1.copyCodexIconToOutput)(iconPath, path.dirname(outputExe));
+    }
+    await (0, branding_1.applyExecutableBranding)(outputExe, {
+        productName: "Codex",
+        fileDescription: "Codex Windows Portable",
+        appVersion,
+        iconPath,
+        workDir,
+    });
     return { outputExe };
 }

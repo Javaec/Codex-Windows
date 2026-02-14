@@ -38,6 +38,7 @@ exports.invokePortableBuild = invokePortableBuild;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
+const branding_1 = require("./branding");
 const args_1 = require("./args");
 const launch_1 = require("./launch");
 function composePortablePath(basePath, outputDir) {
@@ -183,7 +184,7 @@ function startPortableDirectLaunch(outputDir, profileName) {
     const status = (0, exec_1.runCommand)(exePath, ["--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: outputDir, env, capture: false, allowNonZero: true }).status;
     return status;
 }
-function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavor, bundledCliPath, profileName) {
+async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
     const isDefault = profile === "default";
     const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
@@ -201,6 +202,23 @@ function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavo
     }
     else if (!(0, exec_1.fileExists)(dstExe)) {
         throw new Error("electron.exe not found in Electron dist.");
+    }
+    const codexIcon = (0, branding_1.resolveDefaultCodexIconPath)();
+    if (codexIcon) {
+        (0, branding_1.copyCodexIconToOutput)(codexIcon, outputDir);
+    }
+    else {
+        (0, exec_1.writeWarn)("codex.ico not found; app may keep default Electron icon.");
+    }
+    const branded = await (0, branding_1.applyExecutableBranding)(dstExe, {
+        productName: "Codex",
+        fileDescription: "Codex by OpenAI",
+        appVersion,
+        iconPath: codexIcon,
+        workDir,
+    });
+    if (!branded) {
+        (0, exec_1.writeWarn)("Executable branding skipped or failed; binary will keep default metadata.");
     }
     (0, exec_1.writeInfo)("Copying app files...");
     const resourcesDir = (0, exec_1.ensureDir)(path.join(outputDir, "resources"));

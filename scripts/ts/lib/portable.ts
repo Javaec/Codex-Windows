@@ -11,6 +11,7 @@ import {
   writeInfo,
   writeWarn,
 } from "./exec";
+import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "./branding";
 import { normalizeProfileName } from "./args";
 import { patchMainForWindowsEnvironment } from "./launch";
 
@@ -170,7 +171,7 @@ export function startPortableDirectLaunch(outputDir: string, profileName: string
   return status;
 }
 
-export function invokePortableBuild(
+export async function invokePortableBuild(
   distDir: string,
   nativeDir: string,
   appDir: string,
@@ -178,7 +179,9 @@ export function invokePortableBuild(
   buildFlavor: string,
   bundledCliPath: string | null,
   profileName: string,
-): PortableBuildResult {
+  workDir: string,
+  appVersion: string,
+): Promise<PortableBuildResult> {
   const profile = normalizeProfileName(profileName);
   const isDefault = profile === "default";
   const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
@@ -197,6 +200,24 @@ export function invokePortableBuild(
     movePathSafe(srcExe, dstExe);
   } else if (!fileExists(dstExe)) {
     throw new Error("electron.exe not found in Electron dist.");
+  }
+
+  const codexIcon = resolveDefaultCodexIconPath();
+  if (codexIcon) {
+    copyCodexIconToOutput(codexIcon, outputDir);
+  } else {
+    writeWarn("codex.ico not found; app may keep default Electron icon.");
+  }
+
+  const branded = await applyExecutableBranding(dstExe, {
+    productName: "Codex",
+    fileDescription: "Codex by OpenAI",
+    appVersion,
+    iconPath: codexIcon,
+    workDir,
+  });
+  if (!branded) {
+    writeWarn("Executable branding skipped or failed; binary will keep default metadata.");
   }
 
   writeInfo("Copying app files...");

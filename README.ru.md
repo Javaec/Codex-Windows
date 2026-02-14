@@ -13,6 +13,7 @@
 - 🧼 Авто-санитайзер workspace registry с auto-prune битых путей перед запуском
 - 🗃️ Git capability cache для missing refs/invalid CWD (меньше повторных `rev-parse` циклов)
 - 🛡️ Idempotent runtime guards + IPC shutdown supervisor для более чистого завершения
+- 🎨 Брендинг `Codex.exe` (иконка + ProductName/FileDescription), чтобы ярлыки не были `Electron`
 - ✅ Валидация native-модулей (`better-sqlite3`, `node-pty`) из donor/seed артефактов
 - ⚡ Запуск Codex напрямую из `work/` (direct mode)
 - 📦 Сборка portable-версии в `dist/`
@@ -96,6 +97,10 @@ build.cmd -DmgPath .\Codex.dmg
 - `-DevProfile`
 - `-ProfileName dev`
 - `-PersistRipgrepPath`
+
+Переменные для брендирования:
+- `CODEX_ICON_PATH` — путь к `.ico` (перекрывает встроенный `icons/codex.ico`)
+- `CODEX_RCEDIT_PATH` — путь к `rcedit.exe` (если нужен кастомный бинарь)
 
 ## 📦 Структура Выхода
 

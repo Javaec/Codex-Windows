@@ -106,6 +106,7 @@ async function runPipeline(options) {
         throw new Error("Electron version not found.");
     const buildNumber = pkg.codexBuildNumber || "510";
     const buildFlavor = pkg.codexBuildFlavor || "prod";
+    const appVersion = pkg.version || buildNumber;
     const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
     const nativeSignature = (0, manifest_1.getStepSignature)({
         dmgSha256: dmgDescriptor.sha256,
@@ -136,14 +137,14 @@ async function runPipeline(options) {
             (0, exec_1.writeWarn)("codex.exe not found; portable build will rely on runtime PATH detection.");
         }
         (0, exec_1.writeHeader)("Packaging portable app");
-        const portable = (0, portable_1.invokePortableBuild)(distDir, nativeDir, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile);
+        const portable = await (0, portable_1.invokePortableBuild)(distDir, nativeDir, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
         (0, exec_1.writeSuccess)(`Portable build ready: ${portable.outputDir}`);
         (0, exec_1.writeSuccess)(`Launcher: ${portable.launcherPath}`);
         (0, exec_1.writeSuccess)(`CLI trace: ${cliTracePath}`);
         let singleExePath = "";
         if (options.buildSingleExe) {
             (0, exec_1.writeHeader)("Packaging single EXE (SFX)");
-            const single = (0, sfx_1.invokeSingleExeBuild)(portable.outputDir, distDir, workDir);
+            const single = await (0, sfx_1.invokeSingleExeBuild)(portable.outputDir, distDir, workDir, appVersion);
             singleExePath = single.outputExe;
             (0, exec_1.writeSuccess)(`Single-file EXE ready: ${singleExePath}`);
         }
