@@ -1,60 +1,67 @@
-# 🚀 Codex-Windows (RU)
+# 🚀✨ Codex-Windows (RU)
 
 > [!IMPORTANT]
-> 🌐 **Переключение языков**: [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)
+> 🌍 **Переключение языков**: [🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | [🇨🇳 简体中文](README.zh-CN.md)
 
 > [!TIP]
-> 🧭 Windows-first пайплайн перепаковки Codex с **Node.js-ядром оркестрации** и **тонким PowerShell-адаптером**.
+> 🧭 Windows-first пайплайн перепаковки и запуска Codex с **Node.js-ядром оркестрации** и **тонким PowerShell entrypoint**.
 
-## ✨ Что Вы Получаете
+---
+
+## 🎯 Что Это За Проект
+
+`Codex-Windows` перепаковывает и запускает Codex Desktop на Windows через детерминированный pipeline:
 
 - 🧩 Извлечение `app.asar` из `Codex.dmg`
-- 🛠️ Применение Windows runtime-патчей (`PATH`, shell-инструменты, резолв CLI)
-- 🧼 Авто-санитайзер workspace registry с auto-prune битых путей перед запуском
-- 🗃️ Git capability cache для missing refs/invalid CWD (меньше повторных `rev-parse` циклов)
-- 🛡️ Idempotent runtime guards + IPC shutdown supervisor для более чистого завершения
-- 🎨 Брендинг `Codex.exe` (иконка + ProductName/FileDescription), чтобы ярлыки не были `Electron`
-  также применяется для direct-runtime (`work/native-builds/.../Codex.exe`)
-- ✅ Валидация native-модулей (`better-sqlite3`, `node-pty`) из donor/seed артефактов
-- ⚡ Запуск Codex напрямую из `work/` (direct mode)
-- 📦 Сборка portable-версии в `dist/`
-- 🧷 Опциональная сборка single EXE через 7-Zip SFX
+- 🛠️ Применение Windows runtime-патчей (PATH/env/process guards/резолв CLI)
+- 🔽 Инжект стабильного автоскролла чата при переключении тредов
+- 🧹 Санитизация workspace registry + git capability cache
+- 🧪 Проверка native-модулей (`better-sqlite3`, `node-pty`)
+- 📦 Сборка portable-выхода или single-file EXE
 
-## 🏗️ Архитектура (Коротко)
+---
+
+## 🧼 Политика Автоочистки (по mtime)
+
+В начале пайплайна очищаются старые данные в `%USERPROFILE%\.codex` (или `%CODEX_HOME%`) по **дате последнего изменения**:
+
+| Цель | Правило |
+|---|---|
+| `log/` | файлы старше **7 дней** |
+| `sessions/` | файлы старше **10 дней** |
+| `worktrees/` | корни старше **5 дней** (по максимальному mtime внутри дерева) |
+
+> [!NOTE]
+> ✅ Старые чаты/сессии сохраняются, если недавно изменялись.
+
+---
+
+## 🏗️ Архитектура Пайплайна
 
 ```text
 run.cmd / build.cmd
-  -> scripts/run.ps1          (тонкий входной адаптер)
-    -> scripts/node/run.js    (скомпилированный раннер)
-      -> scripts/ts/run.ts    (исходный оркестратор)
-        -> extract -> patch -> native validate -> package -> launch
+  -> scripts/run.ps1
+    -> scripts/node/run.js
+      -> scripts/ts/run.ts
 ```
 
-- 📁 Файловые операции (copy/move/delete) выполняются через Node `fs` с ретраями
-- 🚫 Минимум хрупких shell one-liner в pipeline
-- 📂 Распаковка `app.asar` делается нативным Node extractor (без `npm exec asar`)
-- 🧱 Разделение на Core pipeline + adapters (`scripts/ts/lib/adapters/*`) для переносимости в другие обвязки/игры
+> [!IMPORTANT]
+> `build.cmd` по умолчанию всегда запускается с `-NoLaunch` (только билд, без автозапуска приложения).
+
+---
 
 ## 🧰 Требования
 
 - 🪟 Windows 10/11
 - 🟢 Node.js
-- 🧠 Codex CLI: `npm i -g @openai/codex`
-- 🗜️ 7-Zip (`7z`) доступен в системе (PATH или через `winget`)
-- 🔎 `rg` (ripgrep) резолвится автоматически (PATH -> winget -> portable fallback)
+- 🤖 Codex CLI: `npm i -g @openai/codex`
+- 🗜️ 7-Zip (`7z`) для извлечения DMG и упаковки single EXE
 
 > [!NOTE]
 > - Для стандартного потока **не нужны** Python / Visual Studio Build Tools.
-> - Native rebuild через `node-gyp` по умолчанию отключен политикой этого репозитория.
+> - `scripts/ts/*` = исходники, `scripts/node/*` = runtime-артефакты после компиляции.
 
-## 📥 Подготовка DMG
-
-- Монитор версий: [codex-version-monitor.vercel.app](https://codex-version-monitor.vercel.app/)
-- Положите DMG сюда:
-
-```text
-C:\Codex-Windows\Codex.dmg
-```
+---
 
 ## ⚡ Быстрый Старт
 
@@ -64,114 +71,66 @@ C:\Codex-Windows\Codex.dmg
 npm i -g @openai/codex
 ```
 
-2. Запустите direct mode:
+2. Прямой запуск:
 
 ```cmd
-run.cmd
+run.cmd -DmgPath .\Codex.dmg
 ```
 
-3. Соберите portable-версию:
+3. Portable-сборка (без автозапуска):
 
 ```cmd
 build.cmd -DmgPath .\Codex.dmg
 ```
 
+---
+
 ## 🖥️ Шпаргалка Команд
 
 | Сценарий | Команда |
 |---|---|
-| Прямой запуск | `run.cmd` |
-| Прямой запуск с DMG | `run.cmd -DmgPath .\Codex.dmg` |
-| Сборка portable | `build.cmd -DmgPath .\Codex.dmg` |
-| Сборка single EXE | `build.cmd -DmgPath .\Codex.dmg -SingleExe` |
-| Node runner (run) | `node .\scripts\node\run.js run -DmgPath .\Codex.dmg` |
-| Node runner (build) | `node .\scripts\node\run.js build -DmgPath .\Codex.dmg` |
+| ▶️ Прямой запуск | `run.cmd` |
+| ⏸️ Прямой запуск без старта | `run.cmd -NoLaunch` |
+| 📦 Portable-сборка (по умолчанию без запуска) | `build.cmd -DmgPath .\Codex.dmg` |
+| 🧷 Portable + single EXE | `build.cmd -DmgPath .\Codex.dmg -SingleExe` |
+| 🧠 Node runner (режим run) | `node .\scripts\node\run.js run -DmgPath .\Codex.dmg` |
+| 🛠️ Node runner (режим build) | `node .\scripts\node\run.js build -DmgPath .\Codex.dmg -NoLaunch` |
+
+---
 
 ## 🎛️ Полезные Опции
 
-- `-WorkDir .\work`
-- `-DistDir .\dist`
-- `-Reuse`
-- `-NoLaunch`
-- `-CodexCliPath C:\path\to\codex.exe`
-- `-SingleExe`
-- `-DevProfile`
-- `-ProfileName dev`
-- `-PersistRipgrepPath`
+| Опция | Значение |
+|---|---|
+| `-WorkDir .\work` | свой рабочий каталог |
+| `-DistDir .\dist` | свой каталог выхода |
+| `-Reuse` | переиспользовать артефакты |
+| `-NoLaunch` | не запускать приложение |
+| `-CodexCliPath <path>` | явный путь к `codex.exe` |
+| `-SingleExe` | собрать self-extracting EXE |
+| `-DevProfile` | изолированный dev-профиль |
+| `-ProfileName <name>` | именованный профиль |
+| `-PersistRipgrepPath` | сохранить найденный путь к ripgrep |
+| `-StrictContract` | строгая проверка контракта среды |
 
-Переменные для брендирования:
-- `CODEX_ICON_PATH` — путь к `.ico` (перекрывает встроенный `icons/codex.ico`)
-- `CODEX_RCEDIT_PATH` — путь к `rcedit.exe` (если нужен кастомный бинарь)
+Переменные брендирования:
 
-## 📦 Структура Выхода
+- 🎨 `CODEX_ICON_PATH` - кастомный `.ico`
+- 🧱 `CODEX_RCEDIT_PATH` - кастомный `rcedit.exe`
 
-Portable:
+---
+
+## 📁 Выходные Артефакты
 
 ```text
 dist\Codex-win32-x64\Codex.exe
-dist\Codex-win32-x64\Launch-Codex.cmd   (рекомендуемая точка входа)
+dist\Codex-win32-x64\Launch-Codex.cmd
+dist\Codex-win32-x64-single.exe   (если указан -SingleExe)
 ```
 
-Single-file:
-
-```text
-dist\Codex-win32-x64-single.exe
-```
-
-## 🧪 Изоляция Профилей
-
-Используйте `-DevProfile` или `-ProfileName <name>`:
-
-- `work\userdata-<profile>`
-- `work\cache-<profile>`
-- `work\state.manifest.<profile>.json`
-- `work\diagnostics\<profile>\cli-resolution.log`
-
-## 🧯 Troubleshooting
-
-### 🔒 `rejected: blocked by policy`
-
-Это **ограничение среды Codex tool**, а не Windows PowerShell `ExecutionPolicy`.
-
-Рекомендации:
-
-- ✅ Использовать команды pipeline проекта (`run.cmd`, `build.cmd`)
-- ❌ Избегать вложенных one-liner (`pwsh -> cmd /c -> ...`)
-- 🧹 Для аварийной очистки в ограниченной среде:
-
-```cmd
-cmd /d /c "if exist ""C:\path\dir"" rd /s /q ""C:\path\dir"""
-```
-
-### 🧵 Ошибки экранирования/путей в ручных командах
-
-Небезопасный паттерн в PowerShell:
-
-```cmd
-cmd /c if not exist ... & if not exist ...
-```
-
-Безопасный паттерн:
-
-```cmd
-cmd /d /c "if not exist ""C:\A"" mkdir ""C:\A"" && if not exist ""C:\B"" mkdir ""C:\B"""
-```
-
-## ✅ Проверка Windows Контракта Внутри Codex
-
-```cmd
-cmd /c where node
-cmd /c where powershell
-cmd /c node -v
-cmd /c powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
-```
-
-## ❓ Почему Есть И `.ts`, И `.js`
-
-- `scripts/ts/*` -> исходники
-- `scripts/node/*` -> скомпилированные артефакты, используемые лаунчером/runtime
+---
 
 ## ⚠️ Дисклеймер
 
-- Это не официальный проект OpenAI.
+- Это **не** официальный проект OpenAI.
 - Не распространяйте бинарники OpenAI и `Codex.dmg`.
