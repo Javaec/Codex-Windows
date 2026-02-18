@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs, printUsage, normalizeProfileName } from "./lib/args";
+import { cleanupCodexState } from "./lib/codex-cleanup";
 import { ensureGitCapabilityCachePath } from "./lib/adapters/git-capability-cache";
 import { sanitizeWorkspaceRegistry } from "./lib/adapters/workspace-registry";
 import { prepareDirectLaunchExecutable } from "./lib/branding";
@@ -29,6 +30,12 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Promise<number> {
   ensureWindowsEnvironment();
   mustResolveCommand("node.exe");
+  writeHeader("Cleaning stale Codex data");
+  cleanupCodexState({
+    logMaxAgeDays: 7,
+    sessionMaxAgeDays: 10,
+    worktreeMaxAgeDays: 5,
+  });
 
   for (const key of [
     "npm_config_runtime",

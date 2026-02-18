@@ -69,7 +69,7 @@ function bundleCodexCliResources(resourcesDir: string, bundledCliPath: string): 
 function isBusyDirectoryError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = String((error as { code?: unknown }).code || "").toUpperCase();
-  return code === "EBUSY" || code === "EPERM";
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
 }
 
 function preparePortableOutputDir(distDir: string, outputName: string): string {
@@ -82,12 +82,28 @@ function preparePortableOutputDir(distDir: string, outputName: string): string {
     if (!isBusyDirectoryError(error)) throw error;
   }
 
-  const fallbackName = `${outputName}-next`;
-  const fallback = path.join(distDir, fallbackName);
-  removePath(fallback);
-  ensureDir(fallback);
-  writeWarn(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
-  return fallback;
+  const suffix = Date.now();
+  const fallbackCandidates = [
+    `${outputName}-next`,
+    `${outputName}-next-${suffix}`,
+    `${outputName}-next-${suffix}-1`,
+    `${outputName}-next-${suffix}-2`,
+  ];
+  for (const fallbackName of fallbackCandidates) {
+    const fallback = path.join(distDir, fallbackName);
+    try {
+      removePath(fallback);
+      ensureDir(fallback);
+      writeWarn(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
+      return fallback;
+    } catch (error) {
+      if (!isBusyDirectoryError(error)) throw error;
+    }
+  }
+
+  throw new Error(
+    `Portable output directory is locked and no fallback path could be prepared. Primary: ${primary}`,
+  );
 }
 
 function writePortableLauncher(outputDir: string, profileName: string): string {

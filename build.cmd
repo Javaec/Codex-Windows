@@ -21,7 +21,7 @@ if not defined PS_EXE (
   exit /b 1
 )
 
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable %*
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch %*
 exit /b %ERRORLEVEL%
 
 :usage

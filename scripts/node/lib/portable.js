@@ -95,7 +95,7 @@ function isBusyDirectoryError(error) {
     if (!error || typeof error !== "object")
         return false;
     const code = String(error.code || "").toUpperCase();
-    return code === "EBUSY" || code === "EPERM";
+    return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
 }
 function preparePortableOutputDir(distDir, outputName) {
     const primary = path.join(distDir, outputName);
@@ -108,12 +108,27 @@ function preparePortableOutputDir(distDir, outputName) {
         if (!isBusyDirectoryError(error))
             throw error;
     }
-    const fallbackName = `${outputName}-next`;
-    const fallback = path.join(distDir, fallbackName);
-    (0, exec_1.removePath)(fallback);
-    (0, exec_1.ensureDir)(fallback);
-    (0, exec_1.writeWarn)(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
-    return fallback;
+    const suffix = Date.now();
+    const fallbackCandidates = [
+        `${outputName}-next`,
+        `${outputName}-next-${suffix}`,
+        `${outputName}-next-${suffix}-1`,
+        `${outputName}-next-${suffix}-2`,
+    ];
+    for (const fallbackName of fallbackCandidates) {
+        const fallback = path.join(distDir, fallbackName);
+        try {
+            (0, exec_1.removePath)(fallback);
+            (0, exec_1.ensureDir)(fallback);
+            (0, exec_1.writeWarn)(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
+            return fallback;
+        }
+        catch (error) {
+            if (!isBusyDirectoryError(error))
+                throw error;
+        }
+    }
+    throw new Error(`Portable output directory is locked and no fallback path could be prepared. Primary: ${primary}`);
 }
 function writePortableLauncher(outputDir, profileName) {
     const profile = (0, args_1.normalizeProfileName)(profileName);

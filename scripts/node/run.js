@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const args_1 = require("./lib/args");
+const codex_cleanup_1 = require("./lib/codex-cleanup");
 const git_capability_cache_1 = require("./lib/adapters/git-capability-cache");
 const workspace_registry_1 = require("./lib/adapters/workspace-registry");
 const branding_1 = require("./lib/branding");
@@ -52,6 +53,12 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 async function runPipeline(options) {
     (0, env_1.ensureWindowsEnvironment)();
     (0, exec_1.mustResolveCommand)("node.exe");
+    (0, exec_1.writeHeader)("Cleaning stale Codex data");
+    (0, codex_cleanup_1.cleanupCodexState)({
+        logMaxAgeDays: 7,
+        sessionMaxAgeDays: 10,
+        worktreeMaxAgeDays: 5,
+    });
     for (const key of [
         "npm_config_runtime",
         "npm_config_target",
