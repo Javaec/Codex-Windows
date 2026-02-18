@@ -20,7 +20,13 @@ import {
   readStateManifest,
   writeStateManifest,
 } from "./lib/manifest";
-import { ensureGitOnPath, patchMainForWindowsEnvironment, patchPreload, startCodexDirectLaunch } from "./lib/launch";
+import {
+  ensureGitOnPath,
+  patchMainForWindowsEnvironment,
+  patchPreload,
+  patchWebviewAutoScroll,
+  startCodexDirectLaunch,
+} from "./lib/launch";
 import { invokeNativeStage } from "./lib/native";
 import { invokePortableBuild, startPortableDirectLaunch } from "./lib/portable";
 import { invokeSingleExeBuild } from "./lib/sfx";
@@ -92,6 +98,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
 
   writeHeader("Patching preload");
   patchPreload(appDir);
+  writeHeader("Patching webview auto-scroll");
+  patchWebviewAutoScroll(appDir);
 
   writeHeader("Reading app metadata");
   const pkgPath = path.join(appDir, "package.json");

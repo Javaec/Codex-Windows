@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureDir, fileExists, runCommand } from "./exec";
 
+const AUTOSCROLL_SCRIPT_FILE = "codex-windows-autoscroll.js";
+
 export function patchPreload(appDir: string): void {
   const preload = path.join(appDir, ".vite", "build", "preload.js");
   if (!fileExists(preload)) return;
@@ -16,6 +18,273 @@ export function patchPreload(appDir: string): void {
     raw = raw.replace(match[0], `${processExpose}${match[0]}`);
     fs.writeFileSync(preload, raw, "utf8");
   }
+}
+
+function buildWebviewAutoscrollScript(): string {
+  return String.raw`(() => {
+  if (window.__CODEX_WINDOWS_CHAT_AUTOSCROLL__) return;
+  window.__CODEX_WINDOWS_CHAT_AUTOSCROLL__ = true;
+
+  const BOTTOM_EPSILON = 80;
+  const SWITCH_SCROLL_DELAYS = [60, 220, 560];
+  const SIDEBAR_CLICK_MAX_X_RATIO = 0.35;
+  const SWITCH_MUTATION_NODE_THRESHOLD = 25;
+  const SWITCH_TRIGGER_COOLDOWN_MS = 120;
+  const SWITCH_ATTR_VALUE_TRUE = new Set(["true", "1", "active", "selected", "current", "open", "on"]);
+  const stickyState = new WeakMap();
+  let activeScroller = null;
+  let knownRoute = location.pathname + location.search + location.hash;
+  let lastSwitchTriggerAt = 0;
+
+  function isElement(node) {
+    return node instanceof HTMLElement;
+  }
+
+  function isScrollable(el) {
+    const style = window.getComputedStyle(el);
+    if (!style) return false;
+    const overflowY = style.overflowY;
+    if (overflowY !== "auto" && overflowY !== "scroll") return false;
+    return el.scrollHeight - el.clientHeight > 32;
+  }
+
+  function getCenterX(rect) {
+    return rect.left + rect.width * 0.5;
+  }
+
+  function isLikelySidebarElement(node) {
+    if (!isElement(node)) return false;
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    return getCenterX(rect) <= window.innerWidth * SIDEBAR_CLICK_MAX_X_RATIO;
+  }
+
+  function isNearBottom(el) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_EPSILON;
+  }
+
+  function markSticky(el) {
+    stickyState.set(el, isNearBottom(el));
+  }
+
+  function shouldStick(el) {
+    if (!stickyState.has(el)) {
+      stickyState.set(el, true);
+      return true;
+    }
+    return Boolean(stickyState.get(el));
+  }
+
+  function scrollToBottom(el) {
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function findScrollableAncestor(node) {
+    let current = node;
+    while (isElement(current) && current !== document.body) {
+      if (isScrollable(current)) return current;
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function findPrimaryScrollable() {
+    const all = document.querySelectorAll("*");
+    let best = null;
+    let bestScore = -1;
+    for (const node of all) {
+      if (!isElement(node)) continue;
+      if (!isScrollable(node)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.height < 120 || rect.width < 200) continue;
+      if (rect.width < window.innerWidth * 0.35) continue;
+      const overflow = node.scrollHeight - node.clientHeight;
+      const centerX = getCenterX(rect);
+      const leftPenalty = centerX < window.innerWidth * 0.3 ? 800 : 0;
+      const score = overflow + rect.height * 2 + rect.width - leftPenalty;
+      if (score > bestScore) {
+        best = node;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  function updateActiveScroller() {
+    const next = findPrimaryScrollable();
+    if (next === activeScroller) return false;
+    activeScroller = next;
+    if (activeScroller) stickyState.set(activeScroller, true);
+    return true;
+  }
+
+  function scrollNow(force) {
+    if (!updateActiveScroller()) {
+      if (!activeScroller) return;
+    }
+    if (!activeScroller) return;
+    if (!force && !shouldStick(activeScroller)) return;
+    window.requestAnimationFrame(() => {
+      if (!activeScroller) return;
+      scrollToBottom(activeScroller);
+    });
+  }
+
+  function scheduleForcedSwitchScroll(reason) {
+    const now = Date.now();
+    if (now - lastSwitchTriggerAt < SWITCH_TRIGGER_COOLDOWN_MS) return;
+    lastSwitchTriggerAt = now;
+    for (const delay of SWITCH_SCROLL_DELAYS) {
+      window.setTimeout(() => {
+        scrollNow(true);
+      }, delay);
+    }
+  }
+
+  function handleRoutePotentialChange() {
+    const current = location.pathname + location.search + location.hash;
+    if (current === knownRoute) return;
+    knownRoute = current;
+    scheduleForcedSwitchScroll("route-change");
+  }
+
+  function patchHistoryEvents() {
+    const rawPushState = history.pushState;
+    const rawReplaceState = history.replaceState;
+    history.pushState = function patchedPushState() {
+      const result = rawPushState.apply(this, arguments);
+      handleRoutePotentialChange();
+      return result;
+    };
+    history.replaceState = function patchedReplaceState() {
+      const result = rawReplaceState.apply(this, arguments);
+      handleRoutePotentialChange();
+      return result;
+    };
+  }
+
+  function autoscrollTargets(rawTargets) {
+    const unique = new Set();
+    for (const target of rawTargets) {
+      if (!isElement(target)) continue;
+      unique.add(target);
+    }
+    if (unique.size === 0) {
+      const fallback = findPrimaryScrollable();
+      if (fallback) unique.add(fallback);
+    }
+    for (const target of unique) {
+      if (!shouldStick(target)) continue;
+      window.requestAnimationFrame(() => {
+        scrollToBottom(target);
+      });
+    }
+  }
+
+  function handlePotentialSidebarClick(event) {
+    const target = event.target;
+    if (!isElement(target)) return;
+    const clickable = target.closest("button,a,[role='button'],[role='option'],li,div");
+    if (!clickable) return;
+    if (!isLikelySidebarElement(clickable)) return;
+    scheduleForcedSwitchScroll("sidebar-click");
+  }
+
+  function mutationMarksSidebarSwitch(mutation) {
+    if (mutation.type !== "attributes") return false;
+    const target = mutation.target;
+    if (!isElement(target)) return false;
+    if (!isLikelySidebarElement(target)) return false;
+    const attribute = mutation.attributeName || "";
+    if (!attribute) return false;
+    const value = String(target.getAttribute(attribute) || "").trim().toLowerCase();
+
+    if (attribute === "class") {
+      return /\b(active|selected|current)\b/.test(value);
+    }
+    return SWITCH_ATTR_VALUE_TRUE.has(value);
+  }
+
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      const target = event.target;
+      if (!isElement(target)) return;
+      if (!isScrollable(target)) return;
+      markSticky(target);
+    },
+    true,
+  );
+
+  const observer = new MutationObserver((mutations) => {
+    const targets = [];
+    let changedNodes = 0;
+    let sidebarSwitchHint = false;
+    for (const mutation of mutations) {
+      if (mutation.type === "childList") {
+        changedNodes += mutation.addedNodes.length + mutation.removedNodes.length;
+        if (!mutation.addedNodes || mutation.addedNodes.length === 0) continue;
+        for (const added of mutation.addedNodes) {
+          const base = isElement(added) ? added : mutation.target;
+          const scroller = findScrollableAncestor(base);
+          if (scroller) targets.push(scroller);
+        }
+      }
+      if (mutationMarksSidebarSwitch(mutation)) {
+        sidebarSwitchHint = true;
+      }
+    }
+    if (sidebarSwitchHint) scheduleForcedSwitchScroll("sidebar-selection-change");
+    const scrollerChanged = updateActiveScroller();
+    if (scrollerChanged) scheduleForcedSwitchScroll("active-scroller-changed");
+    if (changedNodes >= SWITCH_MUTATION_NODE_THRESHOLD) {
+      scheduleForcedSwitchScroll("heavy-dom-swap");
+    }
+    autoscrollTargets(targets);
+  });
+
+  function bootstrap() {
+    patchHistoryEvents();
+    updateActiveScroller();
+    scrollNow(true);
+    window.addEventListener("popstate", handleRoutePotentialChange, true);
+    window.addEventListener("hashchange", handleRoutePotentialChange, true);
+    document.addEventListener("click", handlePotentialSidebarClick, true);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-selected", "aria-current", "data-state", "data-active", "data-selected", "class"],
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootstrap, { once: true });
+  } else {
+    bootstrap();
+  }
+})();`;
+}
+
+export function patchWebviewAutoScroll(appDir: string): void {
+  const webviewDir = path.join(appDir, "webview");
+  const indexPath = path.join(webviewDir, "index.html");
+  if (!fileExists(indexPath)) return;
+
+  const assetsDir = ensureDir(path.join(webviewDir, "assets"));
+  const scriptPath = path.join(assetsDir, AUTOSCROLL_SCRIPT_FILE);
+  fs.writeFileSync(scriptPath, buildWebviewAutoscrollScript(), "utf8");
+
+  const tag = `<script defer src="./assets/${AUTOSCROLL_SCRIPT_FILE}"></script>`;
+  let html = fs.readFileSync(indexPath, "utf8");
+  if (html.includes(tag)) return;
+
+  if (html.includes("</head>")) {
+    html = html.replace("</head>", `    ${tag}\n</head>`);
+  } else {
+    html = `${html}\n${tag}\n`;
+  }
+  fs.writeFileSync(indexPath, html, "utf8");
 }
 
 function escapeJsString(value: string): string {
@@ -781,4 +1050,3 @@ export function startCodexDirectLaunch(
     throw new Error(`Codex process exited with code ${result.status}.`);
   }
 }
-

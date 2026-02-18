@@ -102,6 +102,8 @@ async function runPipeline(options) {
     const gitCapabilityCachePath = (0, git_capability_cache_1.ensureGitCapabilityCachePath)(workDir, effectiveProfile);
     (0, exec_1.writeHeader)("Patching preload");
     (0, launch_1.patchPreload)(appDir);
+    (0, exec_1.writeHeader)("Patching webview auto-scroll");
+    (0, launch_1.patchWebviewAutoScroll)(appDir);
     (0, exec_1.writeHeader)("Reading app metadata");
     const pkgPath = path.join(appDir, "package.json");
     if (!fs.existsSync(pkgPath))
