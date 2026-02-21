@@ -462,6 +462,7 @@ function parseArgs(argv) {
         noClean: false,
         runtimeProbe: false,
         runtimeProbeMs: 45000,
+        runtimeRpcNoiseMode: "soft",
         electronExe: "",
         maxPrettyBytes: 12 * 1024 * 1024,
         top: 200,
@@ -515,6 +516,14 @@ function parseArgs(argv) {
                 options.runtimeProbeMs = Math.floor(ms);
                 break;
             }
+            case "runtimerpcnoisemode": {
+                const mode = readValue().toLowerCase();
+                if (mode !== "strict" && mode !== "soft") {
+                    throw new Error("-RuntimeRpcNoiseMode must be strict or soft.");
+                }
+                options.runtimeRpcNoiseMode = mode;
+                break;
+            }
             case "electronexe":
                 options.electronExe = path.resolve(readValue());
                 break;
@@ -554,6 +563,7 @@ function printUsage() {
     process.stdout.write("  -NoClean              Do not delete existing output directory\n");
     process.stdout.write("  -RuntimeProbe         Launch app via Electron with isolated user-data sandbox probe\n");
     process.stdout.write("  -RuntimeProbeMs <num> Probe duration in ms (default: 45000)\n");
+    process.stdout.write("  -RuntimeRpcNoiseMode <strict|soft> Runtime RPC noise filter mode (default: soft)\n");
     process.stdout.write("  -ElectronExe <path>   Explicit Electron executable path for probe\n");
     process.stdout.write("  -MaxPrettyMb <num>    Max JS file size for pretty pass (default: 12)\n");
     process.stdout.write("  -Top <num>            Top-N rows in markdown report sections (default: 200)\n");
@@ -2291,13 +2301,27 @@ function extractPayloadKeysFromRuntimeLine(line) {
     }
     return keys;
 }
-function extractRuntimeRpcSignals(runtimeProbe) {
+function isRuntimeMethodStrongContext(input) {
+    const normalizedLine = input.line.toLowerCase();
+    if (input.knownRuntimeMethods.has(input.method))
+        return true;
+    if (/["'`]method["'`]\s*:/.test(input.line))
+        return true;
+    if (input.linePayloadKeys.size >= 2 && RUNTIME_PAYLOAD_CONTEXT_HINT.test(input.line))
+        return true;
+    if (input.lineClass === "logic" && /\brpc\b|\binvoke\b|\brequest\b|\bresponse\b|\bevent\b/.test(normalizedLine)) {
+        return true;
+    }
+    return false;
+}
+function extractRuntimeRpcSignals(input) {
     const methodCounts = new Map();
     const methodPayloadKeys = new Map();
     const methodEnvelopes = new Map();
-    const candidateLines = runtimeProbe.capturedLines.length > 0
-        ? runtimeProbe.capturedLines
-        : [...runtimeProbe.warnings, ...runtimeProbe.errors];
+    const softRecoveredMethods = new Set();
+    const candidateLines = input.runtimeProbe.capturedLines.length > 0
+        ? input.runtimeProbe.capturedLines
+        : [...input.runtimeProbe.warnings, ...input.runtimeProbe.errors];
     for (const line of candidateLines) {
         const lineClass = classifyProbeLine(line);
         const lineLooksRpcish = /["'`]method["'`]\s*:|\/(thread|turn|conversation|session|chat|account|config|mcpServer|skills)\//i.test(line) ||
@@ -2313,8 +2337,21 @@ function extractRuntimeRpcSignals(runtimeProbe) {
         for (const method of methods) {
             if (!looksLikeRpcMethod(method))
                 continue;
-            if (isRuntimeMethodLikelyNoise(method, line))
-                continue;
+            const noisy = isRuntimeMethodLikelyNoise(method, line);
+            if (noisy) {
+                if (input.noiseMode !== "soft")
+                    continue;
+                if (!isRuntimeMethodStrongContext({
+                    method,
+                    line,
+                    lineClass,
+                    linePayloadKeys,
+                    knownRuntimeMethods: input.knownRuntimeMethods,
+                })) {
+                    continue;
+                }
+                softRecoveredMethods.add(method);
+            }
             methodCounts.set(method, (methodCounts.get(method) ?? 0) + 1);
             for (const key of linePayloadKeys) {
                 addMapSetEntry(methodPayloadKeys, method, key);
@@ -2329,6 +2366,7 @@ function extractRuntimeRpcSignals(runtimeProbe) {
         methodCounts,
         methodPayloadKeys,
         methodEnvelopes,
+        softRecoveredMethods,
     };
 }
 function buildRpcSchemaStaticSignals(input) {
@@ -2423,7 +2461,18 @@ function buildRpcSchemaReport(input) {
         jsFiles: input.jsFiles,
         sourceByFile: input.sourceByFile,
     });
-    const runtimeSignals = extractRuntimeRpcSignals(input.runtimeProbe);
+    const knownRuntimeMethods = new Set();
+    for (const row of input.methodRows) {
+        knownRuntimeMethods.add(row.value);
+    }
+    for (const method of input.binary?.rpcLikeMethods ?? []) {
+        knownRuntimeMethods.add(method);
+    }
+    const runtimeSignals = extractRuntimeRpcSignals({
+        runtimeProbe: input.runtimeProbe,
+        noiseMode: input.runtimeRpcNoiseMode,
+        knownRuntimeMethods,
+    });
     const statusCounts = buildValueCountMap(input.statusRows);
     const statusesByFile = buildFileValueMap(input.statusRows);
     const binaryMethods = new Set(input.binary?.rpcLikeMethods ?? []);
@@ -2537,7 +2586,7 @@ function buildRpcSchemaReport(input) {
     });
     return {
         generatedAtUtc: new Date().toISOString(),
-        strategy: "Unified RPC schema from bundle index + binary strings + runtime logs + AST renderer callsites, with inferred payload keys and envelope kinds.",
+        strategy: `Unified RPC schema from bundle index + binary strings + runtime logs + AST renderer callsites, with inferred payload keys and envelope kinds (runtime noise mode=${input.runtimeRpcNoiseMode}).`,
         methods,
         coverage: {
             methods: methods.length,
@@ -2556,6 +2605,8 @@ function buildRpcSchemaReport(input) {
             used: input.runtimeProbe.attempted,
             linesScanned: runtimeSignals.linesScanned,
             methodsDetected: runtimeSignals.methodCounts.size,
+            noiseMode: input.runtimeRpcNoiseMode,
+            softRecoveredMethods: runtimeSignals.softRecoveredMethods.size,
         },
     };
 }
@@ -4561,6 +4612,8 @@ ${input.ipcContractMap.orphanSignals.missingRendererSubscriptions.slice(0, Math.
 - envelope request methods: ${input.rpcSchema.envelopes.request}
 - envelope response methods: ${input.rpcSchema.envelopes.response}
 - envelope event methods: ${input.rpcSchema.envelopes.event}
+- runtime noise mode: ${input.rpcSchema.runtimeProbe.noiseMode}
+- soft-recovered runtime methods: ${input.rpcSchema.runtimeProbe.softRecoveredMethods}
 - runtime lines scanned for schema: ${input.rpcSchema.runtimeProbe.linesScanned}
 - top rpc schema methods:
 ${input.rpcSchema.methods.slice(0, Math.min(top, 16)).map((row) => `- \`${row.method}\` (confidence=${row.confidence}, payload=${row.payloadKeys.length}, envelopes=${row.envelopes.join("|") || "none"})`).join("\n") || "- _none_"}
@@ -4887,6 +4940,7 @@ async function runReverse(options) {
         statusRows,
         binary: binaryResult,
         runtimeProbe: runtimeProbeResult,
+        runtimeRpcNoiseMode: options.runtimeRpcNoiseMode,
         jsFiles,
         sourceByFile,
     });
@@ -4932,6 +4986,7 @@ async function runReverse(options) {
         cssFiles: cssFiles.length,
         htmlFiles: htmlFiles.length,
         importsNodes: importsGraph.size,
+        runtimeRpcNoiseMode: options.runtimeRpcNoiseMode,
         decompile: {
             noPretty: options.noPretty,
             maxPrettyBytes: options.maxPrettyBytes,
@@ -4948,6 +5003,7 @@ async function runReverse(options) {
             rpcSchemaFromRuntime: rpcSchema.coverage.fromRuntime,
             rpcSchemaWithPayload: rpcSchema.coverage.withPayloadKeys,
             rpcSchemaWithRendererCallsites: rpcSchema.coverage.withRendererCallsites,
+            rpcSchemaRuntimeSoftRecoveredMethods: rpcSchema.runtimeProbe.softRecoveredMethods,
             rpcEnvelopeRequestMethods: rpcSchema.envelopes.request,
             rpcEnvelopeResponseMethods: rpcSchema.envelopes.response,
             rpcEnvelopeEventMethods: rpcSchema.envelopes.event,
