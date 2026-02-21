@@ -5,7 +5,8 @@
   "scripts": {
     "build:runner": "tsc -p tsconfig.json",
     "runner": "node scripts/node/run.js",
-    "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse"
+    "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse",
+    "reverse:codex-app": "node scripts/node/reverse.js"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",
