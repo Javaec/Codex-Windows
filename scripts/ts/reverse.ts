@@ -196,6 +196,13 @@ interface IpcWrapperLookup {
   byMethod: Map<string, IpcWrapperSpec[]>;
 }
 
+interface IpcWrapperModuleFileIndex {
+  file: string;
+  wrapperSpecs: Map<string, IpcWrapperSpec>;
+  ipcObjectAliases: Set<string>;
+  exportedWrappers: Map<string, IpcWrapperSpec>;
+}
+
 interface IpcUsage {
   file: string;
   layer: string;
@@ -1064,19 +1071,79 @@ function getPropertyNameText(name: ts.PropertyName): string | null {
   return null;
 }
 
-function getExpressionName(expression: ts.Expression): string | null {
-  if (ts.isIdentifier(expression)) return expression.text;
-  if (ts.isPropertyAccessExpression(expression)) {
-    const left = getExpressionName(expression.expression);
-    return left ? `${left}.${expression.name.text}` : expression.name.text;
+function unwrapExpressionWrappers(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  for (;;) {
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isAsExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isTypeAssertionExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isNonNullExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return current;
   }
-  if (ts.isElementAccessExpression(expression)) {
-    const left = getExpressionName(expression.expression);
+}
+
+function isRequireCall(expression: ts.Expression): boolean {
+  return (
+    ts.isCallExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "require" &&
+    expression.arguments.length >= 1 &&
+    ts.isStringLiteralLike(expression.arguments[0])
+  );
+}
+
+function isRequireElectronCall(expression: ts.Expression): boolean {
+  if (!ts.isCallExpression(expression)) return false;
+  if (!isRequireCall(expression)) return false;
+  const arg = expression.arguments[0];
+  return ts.isStringLiteralLike(arg) && arg.text === "electron";
+}
+
+function getExpressionName(expression: ts.Expression): string | null {
+  const normalized = unwrapExpressionWrappers(expression);
+
+  if (ts.isIdentifier(normalized)) return normalized.text;
+  if (ts.isBinaryExpression(normalized) && normalized.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    return getExpressionName(normalized.right);
+  }
+  if (ts.isPropertyAccessExpression(normalized)) {
+    const left = getExpressionName(normalized.expression);
+    if (left) return `${left}.${normalized.name.text}`;
+    if (isRequireElectronCall(unwrapExpressionWrappers(normalized.expression))) {
+      return `electron.${normalized.name.text}`;
+    }
+    return normalized.name.text;
+  }
+  if (ts.isElementAccessExpression(normalized)) {
+    const left = getExpressionName(normalized.expression);
     if (!left) return null;
-    if (ts.isStringLiteral(expression.argumentExpression)) {
-      return `${left}[${expression.argumentExpression.text}]`;
+    const argument = unwrapExpressionWrappers(normalized.argumentExpression);
+    if (ts.isStringLiteral(argument)) {
+      return `${left}[${argument.text}]`;
+    }
+    if (ts.isIdentifier(argument)) {
+      return `${left}[${argument.text}]`;
     }
     return left;
+  }
+  if (ts.isCallExpression(normalized) && isRequireElectronCall(normalized)) {
+    return "electron";
   }
   return null;
 }
@@ -2420,11 +2487,24 @@ function isCallNameBoundToIpcObject(callName: string, ipcObjectAliases: Set<stri
 }
 
 function extractAliasExpressionName(expression: ts.Expression): string {
-  if (ts.isParenthesizedExpression(expression)) {
-    return extractAliasExpressionName(expression.expression);
+  const normalized = unwrapExpressionWrappers(expression);
+  if (ts.isBinaryExpression(normalized) && normalized.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    return extractAliasExpressionName(normalized.right);
   }
-  if (ts.isIdentifier(expression) || ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
-    return getExpressionName(expression) ?? "";
+  if (
+    ts.isIdentifier(normalized) ||
+    ts.isPropertyAccessExpression(normalized) ||
+    ts.isElementAccessExpression(normalized)
+  ) {
+    return getExpressionName(normalized) ?? "";
+  }
+  if (ts.isCallExpression(normalized) && ts.isPropertyAccessExpression(normalized.expression)) {
+    if (normalized.expression.name.text === "bind") {
+      return extractAliasExpressionName(normalized.expression.expression);
+    }
+  }
+  if (ts.isCallExpression(normalized) && isRequireElectronCall(normalized)) {
+    return "electron";
   }
   return "";
 }
@@ -2435,20 +2515,55 @@ function isSimpleIdentifierName(name: string): boolean {
 
 function buildIpcObjectAliasSet(sourceFile: ts.SourceFile): Set<string> {
   const aliases = new Set<string>(["ipcRenderer", "ipcMain"]);
+  const electronModuleAliases = new Set<string>(["electron"]);
   for (let pass = 0; pass < 4; pass += 1) {
     let changed = false;
     const visit = (node: ts.Node): void => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        const aliasName = node.name.text;
-        const initializerName = extractAliasExpressionName(node.initializer);
-        if (!initializerName) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-        if (aliases.has(initializerName) || isExplicitIpcObjectName(initializerName)) {
-          if (isSimpleIdentifierName(aliasName) && !aliases.has(aliasName)) {
-            aliases.add(aliasName);
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        const initializer = unwrapExpressionWrappers(node.initializer);
+        if (ts.isIdentifier(node.name)) {
+          const aliasName = node.name.text;
+          if (isRequireElectronCall(initializer) && !electronModuleAliases.has(aliasName)) {
+            electronModuleAliases.add(aliasName);
             changed = true;
+          }
+          const initializerName = extractAliasExpressionName(initializer);
+          if (initializerName && (aliases.has(initializerName) || isExplicitIpcObjectName(initializerName))) {
+            if (isSimpleIdentifierName(aliasName) && !aliases.has(aliasName)) {
+              aliases.add(aliasName);
+              changed = true;
+            }
+          }
+        } else if (ts.isObjectBindingPattern(node.name)) {
+          const initializerName = extractAliasExpressionName(initializer);
+          const fromElectronNamespace =
+            initializerName.length > 0 &&
+            (electronModuleAliases.has(initializerName) || initializerName === "electron");
+          for (const element of node.name.elements) {
+            if (element.dotDotDotToken) continue;
+            if (!ts.isIdentifier(element.name)) continue;
+            const localAlias = element.name.text;
+            const importedName =
+              element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.propertyName && ts.isStringLiteralLike(element.propertyName)
+                  ? element.propertyName.text
+                  : localAlias;
+            if (!importedName) continue;
+
+            const isIpcField = importedName === "ipcRenderer" || importedName === "ipcMain";
+            const sourceCallName =
+              initializerName && importedName ? `${initializerName}.${importedName}` : importedName;
+            if (
+              (isIpcField && (fromElectronNamespace || isRequireElectronCall(initializer))) ||
+              aliases.has(sourceCallName) ||
+              isExplicitIpcObjectName(sourceCallName)
+            ) {
+              if (!aliases.has(localAlias)) {
+                aliases.add(localAlias);
+                changed = true;
+              }
+            }
           }
         }
       }
@@ -2467,6 +2582,10 @@ function buildIpcObjectAliasSet(sourceFile: ts.SourceFile): Set<string> {
         if (!rightName) {
           ts.forEachChild(node, visit);
           return;
+        }
+        if (rightName === "electron" && isSimpleIdentifierName(leftName) && !electronModuleAliases.has(leftName)) {
+          electronModuleAliases.add(leftName);
+          changed = true;
         }
         if (aliases.has(rightName) || isExplicitIpcObjectName(rightName)) {
           if (isSimpleIdentifierName(leftName) && !aliases.has(leftName)) {
@@ -2972,6 +3091,222 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
   };
 }
 
+function hasExportModifier(node: { modifiers?: ts.NodeArray<ts.ModifierLike> }): boolean {
+  const modifiers = node.modifiers ?? [];
+  return modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+function resolveWrapperSpecByName(
+  localWrapperSpecs: Map<string, IpcWrapperSpec>,
+  name: string,
+): IpcWrapperSpec | null {
+  if (!name) return null;
+  const direct = localWrapperSpecs.get(name);
+  if (direct) return direct;
+  const normalized = normalizeWrapperLookupName(name);
+  if (!normalized) return null;
+  return localWrapperSpecs.get(normalized) ?? null;
+}
+
+function collectExportedWrapperSpecs(
+  sourceFile: ts.SourceFile,
+  localWrapperSpecs: Map<string, IpcWrapperSpec>,
+): Map<string, IpcWrapperSpec> {
+  const exported = new Map<string, IpcWrapperSpec>();
+
+  const registerExport = (exportName: string, localName: string): void => {
+    if (!exportName || !localName) return;
+    const localSpec = resolveWrapperSpecByName(localWrapperSpecs, localName);
+    if (!localSpec) return;
+    const exportSpec = cloneIpcSpecWithCallName(localSpec, exportName, "alias");
+    registerIpcWrapperSpec(exported, exportSpec);
+  };
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && hasExportModifier(statement)) {
+      registerExport(statement.name.text, statement.name.text);
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement) && hasExportModifier(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue;
+        registerExport(declaration.name.text, declaration.name.text);
+      }
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement) && !statement.moduleSpecifier && statement.exportClause) {
+      if (ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          const localName = element.propertyName ? element.propertyName.text : element.name.text;
+          registerExport(element.name.text, localName);
+        }
+      }
+      continue;
+    }
+
+    if (ts.isExportAssignment(statement)) {
+      const localName = getExpressionName(statement.expression);
+      if (localName) registerExport("default", localName);
+      continue;
+    }
+
+    if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) continue;
+    const assignment = statement.expression;
+    if (assignment.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+    const leftName = getExpressionName(assignment.left);
+    if (!leftName) continue;
+
+    const directMatch = /^(?:module\.)?exports\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(leftName);
+    if (directMatch) {
+      const localName = getExpressionName(assignment.right);
+      if (localName) registerExport(directMatch[1], localName);
+      continue;
+    }
+
+    if (leftName === "module.exports" && ts.isObjectLiteralExpression(assignment.right)) {
+      for (const property of assignment.right.properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+          registerExport(property.name.text, property.name.text);
+          continue;
+        }
+        if (!ts.isPropertyAssignment(property)) continue;
+        const exportName = getPropertyNameText(property.name);
+        if (!exportName) continue;
+        const localName = getExpressionName(property.initializer);
+        if (!localName) continue;
+        registerExport(exportName, localName);
+      }
+    }
+  }
+
+  return exported;
+}
+
+function buildIpcWrapperModuleIndex(input: {
+  jsFiles: FileRecord[];
+  sourceByFile: Map<string, string>;
+}): Map<string, IpcWrapperModuleFileIndex> {
+  const indexByFile = new Map<string, IpcWrapperModuleFileIndex>();
+
+  for (const file of input.jsFiles) {
+    const relPath = file.relPath;
+    if (!isCandidateBoundaryFile(relPath) && !isLikelyCoreAppFile(relPath)) continue;
+    const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
+    try {
+      const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const wrapperIndex = buildIpcWrapperMap(sourceFile);
+      const exportedWrappers = collectExportedWrapperSpecs(sourceFile, wrapperIndex.wrapperSpecs);
+      indexByFile.set(relPath, {
+        file: relPath,
+        wrapperSpecs: wrapperIndex.wrapperSpecs,
+        ipcObjectAliases: wrapperIndex.ipcObjectAliases,
+        exportedWrappers,
+      });
+    } catch {
+      // Best effort only.
+    }
+  }
+
+  return indexByFile;
+}
+
+function buildImportedWrapperAliasMap(input: {
+  sourceFile: ts.SourceFile;
+  fileAbsPath: string;
+  knownJsAbsPaths: Set<string>;
+  relPathByAbs: Map<string, string>;
+  moduleIndexByFile: Map<string, IpcWrapperModuleFileIndex>;
+}): Map<string, IpcWrapperSpec> {
+  const aliases = new Map<string, IpcWrapperSpec>();
+
+  const resolveExportedSpecs = (moduleSpecifier: string): Map<string, IpcWrapperSpec> | null => {
+    const resolvedAbs = resolveLocalImport(input.fileAbsPath, moduleSpecifier, input.knownJsAbsPaths);
+    if (!resolvedAbs) return null;
+    const resolvedRel = input.relPathByAbs.get(resolvedAbs);
+    if (!resolvedRel) return null;
+    return input.moduleIndexByFile.get(resolvedRel)?.exportedWrappers ?? null;
+  };
+
+  const registerImported = (
+    aliasName: string,
+    exportName: string,
+    exportedSpecs: Map<string, IpcWrapperSpec>,
+  ): void => {
+    const spec = exportedSpecs.get(exportName);
+    if (!spec) return;
+    const aliasSpec = cloneIpcSpecWithCallName(spec, aliasName, "alias");
+    registerIpcWrapperSpec(aliases, aliasSpec);
+  };
+
+  for (const statement of input.sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && statement.importClause && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      const exportedSpecs = resolveExportedSpecs(statement.moduleSpecifier.text);
+      if (!exportedSpecs || exportedSpecs.size === 0) continue;
+      const importClause = statement.importClause;
+      if (importClause.name) {
+        registerImported(importClause.name.text, "default", exportedSpecs);
+      }
+      const bindings = importClause.namedBindings;
+      if (!bindings) continue;
+      if (ts.isNamespaceImport(bindings)) {
+        const namespaceName = bindings.name.text;
+        for (const [exportName, spec] of exportedSpecs.entries()) {
+          if (exportName === "default") continue;
+          const aliasSpec = cloneIpcSpecWithCallName(spec, `${namespaceName}.${exportName}`, "alias");
+          registerIpcWrapperSpec(aliases, aliasSpec);
+        }
+        continue;
+      }
+      if (ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          const exportName = element.propertyName ? element.propertyName.text : element.name.text;
+          registerImported(element.name.text, exportName, exportedSpecs);
+        }
+      }
+      continue;
+    }
+
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!declaration.initializer) continue;
+      const initializer = unwrapExpressionWrappers(declaration.initializer);
+      if (!ts.isCallExpression(initializer) || !isRequireCall(initializer)) continue;
+      const requireArg = initializer.arguments[0];
+      if (!ts.isStringLiteralLike(requireArg)) continue;
+      const exportedSpecs = resolveExportedSpecs(requireArg.text);
+      if (!exportedSpecs || exportedSpecs.size === 0) continue;
+
+      if (ts.isIdentifier(declaration.name)) {
+        const namespaceName = declaration.name.text;
+        registerImported(namespaceName, "default", exportedSpecs);
+        for (const [exportName, spec] of exportedSpecs.entries()) {
+          if (exportName === "default") continue;
+          const aliasSpec = cloneIpcSpecWithCallName(spec, `${namespaceName}.${exportName}`, "alias");
+          registerIpcWrapperSpec(aliases, aliasSpec);
+        }
+        continue;
+      }
+
+      if (!ts.isObjectBindingPattern(declaration.name)) continue;
+      for (const element of declaration.name.elements) {
+        if (element.dotDotDotToken) continue;
+        if (!ts.isIdentifier(element.name)) continue;
+        const exportName =
+          element.propertyName && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : element.propertyName && ts.isStringLiteralLike(element.propertyName)
+              ? element.propertyName.text
+              : element.name.text;
+        registerImported(element.name.text, exportName, exportedSpecs);
+      }
+    }
+  }
+
+  return aliases;
+}
+
 function normalizeWrapperLookupName(callName: string): string {
   const normalized = callName
     .replace(/\["([^"]+)"\]/g, ".$1")
@@ -2985,6 +3320,7 @@ function normalizeWrapperLookupName(callName: string): string {
 function buildGlobalIpcWrapperLookup(input: {
   jsFiles: FileRecord[];
   sourceByFile: Map<string, string>;
+  moduleIndexByFile?: Map<string, IpcWrapperModuleFileIndex>;
 }): IpcWrapperLookup {
   const byName = new Map<string, IpcWrapperSpec>();
   const byMethod = new Map<string, IpcWrapperSpec[]>();
@@ -2992,11 +3328,25 @@ function buildGlobalIpcWrapperLookup(input: {
   for (const file of input.jsFiles) {
     const relPath = file.relPath;
     if (!isCandidateBoundaryFile(relPath) && !isLikelyCoreAppFile(relPath)) continue;
+    const indexedModule = input.moduleIndexByFile?.get(relPath);
+    if (indexedModule) {
+      for (const spec of indexedModule.wrapperSpecs.values()) {
+        registerIpcWrapperSpec(byName, spec);
+      }
+      for (const spec of indexedModule.exportedWrappers.values()) {
+        registerIpcWrapperSpec(byName, spec);
+      }
+      continue;
+    }
     const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
     try {
       const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       const wrapperIndex = buildIpcWrapperMap(sourceFile);
       for (const spec of wrapperIndex.wrapperSpecs.values()) {
+        registerIpcWrapperSpec(byName, spec);
+      }
+      const exportedWrappers = collectExportedWrapperSpecs(sourceFile, wrapperIndex.wrapperSpecs);
+      for (const spec of exportedWrappers.values()) {
         registerIpcWrapperSpec(byName, spec);
       }
     } catch {
@@ -3081,10 +3431,18 @@ function buildIpcContractMap(input: {
   sourceByFile: Map<string, string>;
 }): IpcContractMapReport {
   const usages: IpcUsage[] = [];
+  const moduleIndexByFile = buildIpcWrapperModuleIndex(input);
+  const knownJsAbsPaths = new Set(input.jsFiles.map((file) => file.absPath));
+  const relPathByAbs = new Map<string, string>();
+  for (const file of input.jsFiles) relPathByAbs.set(file.absPath, file.relPath);
   let filesWithWrappers = 0;
   let wrappersDiscovered = 0;
   let wrapperInvocationsResolved = 0;
-  const globalWrapperLookup = buildGlobalIpcWrapperLookup(input);
+  const globalWrapperLookup = buildGlobalIpcWrapperLookup({
+    jsFiles: input.jsFiles,
+    sourceByFile: input.sourceByFile,
+    moduleIndexByFile,
+  });
   const globalWrappersDiscovered = Array.from(globalWrapperLookup.byName.values()).filter(
     (spec) => spec.source === "wrapper",
   ).length;
@@ -3104,10 +3462,24 @@ function buildIpcContractMap(input: {
       const decodeWrappers = layer === "renderer" || layer === "renderer-worker" || layer === "preload";
       let ipcObjectAliases = buildIpcObjectAliasSet(sourceFile);
       let wrapperSpecs = new Map<string, IpcWrapperSpec>();
+      let importedWrapperSpecs = new Map<string, IpcWrapperSpec>();
       if (decodeWrappers) {
-        const wrapperIndex = buildIpcWrapperMap(sourceFile);
-        ipcObjectAliases = wrapperIndex.ipcObjectAliases;
-        wrapperSpecs = wrapperIndex.wrapperSpecs;
+        const indexedModule = moduleIndexByFile.get(relPath);
+        if (indexedModule) {
+          ipcObjectAliases = indexedModule.ipcObjectAliases;
+          wrapperSpecs = indexedModule.wrapperSpecs;
+        } else {
+          const wrapperIndex = buildIpcWrapperMap(sourceFile);
+          ipcObjectAliases = wrapperIndex.ipcObjectAliases;
+          wrapperSpecs = wrapperIndex.wrapperSpecs;
+        }
+        importedWrapperSpecs = buildImportedWrapperAliasMap({
+          sourceFile,
+          fileAbsPath: file.absPath,
+          knownJsAbsPaths,
+          relPathByAbs,
+          moduleIndexByFile,
+        });
       }
       if (decodeWrappers && wrapperSpecs.size > 0) {
         filesWithWrappers += 1;
@@ -3122,6 +3494,7 @@ function buildIpcContractMap(input: {
           }
           const callSpec =
             wrapperSpecs.get(callName) ??
+            importedWrapperSpecs.get(callName) ??
             buildDirectIpcSpecFromCallName(callName, ipcObjectAliases) ??
             resolveGlobalIpcWrapperSpec(callName, globalWrapperLookup);
           if (!callSpec) {
