@@ -1466,6 +1466,25 @@ function resolveIpcChannelBindingFromExpression(
   };
 }
 
+function resolveStaticStringExpression(input: {
+  expression: ts.Expression;
+  helperFunctions: Map<string, IpcChannelHelperSpec>;
+  identifierBindings: Map<string, IpcChannelExpressionEval>;
+}): string {
+  const evaluated = evaluateIpcChannelExpression(
+    input.expression,
+    new Map<string, number>(),
+    input.helperFunctions,
+    input.identifierBindings,
+  );
+  if (!evaluated) return "";
+  if (evaluated.dynamicParamIndexes.length > 0) return "";
+  if (evaluated.text.includes("*")) return "";
+  const value = evaluated.text.trim();
+  if (!value || value.length > 240) return "";
+  return value;
+}
+
 function extractByRegex(
   source: string,
   relPath: string,
@@ -1582,8 +1601,18 @@ function extractFromAst(
 
       if (ts.isPropertyAssignment(node)) {
         const propName = getPropertyNameText(node.name);
-        if (propName && ts.isStringLiteralLike(node.initializer)) {
-          const value = node.initializer.text;
+        if (propName) {
+          const value = ts.isStringLiteralLike(node.initializer)
+            ? node.initializer.text
+            : resolveStaticStringExpression({
+                expression: node.initializer,
+                helperFunctions,
+                identifierBindings: constantBindings,
+              });
+          if (!value) {
+            ts.forEachChild(node, visit);
+            return;
+          }
           const lowerPropName = propName.toLowerCase();
           if (propName === "type" || propName === "kind") {
             if (looksLikeMessageType(value)) {
@@ -1615,6 +1644,13 @@ function extractFromAst(
         const lowerCallName = callName ? callName.toLowerCase() : null;
         if (node.arguments.length > 0) {
           const firstArgNode = node.arguments[0];
+          const firstArgStaticValue = ts.isStringLiteralLike(firstArgNode)
+            ? firstArgNode.text
+            : resolveStaticStringExpression({
+                expression: firstArgNode,
+                helperFunctions,
+                identifierBindings: constantBindings,
+              });
           if (isIpcCallName(callName)) {
             const firstArgIpcBinding = resolveIpcChannelBindingFromExpression(
               firstArgNode,
@@ -1633,19 +1669,18 @@ function extractFromAst(
             }
           }
 
-          if (ts.isStringLiteralLike(firstArgNode)) {
-            const firstArg = firstArgNode.text;
-            if (looksLikeRpcMethod(firstArg) && isRpcCallContext(lowerCallName)) {
-              result.methods.add(firstArg);
-              addToIndex(indexes.methods, firstArg, relPath);
+          if (firstArgStaticValue) {
+            if (looksLikeRpcMethod(firstArgStaticValue) && isRpcCallContext(lowerCallName)) {
+              result.methods.add(firstArgStaticValue);
+              addToIndex(indexes.methods, firstArgStaticValue, relPath);
             }
-            if (looksLikeRoute(firstArg) && isRouteCallContext(lowerCallName)) {
-              result.routes.add(firstArg);
-              addToIndex(indexes.routes, firstArg, relPath);
+            if (looksLikeRoute(firstArgStaticValue) && isRouteCallContext(lowerCallName)) {
+              result.routes.add(firstArgStaticValue);
+              addToIndex(indexes.routes, firstArgStaticValue, relPath);
             }
-            if (looksLikeStateKey(firstArg) && isStateStorageCall(callName)) {
-              result.stateKeys.add(firstArg);
-              addToIndex(indexes.stateKeys, firstArg, relPath);
+            if (looksLikeStateKey(firstArgStaticValue) && isStateStorageCall(callName)) {
+              result.stateKeys.add(firstArgStaticValue);
+              addToIndex(indexes.stateKeys, firstArgStaticValue, relPath);
             }
           }
         }
