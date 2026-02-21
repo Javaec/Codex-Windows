@@ -1144,6 +1144,13 @@ function resolveIpcChannelBindingFromExpression(expression, parameterIndexByName
             staticChannel: "",
         };
     }
+    if (/^codex_desktop:worker:\*:(?:from-view|for-view)$/i.test(candidate) &&
+        evaluated.dynamicParamIndexes.length === 1) {
+        return {
+            channelArgIndex: evaluated.dynamicParamIndexes[0],
+            staticChannel: candidate,
+        };
+    }
     if (!looksLikeIpcChannel(candidate))
         return null;
     return {
@@ -2790,8 +2797,20 @@ function resolveGlobalIpcWrapperSpec(callName, lookup) {
     return cloneIpcSpecWithCallName(preferred, callName, "alias");
 }
 function resolveIpcChannelFromCall(node, spec, helperFunctions, constantBindings) {
-    if (spec.staticChannel.length > 0)
+    if (spec.staticChannel.length > 0) {
+        if (/^codex_desktop:worker:\*:(?:from-view|for-view)$/i.test(spec.staticChannel) &&
+            spec.channelArgIndex >= 0) {
+            const dynamicArg = node.arguments[spec.channelArgIndex];
+            if (dynamicArg) {
+                const dynamicBinding = resolveIpcChannelBindingFromExpression(dynamicArg, new Map(), helperFunctions, constantBindings);
+                const dynamicValue = dynamicBinding?.staticChannel ?? "";
+                if (dynamicValue && !dynamicValue.includes("*")) {
+                    return spec.staticChannel.replace(/\*/g, dynamicValue);
+                }
+            }
+        }
         return spec.staticChannel;
+    }
     if (spec.channelArgIndex < 0)
         return "";
     const channelArg = node.arguments[spec.channelArgIndex];

@@ -1526,6 +1526,15 @@ function resolveIpcChannelBindingFromExpression(
       staticChannel: "",
     };
   }
+  if (
+    /^codex_desktop:worker:\*:(?:from-view|for-view)$/i.test(candidate) &&
+    evaluated.dynamicParamIndexes.length === 1
+  ) {
+    return {
+      channelArgIndex: evaluated.dynamicParamIndexes[0],
+      staticChannel: candidate,
+    };
+  }
   if (!looksLikeIpcChannel(candidate)) return null;
   return {
     channelArgIndex: -1,
@@ -3412,7 +3421,27 @@ function resolveIpcChannelFromCall(
   helperFunctions: Map<string, IpcChannelHelperSpec>,
   constantBindings: Map<string, IpcChannelExpressionEval>,
 ): string {
-  if (spec.staticChannel.length > 0) return spec.staticChannel;
+  if (spec.staticChannel.length > 0) {
+    if (
+      /^codex_desktop:worker:\*:(?:from-view|for-view)$/i.test(spec.staticChannel) &&
+      spec.channelArgIndex >= 0
+    ) {
+      const dynamicArg = node.arguments[spec.channelArgIndex];
+      if (dynamicArg) {
+        const dynamicBinding = resolveIpcChannelBindingFromExpression(
+          dynamicArg,
+          new Map<string, number>(),
+          helperFunctions,
+          constantBindings,
+        );
+        const dynamicValue = dynamicBinding?.staticChannel ?? "";
+        if (dynamicValue && !dynamicValue.includes("*")) {
+          return spec.staticChannel.replace(/\*/g, dynamicValue);
+        }
+      }
+    }
+    return spec.staticChannel;
+  }
   if (spec.channelArgIndex < 0) return "";
   const channelArg = node.arguments[spec.channelArgIndex];
   if (!channelArg) return "";
