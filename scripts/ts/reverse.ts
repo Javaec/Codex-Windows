@@ -400,6 +400,113 @@ interface ReferenceSignalProfile {
   keywordGroups: ReferenceKeywordGroups;
 }
 
+type ReferenceSymbolSource = "1code" | "codexmonitor";
+type DeobfuscatedSymbolKind = "class" | "function" | "file";
+
+interface ReferenceSymbolRow {
+  source: ReferenceSymbolSource;
+  name: string;
+  file: string;
+  kind: string;
+  score: number;
+  refs: number;
+  exported: boolean;
+  symbolKind: "class" | "function" | "other";
+  tokens: string[];
+}
+
+interface ReferenceSymbolProfile {
+  loaded: boolean;
+  oneCodePath: string;
+  codexMonitorPath: string;
+  oneCodeCopiedPath: string;
+  codexMonitorCopiedPath: string;
+  warnings: string[];
+  symbols: ReferenceSymbolRow[];
+}
+
+interface DeobfuscationTableEntry {
+  id: string;
+  kind: DeobfuscatedSymbolKind;
+  obfuscated: string;
+  deobfuscated: string;
+  sourceFile: string;
+  targetProjectPath: string;
+  confidence: number;
+  reference: {
+    source: ReferenceSymbolSource;
+    symbol: string;
+    file: string;
+    kind: string;
+    score: number;
+  };
+  rationale: string[];
+}
+
+interface DeobfuscationFilePlan {
+  sourceFile: string;
+  proposedModulePath: string;
+  confidence: number;
+  rationale: string[];
+  referenceSource: ReferenceSymbolSource;
+}
+
+interface DeobfuscationTableReport {
+  generatedAtUtc: string;
+  strategy: string;
+  referenceInputs: {
+    architectureMapPath: string;
+    oneCodeSymbolMapPath: string;
+    codexMonitorSymbolMapPath: string;
+    loaded: boolean;
+    warningCount: number;
+    symbolCount: number;
+  };
+  coverage: {
+    filesScanned: number;
+    obfuscatedFileCandidates: number;
+    obfuscatedSymbolCandidates: number;
+    mappedFiles: number;
+    mappedSymbols: number;
+  };
+  filePlans: DeobfuscationFilePlan[];
+  entries: DeobfuscationTableEntry[];
+}
+
+interface WebStormTestProjectReport {
+  rootPath: string;
+  chunkFiles: number;
+  reconstructedFiles: number;
+  mappedTargets: number;
+  mappingArtifacts: string[];
+  checks: {
+    install: {
+      attempted: boolean;
+      success: boolean;
+      exitCode: number;
+      durationMs: number;
+      outputPreview: string[];
+    };
+    tsc: {
+      attempted: boolean;
+      success: boolean;
+      exitCode: number;
+      errors: number;
+      warnings: number;
+      outputPreview: string[];
+    };
+    eslint: {
+      attempted: boolean;
+      success: boolean;
+      exitCode: number;
+      errors: number;
+      warnings: number;
+      outputPreview: string[];
+      skippedReason: string;
+    };
+  };
+}
+
 interface ReferenceParityGapDomainRow {
   domain: string;
   label: string;
@@ -433,6 +540,18 @@ const REFERENCE_MAP_DEFAULT_PATH = path.resolve(
   "reference",
   "analysis",
   "1code-codexmonitor-architecture-map.md",
+);
+const REFERENCE_1CODE_SYMBOL_MAP_DEFAULT_PATH = path.resolve(
+  REPO_ROOT,
+  "reference",
+  "analysis",
+  "1code-symbol-map.json",
+);
+const REFERENCE_CODEXMONITOR_SYMBOL_MAP_DEFAULT_PATH = path.resolve(
+  REPO_ROOT,
+  "reference",
+  "analysis",
+  "CodexMonitor-symbol-map.json",
 );
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const TARGET_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css", ".html", ".json"]);
@@ -1214,6 +1333,267 @@ function loadReferenceSignalProfile(referenceMapPath: string, reportDir: string)
     warnings,
     keywordGroups: groups,
   };
+}
+
+type ObfuscatedSymbolCandidate = {
+  kind: "class" | "function";
+  name: string;
+  sourceFile: string;
+  line: number;
+  tokens: string[];
+};
+
+function extractNameTokens(value: string): string[] {
+  const raw = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/g)
+    .filter((part) => part.length >= 2)
+    .map((part) => part.toLowerCase());
+  return dedupeKeywords(raw, 64).map((item) => item.toLowerCase());
+}
+
+function normalizeReferenceSymbolKind(kind: string): "class" | "function" | "other" {
+  const lower = kind.toLowerCase();
+  if (/(class|struct|enum|interface|type)/.test(lower)) return "class";
+  if (/(function|fn|method)/.test(lower)) return "function";
+  return "other";
+}
+
+function isMeaningfulReferenceSymbolName(name: string): boolean {
+  if (name.length < 4 || name.length > 72) return false;
+  if (!/[A-Za-z]/.test(name)) return false;
+  if (/^[a-z]{1,3}$/.test(name)) return false;
+  if (/^[A-Z]{1,3}$/.test(name)) return false;
+  if (/^\d+$/.test(name)) return false;
+  return true;
+}
+
+function loadReferenceSymbolMapRows(input: {
+  source: ReferenceSymbolSource;
+  mapPath: string;
+  reportDir: string;
+}): { loaded: boolean; sourcePath: string; copiedPath: string; warnings: string[]; rows: ReferenceSymbolRow[] } {
+  const normalizedPath = path.resolve(input.mapPath);
+  const warnings: string[] = [];
+  if (!fs.existsSync(normalizedPath) || !fs.statSync(normalizedPath).isFile()) {
+    warnings.push(`Reference symbol map not found: ${toPosixPath(normalizedPath)}`);
+    return {
+      loaded: false,
+      sourcePath: toPosixPath(normalizedPath),
+      copiedPath: "",
+      warnings,
+      rows: [],
+    };
+  }
+
+  let parsed: {
+    topClasses?: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }>;
+    topFunctions?: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }>;
+  };
+  try {
+    parsed = JSON.parse(readUtf8(normalizedPath));
+  } catch (error) {
+    warnings.push(
+      `Failed to parse symbol map (${toPosixPath(normalizedPath)}): ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return {
+      loaded: false,
+      sourcePath: toPosixPath(normalizedPath),
+      copiedPath: "",
+      warnings,
+      rows: [],
+    };
+  }
+
+  const rows: ReferenceSymbolRow[] = [];
+  const consume = (
+    list: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }> | undefined,
+  ): void => {
+    if (!list) return;
+    for (const item of list) {
+      const name = (item.name ?? "").trim();
+      const file = toPosixPath((item.file ?? "").trim());
+      const kind = (item.kind ?? "").trim();
+      if (!name || !file || !kind) continue;
+      if (!isMeaningfulReferenceSymbolName(name)) continue;
+      const symbolKind = normalizeReferenceSymbolKind(kind);
+      if (symbolKind === "other") continue;
+      const tokens = dedupeKeywords(
+        [...extractNameTokens(name), ...extractNameTokens(file)],
+        80,
+      );
+      rows.push({
+        source: input.source,
+        name,
+        file,
+        kind,
+        score: Number.isFinite(item.score) ? Number(item.score) : 0,
+        refs: Number.isFinite(item.refs) ? Number(item.refs) : 0,
+        exported: !!item.exported,
+        symbolKind,
+        tokens,
+      });
+    }
+  };
+  consume(parsed.topClasses);
+  consume(parsed.topFunctions);
+
+  const deduped = new Map<string, ReferenceSymbolRow>();
+  for (const row of rows) {
+    const key = `${row.source}|${row.symbolKind}|${row.name}|${row.file}`;
+    const existing = deduped.get(key);
+    if (!existing || row.score > existing.score) deduped.set(key, row);
+  }
+
+  const copyPath = path.join(input.reportDir, `${input.source}-symbol-map.json`);
+  ensureDir(path.dirname(copyPath));
+  fs.copyFileSync(normalizedPath, copyPath);
+
+  return {
+    loaded: true,
+    sourcePath: toPosixPath(normalizedPath),
+    copiedPath: toPosixPath(copyPath),
+    warnings,
+    rows: Array.from(deduped.values()),
+  };
+}
+
+function loadReferenceSymbolProfile(reportDir: string): ReferenceSymbolProfile {
+  const oneCode = loadReferenceSymbolMapRows({
+    source: "1code",
+    mapPath: REFERENCE_1CODE_SYMBOL_MAP_DEFAULT_PATH,
+    reportDir,
+  });
+  const codexMonitor = loadReferenceSymbolMapRows({
+    source: "codexmonitor",
+    mapPath: REFERENCE_CODEXMONITOR_SYMBOL_MAP_DEFAULT_PATH,
+    reportDir,
+  });
+  return {
+    loaded: oneCode.loaded && codexMonitor.loaded,
+    oneCodePath: oneCode.sourcePath,
+    codexMonitorPath: codexMonitor.sourcePath,
+    oneCodeCopiedPath: oneCode.copiedPath,
+    codexMonitorCopiedPath: codexMonitor.copiedPath,
+    warnings: [...oneCode.warnings, ...codexMonitor.warnings],
+    symbols: [...oneCode.rows, ...codexMonitor.rows],
+  };
+}
+
+function isObfuscatedFilePath(filePath: string): boolean {
+  const normalized = toPosixPath(filePath);
+  const base = path.basename(normalized);
+  if (/^[A-Za-z0-9_$]{1,3}\.(?:js|mjs|cjs)$/i.test(base)) return true;
+  if (/-(?:[A-Za-z0-9]{6,})\.(?:js|mjs|cjs)$/i.test(base)) return true;
+  if (/^index-[A-Za-z0-9]{6,}\.(?:js|mjs|cjs)$/i.test(base)) return true;
+  return false;
+}
+
+function isLikelyObfuscatedClassName(name: string): boolean {
+  if (name.length < 2) return false;
+  if (name.length === 2) return true;
+  if (/^[A-Z][a-z]?$/.test(name)) return true;
+  if (/^[A-Z][0-9]{1,2}$/.test(name)) return true;
+  if (/^[A-Z][A-Za-z0-9]{0,3}$/.test(name) && !/[aeiou]/i.test(name)) return true;
+  return false;
+}
+
+function isLikelyObfuscatedFunctionName(name: string): boolean {
+  if (name.length < 2) return false;
+  const lower = name.toLowerCase();
+  if (name.length <= 2) return true;
+  if (/^[$_]?[a-z][0-9]{1,2}$/.test(name)) return true;
+  if (/^[$_]?[a-z]{1,3}$/.test(name) && !/(get|set|use|run|open|close|load|save|send|read|write)/.test(lower)) {
+    return true;
+  }
+  if (/^[a-z][a-z0-9]{0,3}$/.test(name) && !/[aeiou]/i.test(name)) return true;
+  return false;
+}
+
+function collectObfuscatedSymbolsFromSource(input: {
+  relPath: string;
+  source: string;
+}): ObfuscatedSymbolCandidate[] {
+  const candidates: ObfuscatedSymbolCandidate[] = [];
+  let sourceFile: ts.SourceFile;
+  try {
+    sourceFile = ts.createSourceFile(input.relPath, input.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  } catch {
+    return candidates;
+  }
+  const seen = new Set<string>();
+
+  const pushCandidate = (kind: "class" | "function", name: string, node: ts.Node): void => {
+    if (!name) return;
+    const obfuscated =
+      kind === "class" ? isLikelyObfuscatedClassName(name) : isLikelyObfuscatedFunctionName(name);
+    if (!obfuscated) return;
+    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    const key = `${kind}|${name}|${position.line + 1}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      kind,
+      name,
+      sourceFile: input.relPath,
+      line: position.line + 1,
+      tokens: extractNameTokens(name),
+    });
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isClassDeclaration(node) && node.name) {
+      pushCandidate("class", node.name.text, node.name);
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      pushCandidate("function", node.name.text, node.name);
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) {
+        pushCandidate("function", node.name.text, node.name);
+      }
+    } else if (ts.isMethodDeclaration(node) && node.name) {
+      const methodName = getPropertyNameText(node.name) ?? "";
+      if (methodName.length > 0) {
+        pushCandidate("function", methodName, node.name);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return candidates;
+}
+
+function buildReferenceTargetPath(referenceFile: string): string {
+  const normalized = toPosixPath(referenceFile).replace(/^\.?\//, "");
+  return `reconstructed/${normalized}`;
+}
+
+function scoreReferenceMatch(input: {
+  sourceFile: string;
+  symbolKind: "class" | "function";
+  contextKeywords: Set<string>;
+  reference: ReferenceSymbolRow;
+}): { score: number; hits: string[] } {
+  if (/\.rs$/i.test(input.reference.file)) {
+    return { score: -10, hits: [] };
+  }
+  const hits: string[] = [];
+  for (const token of input.reference.tokens) {
+    if (!input.contextKeywords.has(token)) continue;
+    hits.push(token);
+  }
+  const layer = classifyRuntimeLayer(input.sourceFile);
+  let layerBoost = 0;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.reference.file.includes("/renderer/")) layerBoost += 1.4;
+  if ((layer === "main" || layer === "main-worker") && input.reference.file.includes("/main/")) layerBoost += 1.4;
+  if (layer === "preload" && input.reference.file.includes("/preload/")) layerBoost += 1.4;
+
+  const symbolKindBoost = input.symbolKind === input.reference.symbolKind ? 1.6 : 0;
+  const qualityBoost = Math.min(2.4, input.reference.score / 700);
+  const genericPathPenalty = /(\/|^)(types|utils|index)\.(ts|tsx|rs|js)$/i.test(input.reference.file) ? 1.1 : 0;
+  const score = hits.length * 1.9 + layerBoost + symbolKindBoost + qualityBoost - genericPathPenalty;
+  return { score, hits: dedupeKeywords(hits, 10) };
 }
 
 function normalizeSourceForPrint(text: string): string {
@@ -2407,6 +2787,29 @@ function isLikelyCoreAppFile(file: string): boolean {
   return false;
 }
 
+function isDeobfuscationCandidateFile(file: string): boolean {
+  const normalized = toPosixPath(file).toLowerCase();
+  if (!JS_EXTENSIONS.has(path.extname(normalized).toLowerCase())) return false;
+  if (isLocaleAssetFile(normalized)) return false;
+  if (VENDOR_FILE_HINTS.test(normalized)) return false;
+
+  if (normalized.startsWith(".vite/build/main-")) return true;
+  if (normalized.startsWith(".vite/build/preload-")) return true;
+  if (normalized.startsWith(".vite/build/worker")) return true;
+
+  if (!normalized.startsWith("webview/assets/")) return false;
+  const base = path.basename(normalized);
+  if (
+    /^(?:index|chunk|worker|main|desktop|channel|clone|data-controls|diff|agent-settings|automation|git-settings|init)-/.test(
+      base,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function hasCoreFile(row: IndexRow): boolean {
   return row.files.some((file) => isLikelyCoreAppFile(file) && !VENDOR_FILE_HINTS.test(file));
 }
@@ -2680,6 +3083,1066 @@ function buildReferenceParityGapsReport(input: {
       weightedGapScore,
       domains: rankedDomains.length,
     },
+  };
+}
+
+function addValueTokens(target: Set<string>, value: string, limit: number): void {
+  for (const token of splitReferenceToken(value)) {
+    const normalized = token.toLowerCase();
+    if (normalized.length < 3) continue;
+    target.add(normalized);
+    if (target.size >= limit) break;
+  }
+}
+
+function buildFileContextKeywords(input: {
+  jsFiles: FileRecord[];
+  routeRows: IndexRow[];
+  methodRows: IndexRow[];
+  messageTypeRows: IndexRow[];
+  statusRows: IndexRow[];
+  stateKeyRows: IndexRow[];
+  ipcRows: IndexRow[];
+  componentBoundaries: ComponentBoundariesReport;
+  sourceByFile: Map<string, string>;
+}): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const ensure = (file: string): Set<string> => {
+    const current = out.get(file);
+    if (current) return current;
+    const created = new Set<string>();
+    out.set(file, created);
+    return created;
+  };
+
+  for (const file of input.jsFiles) {
+    if (!isDeobfuscationCandidateFile(file.relPath)) continue;
+    ensure(file.relPath);
+  }
+
+  const sourceRows = [
+    input.routeRows,
+    input.methodRows,
+    input.messageTypeRows,
+    input.statusRows,
+    input.stateKeyRows,
+    input.ipcRows,
+  ];
+  for (const rows of sourceRows) {
+    for (const row of rows) {
+      for (const file of row.files) {
+        if (!isDeobfuscationCandidateFile(file)) continue;
+        const keywords = ensure(file);
+        addValueTokens(keywords, row.value, 220);
+      }
+    }
+  }
+
+  for (const boundary of input.componentBoundaries.boundaries) {
+    if (!isDeobfuscationCandidateFile(boundary.ownerFile)) continue;
+    const keywords = ensure(boundary.ownerFile);
+    const groups = [
+      boundary.referenceHints,
+      boundary.componentNames,
+      boundary.hookNames,
+      boundary.uiIndicators,
+      boundary.routes,
+      boundary.events,
+      boundary.rpcMethods,
+      boundary.stateKeys,
+      boundary.statuses,
+      boundary.ipcChannels,
+    ];
+    for (const group of groups) {
+      for (const value of group) {
+        addValueTokens(keywords, value, 240);
+      }
+    }
+  }
+
+  return out;
+}
+
+function buildReferenceFileProfiles(symbols: ReferenceSymbolRow[]): Array<{
+  source: ReferenceSymbolSource;
+  file: string;
+  maxScore: number;
+  symbolCount: number;
+  tokens: Set<string>;
+}> {
+  const map = new Map<string, { source: ReferenceSymbolSource; file: string; maxScore: number; symbolCount: number; tokens: Set<string> }>();
+  for (const symbol of symbols) {
+    const key = `${symbol.source}|${symbol.file}`;
+    const row = map.get(key) ?? {
+      source: symbol.source,
+      file: symbol.file,
+      maxScore: 0,
+      symbolCount: 0,
+      tokens: new Set<string>(),
+    };
+    row.maxScore = Math.max(row.maxScore, symbol.score);
+    row.symbolCount += 1;
+    for (const token of symbol.tokens) row.tokens.add(token);
+    map.set(key, row);
+  }
+  return Array.from(map.values());
+}
+
+function scoreReferenceFileProfile(input: {
+  sourceFile: string;
+  contextKeywords: Set<string>;
+  profile: { source: ReferenceSymbolSource; file: string; maxScore: number; symbolCount: number; tokens: Set<string> };
+}): { score: number; hits: string[] } {
+  if (/\.rs$/i.test(input.profile.file)) {
+    return { score: -10, hits: [] };
+  }
+  const hits: string[] = [];
+  for (const token of input.profile.tokens) {
+    if (!input.contextKeywords.has(token)) continue;
+    hits.push(token);
+  }
+  const layer = classifyRuntimeLayer(input.sourceFile);
+  let layerBoost = 0;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.file.includes("/renderer/")) layerBoost += 1.5;
+  if ((layer === "main" || layer === "main-worker") && input.profile.file.includes("/main/")) layerBoost += 1.5;
+  if (layer === "preload" && input.profile.file.includes("/preload/")) layerBoost += 1.5;
+  const genericPathPenalty = /(\/|^)(types|utils|index)\.(ts|tsx|rs|js)$/i.test(input.profile.file) ? 1.4 : 0;
+  const broadFilePenalty = input.profile.symbolCount > 7 ? Math.min(1.8, (input.profile.symbolCount - 7) * 0.2) : 0;
+  const score = hits.length * 1.8 + layerBoost + Math.min(2.2, input.profile.maxScore / 850) - genericPathPenalty - broadFilePenalty;
+  return { score, hits: dedupeKeywords(hits, 10) };
+}
+
+function buildDeobfuscationTableReport(input: {
+  top: number;
+  jsFiles: FileRecord[];
+  sourceByFile: Map<string, string>;
+  routeRows: IndexRow[];
+  methodRows: IndexRow[];
+  messageTypeRows: IndexRow[];
+  statusRows: IndexRow[];
+  stateKeyRows: IndexRow[];
+  ipcRows: IndexRow[];
+  componentBoundaries: ComponentBoundariesReport;
+  referenceProfile: ReferenceSignalProfile;
+  referenceSymbolProfile: ReferenceSymbolProfile;
+}): DeobfuscationTableReport {
+  const fileContextKeywords = buildFileContextKeywords({
+    jsFiles: input.jsFiles,
+    routeRows: input.routeRows,
+    methodRows: input.methodRows,
+    messageTypeRows: input.messageTypeRows,
+    statusRows: input.statusRows,
+    stateKeyRows: input.stateKeyRows,
+    ipcRows: input.ipcRows,
+    componentBoundaries: input.componentBoundaries,
+    sourceByFile: input.sourceByFile,
+  });
+
+  const symbolsByKind = {
+    class: input.referenceSymbolProfile.symbols.filter((symbol) => symbol.symbolKind === "class"),
+    function: input.referenceSymbolProfile.symbols.filter((symbol) => symbol.symbolKind === "function"),
+  };
+  const referenceFileProfiles = buildReferenceFileProfiles(input.referenceSymbolProfile.symbols);
+
+  const entries: DeobfuscationTableEntry[] = [];
+  const filePlans: DeobfuscationFilePlan[] = [];
+  let obfuscatedFileCandidates = 0;
+  let obfuscatedSymbolCandidates = 0;
+  const seenEntry = new Set<string>();
+  const symbolMatchCountByReference = new Map<string, number>();
+  const symbolMatchCountByFile = new Map<string, number>();
+  const symbolTargetByFile = new Set<string>();
+
+  for (const file of input.jsFiles) {
+    const relPath = file.relPath;
+    if (!isDeobfuscationCandidateFile(relPath)) continue;
+    if (!fileContextKeywords.has(relPath)) continue;
+    const contextKeywords = fileContextKeywords.get(relPath) ?? new Set<string>();
+    if (!isLikelyCoreAppFile(relPath) && contextKeywords.size < 3) continue;
+
+    if (isObfuscatedFilePath(relPath)) {
+      obfuscatedFileCandidates += 1;
+      let bestFileScore = 0;
+      let bestFileHits: string[] = [];
+      let bestProfile:
+        | { source: ReferenceSymbolSource; file: string; maxScore: number; symbolCount: number; tokens: Set<string> }
+        | null = null;
+      for (const profile of referenceFileProfiles) {
+        const scored = scoreReferenceFileProfile({
+          sourceFile: relPath,
+          contextKeywords,
+          profile,
+        });
+        if (scored.score <= bestFileScore) continue;
+        bestFileScore = scored.score;
+        bestFileHits = scored.hits;
+        bestProfile = profile;
+      }
+      if (bestProfile && bestFileScore >= 4.2 && bestFileHits.length >= 2) {
+        const confidence = Math.min(0.96, roundMetric(0.26 + bestFileScore / 12));
+        const targetProjectPath = buildReferenceTargetPath(bestProfile.file);
+        const proposedName = path.basename(bestProfile.file).replace(/\.[^.]+$/, "");
+        const rationale = [
+          `keyword-overlap: ${bestFileHits.join(", ") || "none"}`,
+          `reference-file: ${bestProfile.file}`,
+        ];
+        const filePlan: DeobfuscationFilePlan = {
+          sourceFile: relPath,
+          proposedModulePath: targetProjectPath,
+          confidence,
+          rationale,
+          referenceSource: bestProfile.source,
+        };
+        filePlans.push(filePlan);
+        const id = `file|${relPath}|${targetProjectPath}`;
+        if (!seenEntry.has(id)) {
+          seenEntry.add(id);
+          entries.push({
+            id,
+            kind: "file",
+            obfuscated: relPath,
+            deobfuscated: proposedName,
+            sourceFile: relPath,
+            targetProjectPath,
+            confidence,
+            reference: {
+              source: bestProfile.source,
+              symbol: proposedName,
+              file: bestProfile.file,
+              kind: "module-file",
+              score: bestProfile.maxScore,
+            },
+            rationale,
+          });
+        }
+      }
+    }
+
+    const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
+    if (!source) continue;
+    const symbolCandidates = collectObfuscatedSymbolsFromSource({
+      relPath,
+      source,
+    });
+    obfuscatedSymbolCandidates += symbolCandidates.length;
+    for (const candidate of symbolCandidates) {
+      const perFileCount = symbolMatchCountByFile.get(candidate.sourceFile) ?? 0;
+      if (perFileCount >= 16) break;
+      const referencePool = symbolsByKind[candidate.kind];
+      if (referencePool.length === 0) continue;
+      const scopedKeywords = new Set<string>(contextKeywords);
+      for (const token of candidate.tokens) scopedKeywords.add(token);
+
+      let bestScore = 0;
+      let bestHits: string[] = [];
+      let bestReference: ReferenceSymbolRow | null = null;
+      for (const reference of referencePool) {
+        const scored = scoreReferenceMatch({
+          sourceFile: relPath,
+          symbolKind: candidate.kind,
+          contextKeywords: scopedKeywords,
+          reference,
+        });
+        if (scored.score <= bestScore) continue;
+        bestScore = scored.score;
+        bestHits = scored.hits;
+        bestReference = reference;
+      }
+      if (!bestReference || bestScore < 4.8 || bestHits.length < 2) continue;
+
+      const referenceKey = `${bestReference.source}|${bestReference.name}|${bestReference.file}`;
+      const matchedCount = symbolMatchCountByReference.get(referenceKey) ?? 0;
+      if (matchedCount >= 4) continue;
+      const fileTargetKey = `${candidate.sourceFile}|${candidate.kind}|${bestReference.name}`;
+      if (symbolTargetByFile.has(fileTargetKey)) continue;
+
+      const confidence = Math.min(0.95, roundMetric(0.22 + bestScore / 13));
+      const targetProjectPath = buildReferenceTargetPath(bestReference.file);
+      const rationale = [
+        `keyword-overlap: ${bestHits.join(", ") || "none"}`,
+        `source-line: ${candidate.line}`,
+      ];
+      const id = `${candidate.kind}|${candidate.sourceFile}|${candidate.name}|${bestReference.name}|${bestReference.file}`;
+      if (seenEntry.has(id)) continue;
+      seenEntry.add(id);
+      symbolTargetByFile.add(fileTargetKey);
+      symbolMatchCountByReference.set(referenceKey, matchedCount + 1);
+      symbolMatchCountByFile.set(candidate.sourceFile, perFileCount + 1);
+      entries.push({
+        id,
+        kind: candidate.kind,
+        obfuscated: candidate.name,
+        deobfuscated: bestReference.name,
+        sourceFile: `${candidate.sourceFile}:${candidate.line}`,
+        targetProjectPath,
+        confidence,
+        reference: {
+          source: bestReference.source,
+          symbol: bestReference.name,
+          file: bestReference.file,
+          kind: bestReference.kind,
+          score: bestReference.score,
+        },
+        rationale,
+      });
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    if (a.sourceFile !== b.sourceFile) return a.sourceFile.localeCompare(b.sourceFile);
+    return a.obfuscated.localeCompare(b.obfuscated);
+  });
+  filePlans.sort((a, b) => {
+    if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+    return a.sourceFile.localeCompare(b.sourceFile);
+  });
+
+  const maxEntries = Math.max(80, Math.min(420, input.top * 2));
+  const maxFilePlans = Math.max(24, Math.min(180, input.top));
+  const trimmedEntries = entries.slice(0, maxEntries);
+  const trimmedFilePlans = filePlans.slice(0, maxFilePlans);
+
+  return {
+    generatedAtUtc: new Date().toISOString(),
+    strategy:
+      "Reference-guided deobfuscation from symbol-map priors and local signal overlap: obfuscated files/classes/functions -> proposed canonical names and reconstructed project paths.",
+    referenceInputs: {
+      architectureMapPath: input.referenceProfile.sourcePath,
+      oneCodeSymbolMapPath: input.referenceSymbolProfile.oneCodePath,
+      codexMonitorSymbolMapPath: input.referenceSymbolProfile.codexMonitorPath,
+      loaded: input.referenceSymbolProfile.loaded,
+      warningCount: input.referenceSymbolProfile.warnings.length,
+      symbolCount: input.referenceSymbolProfile.symbols.length,
+    },
+    coverage: {
+      filesScanned: fileContextKeywords.size,
+      obfuscatedFileCandidates,
+      obfuscatedSymbolCandidates,
+      mappedFiles: trimmedEntries.filter((entry) => entry.kind === "file").length,
+      mappedSymbols: trimmedEntries.filter((entry) => entry.kind !== "file").length,
+    },
+    filePlans: trimmedFilePlans,
+    entries: trimmedEntries,
+  };
+}
+
+function formatDeobfuscationTableMarkdown(report: DeobfuscationTableReport): string {
+  const rows: string[] = [];
+  rows.push("# Deobfuscation Table");
+  rows.push("");
+  rows.push("## Method");
+  rows.push(`- ${report.strategy}`);
+  rows.push(`- Reference symbols loaded: ${report.referenceInputs.loaded ? "yes" : "no"} (${report.referenceInputs.symbolCount})`);
+  rows.push(`- Files scanned: ${report.coverage.filesScanned}`);
+  rows.push(`- Obfuscated file candidates: ${report.coverage.obfuscatedFileCandidates}`);
+  rows.push(`- Obfuscated symbol candidates: ${report.coverage.obfuscatedSymbolCandidates}`);
+  rows.push(`- Mapped files: ${report.coverage.mappedFiles}`);
+  rows.push(`- Mapped symbols: ${report.coverage.mappedSymbols}`);
+  rows.push("");
+  rows.push("## File Relocation Plan");
+  if (report.filePlans.length === 0) {
+    rows.push("- _none_");
+  } else {
+    rows.push("| Source File | Proposed Module Path | Confidence | Reference |");
+    rows.push("| --- | --- | ---: | --- |");
+    for (const plan of report.filePlans) {
+      rows.push(
+        `| \`${plan.sourceFile}\` | \`${plan.proposedModulePath}\` | ${plan.confidence} | ${plan.referenceSource} |`,
+      );
+    }
+  }
+  rows.push("");
+  rows.push("## Symbol Mapping");
+  if (report.entries.length === 0) {
+    rows.push("- _none_");
+  } else {
+    rows.push("| Kind | Obfuscated | Deobfuscated | Source | Target Path | Confidence | Reference |");
+    rows.push("| --- | --- | --- | --- | --- | ---: | --- |");
+    for (const entry of report.entries) {
+      rows.push(
+        `| ${entry.kind} | \`${entry.obfuscated}\` | \`${entry.deobfuscated}\` | \`${entry.sourceFile}\` | \`${entry.targetProjectPath}\` | ${entry.confidence} | ${entry.reference.source}:${entry.reference.symbol} |`,
+      );
+    }
+  }
+  rows.push("");
+  rows.push(`_Generated at ${report.generatedAtUtc}_`);
+  rows.push("");
+  return rows.join("\n");
+}
+
+function toCsvCell(value: string | number | boolean): string {
+  const text = String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function normalizeDeobfSourceFile(value: string): string {
+  const match = value.match(/^(.*):(\d+)$/);
+  if (!match) return value;
+  return match[1];
+}
+
+function classifyDeobfPriority(confidence: number): "P1" | "P2" | "P3" {
+  if (confidence >= 0.82) return "P1";
+  if (confidence >= 0.7) return "P2";
+  return "P3";
+}
+
+function formatDeobfuscationTableCsv(report: DeobfuscationTableReport): string {
+  const header = [
+    "id",
+    "kind",
+    "priority",
+    "source_file",
+    "obfuscated",
+    "deobfuscated",
+    "target_project_path",
+    "confidence",
+    "reference_source",
+    "reference_symbol",
+    "reference_file",
+    "reference_kind",
+    "reference_score",
+    "rationale",
+  ];
+  const lines = [header.map((cell) => toCsvCell(cell)).join(",")];
+
+  for (const entry of report.entries) {
+    const row = [
+      entry.id,
+      entry.kind,
+      classifyDeobfPriority(entry.confidence),
+      normalizeDeobfSourceFile(entry.sourceFile),
+      entry.obfuscated,
+      entry.deobfuscated,
+      entry.targetProjectPath,
+      entry.confidence,
+      entry.reference.source,
+      entry.reference.symbol,
+      entry.reference.file,
+      entry.reference.kind,
+      entry.reference.score,
+      entry.rationale.join(" | "),
+    ];
+    lines.push(row.map((cell) => toCsvCell(cell)).join(","));
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function formatRenamePlanMarkdown(report: DeobfuscationTableReport): string {
+  const rows: string[] = [];
+  rows.push("# Rename Plan");
+  rows.push("");
+  rows.push("## Scope");
+  rows.push(`- source strategy: ${report.strategy}`);
+  rows.push(`- generated at: ${report.generatedAtUtc}`);
+  rows.push(`- file relocation candidates: ${report.filePlans.length}`);
+  rows.push(`- symbol rename candidates: ${report.entries.filter((entry) => entry.kind !== "file").length}`);
+  rows.push("");
+  rows.push("## Step 1. File Relocation");
+  if (report.filePlans.length === 0) {
+    rows.push("- _none_");
+  } else {
+    rows.push("| Priority | Source File | Target Module Path | Confidence | Reference | Rationale |");
+    rows.push("| --- | --- | --- | ---: | --- | --- |");
+    for (const plan of report.filePlans) {
+      rows.push(
+        `| ${classifyDeobfPriority(plan.confidence)} | \`${plan.sourceFile}\` | \`${plan.proposedModulePath}\` | ${plan.confidence} | ${plan.referenceSource} | ${plan.rationale.join("; ")} |`,
+      );
+    }
+  }
+
+  const symbolCandidates = new Map<
+    string,
+    {
+      sourceFile: string;
+      kind: DeobfuscatedSymbolKind;
+      obfuscated: string;
+      deobfuscated: string;
+      targetProjectPath: string;
+      confidence: number;
+      reference: DeobfuscationTableEntry["reference"];
+      rationale: string[];
+    }
+  >();
+
+  for (const entry of report.entries) {
+    if (entry.kind === "file") continue;
+    const sourceFile = normalizeDeobfSourceFile(entry.sourceFile);
+    const key = `${sourceFile}|${entry.kind}|${entry.deobfuscated}|${entry.targetProjectPath}`;
+    const existing = symbolCandidates.get(key);
+    if (!existing || entry.confidence > existing.confidence) {
+      symbolCandidates.set(key, {
+        sourceFile,
+        kind: entry.kind,
+        obfuscated: entry.obfuscated,
+        deobfuscated: entry.deobfuscated,
+        targetProjectPath: entry.targetProjectPath,
+        confidence: entry.confidence,
+        reference: entry.reference,
+        rationale: entry.rationale,
+      });
+    }
+  }
+
+  const sortedSymbols = Array.from(symbolCandidates.values()).sort((a, b) => {
+    if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+    if (a.sourceFile !== b.sourceFile) return a.sourceFile.localeCompare(b.sourceFile);
+    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    return a.obfuscated.localeCompare(b.obfuscated);
+  });
+
+  rows.push("");
+  rows.push("## Step 2. Class/Function Rename");
+  if (sortedSymbols.length === 0) {
+    rows.push("- _none_");
+  } else {
+    rows.push("| Priority | Source File | Kind | Obfuscated | Deobfuscated | Target Path | Confidence | Reference | Rationale |");
+    rows.push("| --- | --- | --- | --- | --- | --- | ---: | --- | --- |");
+    for (const entry of sortedSymbols) {
+      rows.push(
+        `| ${classifyDeobfPriority(entry.confidence)} | \`${entry.sourceFile}\` | ${entry.kind} | \`${entry.obfuscated}\` | \`${entry.deobfuscated}\` | \`${entry.targetProjectPath}\` | ${entry.confidence} | ${entry.reference.source}:${entry.reference.symbol} | ${entry.rationale.join("; ")} |`,
+      );
+    }
+  }
+
+  rows.push("");
+  rows.push("## Step 3. Re-run Reverse");
+  rows.push("- re-run reverse after applying P1/P2 changes and compare `deobfuscation-table.json` diff.");
+  rows.push("- keep only stable mappings that persist across multiple runtime probes.");
+  rows.push("");
+  return rows.join("\n");
+}
+
+function toProjectRelativeTargetPath(targetProjectPath: string): string {
+  const normalized = toPosixPath(targetProjectPath).replace(/^\.?\//, "");
+  const withoutReconstructed = normalized.replace(/^reconstructed\//, "");
+  const sourceRelative = withoutReconstructed.startsWith("src-tauri/src/")
+    ? withoutReconstructed.replace(/^src-tauri\/src\//, "tauri/")
+    : withoutReconstructed.startsWith("src/")
+      ? withoutReconstructed.replace(/^src\//, "")
+      : withoutReconstructed;
+
+  let compact = sourceRelative;
+  compact = compact.replace(/^main\/lib\//, "main/");
+  compact = compact.replace(/^renderer\/features\/([^/]+)\/main\//, "renderer/$1/");
+  compact = compact.replace(/^renderer\/features\/([^/]+)\/lib\//, "renderer/$1/lib/");
+  compact = compact.replace(/^renderer\/features\/([^/]+)\/ui\//, "renderer/$1/ui/");
+  compact = compact.replace(/^renderer\/features\/([^/]+)\//, "renderer/$1/");
+
+  return compact.length > 0 ? compact : "unknown/module.js";
+}
+
+function collectOutputPreview(stdout: string, stderr: string, maxLines: number): string[] {
+  const joined = `${stdout}\n${stderr}`
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => (line.length > 420 ? `${line.slice(0, 420)}...` : line));
+  return joined.slice(0, maxLines);
+}
+
+function countMatches(lines: string[], pattern: RegExp): number {
+  let count = 0;
+  for (const line of lines) {
+    if (pattern.test(line)) count += 1;
+  }
+  return count;
+}
+
+function countMatchesInText(text: string, pattern: RegExp): number {
+  const lines = text
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return countMatches(lines, pattern);
+}
+
+function runShellCommandSync(input: {
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+}): ReturnType<typeof spawnSync> {
+  if (process.platform === "win32") {
+    return spawnSync("cmd.exe", ["/d", "/s", "/c", input.command], {
+      cwd: input.cwd,
+      encoding: "utf8",
+      timeout: input.timeoutMs,
+      windowsHide: true,
+    });
+  }
+  return spawnSync("sh", ["-lc", input.command], {
+    cwd: input.cwd,
+    encoding: "utf8",
+    timeout: input.timeoutMs,
+    windowsHide: true,
+  });
+}
+
+function runNodeScriptSync(input: {
+  scriptPath: string;
+  args: string[];
+  cwd: string;
+  timeoutMs: number;
+}): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, [input.scriptPath, ...input.args], {
+    cwd: input.cwd,
+    encoding: "utf8",
+    timeout: input.timeoutMs,
+    windowsHide: true,
+  });
+}
+
+function asText(value: string | Buffer | undefined): string {
+  if (typeof value === "string") return value;
+  if (!value) return "";
+  return value.toString("utf8");
+}
+
+function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectReport["checks"] {
+  const installStart = Date.now();
+  const installResult = runShellCommandSync({
+    command: "npm install --no-audit --no-fund",
+    cwd: projectRoot,
+    timeoutMs: 300000,
+  });
+  const installDurationMs = Date.now() - installStart;
+  const installErrorLine =
+    installResult.error instanceof Error ? `spawn-error: ${installResult.error.message}` : "";
+  const installPreview = collectOutputPreview(
+    `${asText(installResult.stdout)}\n${installErrorLine}`,
+    asText(installResult.stderr),
+    30,
+  );
+  const installSuccess = installResult.status === 0;
+
+  const checks: WebStormTestProjectReport["checks"] = {
+    install: {
+      attempted: true,
+      success: installSuccess,
+      exitCode: installResult.status ?? -1,
+      durationMs: installDurationMs,
+      outputPreview: installPreview,
+    },
+    tsc: {
+      attempted: false,
+      success: false,
+      exitCode: -1,
+      errors: 0,
+      warnings: 0,
+      outputPreview: [],
+    },
+    eslint: {
+      attempted: false,
+      success: false,
+      exitCode: -1,
+      errors: 0,
+      warnings: 0,
+      outputPreview: [],
+      skippedReason: "",
+    },
+  };
+
+  if (!installSuccess) {
+    checks.eslint.skippedReason = "npm install failed";
+    return checks;
+  }
+
+  const projectTscBin = path.join(projectRoot, "node_modules", "typescript", "bin", "tsc");
+  const repoTscBin = path.join(REPO_ROOT, "node_modules", "typescript", "bin", "tsc");
+  const tscBin = fs.existsSync(projectTscBin) ? projectTscBin : fs.existsSync(repoTscBin) ? repoTscBin : "";
+  const tscResult =
+    tscBin.length > 0
+      ? runNodeScriptSync({
+          scriptPath: tscBin,
+          args: ["-p", "tsconfig.json", "--noEmit", "--pretty", "false"],
+          cwd: projectRoot,
+          timeoutMs: 240000,
+        })
+      : runShellCommandSync({
+          command: "npm exec --yes --package typescript tsc -p tsconfig.json --noEmit --pretty false",
+          cwd: projectRoot,
+          timeoutMs: 240000,
+        });
+  const tscStdout = asText(tscResult.stdout);
+  const tscStderr = asText(tscResult.stderr);
+  const tscPreview = collectOutputPreview(tscStdout, tscStderr, 30);
+  const tscErrors = countMatchesInText(`${tscStdout}\n${tscStderr}`, /error\s+TS\d+/i);
+  checks.tsc = {
+    attempted: true,
+    success: tscResult.status === 0,
+    exitCode: tscResult.status ?? -1,
+    errors: tscErrors,
+    warnings: 0,
+    outputPreview: tscPreview,
+  };
+
+  const projectEslintBin = path.join(projectRoot, "node_modules", "eslint", "bin", "eslint.js");
+  const repoEslintBin = path.join(REPO_ROOT, "node_modules", "eslint", "bin", "eslint.js");
+  const eslintBin = fs.existsSync(projectEslintBin)
+    ? projectEslintBin
+    : fs.existsSync(repoEslintBin)
+      ? repoEslintBin
+      : "";
+  const eslintArgs = ["src/**/*.{js,mjs,cjs,ts,tsx}", "--format", "json"];
+  const eslintResult =
+    eslintBin.length > 0
+      ? runNodeScriptSync({
+          scriptPath: eslintBin,
+          args: eslintArgs,
+          cwd: projectRoot,
+          timeoutMs: 240000,
+        })
+      : runShellCommandSync({
+          command: "npm exec --yes --package eslint@9.20.0 -- eslint src/**/*.{js,mjs,cjs,ts,tsx} --format json",
+          cwd: projectRoot,
+          timeoutMs: 240000,
+        });
+  const eslintStdout = asText(eslintResult.stdout);
+  const eslintStderr = asText(eslintResult.stderr);
+  const eslintPreview = collectOutputPreview(eslintStdout, eslintStderr, 40);
+  let eslintErrors = 0;
+  let eslintWarnings = 0;
+  try {
+    const parsed = JSON.parse(eslintStdout || "[]") as Array<{
+      errorCount?: number;
+      warningCount?: number;
+      fatalErrorCount?: number;
+    }>;
+    for (const row of parsed) {
+      eslintErrors += (row.errorCount ?? 0) + (row.fatalErrorCount ?? 0);
+      eslintWarnings += row.warningCount ?? 0;
+    }
+  } catch {
+    const eslintAll = `${eslintStdout}\n${eslintStderr}`;
+    eslintErrors = countMatchesInText(eslintAll, /\berror\b/i);
+    eslintWarnings = countMatchesInText(eslintAll, /\bwarning\b/i);
+  }
+  checks.eslint = {
+    attempted: true,
+    success: eslintResult.status === 0 && eslintErrors === 0 && eslintWarnings === 0,
+    exitCode: eslintResult.status ?? -1,
+    errors: eslintErrors,
+    warnings: eslintWarnings,
+    outputPreview: eslintPreview,
+    skippedReason: "",
+  };
+
+  return checks;
+}
+
+function buildWebStormTestProject(input: {
+  outDir: string;
+  appDir: string;
+  decompiledDir: string;
+  jsFiles: FileRecord[];
+  sourcePackage: { name?: string; version?: string; main?: string };
+  deobfuscationTable: DeobfuscationTableReport;
+  deobfuscationMarkdown: string;
+  deobfuscationCsv: string;
+  renamePlanMarkdown: string;
+  componentBoundaries: ComponentBoundariesReport;
+  sessionFlow: SessionFlowReport;
+  sessionFlowMarkdown: string;
+  routeBoundaryGraph: RouteBoundaryGraphReport;
+  referenceParityGaps: ReferenceParityGapsReport;
+  runtimeProbe: RuntimeProbeResult;
+  referenceSignals: ReferenceSignalProfile;
+  referenceSymbols: ReferenceSymbolProfile;
+}): WebStormTestProjectReport {
+  const projectRoot = path.join(input.outDir, "project");
+  removePath(projectRoot);
+  ensureDir(projectRoot);
+
+  const srcRoot = ensureDir(path.join(projectRoot, "src"));
+  const chunksRoot = ensureDir(path.join(srcRoot, "chunks"));
+  const reconstructedRoot = ensureDir(path.join(srcRoot, "reconstructed"));
+  const mappingRoot = ensureDir(path.join(projectRoot, "mapping"));
+  const metaRoot = ensureDir(path.join(projectRoot, "meta"));
+  const toolsRoot = ensureDir(path.join(projectRoot, "tools"));
+
+  let chunkFiles = 0;
+  for (const file of input.jsFiles) {
+    if (!isLikelyCoreAppFile(file.relPath) && !isDeobfuscationCandidateFile(file.relPath)) continue;
+    const sourcePath = path.join(input.decompiledDir, file.relPath);
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
+    const destinationPath = path.join(chunksRoot, file.relPath);
+    ensureDir(path.dirname(destinationPath));
+    fs.copyFileSync(sourcePath, destinationPath);
+    chunkFiles += 1;
+  }
+
+  type ReconstructedTargetRow = {
+    targetPath: string;
+    sourceFile: string;
+    confidence: number;
+    symbols: Set<string>;
+    references: Set<string>;
+    rationale: Set<string>;
+  };
+  const byTargetPath = new Map<string, ReconstructedTargetRow>();
+
+  const upsertTarget = (inputRow: {
+    targetPath: string;
+    sourceFile: string;
+    confidence: number;
+    symbol: string;
+    reference: string;
+    rationale: string[];
+  }): void => {
+    const targetPath = toProjectRelativeTargetPath(inputRow.targetPath);
+    const sourceFile = normalizeDeobfSourceFile(inputRow.sourceFile);
+    if (sourceFile.length === 0) return;
+    const current = byTargetPath.get(targetPath);
+    const chosenSourceFile =
+      !current || inputRow.confidence > current.confidence ? sourceFile : current.sourceFile;
+    const chosenConfidence = !current ? inputRow.confidence : Math.max(current.confidence, inputRow.confidence);
+    const row: ReconstructedTargetRow = current ?? {
+      targetPath,
+      sourceFile: chosenSourceFile,
+      confidence: chosenConfidence,
+      symbols: new Set<string>(),
+      references: new Set<string>(),
+      rationale: new Set<string>(),
+    };
+    row.sourceFile = chosenSourceFile;
+    row.confidence = chosenConfidence;
+    if (inputRow.symbol.trim().length > 0) row.symbols.add(inputRow.symbol.trim());
+    if (inputRow.reference.trim().length > 0) row.references.add(inputRow.reference.trim());
+    for (const reason of inputRow.rationale) {
+      const normalized = reason.trim();
+      if (normalized.length === 0) continue;
+      row.rationale.add(normalized);
+    }
+    byTargetPath.set(targetPath, row);
+  };
+
+  for (const plan of input.deobfuscationTable.filePlans) {
+    upsertTarget({
+      targetPath: plan.proposedModulePath,
+      sourceFile: plan.sourceFile,
+      confidence: plan.confidence,
+      symbol: path.basename(plan.proposedModulePath).replace(/\.[^.]+$/, ""),
+      reference: plan.referenceSource,
+      rationale: plan.rationale,
+    });
+  }
+  for (const entry of input.deobfuscationTable.entries) {
+    upsertTarget({
+      targetPath: entry.targetProjectPath,
+      sourceFile: entry.sourceFile,
+      confidence: entry.confidence,
+      symbol: entry.deobfuscated,
+      reference: `${entry.reference.source}:${entry.reference.symbol}`,
+      rationale: entry.rationale,
+    });
+  }
+
+  let reconstructedFiles = 0;
+  const reconstructedMapRows: Array<{
+    targetPath: string;
+    emittedPath: string;
+    sourceFile: string;
+    confidence: number;
+    symbols: string[];
+    references: string[];
+    rationale: string[];
+  }> = [];
+
+  const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
+  for (const row of sortedTargets) {
+    const sourcePath = path.join(input.decompiledDir, row.sourceFile);
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
+    const source = normalizeSourceForPrint(readUtf8(sourcePath));
+    const headerLines = [
+      "/*",
+      "  Generated by reverse/deobfuscation pipeline for WebStorm exploration.",
+      `  Source chunk: ${row.sourceFile}`,
+      `  Confidence: ${row.confidence}`,
+      `  Suggested symbols: ${Array.from(row.symbols).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
+      `  References: ${Array.from(row.references).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
+      "*/",
+      "",
+    ];
+    const emittedPath = row.targetPath.replace(/\.(?:tsx?|jsx|mjs|cjs)$/i, ".js");
+    const destinationPath = path.join(reconstructedRoot, emittedPath);
+    ensureDir(path.dirname(destinationPath));
+    fs.writeFileSync(destinationPath, `${headerLines.join("\n")}${source.endsWith("\n") ? source : `${source}\n`}`, "utf8");
+    reconstructedFiles += 1;
+
+    reconstructedMapRows.push({
+      targetPath: row.targetPath,
+      emittedPath,
+      sourceFile: row.sourceFile,
+      confidence: row.confidence,
+      symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
+      references: Array.from(row.references).sort((a, b) => a.localeCompare(b)),
+      rationale: Array.from(row.rationale).sort((a, b) => a.localeCompare(b)),
+    });
+  }
+
+  const mappingArtifacts = [
+    "mapping/deobfuscation-table.json",
+    "mapping/deobfuscation-table.md",
+    "mapping/deobfuscation-table.csv",
+    "mapping/rename-plan.md",
+    "mapping/reconstructed-map.json",
+    "mapping/component-boundaries.json",
+    "mapping/session-flow.json",
+    "mapping/session-flow.md",
+    "mapping/route-boundary-graph.json",
+    "mapping/reference-parity-gaps.json",
+    "mapping/runtime-probe.json",
+    "mapping/reference-signals.json",
+    "mapping/reference-symbols.json",
+  ];
+
+  writeJson(path.join(mappingRoot, "deobfuscation-table.json"), input.deobfuscationTable);
+  fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.md"), input.deobfuscationMarkdown, "utf8");
+  fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.csv"), input.deobfuscationCsv, "utf8");
+  fs.writeFileSync(path.join(mappingRoot, "rename-plan.md"), input.renamePlanMarkdown, "utf8");
+  writeJson(path.join(mappingRoot, "reconstructed-map.json"), reconstructedMapRows);
+  writeJson(path.join(mappingRoot, "component-boundaries.json"), input.componentBoundaries);
+  writeJson(path.join(mappingRoot, "session-flow.json"), input.sessionFlow);
+  fs.writeFileSync(path.join(mappingRoot, "session-flow.md"), input.sessionFlowMarkdown, "utf8");
+  writeJson(path.join(mappingRoot, "route-boundary-graph.json"), input.routeBoundaryGraph);
+  writeJson(path.join(mappingRoot, "reference-parity-gaps.json"), input.referenceParityGaps);
+  writeJson(path.join(mappingRoot, "runtime-probe.json"), input.runtimeProbe);
+  writeJson(path.join(mappingRoot, "reference-signals.json"), input.referenceSignals);
+  writeJson(path.join(mappingRoot, "reference-symbols.json"), input.referenceSymbols);
+
+  const generatedPackageJson = {
+    name: "codex-app-reverse-test-project",
+    private: true,
+    version: "0.0.0",
+    description: "Generated reverse/deobfuscation workspace for WebStorm inspection.",
+    type: "module",
+    scripts: {
+      typecheck: "tsc -p tsconfig.json --noEmit",
+      lint: "eslint src/**/*.{js,mjs,cjs,ts,tsx} --format json",
+      stats: "node ./tools/print-stats.mjs",
+    },
+    dependencies: {
+      eslint: "^9.20.0",
+      typescript: "^5.9.2",
+    },
+  };
+  writeJson(path.join(projectRoot, "package.json"), generatedPackageJson);
+
+  const tsconfigJson = {
+    compilerOptions: {
+      target: "ES2022",
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      allowJs: true,
+      checkJs: false,
+      noEmit: true,
+      strict: false,
+      skipLibCheck: true,
+      baseUrl: ".",
+      paths: {
+        "@chunks/*": ["src/chunks/*"],
+        "@reconstructed/*": ["src/reconstructed/*"],
+      },
+    },
+    include: ["src/**/*", "mapping/**/*.json"],
+  };
+  writeJson(path.join(projectRoot, "tsconfig.json"), tsconfigJson);
+  writeJson(path.join(projectRoot, "jsconfig.json"), tsconfigJson);
+
+  const eslintConfig = [
+    "module.exports = [",
+    "  {",
+    "    files: ['src/**/*.{js,mjs,cjs,ts,tsx}'],",
+    "    languageOptions: {",
+    "      ecmaVersion: 'latest',",
+    "      sourceType: 'module',",
+    "    },",
+    "    rules: {},",
+    "  },",
+    "  {",
+    "    ignores: ['mapping/**', 'meta/**', 'tools/**', 'node_modules/**'],",
+    "  },",
+    "];",
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(projectRoot, "eslint.config.cjs"), eslintConfig, "utf8");
+
+  fs.writeFileSync(
+    path.join(projectRoot, ".gitignore"),
+    "node_modules/\n.idea/\n.DS_Store\n",
+    "utf8",
+  );
+
+  const statsScript = [
+    "import fs from 'node:fs';",
+    "import path from 'node:path';",
+    "",
+    "const tablePath = path.resolve(process.cwd(), 'mapping', 'deobfuscation-table.json');",
+    "if (!fs.existsSync(tablePath)) {",
+    "  console.error('mapping/deobfuscation-table.json not found');",
+    "  process.exit(1);",
+    "}",
+    "const table = JSON.parse(fs.readFileSync(tablePath, 'utf8'));",
+    "console.log(JSON.stringify({",
+    "  mappedFiles: table.coverage?.mappedFiles ?? 0,",
+    "  mappedSymbols: table.coverage?.mappedSymbols ?? 0,",
+    "  filePlans: Array.isArray(table.filePlans) ? table.filePlans.length : 0,",
+    "  entries: Array.isArray(table.entries) ? table.entries.length : 0,",
+    "}, null, 2));",
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(toolsRoot, "print-stats.mjs"), statsScript, "utf8");
+
+  const readme = [
+    "# Project",
+    "",
+    "Generated by `scripts/ts/reverse.ts` from decompiled chunks + deobfuscation mappings.",
+    "",
+    "## Open In WebStorm",
+    "1. Open this folder in WebStorm.",
+    "2. Let indexing finish.",
+    "3. Start from `mapping/rename-plan.md` and `mapping/deobfuscation-table.csv`.",
+    "",
+    "## Structure",
+    "- `src/chunks/` original decompiled JS chunks (core/deobf candidates).",
+    "- `src/reconstructed/` files placed by deobfuscation target paths with source headers.",
+    "- `mapping/` all generated maps and flow reports.",
+    "- `meta/` source package metadata and generation info.",
+    "",
+    "## Quick Commands",
+    "- `npm install`",
+    "- `npm run lint`",
+    "- `npm run stats`",
+    "- `npm run typecheck`",
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(projectRoot, "README.md"), `${readme}\n`, "utf8");
+
+  const checks = runGeneratedProjectChecks(projectRoot);
+
+  writeJson(path.join(metaRoot, "source-package.json"), input.sourcePackage);
+  writeJson(path.join(metaRoot, "checks.json"), checks);
+  writeJson(path.join(metaRoot, "generation.json"), {
+    generatedAtUtc: new Date().toISOString(),
+    appDir: toPosixPath(input.appDir),
+    decompiledDir: toPosixPath(input.decompiledDir),
+    chunkFiles,
+    mappedTargets: reconstructedMapRows.length,
+    reconstructedFiles,
+    checks,
+  });
+
+  return {
+    rootPath: toPosixPath(projectRoot),
+    chunkFiles,
+    reconstructedFiles,
+    mappedTargets: reconstructedMapRows.length,
+    mappingArtifacts,
+    checks,
   };
 }
 
@@ -5453,6 +6916,7 @@ function generateArchitectureMarkdown(input: {
   componentBoundaries: ComponentBoundariesReport;
   ipcContractMap: IpcContractMapReport;
   rpcSchema: RpcSchemaReport;
+  deobfuscationTable: DeobfuscationTableReport;
   sessionFlow: SessionFlowReport;
   routeBoundaryGraph: RouteBoundaryGraphReport;
   referenceParityGaps: ReferenceParityGapsReport;
@@ -5571,6 +7035,17 @@ ${input.ipcContractMap.orphanSignals.missingRendererSubscriptions.slice(0, Math.
 - runtime lines scanned for schema: ${input.rpcSchema.runtimeProbe.linesScanned}
 - top rpc schema methods:
 ${input.rpcSchema.methods.slice(0, Math.min(top, 16)).map((row) => `- \`${row.method}\` (confidence=${row.confidence}, payload=${row.payloadKeys.length}, envelopes=${row.envelopes.join("|") || "none"})`).join("\n") || "- _none_"}
+
+## Deobfuscation Table
+- mapped symbols: ${input.deobfuscationTable.coverage.mappedSymbols}
+- mapped files: ${input.deobfuscationTable.coverage.mappedFiles}
+- obfuscated symbol candidates: ${input.deobfuscationTable.coverage.obfuscatedSymbolCandidates}
+- obfuscated file candidates: ${input.deobfuscationTable.coverage.obfuscatedFileCandidates}
+- symbol maps loaded: ${input.deobfuscationTable.referenceInputs.loaded}
+- top file relocations:
+${input.deobfuscationTable.filePlans.slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` -> \`${row.proposedModulePath}\` (confidence=${row.confidence})`).join("\n") || "- _none_"}
+- top symbol renames:
+${input.deobfuscationTable.entries.filter((row) => row.kind !== "file").slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` :: \`${row.obfuscated}\` -> \`${row.deobfuscated}\` (confidence=${row.confidence}, ref=${row.reference.source})`).join("\n") || "- _none_"}
 
 ## Session Flow
 - focus routes: ${input.sessionFlow.focusRouteCount}
@@ -5832,6 +7307,14 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       writeWarn(warning);
     }
   }
+  const referenceSymbolProfile = loadReferenceSymbolProfile(reportDir);
+  if (referenceSymbolProfile.loaded) {
+    writeInfo(`Reference symbol maps loaded: ${referenceSymbolProfile.symbols.length} symbols`);
+  } else {
+    for (const warning of referenceSymbolProfile.warnings) {
+      writeWarn(warning);
+    }
+  }
   const webviewIndexPath = path.join(options.appDir, "webview", "index.html");
   const webviewAssets = parseWebviewIndexAssets(webviewIndexPath);
 
@@ -5877,6 +7360,23 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     top: options.top,
     referenceProfile,
   });
+  const deobfuscationTable = buildDeobfuscationTableReport({
+    top: options.top,
+    jsFiles,
+    sourceByFile,
+    routeRows,
+    methodRows,
+    messageTypeRows,
+    statusRows,
+    stateKeyRows,
+    ipcRows,
+    componentBoundaries,
+    referenceProfile,
+    referenceSymbolProfile,
+  });
+  const deobfuscationMarkdown = formatDeobfuscationTableMarkdown(deobfuscationTable);
+  const deobfuscationCsv = formatDeobfuscationTableCsv(deobfuscationTable);
+  const renamePlanMarkdown = formatRenamePlanMarkdown(deobfuscationTable);
 
   let runtimeProbeResult: RuntimeProbeResult = {
     attempted: false,
@@ -5957,6 +7457,45 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     componentBoundaries,
     rpcSchema,
   });
+  writeHeader("Generating project");
+  const webStormTestProject = buildWebStormTestProject({
+    outDir: options.outDir,
+    appDir: options.appDir,
+    decompiledDir,
+    jsFiles,
+    sourcePackage: {
+      name: packageJson.name,
+      version: packageJson.version,
+      main: packageJson.main,
+    },
+    deobfuscationTable,
+    deobfuscationMarkdown,
+    deobfuscationCsv,
+    renamePlanMarkdown,
+    componentBoundaries,
+    sessionFlow,
+    sessionFlowMarkdown,
+    routeBoundaryGraph,
+    referenceParityGaps,
+    runtimeProbe: runtimeProbeResult,
+    referenceSignals: referenceProfile,
+    referenceSymbols: referenceSymbolProfile,
+  });
+  writeInfo(`Project root: ${webStormTestProject.rootPath}`);
+  writeInfo(
+    `Project checks: install=${webStormTestProject.checks.install.success}, tscErrors=${webStormTestProject.checks.tsc.errors}, eslintErrors=${webStormTestProject.checks.eslint.errors}, eslintWarnings=${webStormTestProject.checks.eslint.warnings}`,
+  );
+  if (!webStormTestProject.checks.install.success) {
+    writeWarn("Project checks: npm install failed.");
+  }
+  if (webStormTestProject.checks.tsc.errors > 0) {
+    writeWarn(`Project checks: TSC errors detected (${webStormTestProject.checks.tsc.errors}).`);
+  }
+  if (webStormTestProject.checks.eslint.errors > 0 || webStormTestProject.checks.eslint.warnings > 0) {
+    writeWarn(
+      `Project checks: ESLint issues detected (errors=${webStormTestProject.checks.eslint.errors}, warnings=${webStormTestProject.checks.eslint.warnings}).`,
+    );
+  }
 
   const summary = {
     generatedAtUtc: new Date().toISOString(),
@@ -6002,6 +7541,10 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       ipcGlobalWrappersDiscovered: ipcContractMap.wrappers.globalWrappersDiscovered,
       componentBoundaries: componentBoundaries.boundaries.length,
       componentChunks: componentBoundaries.chunks.length,
+      deobfMappedFiles: deobfuscationTable.coverage.mappedFiles,
+      deobfMappedSymbols: deobfuscationTable.coverage.mappedSymbols,
+      deobfFileCandidates: deobfuscationTable.coverage.obfuscatedFileCandidates,
+      deobfSymbolCandidates: deobfuscationTable.coverage.obfuscatedSymbolCandidates,
       sessionFlowRoutes: sessionFlow.entries.length,
       routeBoundaryGraphNodes: routeBoundaryGraph.nodes.length,
       routeBoundaryGraphEdges: routeBoundaryGraph.edges.length,
@@ -6038,6 +7581,28 @@ async function runReverse(options: ReverseOptions): Promise<number> {
         ui: referenceProfile.keywordGroups.ui.length,
       },
     },
+    referenceSymbols: {
+      loaded: referenceSymbolProfile.loaded,
+      oneCodePath: referenceSymbolProfile.oneCodePath,
+      codexMonitorPath: referenceSymbolProfile.codexMonitorPath,
+      symbolCount: referenceSymbolProfile.symbols.length,
+      warningCount: referenceSymbolProfile.warnings.length,
+    },
+    deobfuscation: {
+      mappedFiles: deobfuscationTable.coverage.mappedFiles,
+      mappedSymbols: deobfuscationTable.coverage.mappedSymbols,
+      entries: deobfuscationTable.entries.length,
+      filePlans: deobfuscationTable.filePlans.length,
+      referenceLoaded: deobfuscationTable.referenceInputs.loaded,
+    },
+    project: {
+      rootPath: webStormTestProject.rootPath,
+      chunkFiles: webStormTestProject.chunkFiles,
+      reconstructedFiles: webStormTestProject.reconstructedFiles,
+      mappedTargets: webStormTestProject.mappedTargets,
+      mappingArtifacts: webStormTestProject.mappingArtifacts,
+      checks: webStormTestProject.checks,
+    },
     referenceParity: {
       weightedCoveragePercent: referenceParityGaps.coverage.weightedCoveragePercent,
       weightedGapScore: referenceParityGaps.coverage.weightedGapScore,
@@ -6070,6 +7635,7 @@ async function runReverse(options: ReverseOptions): Promise<number> {
   writeJson(path.join(reportDir, "domain-report.json"), domainReport);
   writeJson(path.join(reportDir, "ipc-contract-map.json"), ipcContractMap);
   writeJson(path.join(reportDir, "component-boundaries.json"), componentBoundaries);
+  writeJson(path.join(reportDir, "deobfuscation-table.json"), deobfuscationTable);
   writeJson(path.join(reportDir, "session-flow.json"), sessionFlow);
   writeJson(path.join(reportDir, "route-boundary-graph.json"), routeBoundaryGraph);
   writeJson(path.join(reportDir, "reference-parity-gaps.json"), referenceParityGaps);
@@ -6077,6 +7643,10 @@ async function runReverse(options: ReverseOptions): Promise<number> {
   writeJson(path.join(reportDir, "parse-failures.json"), parseFailureRows);
   writeJson(path.join(reportDir, "design-system.json"), designSystem);
   writeJson(path.join(reportDir, "reference-signals.json"), referenceProfile);
+  writeJson(path.join(reportDir, "reference-symbols.json"), referenceSymbolProfile);
+  fs.writeFileSync(path.join(reportDir, "deobfuscation-table.md"), deobfuscationMarkdown, "utf8");
+  fs.writeFileSync(path.join(reportDir, "deobfuscation-table.csv"), deobfuscationCsv, "utf8");
+  fs.writeFileSync(path.join(reportDir, "rename-plan.md"), renamePlanMarkdown, "utf8");
   fs.writeFileSync(path.join(reportDir, "session-flow.md"), sessionFlowMarkdown, "utf8");
 
   if (binaryResult) {
@@ -6119,6 +7689,7 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     componentBoundaries,
     ipcContractMap,
     rpcSchema,
+    deobfuscationTable,
     sessionFlow,
     routeBoundaryGraph,
     referenceParityGaps,
@@ -6133,9 +7704,14 @@ async function runReverse(options: ReverseOptions): Promise<number> {
   writeSuccess(`IPC contract map: ${toPosixPath(path.join(reportDir, "ipc-contract-map.json"))}`);
   writeSuccess(`RPC schema: ${toPosixPath(path.join(reportDir, "rpc-schema.json"))}`);
   writeSuccess(`Component boundaries: ${toPosixPath(path.join(reportDir, "component-boundaries.json"))}`);
+  writeSuccess(`Deobfuscation table: ${toPosixPath(path.join(reportDir, "deobfuscation-table.json"))}`);
   writeSuccess(`Session flow JSON: ${toPosixPath(path.join(reportDir, "session-flow.json"))}`);
   writeSuccess(`Route-boundary graph: ${toPosixPath(path.join(reportDir, "route-boundary-graph.json"))}`);
   writeSuccess(`Reference parity gaps: ${toPosixPath(path.join(reportDir, "reference-parity-gaps.json"))}`);
+  writeSuccess(`Deobfuscation markdown: ${toPosixPath(path.join(reportDir, "deobfuscation-table.md"))}`);
+  writeSuccess(`Deobfuscation CSV: ${toPosixPath(path.join(reportDir, "deobfuscation-table.csv"))}`);
+  writeSuccess(`Rename plan: ${toPosixPath(path.join(reportDir, "rename-plan.md"))}`);
+  writeSuccess(`Project: ${webStormTestProject.rootPath}`);
   writeSuccess(`Session flow: ${toPosixPath(path.join(reportDir, "session-flow.md"))}`);
   writeSuccess(`Runtime probe: ${toPosixPath(path.join(reportDir, "runtime-probe.json"))}`);
   writeSuccess(`Reference priors: ${toPosixPath(path.join(reportDir, "reference-signals.json"))}`);
