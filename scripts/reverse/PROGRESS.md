@@ -2,7 +2,7 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-21
-- Latest validated run: `work/reverse-codex-app-refactor-smoke13`
+- Latest validated run: `work/reverse-codex-app-refactor-tsfirst-smoke3`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -27,6 +27,9 @@
 - Session-flow / route-boundary generation extracted from god object:
   - `scripts/ts/reverse/session-route-flow.ts`
   - owns `buildSessionFlowReport`, `formatSessionFlowMarkdown`, `buildRouteBoundaryGraphReport`
+- Reference parity gap stage extracted from god object:
+  - `scripts/ts/reverse/reference-parity.ts`
+  - owns `buildReferenceParityGapsReport`
 - Generated deobfuscation artifacts:
   - `report/deobfuscation-table.json`
   - `report/deobfuscation-table.md`
@@ -45,24 +48,29 @@
 - Output folder is now always `project` (not `webstorm-test-project`).
 - The folder is re-created on each run.
 - Main structure:
-  - `project/src/chunks/*` core selected decompiled chunks
-  - `project/src/reconstructed/*` mapped files by deobfuscation target path
+  - `project/src/chunks/*` one source artifact per chunk (single copy)
+  - `project/src/main/*`, `project/src/renderer/*`, `project/src/services/*` TS-first reconstructed modules
+  - `project/src-tauri-adapter/*` tauri/daemon bridge modules
   - `project/mapping/*` source-of-truth mapping/flow reports
   - `project/meta/checks.json` automated check results
+  - `project/mapping/chunk-artifacts.json` chunk source-of-truth map
 
-## Path Compaction
-- Reconstructed paths are compacted to reduce nesting depth.
-- Examples:
-  - `src/main/lib/git/security/path-validation.ts` -> `src/reconstructed/main/git/security/path-validation.js`
-  - `src/renderer/features/agents/main/active-chat.tsx` -> `src/reconstructed/renderer/agents/active-chat.js`
+## Reconstruction Strategy
+- One source chunk -> one artifact in `src/chunks/*`.
+- Reconstructed target modules are generated as TS wrappers with point symbol exports from chunk artifacts (not full chunk copy per target file).
+- Target path mapping is TS-first and reference-guided:
+  - `src/main/...`
+  - `src/renderer/...`
+  - `src/services/...`
+  - `src-tauri-adapter/...`
 
 ## Automated Quality Checks (inside generated `project`)
 - `npm install`
 - `tsc --noEmit`
-- `eslint src/**/*.{js,mjs,cjs,ts,tsx} --format json`
-- Last validated result (`refactor-smoke13`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
+- `eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json`
+- Last validated result (`refactor-tsfirst-smoke3`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
 
-## Latest Metrics (`refactor-smoke13`)
+## Latest Metrics (`refactor-tsfirst-smoke3`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21

@@ -42,9 +42,13 @@ npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-
 - `report/reference-parity-gaps.json`
 - `report/1code-codexmonitor-architecture-map.md` (copied reference context, when found)
 - `project/*` generated IDE-friendly test project (clean re-create on each run)
-  - `project/src/chunks/*`
-  - `project/src/reconstructed/*`
+  - `project/src/chunks/*` (single source artifact per chunk)
+  - `project/src/main/*`
+  - `project/src/renderer/*`
+  - `project/src/services/*`
+  - `project/src-tauri-adapter/*`
   - `project/mapping/*`
+  - `project/mapping/chunk-artifacts.json` (chunk source map)
   - `project/meta/checks.json` (npm install + tsc + eslint checks)
 - `raw/*` source snapshot
 - `decompiled/*` TypeScript-printer output for JS bundles

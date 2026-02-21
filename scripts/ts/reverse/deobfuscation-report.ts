@@ -194,6 +194,7 @@ export function formatRenamePlanMarkdown(report: DeobfuscationTableReport): stri
 }
 
 export function toProjectRelativeTargetPath(targetProjectPath: string): string {
+  const normalizeModuleExt = (value: string): string => value.replace(/\.(?:tsx?|jsx|mjs|cjs|js)$/i, ".ts");
   const normalized = toPosixPath(targetProjectPath).replace(/^\.?\//, "");
   const withoutReconstructed = normalized.replace(/^reconstructed\//, "");
   const sourceRelative = withoutReconstructed.startsWith("src-tauri/src/")
@@ -202,12 +203,21 @@ export function toProjectRelativeTargetPath(targetProjectPath: string): string {
       ? withoutReconstructed.replace(/^src\//, "")
       : withoutReconstructed;
 
-  let compact = sourceRelative;
-  compact = compact.replace(/^main\/lib\//, "main/");
-  compact = compact.replace(/^renderer\/features\/([^/]+)\/main\//, "renderer/$1/");
-  compact = compact.replace(/^renderer\/features\/([^/]+)\/lib\//, "renderer/$1/lib/");
-  compact = compact.replace(/^renderer\/features\/([^/]+)\/ui\//, "renderer/$1/ui/");
-  compact = compact.replace(/^renderer\/features\/([^/]+)\//, "renderer/$1/");
+  let compact = sourceRelative
+    .replace(/^main\/lib\//, "main/")
+    .replace(/^renderer\/features\/([^/]+)\/main\//, "renderer/$1/")
+    .replace(/^renderer\/features\/([^/]+)\/lib\//, "renderer/$1/lib/")
+    .replace(/^renderer\/features\/([^/]+)\/ui\//, "renderer/$1/ui/")
+    .replace(/^renderer\/features\/([^/]+)\//, "renderer/$1/");
 
-  return compact.length > 0 ? compact : "unknown/module.js";
+  if (compact.startsWith("src-tauri-adapter/")) return normalizeModuleExt(compact);
+  if (compact.startsWith("tauri/")) return normalizeModuleExt(`src-tauri-adapter/${compact.slice("tauri/".length)}`);
+  if (compact.startsWith("main/")) return normalizeModuleExt(`src/main/${compact.slice("main/".length)}`);
+  if (compact.startsWith("renderer/")) return normalizeModuleExt(`src/renderer/${compact.slice("renderer/".length)}`);
+  if (compact.startsWith("services/")) return normalizeModuleExt(`src/services/${compact.slice("services/".length)}`);
+  if (compact.startsWith("features/")) return normalizeModuleExt(`src/services/features/${compact.slice("features/".length)}`);
+  if (compact.startsWith("shared/")) return normalizeModuleExt(`src/services/shared/${compact.slice("shared/".length)}`);
+  if (compact.startsWith("utils/")) return normalizeModuleExt(`src/services/utils/${compact.slice("utils/".length)}`);
+  if (compact.length === 0) compact = "unknown/module.ts";
+  return normalizeModuleExt(`src/services/${compact}`);
 }

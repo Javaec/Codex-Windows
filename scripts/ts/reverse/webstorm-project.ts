@@ -82,6 +82,30 @@ function normalizeSourceForPrint(text: string): string {
     .replace(/\n\/\*# sourceMappingURL=.*\*\/$/gm, "");
 }
 
+function toChunkArtifactPath(sourceFile: string): string {
+  const normalized = toPosixPath(sourceFile).replace(/^\.?\//, "");
+  return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
+}
+
+function normalizeTargetModulePath(targetPath: string): string {
+  const normalized = toPosixPath(targetPath).replace(/^\.?\//, "");
+  return normalized.replace(/\.(?:tsx?|jsx|mjs|cjs|js)$/i, ".ts");
+}
+
+function toRelativeImportPath(fromFilePath: string, toFilePath: string): string {
+  const fromDir = path.posix.dirname(fromFilePath);
+  const withoutExt = toFilePath.replace(/\.(?:ts|js|mjs|cjs)$/i, "");
+  let relative = path.posix.relative(fromDir, withoutExt);
+  if (!relative.startsWith(".")) relative = `./${relative}`;
+  return relative;
+}
+
+function toSafeExportIdentifier(input: string): string {
+  const normalized = input.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^\d+/, "").replace(/^_+/, "");
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalized)) return normalized;
+  return "symbol_export";
+}
+
 function collectOutputPreview(stdout: string, stderr: string, maxLines: number): string[] {
   const joined = `${stdout}\n${stderr}`
     .split(/\r?\n/g)
@@ -232,7 +256,7 @@ function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectRepo
     : fs.existsSync(repoEslintBin)
       ? repoEslintBin
       : "";
-  const eslintArgs = ["src/**/*.{js,mjs,cjs,ts,tsx}", "--format", "json"];
+  const eslintArgs = ["src/**/*.{js,mjs,cjs,ts,tsx}", "src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx}", "--format", "json"];
   const eslintResult =
     eslintBin.length > 0
       ? runNodeScriptSync({
@@ -242,7 +266,8 @@ function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectRepo
           timeoutMs: 240000,
         })
       : runShellCommandSync({
-          command: "npm exec --yes --package eslint@9.20.0 -- eslint src/**/*.{js,mjs,cjs,ts,tsx} --format json",
+          command:
+            "npm exec --yes --package eslint@9.20.0 -- eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json",
           cwd: projectRoot,
           timeoutMs: 240000,
         });
@@ -287,19 +312,27 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
 
   const srcRoot = ensureDir(path.join(projectRoot, "src"));
   const chunksRoot = ensureDir(path.join(srcRoot, "chunks"));
-  const reconstructedRoot = ensureDir(path.join(srcRoot, "reconstructed"));
+  ensureDir(path.join(srcRoot, "main"));
+  ensureDir(path.join(srcRoot, "renderer"));
+  ensureDir(path.join(srcRoot, "services"));
+  ensureDir(path.join(projectRoot, "src-tauri-adapter"));
   const mappingRoot = ensureDir(path.join(projectRoot, "mapping"));
   const metaRoot = ensureDir(path.join(projectRoot, "meta"));
   const toolsRoot = ensureDir(path.join(projectRoot, "tools"));
 
+  const chunkArtifactBySourceFile = new Map<string, string>();
   let chunkFiles = 0;
   for (const file of input.jsFiles) {
     if (!input.shouldIncludeChunk(file.relPath)) continue;
     const sourcePath = path.join(input.decompiledDir, file.relPath);
     if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
-    const destinationPath = path.join(chunksRoot, file.relPath);
+    const chunkArtifactPath = toChunkArtifactPath(file.relPath);
+    const destinationPath = path.join(chunksRoot, chunkArtifactPath);
     ensureDir(path.dirname(destinationPath));
-    fs.copyFileSync(sourcePath, destinationPath);
+    const source = normalizeSourceForPrint(readUtf8(sourcePath));
+    const normalizedSource = source.endsWith("\n") ? source : `${source}\n`;
+    fs.writeFileSync(destinationPath, `${normalizedSource}\nexport {};\n`, "utf8");
+    chunkArtifactBySourceFile.set(file.relPath, toPosixPath(path.posix.join("src", "chunks", chunkArtifactPath)));
     chunkFiles += 1;
   }
 
@@ -310,6 +343,14 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     symbols: Set<string>;
     references: Set<string>;
     rationale: Set<string>;
+    exportsByName: Map<
+      string,
+      {
+        sourceSymbol: string;
+        kind: "class" | "function";
+        confidence: number;
+      }
+    >;
   };
   const byTargetPath = new Map<string, ReconstructedTargetRow>();
 
@@ -320,6 +361,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     symbol: string;
     reference: string;
     rationale: string[];
+    sourceSymbol: string;
+    kind: "class" | "function" | "file";
   }): void => {
     const targetPath = toProjectRelativeTargetPath(inputRow.targetPath);
     const sourceFile = normalizeDeobfSourceFile(inputRow.sourceFile);
@@ -335,6 +378,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       symbols: new Set<string>(),
       references: new Set<string>(),
       rationale: new Set<string>(),
+      exportsByName: new Map(),
     };
     row.sourceFile = chosenSourceFile;
     row.confidence = chosenConfidence;
@@ -344,6 +388,17 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       const normalized = reason.trim();
       if (normalized.length === 0) continue;
       row.rationale.add(normalized);
+    }
+    if (inputRow.kind !== "file") {
+      const exportName = toSafeExportIdentifier(inputRow.symbol.trim().length > 0 ? inputRow.symbol : inputRow.sourceSymbol);
+      const currentExport = row.exportsByName.get(exportName);
+      if (!currentExport || inputRow.confidence > currentExport.confidence) {
+        row.exportsByName.set(exportName, {
+          sourceSymbol: inputRow.sourceSymbol,
+          kind: inputRow.kind,
+          confidence: inputRow.confidence,
+        });
+      }
     }
     byTargetPath.set(targetPath, row);
   };
@@ -356,6 +411,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       symbol: path.basename(plan.proposedModulePath).replace(/\.[^.]+$/, ""),
       reference: plan.referenceSource,
       rationale: plan.rationale,
+      sourceSymbol: "",
+      kind: "file",
     });
   }
   for (const entry of input.deobfuscationTable.entries) {
@@ -366,6 +423,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       symbol: entry.deobfuscated,
       reference: `${entry.reference.source}:${entry.reference.symbol}`,
       rationale: entry.rationale,
+      sourceSymbol: entry.obfuscated,
+      kind: entry.kind,
     });
   }
 
@@ -374,20 +433,45 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     targetPath: string;
     emittedPath: string;
     sourceFile: string;
+    chunkArtifactPath: string;
     confidence: number;
     symbols: string[];
+    exports: Array<{ name: string; sourceSymbol: string; kind: "class" | "function"; confidence: number }>;
     references: string[];
     rationale: string[];
   }> = [];
 
   const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
   for (const row of sortedTargets) {
-    const sourcePath = path.join(input.decompiledDir, row.sourceFile);
-    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
-    const source = normalizeSourceForPrint(readUtf8(sourcePath));
+    let chunkArtifactPath = chunkArtifactBySourceFile.get(row.sourceFile);
+    if (!chunkArtifactPath) {
+      const sourcePath = path.join(input.decompiledDir, row.sourceFile);
+      if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
+      const normalized = normalizeSourceForPrint(readUtf8(sourcePath));
+      const fallbackArtifactRel = toChunkArtifactPath(row.sourceFile);
+      const fallbackDestination = path.join(chunksRoot, fallbackArtifactRel);
+      ensureDir(path.dirname(fallbackDestination));
+      const normalizedSource = normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+      fs.writeFileSync(fallbackDestination, `${normalizedSource}\nexport {};\n`, "utf8");
+      chunkArtifactPath = toPosixPath(path.posix.join("src", "chunks", fallbackArtifactRel));
+      chunkArtifactBySourceFile.set(row.sourceFile, chunkArtifactPath);
+    }
+
+    const emittedPath = normalizeTargetModulePath(row.targetPath);
+    const posixEmittedPath = toPosixPath(emittedPath);
+    const importPath = toRelativeImportPath(posixEmittedPath, chunkArtifactPath);
+    const exportRows = Array.from(row.exportsByName.entries())
+      .map(([name, value]) => ({ name, ...value }))
+      .sort((a, b) => {
+        if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+        if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+        return a.name.localeCompare(b.name);
+      });
+
     const headerLines = [
       "/*",
       "  Generated by reverse/deobfuscation pipeline for WebStorm exploration.",
+      `  Source chunk artifact: ${chunkArtifactPath}`,
       `  Source chunk: ${row.sourceFile}`,
       `  Confidence: ${row.confidence}`,
       `  Suggested symbols: ${Array.from(row.symbols).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
@@ -395,24 +479,45 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       "*/",
       "",
     ];
-    const emittedPath = row.targetPath.replace(/\.(?:tsx?|jsx|mjs|cjs)$/i, ".js");
-    const destinationPath = path.join(reconstructedRoot, emittedPath);
+    const moduleLines = [
+      ...headerLines,
+      `import * as chunkModule from ${JSON.stringify(importPath)};`,
+      "",
+      "const chunk = chunkModule;",
+      "",
+    ];
+    if (exportRows.length === 0) {
+      moduleLines.push("export const __chunk = chunk;");
+    } else {
+      for (const exportRow of exportRows) {
+        moduleLines.push(`export const ${exportRow.name} = chunk[${JSON.stringify(exportRow.sourceSymbol)}];`);
+      }
+    }
+    moduleLines.push("export default chunk;", "");
+
+    const destinationPath = path.join(projectRoot, emittedPath);
     ensureDir(path.dirname(destinationPath));
-    fs.writeFileSync(destinationPath, `${headerLines.join("\n")}${source.endsWith("\n") ? source : `${source}\n`}`, "utf8");
+    fs.writeFileSync(destinationPath, `${moduleLines.join("\n")}\n`, "utf8");
     reconstructedFiles += 1;
 
     reconstructedMapRows.push({
       targetPath: row.targetPath,
       emittedPath,
       sourceFile: row.sourceFile,
+      chunkArtifactPath,
       confidence: row.confidence,
       symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
+      exports: exportRows,
       references: Array.from(row.references).sort((a, b) => a.localeCompare(b)),
       rationale: Array.from(row.rationale).sort((a, b) => a.localeCompare(b)),
     });
   }
+  const chunkArtifactRows = Array.from(chunkArtifactBySourceFile.entries())
+    .map(([sourceFile, artifactPath]) => ({ sourceFile, artifactPath }))
+    .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
 
   const mappingArtifacts = [
+    "mapping/chunk-artifacts.json",
     "mapping/deobfuscation-table.json",
     "mapping/deobfuscation-table.md",
     "mapping/deobfuscation-table.csv",
@@ -429,6 +534,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     "mapping/reference-symbols.json",
   ];
 
+  writeJson(path.join(mappingRoot, "chunk-artifacts.json"), chunkArtifactRows);
   writeJson(path.join(mappingRoot, "deobfuscation-table.json"), input.deobfuscationTable);
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.md"), input.deobfuscationMarkdown, "utf8");
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.csv"), input.deobfuscationCsv, "utf8");
@@ -452,7 +558,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     type: "module",
     scripts: {
       typecheck: "tsc -p tsconfig.json --noEmit",
-      lint: "eslint src/**/*.{js,mjs,cjs,ts,tsx} --format json",
+      lint: "eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json",
       stats: "node ./tools/print-stats.mjs",
     },
     dependencies: {
@@ -475,10 +581,13 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       baseUrl: ".",
       paths: {
         "@chunks/*": ["src/chunks/*"],
-        "@reconstructed/*": ["src/reconstructed/*"],
+        "@main/*": ["src/main/*"],
+        "@renderer/*": ["src/renderer/*"],
+        "@services/*": ["src/services/*"],
+        "@tauri/*": ["src-tauri-adapter/*"],
       },
     },
-    include: ["src/**/*", "mapping/**/*.json"],
+    include: ["src/**/*", "src-tauri-adapter/**/*", "mapping/**/*.json"],
   };
   writeJson(path.join(projectRoot, "tsconfig.json"), tsconfigJson);
   writeJson(path.join(projectRoot, "jsconfig.json"), tsconfigJson);
@@ -486,9 +595,9 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const eslintConfig = [
     "module.exports = [",
     "  {",
-    "    files: ['src/**/*.{js,mjs,cjs,ts,tsx}'],",
+    "    files: ['src/**/*.{js,mjs,cjs,ts,tsx}', 'src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx}'],",
     "    languageOptions: {",
-    "      ecmaVersion: 'latest',",
+      "      ecmaVersion: 'latest',",
     "      sourceType: 'module',",
     "    },",
     "    rules: {},",
@@ -538,8 +647,9 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     "3. Start from `mapping/rename-plan.md` and `mapping/deobfuscation-table.csv`.",
     "",
     "## Structure",
-    "- `src/chunks/` original decompiled JS chunks (core/deobf candidates).",
-    "- `src/reconstructed/` files placed by deobfuscation target paths with source headers.",
+    "- `src/chunks/` one source artifact per original chunk (`.ts`).",
+    "- `src/main/`, `src/renderer/`, `src/services/` TS-first reconstructed modules with point symbol exports.",
+    "- `src-tauri-adapter/` bridge modules for tauri/daemon-related targets.",
     "- `mapping/` all generated maps and flow reports.",
     "- `meta/` source package metadata and generation info.",
     "",
