@@ -38,6 +38,7 @@ npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-
 - `report/design-system.json`
 - `report/reference-signals.json`
 - `report/reference-symbols.json`
+- `report/reference-model.json` (unified reference source-of-truth from architecture map + both symbol maps)
 - `report/reference-parity-gaps.json`
 - `report/1code-codexmonitor-architecture-map.md` (copied reference context, when found)
 - `project/*` generated IDE-friendly test project (clean re-create on each run)

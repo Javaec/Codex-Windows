@@ -1,0 +1,480 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export interface ReferenceKeywordGroups {
+  routes: string[];
+  methods: string[];
+  stateKeys: string[];
+  readiness: string[];
+  events: string[];
+  ipc: string[];
+  ui: string[];
+  domains: Record<string, string[]>;
+}
+
+export type ReferenceSymbolSource = "1code" | "codexmonitor";
+
+export interface ReferenceSignalProfile {
+  sourcePath: string;
+  copiedPath: string;
+  loaded: boolean;
+  bytes: number;
+  excerpt: string[];
+  warnings: string[];
+  keywordGroups: ReferenceKeywordGroups;
+}
+
+export interface ReferenceSymbolRow {
+  source: ReferenceSymbolSource;
+  name: string;
+  file: string;
+  kind: string;
+  score: number;
+  refs: number;
+  exported: boolean;
+  symbolKind: "class" | "function" | "other";
+  tokens: string[];
+}
+
+export interface ReferenceSymbolProfile {
+  loaded: boolean;
+  oneCodePath: string;
+  codexMonitorPath: string;
+  oneCodeCopiedPath: string;
+  codexMonitorCopiedPath: string;
+  warnings: string[];
+  symbols: ReferenceSymbolRow[];
+}
+
+export interface UnifiedReferenceFileProfile {
+  source: ReferenceSymbolSource;
+  file: string;
+  symbolCount: number;
+  maxScore: number;
+  tokens: string[];
+}
+
+export interface ReferenceModel {
+  generatedAtUtc: string;
+  signals: ReferenceSignalProfile;
+  symbols: ReferenceSymbolProfile;
+  unified: {
+    files: UnifiedReferenceFileProfile[];
+    domainKeywords: Record<string, string[]>;
+  };
+}
+
+export interface LoadReferenceModelInput {
+  referenceMapPath: string;
+  reportDir: string;
+  oneCodeSymbolMapPath: string;
+  codexMonitorSymbolMapPath: string;
+}
+
+function toPosixPath(input: string): string {
+  return input.replace(/\\/g, "/");
+}
+
+function readUtf8(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function ensureDir(dirPath: string): void {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function dedupeKeywords(values: Iterable<string>, max: number): string[] {
+  const out = new Set<string>();
+  for (const value of values) {
+    const normalized = value.trim();
+    if (normalized.length < 3 || normalized.length > 80) continue;
+    if (/^\d+$/.test(normalized)) continue;
+    if (/^[a-z]:[\\/]/i.test(normalized)) continue;
+    if (normalized.includes("\\") || normalized.includes("/reference/")) continue;
+    if (normalized.split("/").length > 3) continue;
+    if (/\.(?:ts|tsx|js|mjs|cjs|md|json|css|html|rs)$/i.test(normalized)) continue;
+    if (/^-+$/.test(normalized)) continue;
+    out.add(normalized);
+    if (out.size >= max) break;
+  }
+  return Array.from(out).sort((a, b) => a.localeCompare(b));
+}
+
+function splitReferenceToken(token: string): string[] {
+  const normalized = token.trim();
+  if (normalized.length === 0) return [];
+  const parts = normalized.split(/[^A-Za-z0-9_./:-]+/g).filter((part) => part.length >= 3);
+  const nested: string[] = [];
+  for (const part of parts) {
+    nested.push(part);
+    nested.push(...part.split(/[./:_-]+/g).filter((item) => item.length >= 3));
+    const camel = part.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/\s+/g);
+    for (const item of camel) {
+      if (item.length >= 3) nested.push(item);
+    }
+  }
+  return nested;
+}
+
+function extractReferenceTokens(markdown: string): string[] {
+  const tokens: string[] = [];
+  const backtickRegex = /`([^`\n\r]{2,160})`/g;
+  let backtickMatch: RegExpExecArray | null = backtickRegex.exec(markdown);
+  while (backtickMatch) {
+    tokens.push(backtickMatch[1]);
+    backtickMatch = backtickRegex.exec(markdown);
+  }
+
+  const wordRegex = /\b[A-Za-z][A-Za-z0-9_./:-]{2,80}\b/g;
+  let wordMatch: RegExpExecArray | null = wordRegex.exec(markdown);
+  while (wordMatch) {
+    tokens.push(wordMatch[0]);
+    wordMatch = wordRegex.exec(markdown);
+  }
+
+  return tokens;
+}
+
+function categorizeReferenceKeywords(tokens: string[]): Omit<ReferenceKeywordGroups, "domains"> {
+  const routes = new Set<string>([
+    "chat",
+    "thread",
+    "workspace",
+    "settings",
+    "automation",
+    "inbox",
+    "terminal",
+    "diff",
+    "login",
+  ]);
+  const methods = new Set<string>();
+  const stateKeys = new Set<string>();
+  const readiness = new Set<string>(["ready", "loading", "error", "connected", "disconnected", "syncing"]);
+  const events = new Set<string>();
+  const ipc = new Set<string>();
+  const ui = new Set<string>(["layout", "sidebar", "panel", "header", "footer", "modal", "dialog"]);
+
+  for (const rawToken of tokens) {
+    for (const token of splitReferenceToken(rawToken)) {
+      const normalized = token.trim();
+      if (normalized.length < 3 || normalized.length > 80) continue;
+      const lower = normalized.toLowerCase();
+
+      if (/(route|path|navigate|screen|view|chat|thread|workspace|settings|inbox|automation|terminal|diff|login)/.test(lower)) {
+        routes.add(normalized);
+      }
+      if (/(\.|::).+/.test(normalized) || /(create|list|get|set|start|stop|open|close|send|load|save|handle|dispatch|rollback|fork)/.test(lower)) {
+        methods.add(normalized);
+      }
+      if (/(state|store|cache|config|setting|session|atom|key|status)/.test(lower)) {
+        stateKeys.add(normalized);
+      }
+      if (/(ready|loading|error|failed|connected|disconnected|pending|submitted|streaming|idle|online|offline|healthy)/.test(lower)) {
+        readiness.add(normalized);
+      }
+      if (/(event|broadcast|listener|stream|delta|changed|update|updated|created|deleted|queued|queue)/.test(lower)) {
+        events.add(normalized);
+      }
+      if (/(ipc|invoke|send|on|handle|desktopapi|channel|window:|auth:|chat:|git:|app:|stream:|update:)/.test(lower)) {
+        ipc.add(normalized);
+      }
+      if (/(layout|component|panel|sidebar|header|footer|modal|dialog|button|form|content|viewer|chatview|appcontent)/.test(lower)) {
+        ui.add(normalized);
+      }
+    }
+  }
+
+  return {
+    routes: dedupeKeywords(routes, 180),
+    methods: dedupeKeywords(methods, 165),
+    stateKeys: dedupeKeywords(stateKeys, 141),
+    readiness: dedupeKeywords(readiness, 80),
+    events: dedupeKeywords(events, 160),
+    ipc: dedupeKeywords(ipc, 160),
+    ui: dedupeKeywords(ui, 120),
+  };
+}
+
+function buildReferenceDomainKeywords(base: {
+  routes: string[];
+  methods: string[];
+  stateKeys: string[];
+  readiness: string[];
+  events: string[];
+  ipc: string[];
+  ui: string[];
+}): Record<string, string[]> {
+  return {
+    navigation: dedupeKeywords([...base.routes, ...base.ui, "tab", "panel", "sidebar"], 140),
+    chat_sessions: dedupeKeywords(
+      [...base.routes, ...base.methods, ...base.events, "chat", "thread", "conversation", "session"],
+      140,
+    ),
+    settings_skills: dedupeKeywords(
+      [...base.routes, ...base.stateKeys, "settings", "skill", "skills", "model", "auth", "config"],
+      140,
+    ),
+    async_readiness: dedupeKeywords([...base.readiness, ...base.events, ...base.ipc, "stream", "delta"], 140),
+  };
+}
+
+function buildEmptyReferenceKeywordGroups(): ReferenceKeywordGroups {
+  const base = {
+    routes: [] as string[],
+    methods: [] as string[],
+    stateKeys: [] as string[],
+    readiness: [] as string[],
+    events: [] as string[],
+    ipc: [] as string[],
+    ui: [] as string[],
+  };
+  return {
+    ...base,
+    domains: buildReferenceDomainKeywords(base),
+  };
+}
+
+function extractNameTokens(value: string): string[] {
+  const raw = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/g)
+    .filter((part) => part.length >= 2)
+    .map((part) => part.toLowerCase());
+  return dedupeKeywords(raw, 64).map((item) => item.toLowerCase());
+}
+
+function normalizeReferenceSymbolKind(kind: string): "class" | "function" | "other" {
+  const lower = kind.toLowerCase();
+  if (/(class|struct|enum|interface|type)/.test(lower)) return "class";
+  if (/(function|fn|method)/.test(lower)) return "function";
+  return "other";
+}
+
+function isMeaningfulReferenceSymbolName(name: string): boolean {
+  if (name.length < 4 || name.length > 72) return false;
+  if (!/[A-Za-z]/.test(name)) return false;
+  if (/^[a-z]{1,3}$/.test(name)) return false;
+  if (/^[A-Z]{1,3}$/.test(name)) return false;
+  if (/^\d+$/.test(name)) return false;
+  if (/^(run|main|start|stop|kind|usage|header|app|state|data)$/i.test(name)) return false;
+  return true;
+}
+
+function loadReferenceSignalProfile(referenceMapPath: string, reportDir: string): ReferenceSignalProfile {
+  const normalizedPath = path.resolve(referenceMapPath);
+  const empty = buildEmptyReferenceKeywordGroups();
+  const warnings: string[] = [];
+
+  if (!fs.existsSync(normalizedPath) || !fs.statSync(normalizedPath).isFile()) {
+    warnings.push(`Reference map not found: ${toPosixPath(normalizedPath)}`);
+    return {
+      sourcePath: toPosixPath(normalizedPath),
+      copiedPath: "",
+      loaded: false,
+      bytes: 0,
+      excerpt: [],
+      warnings,
+      keywordGroups: empty,
+    };
+  }
+
+  const markdown = readUtf8(normalizedPath);
+  const categorized = categorizeReferenceKeywords(extractReferenceTokens(markdown));
+  const groups: ReferenceKeywordGroups = {
+    ...categorized,
+    domains: buildReferenceDomainKeywords(categorized),
+  };
+
+  const copyPath = path.join(reportDir, path.basename(normalizedPath));
+  ensureDir(path.dirname(copyPath));
+  fs.copyFileSync(normalizedPath, copyPath);
+
+  const excerpt = markdown
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 20);
+
+  return {
+    sourcePath: toPosixPath(normalizedPath),
+    copiedPath: toPosixPath(copyPath),
+    loaded: true,
+    bytes: Buffer.byteLength(markdown, "utf8"),
+    excerpt,
+    warnings,
+    keywordGroups: groups,
+  };
+}
+
+function loadReferenceSymbolMapRows(input: {
+  source: ReferenceSymbolSource;
+  mapPath: string;
+  reportDir: string;
+}): { loaded: boolean; sourcePath: string; copiedPath: string; warnings: string[]; rows: ReferenceSymbolRow[] } {
+  const normalizedPath = path.resolve(input.mapPath);
+  const warnings: string[] = [];
+
+  if (!fs.existsSync(normalizedPath) || !fs.statSync(normalizedPath).isFile()) {
+    warnings.push(`Reference symbol map not found: ${toPosixPath(normalizedPath)}`);
+    return {
+      loaded: false,
+      sourcePath: toPosixPath(normalizedPath),
+      copiedPath: "",
+      warnings,
+      rows: [],
+    };
+  }
+
+  let parsed: {
+    topClasses?: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }>;
+    topFunctions?: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }>;
+  };
+
+  try {
+    parsed = JSON.parse(readUtf8(normalizedPath));
+  } catch (error) {
+    warnings.push(
+      `Failed to parse symbol map (${toPosixPath(normalizedPath)}): ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return {
+      loaded: false,
+      sourcePath: toPosixPath(normalizedPath),
+      copiedPath: "",
+      warnings,
+      rows: [],
+    };
+  }
+
+  const rows: ReferenceSymbolRow[] = [];
+  const consume = (
+    list: Array<{ name?: string; file?: string; kind?: string; score?: number; refs?: number; exported?: boolean }> | undefined,
+  ): void => {
+    if (!list) return;
+    for (const item of list) {
+      const name = (item.name ?? "").trim();
+      const file = toPosixPath((item.file ?? "").trim());
+      const kind = (item.kind ?? "").trim();
+      if (!name || !file || !kind) continue;
+      if (!isMeaningfulReferenceSymbolName(name)) continue;
+
+      const symbolKind = normalizeReferenceSymbolKind(kind);
+      if (symbolKind === "other") continue;
+
+      const tokens = dedupeKeywords([...extractNameTokens(name), ...extractNameTokens(file)], 80);
+      rows.push({
+        source: input.source,
+        name,
+        file,
+        kind,
+        score: Number.isFinite(item.score) ? Number(item.score) : 0,
+        refs: Number.isFinite(item.refs) ? Number(item.refs) : 0,
+        exported: !!item.exported,
+        symbolKind,
+        tokens,
+      });
+    }
+  };
+
+  consume(parsed.topClasses);
+  consume(parsed.topFunctions);
+
+  const deduped = new Map<string, ReferenceSymbolRow>();
+  for (const row of rows) {
+    const key = `${row.source}|${row.symbolKind}|${row.name}|${row.file}`;
+    const existing = deduped.get(key);
+    if (!existing || row.score > existing.score) deduped.set(key, row);
+  }
+
+  const copyPath = path.join(input.reportDir, `${input.source}-symbol-map.json`);
+  ensureDir(path.dirname(copyPath));
+  fs.copyFileSync(normalizedPath, copyPath);
+
+  return {
+    loaded: true,
+    sourcePath: toPosixPath(normalizedPath),
+    copiedPath: toPosixPath(copyPath),
+    warnings,
+    rows: Array.from(deduped.values()),
+  };
+}
+
+function loadReferenceSymbolProfile(input: {
+  reportDir: string;
+  oneCodeSymbolMapPath: string;
+  codexMonitorSymbolMapPath: string;
+}): ReferenceSymbolProfile {
+  const oneCode = loadReferenceSymbolMapRows({
+    source: "1code",
+    mapPath: input.oneCodeSymbolMapPath,
+    reportDir: input.reportDir,
+  });
+  const codexMonitor = loadReferenceSymbolMapRows({
+    source: "codexmonitor",
+    mapPath: input.codexMonitorSymbolMapPath,
+    reportDir: input.reportDir,
+  });
+
+  return {
+    loaded: oneCode.loaded && codexMonitor.loaded,
+    oneCodePath: oneCode.sourcePath,
+    codexMonitorPath: codexMonitor.sourcePath,
+    oneCodeCopiedPath: oneCode.copiedPath,
+    codexMonitorCopiedPath: codexMonitor.copiedPath,
+    warnings: [...oneCode.warnings, ...codexMonitor.warnings],
+    symbols: [...oneCode.rows, ...codexMonitor.rows],
+  };
+}
+
+function buildUnifiedReferenceFileProfiles(symbols: ReferenceSymbolRow[]): UnifiedReferenceFileProfile[] {
+  const map = new Map<string, { source: ReferenceSymbolSource; file: string; maxScore: number; symbolCount: number; tokens: Set<string> }>();
+
+  for (const symbol of symbols) {
+    const key = `${symbol.source}|${symbol.file}`;
+    const current = map.get(key) ?? {
+      source: symbol.source,
+      file: symbol.file,
+      maxScore: 0,
+      symbolCount: 0,
+      tokens: new Set<string>(),
+    };
+    current.maxScore = Math.max(current.maxScore, symbol.score);
+    current.symbolCount += 1;
+    for (const token of symbol.tokens) current.tokens.add(token);
+    map.set(key, current);
+  }
+
+  return Array.from(map.values())
+    .map((row) => ({
+      source: row.source,
+      file: row.file,
+      symbolCount: row.symbolCount,
+      maxScore: row.maxScore,
+      tokens: Array.from(row.tokens).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => {
+      if (a.maxScore !== b.maxScore) return b.maxScore - a.maxScore;
+      if (a.symbolCount !== b.symbolCount) return b.symbolCount - a.symbolCount;
+      return a.file.localeCompare(b.file);
+    });
+}
+
+export function loadReferenceModel(input: LoadReferenceModelInput): ReferenceModel {
+  const signals = loadReferenceSignalProfile(input.referenceMapPath, input.reportDir);
+  const symbols = loadReferenceSymbolProfile({
+    reportDir: input.reportDir,
+    oneCodeSymbolMapPath: input.oneCodeSymbolMapPath,
+    codexMonitorSymbolMapPath: input.codexMonitorSymbolMapPath,
+  });
+
+  return {
+    generatedAtUtc: new Date().toISOString(),
+    signals,
+    symbols,
+    unified: {
+      files: buildUnifiedReferenceFileProfiles(symbols.symbols),
+      domainKeywords: signals.keywordGroups.domains,
+    },
+  };
+}
