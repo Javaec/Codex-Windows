@@ -334,7 +334,15 @@ const REFERENCE_MAP_DEFAULT_PATH = path.resolve(
 );
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const TARGET_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css", ".html", ".json"]);
-const IPC_SUFFIXES = [".handle", ".on", ".once", ".invoke", ".send"];
+const IPC_SUFFIX_KIND_MAP: Array<{ suffix: string; kind: IpcCallKind }> = [
+  { suffix: ".handle", kind: "handle" },
+  { suffix: ".on", kind: "on" },
+  { suffix: ".once", kind: "once" },
+  { suffix: ".invoke", kind: "invoke" },
+  { suffix: ".send", kind: "send" },
+  { suffix: ".sendsync", kind: "invoke" },
+  { suffix: ".postmessage", kind: "send" },
+];
 const IPC_GENERIC_METHOD_NAMES = new Set([
   "handle",
   "invoke",
@@ -1268,6 +1276,39 @@ function buildIpcChannelHelperMap(sourceFile: ts.SourceFile): Map<string, IpcCha
   return helpers;
 }
 
+function buildIpcChannelConstantEvalMap(input: {
+  sourceFile: ts.SourceFile;
+  helperFunctions: Map<string, IpcChannelHelperSpec>;
+}): Map<string, IpcChannelExpressionEval> {
+  const bindings = new Map<string, IpcChannelExpressionEval>();
+  for (let pass = 0; pass < 8; pass += 1) {
+    let changed = false;
+    for (const statement of input.sourceFile.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+        const evaluated = evaluateIpcChannelExpression(
+          declaration.initializer,
+          new Map<string, number>(),
+          input.helperFunctions,
+          bindings,
+        );
+        if (!evaluated) continue;
+        const previous = bindings.get(declaration.name.text);
+        const same =
+          previous?.text === evaluated.text &&
+          (previous?.dynamicParamIndexes.length ?? 0) === evaluated.dynamicParamIndexes.length &&
+          (previous?.dynamicParamIndexes ?? []).every((index, i) => index === evaluated.dynamicParamIndexes[i]);
+        if (same) continue;
+        bindings.set(declaration.name.text, evaluated);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return bindings;
+}
+
 function normalizeIpcChannelCandidate(raw: string): string {
   return raw
     .replace(/\s+/g, "")
@@ -1400,8 +1441,14 @@ function resolveIpcChannelBindingFromExpression(
   expression: ts.Expression,
   parameterIndexByName: Map<string, number>,
   helperFunctions: Map<string, IpcChannelHelperSpec> = new Map<string, IpcChannelHelperSpec>(),
+  identifierBindings: Map<string, IpcChannelExpressionEval> = new Map<string, IpcChannelExpressionEval>(),
 ): { channelArgIndex: number; staticChannel: string } | null {
-  const evaluated = evaluateIpcChannelExpression(expression, parameterIndexByName, helperFunctions);
+  const evaluated = evaluateIpcChannelExpression(
+    expression,
+    parameterIndexByName,
+    helperFunctions,
+    identifierBindings,
+  );
   if (!evaluated) return null;
   const candidate = normalizeIpcChannelCandidate(evaluated.text);
   if (!candidate) return null;
@@ -1469,14 +1516,16 @@ function extractByRegex(
     if (looksLikeStateKey(match[1])) addToIndex(indexes.stateKeys, match[1], relPath);
   }
 
-  const ipcRegex = /(?:ipcMain|ipcRenderer)\.(?:handle|on|once|invoke|send)\(\s*["'`]([^"'`]{2,120})["'`]/g;
+  const ipcRegex =
+    /(?:ipcMain|ipcRenderer)\.(?:handle|on|once|invoke|send|sendSync|postMessage)\(\s*["'`]([^"'`]{2,120})["'`]/g;
   while ((match = ipcRegex.exec(source)) !== null) {
     if (looksLikeIpcChannel(match[1]) && !isIgnoredIpcChannel(match[1])) {
       addToIndex(indexes.ipcChannels, match[1], relPath);
     }
   }
 
-  const ipcTemplateRegex = /(?:ipcMain|ipcRenderer)\.(?:handle|on|once|invoke|send)\(\s*`([^`\n\r]{2,180})`/g;
+  const ipcTemplateRegex =
+    /(?:ipcMain|ipcRenderer)\.(?:handle|on|once|invoke|send|sendSync|postMessage)\(\s*`([^`\n\r]{2,180})`/g;
   while ((match = ipcTemplateRegex.exec(source)) !== null) {
     const channel = normalizeIpcChannelCandidate(match[1]);
     if (looksLikeIpcChannel(channel) && !isIgnoredIpcChannel(channel)) {
@@ -1517,6 +1566,10 @@ function extractFromAst(
       ts.ScriptKind.JS,
     );
     const helperFunctions = buildIpcChannelHelperMap(sourceFile);
+    const constantBindings = buildIpcChannelConstantEvalMap({
+      sourceFile,
+      helperFunctions,
+    });
 
     const visit = (node: ts.Node): void => {
       if (ts.isStringLiteralLike(node)) {
@@ -1567,6 +1620,7 @@ function extractFromAst(
               firstArgNode,
               new Map<string, number>(),
               helperFunctions,
+              constantBindings,
             );
             const firstArgIpcChannel = firstArgIpcBinding?.staticChannel ?? "";
             if (
@@ -2249,13 +2303,18 @@ function inferIpcRole(callName: string, layer: string): IpcRole | null {
     return null;
   }
   if (lower.includes("ipcrenderer")) {
-    if (lower.endsWith(".invoke") || lower.endsWith(".send")) return "renderer_invoke";
+    if (lower.endsWith(".invoke") || lower.endsWith(".send") || lower.endsWith(".sendsync")) {
+      return "renderer_invoke";
+    }
+    if (lower.endsWith(".postmessage")) return "renderer_invoke";
     if (lower.endsWith(".on") || lower.endsWith(".once")) return "renderer_subscribe";
     return null;
   }
 
   if (lower.endsWith(".handle")) return isMainLayer ? "main_handler" : null;
   if (lower.endsWith(".invoke")) return isRendererLayer ? "renderer_invoke" : null;
+  if (lower.endsWith(".sendsync")) return isRendererLayer ? "renderer_invoke" : null;
+  if (lower.endsWith(".postmessage")) return isRendererLayer ? "renderer_invoke" : null;
   if (lower.endsWith(".on") || lower.endsWith(".once")) {
     if (isMainLayer) return "main_handler";
     if (isRendererLayer) return "renderer_subscribe";
@@ -2296,9 +2355,9 @@ function inferIpcKindFromCallName(callName: string): IpcCallKind | null {
   if (lower.includes("webcontents.send") || lower.endsWith("sender.send") || lower.endsWith("contents.send")) {
     return "send";
   }
-  for (const suffix of IPC_SUFFIXES) {
-    if (!lower.endsWith(suffix)) continue;
-    return suffix.slice(1) as IpcCallKind;
+  for (const suffixMapping of IPC_SUFFIX_KIND_MAP) {
+    if (!lower.endsWith(suffixMapping.suffix)) continue;
+    return suffixMapping.kind;
   }
   return null;
 }
@@ -2499,9 +2558,18 @@ function resolveIpcSpecFromExpression(
   knownSpecs: Map<string, IpcWrapperSpec>,
   aliasName: string,
   ipcObjectAliases: Set<string>,
+  helperFunctions: Map<string, IpcChannelHelperSpec> = new Map<string, IpcChannelHelperSpec>(),
+  identifierBindings: Map<string, IpcChannelExpressionEval> = new Map<string, IpcChannelExpressionEval>(),
 ): IpcWrapperSpec | null {
   if (ts.isParenthesizedExpression(expression)) {
-    return resolveIpcSpecFromExpression(expression.expression, knownSpecs, aliasName, ipcObjectAliases);
+    return resolveIpcSpecFromExpression(
+      expression.expression,
+      knownSpecs,
+      aliasName,
+      ipcObjectAliases,
+      helperFunctions,
+      identifierBindings,
+    );
   }
 
   if (ts.isIdentifier(expression) || ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
@@ -2518,10 +2586,70 @@ function resolveIpcSpecFromExpression(
     if (!targetName) return null;
     const targetSpec = knownSpecs.get(targetName) ?? buildDirectIpcSpecFromCallName(targetName, ipcObjectAliases);
     if (!targetSpec) return null;
-    return cloneIpcSpecWithCallName(targetSpec, aliasName, "alias");
+    const spec = cloneIpcSpecWithCallName(targetSpec, aliasName, "alias");
+    const boundChannelExpression = expression.arguments[1];
+    if (boundChannelExpression && targetSpec.channelArgIndex >= 0 && targetSpec.staticChannel.length === 0) {
+      const boundChannel = resolveIpcChannelBindingFromExpression(
+        boundChannelExpression,
+        new Map<string, number>(),
+        helperFunctions,
+        identifierBindings,
+      );
+      if (boundChannel?.staticChannel) {
+        spec.channelArgIndex = -1;
+        spec.staticChannel = boundChannel.staticChannel;
+      }
+    }
+    return spec;
   }
 
   return null;
+}
+
+function registerDestructuredWrapperAliases(input: {
+  pattern: ts.ObjectBindingPattern;
+  initializer: ts.Expression;
+  knownSpecs: Map<string, IpcWrapperSpec>;
+  ipcObjectAliases: Set<string>;
+  wrappers: Map<string, IpcWrapperSpec>;
+}): boolean {
+  const initializerNameRaw = getExpressionName(input.initializer);
+  if (!initializerNameRaw) return false;
+
+  const initializerCandidates = new Set<string>([
+    initializerNameRaw,
+    normalizeWrapperLookupName(initializerNameRaw),
+  ]);
+  let changed = false;
+
+  for (const element of input.pattern.elements) {
+    if (element.dotDotDotToken) continue;
+    if (!ts.isIdentifier(element.name)) continue;
+
+    const localName = element.name.text;
+    const propertyName =
+      element.propertyName && ts.isIdentifier(element.propertyName)
+        ? element.propertyName.text
+        : element.propertyName && ts.isStringLiteralLike(element.propertyName)
+          ? element.propertyName.text
+          : localName;
+    if (!propertyName) continue;
+
+    let targetSpec: IpcWrapperSpec | null = null;
+    for (const ownerName of initializerCandidates) {
+      const candidateCallName = `${ownerName}.${propertyName}`;
+      targetSpec =
+        input.knownSpecs.get(candidateCallName) ??
+        buildDirectIpcSpecFromCallName(candidateCallName, input.ipcObjectAliases);
+      if (targetSpec) break;
+    }
+    if (!targetSpec) continue;
+
+    const aliasSpec = cloneIpcSpecWithCallName(targetSpec, localName, "alias");
+    changed = registerIpcWrapperSpec(input.wrappers, aliasSpec) || changed;
+  }
+
+  return changed;
 }
 
 function resolveWrapperChannelBinding(
@@ -2529,6 +2657,7 @@ function resolveWrapperChannelBinding(
   targetSpec: IpcWrapperSpec,
   parameterIndexByName: Map<string, number>,
   helperFunctions: Map<string, IpcChannelHelperSpec>,
+  constantBindings: Map<string, IpcChannelExpressionEval>,
 ): { channelArgIndex: number; staticChannel: string } | null {
   if (targetSpec.staticChannel.length > 0) {
     return {
@@ -2539,7 +2668,12 @@ function resolveWrapperChannelBinding(
   if (targetSpec.channelArgIndex < 0) return null;
   const channelArg = call.arguments[targetSpec.channelArgIndex];
   if (!channelArg) return null;
-  return resolveIpcChannelBindingFromExpression(channelArg, parameterIndexByName, helperFunctions);
+  return resolveIpcChannelBindingFromExpression(
+    channelArg,
+    parameterIndexByName,
+    helperFunctions,
+    constantBindings,
+  );
 }
 
 function extractIpcWrapperSpecFromFunctionLike(
@@ -2548,6 +2682,7 @@ function extractIpcWrapperSpecFromFunctionLike(
   knownSpecs: Map<string, IpcWrapperSpec>,
   ipcObjectAliases: Set<string>,
   helperFunctions: Map<string, IpcChannelHelperSpec>,
+  constantBindings: Map<string, IpcChannelExpressionEval>,
 ): IpcWrapperSpec | null {
   const body = fn.body;
   if (!body) return null;
@@ -2577,6 +2712,7 @@ function extractIpcWrapperSpecFromFunctionLike(
       targetSpec,
       parameterIndexByName,
       helperFunctions,
+      constantBindings,
     );
     if (!channelBinding) continue;
     return {
@@ -2597,6 +2733,7 @@ function extractIpcObjectLiteralSpecs(
   knownSpecs: Map<string, IpcWrapperSpec>,
   ipcObjectAliases: Set<string>,
   helperFunctions: Map<string, IpcChannelHelperSpec>,
+  constantBindings: Map<string, IpcChannelExpressionEval>,
 ): IpcWrapperSpec[] {
   const specs: IpcWrapperSpec[] = [];
 
@@ -2613,6 +2750,7 @@ function extractIpcObjectLiteralSpecs(
         knownSpecs,
         ipcObjectAliases,
         helperFunctions,
+        constantBindings,
       );
       if (spec) specs.push(spec);
       continue;
@@ -2627,6 +2765,7 @@ function extractIpcObjectLiteralSpecs(
         knownSpecs,
         ipcObjectAliases,
         helperFunctions,
+        constantBindings,
       );
       if (spec) specs.push(spec);
       continue;
@@ -2637,6 +2776,8 @@ function extractIpcObjectLiteralSpecs(
       knownSpecs,
       qualifiedName,
       ipcObjectAliases,
+      helperFunctions,
+      constantBindings,
     );
     if (aliasSpec) specs.push(aliasSpec);
   }
@@ -2651,6 +2792,10 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
   const ipcObjectAliases = buildIpcObjectAliasSet(sourceFile);
   const objectLiterals = buildObjectLiteralBindingMap(sourceFile);
   const helperFunctions = buildIpcChannelHelperMap(sourceFile);
+  const constantBindings = buildIpcChannelConstantEvalMap({
+    sourceFile,
+    helperFunctions,
+  });
   const wrappers = new Map<string, IpcWrapperSpec>();
   for (let pass = 0; pass < 4; pass += 1) {
     let changed = false;
@@ -2663,43 +2808,59 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
           wrappers,
           ipcObjectAliases,
           helperFunctions,
+          constantBindings,
         );
         if (wrapperSpec) {
           changed = registerIpcWrapperSpec(wrappers, wrapperSpec) || changed;
         }
       }
 
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        const variableName = node.name.text;
+      if (ts.isVariableDeclaration(node) && node.initializer) {
         const initializer = node.initializer;
-        if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
-          const wrapperSpec = extractIpcWrapperSpecFromFunctionLike(
-            variableName,
-            initializer,
-            wrappers,
-            ipcObjectAliases,
-            helperFunctions,
-          );
-          if (wrapperSpec) changed = registerIpcWrapperSpec(wrappers, wrapperSpec) || changed;
-        } else if (ts.isObjectLiteralExpression(initializer)) {
-          const nestedSpecs = extractIpcObjectLiteralSpecs(
-            variableName,
-            initializer,
-            wrappers,
-            ipcObjectAliases,
-            helperFunctions,
-          );
-          for (const nestedSpec of nestedSpecs) {
-            changed = registerIpcWrapperSpec(wrappers, nestedSpec) || changed;
+        if (ts.isIdentifier(node.name)) {
+          const variableName = node.name.text;
+          if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+            const wrapperSpec = extractIpcWrapperSpecFromFunctionLike(
+              variableName,
+              initializer,
+              wrappers,
+              ipcObjectAliases,
+              helperFunctions,
+              constantBindings,
+            );
+            if (wrapperSpec) changed = registerIpcWrapperSpec(wrappers, wrapperSpec) || changed;
+          } else if (ts.isObjectLiteralExpression(initializer)) {
+            const nestedSpecs = extractIpcObjectLiteralSpecs(
+              variableName,
+              initializer,
+              wrappers,
+              ipcObjectAliases,
+              helperFunctions,
+              constantBindings,
+            );
+            for (const nestedSpec of nestedSpecs) {
+              changed = registerIpcWrapperSpec(wrappers, nestedSpec) || changed;
+            }
+          } else {
+            const aliasSpec = resolveIpcSpecFromExpression(
+              initializer,
+              wrappers,
+              variableName,
+              ipcObjectAliases,
+              helperFunctions,
+              constantBindings,
+            );
+            if (aliasSpec) changed = registerIpcWrapperSpec(wrappers, aliasSpec) || changed;
           }
-        } else {
-          const aliasSpec = resolveIpcSpecFromExpression(
-            initializer,
-            wrappers,
-            variableName,
-            ipcObjectAliases,
-          );
-          if (aliasSpec) changed = registerIpcWrapperSpec(wrappers, aliasSpec) || changed;
+        } else if (ts.isObjectBindingPattern(node.name)) {
+          changed =
+            registerDestructuredWrapperAliases({
+              pattern: node.name,
+              initializer,
+              knownSpecs: wrappers,
+              ipcObjectAliases,
+              wrappers,
+            }) || changed;
         }
       }
 
@@ -2717,6 +2878,7 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
               wrappers,
               ipcObjectAliases,
               helperFunctions,
+              constantBindings,
             );
             if (wrapperSpec) changed = registerIpcWrapperSpec(wrappers, wrapperSpec) || changed;
           } else {
@@ -2725,6 +2887,8 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
               wrappers,
               leftName,
               ipcObjectAliases,
+              helperFunctions,
+              constantBindings,
             );
             if (aliasSpec) changed = registerIpcWrapperSpec(wrappers, aliasSpec) || changed;
           }
@@ -2740,6 +2904,7 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
             wrappers,
             ipcObjectAliases,
             helperFunctions,
+            constantBindings,
           );
           for (const nestedSpec of nestedSpecs) {
             changed = registerIpcWrapperSpec(wrappers, nestedSpec) || changed;
@@ -2773,7 +2938,10 @@ function buildIpcWrapperMap(sourceFile: ts.SourceFile): {
 }
 
 function normalizeWrapperLookupName(callName: string): string {
-  const normalized = callName.replace(/\["([^"]+)"\]/g, ".$1").replace(/\['([^']+)'\]/g, ".$1");
+  const normalized = callName
+    .replace(/\["([^"]+)"\]/g, ".$1")
+    .replace(/\['([^']+)'\]/g, ".$1")
+    .replace(/\[([a-zA-Z_$][a-zA-Z0-9_$]*)\]/g, ".$1");
   if (normalized.startsWith("window.")) return normalized.slice("window.".length);
   if (normalized.startsWith("globalThis.")) return normalized.slice("globalThis.".length);
   return normalized;
@@ -2857,6 +3025,7 @@ function resolveIpcChannelFromCall(
   node: ts.CallExpression,
   spec: IpcWrapperSpec,
   helperFunctions: Map<string, IpcChannelHelperSpec>,
+  constantBindings: Map<string, IpcChannelExpressionEval>,
 ): string {
   if (spec.staticChannel.length > 0) return spec.staticChannel;
   if (spec.channelArgIndex < 0) return "";
@@ -2866,6 +3035,7 @@ function resolveIpcChannelFromCall(
     channelArg,
     new Map<string, number>(),
     helperFunctions,
+    constantBindings,
   );
   if (!binding) return "";
   return binding.staticChannel;
@@ -2892,6 +3062,10 @@ function buildIpcContractMap(input: {
     try {
       const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       const helperFunctions = buildIpcChannelHelperMap(sourceFile);
+      const constantBindings = buildIpcChannelConstantEvalMap({
+        sourceFile,
+        helperFunctions,
+      });
       const decodeWrappers = layer === "renderer" || layer === "renderer-worker" || layer === "preload";
       let ipcObjectAliases = buildIpcObjectAliasSet(sourceFile);
       let wrapperSpecs = new Map<string, IpcWrapperSpec>();
@@ -2919,7 +3093,12 @@ function buildIpcContractMap(input: {
             ts.forEachChild(node, visit);
             return;
           }
-          const channel = resolveIpcChannelFromCall(node, callSpec, helperFunctions);
+          const channel = resolveIpcChannelFromCall(
+            node,
+            callSpec,
+            helperFunctions,
+            constantBindings,
+          );
           if (!channel || !looksLikeIpcChannel(channel)) {
             ts.forEachChild(node, visit);
             return;
@@ -2941,7 +3120,7 @@ function buildIpcContractMap(input: {
       visit(sourceFile);
     } catch {
       const regexPattern =
-        /\b([a-zA-Z0-9_$.]+)\.(handle|on|once|invoke|send)\(\s*["'`]([^"'`\n\r]{2,180})["'`]/g;
+        /\b([a-zA-Z0-9_$.]+)\.(handle|on|once|invoke|send|sendSync|postMessage)\(\s*["'`]([^"'`\n\r]{2,180})["'`]/g;
       const fallbackAliases = new Set<string>();
       let match: RegExpExecArray | null = null;
       while ((match = regexPattern.exec(source)) !== null) {
