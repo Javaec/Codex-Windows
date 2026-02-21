@@ -289,6 +289,60 @@ const DOMAIN_KEYWORDS = {
         ],
     },
 };
+const ENVELOPE_REQUEST_HINT = /(invoke|request|query|mutation|create|update|delete|set|get|list|start|stop|run|cancel|send|login|logout|open|close|archive|resume|interrupt|approve|reject)/i;
+const ENVELOPE_RESPONSE_HINT = /(response|result|reply|resolved|resolve|ack|ok|success|failed|error)/i;
+const ENVELOPE_EVENT_HINT = /(event|stream|delta|heartbeat|subscribe|unsubscribe|listener|listen|notify|notification|attached|detached|changed|updated|output)/i;
+const PAYLOAD_KEY_STOPWORDS = new Set([
+    "id",
+    "ids",
+    "type",
+    "kind",
+    "method",
+    "params",
+    "payload",
+    "data",
+    "jsonrpc",
+    "request",
+    "response",
+    "event",
+    "result",
+    "error",
+    "ok",
+    "status",
+    "value",
+    "meta",
+    "timestamp",
+    "errno",
+    "code",
+    "syscall",
+    "path",
+    "stack",
+    "name",
+    "message",
+    "errormessage",
+    "errorname",
+    "errorstack",
+    "enoent",
+    "exists",
+    "exist",
+    "js",
+    "ts",
+]);
+const RUNTIME_METHOD_NOISE_LINE_HINT = /(enoent|path does not exist|errorstack|at [a-z0-9_$]+\s*\(|\/\.codex\/|\\\.codex\\|[a-z]:\\users\\|\/users\/|\/home\/|\.vite\/build|app:\/\/-\/assets\/)/i;
+const RUNTIME_METHOD_NOISE_PATH_HINT = /(worktrees?|workspace|users?|home|assets?|contents?|resources?)/i;
+const RUNTIME_METHOD_STRICT_PREFIXES = new Set(["thread", "turn", "conversation", "review", "session", "chat", "account", "config", "mcpServer", "skills", "model", "apps", "feedback", "command", "mcp"]);
+const RUNTIME_PAYLOAD_SEGMENT_HINT = /\{[^{}]{2,1600}\}/g;
+const RUNTIME_PAYLOAD_CONTEXT_HINT = /\b(payload|params|request|response|event|result|input|data|body)\b/i;
+const PARITY_TIER_THRESHOLDS = {
+    critical: 78,
+    high: 52,
+};
+const REFERENCE_DOMAIN_WEIGHTS = {
+    navigation: 1.2,
+    chat_sessions: 1.4,
+    settings_skills: 1.0,
+    async_readiness: 1.1,
+};
 const REFERENCE_PRIOR_BASE = {
     routes: [
         "route",
@@ -1880,6 +1934,163 @@ ${fileLines.join("\n")}`);
     }
     return sections.join("\n\n");
 }
+function addObservedKeyword(pool, value) {
+    for (const token of splitReferenceToken(value)) {
+        const normalized = token.toLowerCase();
+        if (normalized.length < 3)
+            continue;
+        pool.add(normalized);
+    }
+}
+function isReferenceKeywordObserved(keyword, observed, observedValues) {
+    const normalized = keyword.toLowerCase();
+    if (normalized.length < 3)
+        return false;
+    if (observed.has(normalized))
+        return true;
+    const parts = splitReferenceToken(keyword).map((part) => part.toLowerCase()).filter((part) => part.length >= 3);
+    for (const part of parts) {
+        if (observed.has(part))
+            return true;
+    }
+    if (normalized.length < 5)
+        return false;
+    for (const observedValue of observedValues) {
+        if (observedValue.includes(normalized))
+            return true;
+        if (normalized.includes(observedValue) && observedValue.length >= 5)
+            return true;
+    }
+    return false;
+}
+function roundMetric(value) {
+    return Math.round(value * 100) / 100;
+}
+function getParityGapConfidenceTier(impactScore) {
+    if (impactScore >= PARITY_TIER_THRESHOLDS.critical)
+        return "critical";
+    if (impactScore >= PARITY_TIER_THRESHOLDS.high)
+        return "high";
+    return "medium";
+}
+function buildReferenceParityGapsReport(input) {
+    const observedKeywordPool = new Set();
+    const observedValues = new Set();
+    const pushObserved = (value) => {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized)
+            return;
+        observedValues.add(normalized);
+        addObservedKeyword(observedKeywordPool, normalized);
+    };
+    const rowGroups = [
+        input.routeRows,
+        input.methodRows,
+        input.messageTypeRows,
+        input.statusRows,
+        input.stateKeyRows,
+        input.ipcRows,
+    ];
+    for (const rows of rowGroups) {
+        for (const row of rows)
+            pushObserved(row.value);
+    }
+    for (const boundary of input.componentBoundaries.boundaries) {
+        for (const value of boundary.componentNames)
+            pushObserved(value);
+        for (const value of boundary.hookNames)
+            pushObserved(value);
+        for (const value of boundary.uiIndicators)
+            pushObserved(value);
+        for (const value of boundary.routes)
+            pushObserved(value);
+        for (const value of boundary.events)
+            pushObserved(value);
+        for (const value of boundary.rpcMethods)
+            pushObserved(value);
+        for (const value of boundary.stateKeys)
+            pushObserved(value);
+        for (const value of boundary.statuses)
+            pushObserved(value);
+        for (const value of boundary.ipcChannels)
+            pushObserved(value);
+    }
+    for (const methodRow of input.rpcSchema.methods) {
+        pushObserved(methodRow.method);
+        for (const key of methodRow.payloadKeys)
+            pushObserved(key);
+        for (const hint of methodRow.readinessHints)
+            pushObserved(hint);
+        for (const envelope of methodRow.envelopes)
+            pushObserved(envelope);
+    }
+    const observedValueList = Array.from(observedValues);
+    const domains = [];
+    for (const [domainKey, domainConfig] of Object.entries(DOMAIN_KEYWORDS)) {
+        const referenceKeywords = dedupeKeywords([...domainConfig.keywords, ...(input.referenceProfile.keywordGroups.domains[domainKey] ?? [])], 260);
+        const matched = [];
+        const missing = [];
+        for (const keyword of referenceKeywords) {
+            if (isReferenceKeywordObserved(keyword, observedKeywordPool, observedValueList)) {
+                matched.push(keyword);
+            }
+            else {
+                missing.push(keyword);
+            }
+        }
+        const coveragePercent = referenceKeywords.length > 0 ? roundMetric((matched.length / referenceKeywords.length) * 100) : 100;
+        const priorityWeight = REFERENCE_DOMAIN_WEIGHTS[domainKey] ?? 1;
+        const gapScore = roundMetric((100 - coveragePercent) * priorityWeight);
+        const missingRatio = 1 - coveragePercent / 100;
+        const evidenceStrength = Math.min(1, referenceKeywords.length / 140);
+        const impactScore = roundMetric((missingRatio * 100 * priorityWeight * (0.65 + evidenceStrength * 0.35)) + Math.min(18, missing.length * 0.22));
+        const confidenceTier = getParityGapConfidenceTier(impactScore);
+        domains.push({
+            domain: domainKey,
+            label: domainConfig.label,
+            priorityWeight,
+            referenceKeywords: referenceKeywords.length,
+            observedKeywords: matched.length,
+            matchedKeywords: matched.slice(0, 36),
+            missingKeywords: missing.slice(0, 36),
+            coveragePercent,
+            gapScore,
+            impactScore,
+            confidenceTier,
+            priorityRank: 0,
+        });
+    }
+    const totalWeight = domains.reduce((sum, row) => sum + row.priorityWeight, 0);
+    const weightedCoveragePercent = totalWeight > 0
+        ? roundMetric(domains.reduce((sum, row) => sum + row.coveragePercent * row.priorityWeight, 0) / totalWeight)
+        : 100;
+    const weightedGapScore = totalWeight > 0
+        ? roundMetric(domains.reduce((sum, row) => sum + row.gapScore * row.priorityWeight, 0) / totalWeight)
+        : 0;
+    const rankedDomains = [...domains].sort((a, b) => {
+        if (a.impactScore !== b.impactScore)
+            return b.impactScore - a.impactScore;
+        if (a.gapScore !== b.gapScore)
+            return b.gapScore - a.gapScore;
+        if (a.coveragePercent !== b.coveragePercent)
+            return a.coveragePercent - b.coveragePercent;
+        return a.domain.localeCompare(b.domain);
+    });
+    for (let i = 0; i < rankedDomains.length; i += 1) {
+        rankedDomains[i].priorityRank = i + 1;
+    }
+    return {
+        generatedAtUtc: new Date().toISOString(),
+        strategy: "Auto-ranked reference parity gaps by matching 1code/CodexMonitor keyword priors against observed app signals (routes/methods/events/state/ipc/components/rpc-schema), with impact scoring and confidence tiers.",
+        domains: rankedDomains,
+        topGaps: rankedDomains.slice(0, 6),
+        coverage: {
+            weightedCoveragePercent,
+            weightedGapScore,
+            domains: rankedDomains.length,
+        },
+    };
+}
 function buildRpcCatalog(methodRows, binary) {
     const byValue = new Map();
     for (const row of methodRows) {
@@ -1913,6 +2124,440 @@ function buildRpcCatalog(methodRows, binary) {
             return a.binary ? -1 : 1;
         return a.value.localeCompare(b.value);
     });
+}
+function addMapSetEntry(map, key, value) {
+    const set = map.get(key) ?? new Set();
+    set.add(value);
+    map.set(key, set);
+}
+function resolveObjectLiteralFromExpression(expression, objectLiterals) {
+    const normalized = unwrapExpressionWrappers(expression);
+    if (ts.isObjectLiteralExpression(normalized))
+        return normalized;
+    if (ts.isIdentifier(normalized))
+        return objectLiterals.get(normalized.text) ?? null;
+    if (ts.isBinaryExpression(normalized) && normalized.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+        return resolveObjectLiteralFromExpression(normalized.right, objectLiterals);
+    }
+    return null;
+}
+function normalizePayloadKey(value) {
+    return value.trim().replace(/^['"]+|['"]+$/g, "");
+}
+function isMeaningfulPayloadKey(value) {
+    const normalized = normalizePayloadKey(value);
+    if (normalized.length < 3 || normalized.length > 64)
+        return false;
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(normalized))
+        return false;
+    if (/^\d+$/.test(normalized))
+        return false;
+    if (/\.(?:js|ts|tsx|jsx|map|json|md|txt)$/i.test(normalized))
+        return false;
+    if (/^[A-Z0-9_]{3,}$/.test(normalized))
+        return false;
+    const lower = normalized.toLowerCase();
+    if (PAYLOAD_KEY_STOPWORDS.has(lower))
+        return false;
+    if (lower.includes("error") || lower.includes("stack"))
+        return false;
+    return true;
+}
+function collectPayloadKeysFromObjectLiteral(objectLiteral, objectLiterals, out, depth = 0) {
+    if (depth > 2)
+        return;
+    for (const property of objectLiteral.properties) {
+        if (ts.isSpreadAssignment(property)) {
+            const nestedSpread = resolveObjectLiteralFromExpression(property.expression, objectLiterals);
+            if (nestedSpread)
+                collectPayloadKeysFromObjectLiteral(nestedSpread, objectLiterals, out, depth + 1);
+            continue;
+        }
+        if (ts.isShorthandPropertyAssignment(property)) {
+            if (isMeaningfulPayloadKey(property.name.text))
+                out.add(normalizePayloadKey(property.name.text));
+            continue;
+        }
+        if (!ts.isPropertyAssignment(property))
+            continue;
+        const propertyName = getPropertyNameText(property.name) ?? "";
+        if (propertyName.length > 0 && isMeaningfulPayloadKey(propertyName)) {
+            out.add(normalizePayloadKey(propertyName));
+        }
+        const nested = resolveObjectLiteralFromExpression(property.initializer, objectLiterals);
+        if (nested &&
+            (depth === 0 || /^(payload|params|data|body|input|args|options|request|response|context)$/i.test(propertyName))) {
+            collectPayloadKeysFromObjectLiteral(nested, objectLiterals, out, depth + 1);
+        }
+        if (ts.isArrayLiteralExpression(property.initializer) && depth < 2) {
+            for (const element of property.initializer.elements) {
+                if (!ts.isObjectLiteralExpression(element))
+                    continue;
+                collectPayloadKeysFromObjectLiteral(element, objectLiterals, out, depth + 1);
+            }
+        }
+    }
+}
+function extractRpcMethodFromObjectLiteral(input) {
+    for (const property of input.objectLiteral.properties) {
+        if (!ts.isPropertyAssignment(property))
+            continue;
+        const propertyName = (getPropertyNameText(property.name) ?? "").toLowerCase();
+        if (!propertyName)
+            continue;
+        if (!/^(method|rpcmethod|rpc_method|rpc|path)$/i.test(propertyName))
+            continue;
+        const value = resolveStaticStringExpression({
+            expression: property.initializer,
+            helperFunctions: input.helperFunctions,
+            identifierBindings: input.identifierBindings,
+        });
+        if (looksLikeRpcMethod(value))
+            return value;
+    }
+    return "";
+}
+function inferEnvelopeKindsFromText(text) {
+    const normalized = text.toLowerCase();
+    const out = new Set();
+    if (ENVELOPE_REQUEST_HINT.test(normalized))
+        out.add("request");
+    if (ENVELOPE_RESPONSE_HINT.test(normalized))
+        out.add("response");
+    if (ENVELOPE_EVENT_HINT.test(normalized))
+        out.add("event");
+    return out;
+}
+function isRuntimeMethodLikelyNoise(method, line) {
+    const normalizedMethod = method.toLowerCase();
+    const normalizedLine = line.toLowerCase();
+    const methodParts = normalizedMethod.split("/").filter((part) => part.length > 0);
+    const first = methodParts[0] ?? "";
+    if (!RUNTIME_METHOD_STRICT_PREFIXES.has(first) && !method.startsWith("codex/")) {
+        return true;
+    }
+    if (normalizedLine.includes(`.${normalizedMethod}`))
+        return true;
+    if (normalizedLine.includes(`/${normalizedMethod}`) && RUNTIME_METHOD_NOISE_LINE_HINT.test(normalizedLine)) {
+        return true;
+    }
+    if (RUNTIME_METHOD_NOISE_LINE_HINT.test(normalizedLine) &&
+        methodParts.some((part) => RUNTIME_METHOD_NOISE_PATH_HINT.test(part))) {
+        return true;
+    }
+    if (/^codex\/worktrees?\//i.test(method))
+        return true;
+    return false;
+}
+function extractRuntimePayloadSegments(line) {
+    const segments = new Set();
+    RUNTIME_PAYLOAD_SEGMENT_HINT.lastIndex = 0;
+    let match = null;
+    while ((match = RUNTIME_PAYLOAD_SEGMENT_HINT.exec(line)) !== null) {
+        const segment = match[0];
+        if (segment.length < 4)
+            continue;
+        segments.add(segment);
+    }
+    if (segments.size > 0) {
+        return Array.from(segments);
+    }
+    if (RUNTIME_PAYLOAD_CONTEXT_HINT.test(line)) {
+        return [line];
+    }
+    return [];
+}
+function extractPayloadKeysFromRuntimeLine(line) {
+    const keys = new Set();
+    const segments = extractRuntimePayloadSegments(line);
+    if (segments.length === 0)
+        return keys;
+    const quotedKeyRegex = /["']([A-Za-z_][A-Za-z0-9_.-]{1,63})["']\s*:/g;
+    const bareKeyRegex = /\b([A-Za-z_][A-Za-z0-9_]{1,63})\s*:/g;
+    for (const segment of segments) {
+        quotedKeyRegex.lastIndex = 0;
+        bareKeyRegex.lastIndex = 0;
+        let match = null;
+        while ((match = quotedKeyRegex.exec(segment)) !== null) {
+            if (!isMeaningfulPayloadKey(match[1]))
+                continue;
+            keys.add(normalizePayloadKey(match[1]));
+        }
+        while ((match = bareKeyRegex.exec(segment)) !== null) {
+            if (!isMeaningfulPayloadKey(match[1]))
+                continue;
+            keys.add(normalizePayloadKey(match[1]));
+        }
+    }
+    return keys;
+}
+function extractRuntimeRpcSignals(runtimeProbe) {
+    const methodCounts = new Map();
+    const methodPayloadKeys = new Map();
+    const methodEnvelopes = new Map();
+    const candidateLines = runtimeProbe.capturedLines.length > 0
+        ? runtimeProbe.capturedLines
+        : [...runtimeProbe.warnings, ...runtimeProbe.errors];
+    for (const line of candidateLines) {
+        const lineClass = classifyProbeLine(line);
+        const lineLooksRpcish = /["'`]method["'`]\s*:|\/(thread|turn|conversation|session|chat|account|config|mcpServer|skills)\//i.test(line) ||
+            /\brpc\b|\binvoke\b|\brequest\b|\bresponse\b|\bevent\b/i.test(line);
+        if (lineClass !== "logic" && !lineLooksRpcish)
+            continue;
+        const methods = new Set();
+        extractRpcMethodsFromText(line, methods);
+        if (methods.size === 0)
+            continue;
+        const linePayloadKeys = extractPayloadKeysFromRuntimeLine(line);
+        const lineEnvelopes = inferEnvelopeKindsFromText(line);
+        for (const method of methods) {
+            if (!looksLikeRpcMethod(method))
+                continue;
+            if (isRuntimeMethodLikelyNoise(method, line))
+                continue;
+            methodCounts.set(method, (methodCounts.get(method) ?? 0) + 1);
+            for (const key of linePayloadKeys) {
+                addMapSetEntry(methodPayloadKeys, method, key);
+            }
+            for (const envelope of lineEnvelopes) {
+                addMapSetEntry(methodEnvelopes, method, envelope);
+            }
+        }
+    }
+    return {
+        linesScanned: candidateLines.length,
+        methodCounts,
+        methodPayloadKeys,
+        methodEnvelopes,
+    };
+}
+function buildRpcSchemaStaticSignals(input) {
+    const methodCallsites = new Map();
+    const methodRendererCallsites = new Map();
+    const methodPayloadKeys = new Map();
+    const methodReadinessHints = new Map();
+    for (const file of input.jsFiles) {
+        const source = normalizeSourceForPrint(input.sourceByFile.get(file.relPath) ?? readUtf8(file.absPath));
+        let sourceFile;
+        try {
+            sourceFile = ts.createSourceFile(file.relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+        }
+        catch {
+            continue;
+        }
+        const helperFunctions = buildIpcChannelHelperMap(sourceFile);
+        const identifierBindings = buildIpcChannelConstantEvalMap({
+            sourceFile,
+            helperFunctions,
+        });
+        const objectLiterals = buildObjectLiteralBindingMap(sourceFile);
+        const layer = classifyRuntimeLayer(file.relPath);
+        const isRendererLayer = layer === "renderer" || layer === "renderer-worker";
+        const visit = (node) => {
+            if (ts.isCallExpression(node)) {
+                const callName = getExpressionName(node.expression) ?? "call";
+                const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+                const callsite = `${file.relPath}:${position.line + 1}:${callName}`;
+                const callSnippet = node.getText(sourceFile).toLowerCase();
+                const readinessHints = Array.from(STATUS_WORDS).filter((status) => callSnippet.includes(status));
+                const registerMethod = (method, payloadExpression, payloadObjectLiteral) => {
+                    if (!looksLikeRpcMethod(method))
+                        return;
+                    addMapSetEntry(methodCallsites, method, callsite);
+                    if (isRendererLayer)
+                        addMapSetEntry(methodRendererCallsites, method, callsite);
+                    const payloadKeys = methodPayloadKeys.get(method) ?? new Set();
+                    if (payloadExpression) {
+                        const payloadObject = resolveObjectLiteralFromExpression(payloadExpression, objectLiterals);
+                        if (payloadObject) {
+                            collectPayloadKeysFromObjectLiteral(payloadObject, objectLiterals, payloadKeys, 0);
+                        }
+                    }
+                    if (payloadObjectLiteral) {
+                        collectPayloadKeysFromObjectLiteral(payloadObjectLiteral, objectLiterals, payloadKeys, 0);
+                    }
+                    if (payloadKeys.size > 0)
+                        methodPayloadKeys.set(method, payloadKeys);
+                    for (const readiness of readinessHints) {
+                        addMapSetEntry(methodReadinessHints, method, readiness);
+                    }
+                };
+                const firstArg = node.arguments[0];
+                if (firstArg) {
+                    const firstArgValue = resolveStaticStringExpression({
+                        expression: firstArg,
+                        helperFunctions,
+                        identifierBindings,
+                    });
+                    if (looksLikeRpcMethod(firstArgValue)) {
+                        registerMethod(firstArgValue, node.arguments[1] ?? null, null);
+                    }
+                }
+                for (const arg of node.arguments) {
+                    const objectLiteral = resolveObjectLiteralFromExpression(arg, objectLiterals);
+                    if (!objectLiteral)
+                        continue;
+                    const methodFromObject = extractRpcMethodFromObjectLiteral({
+                        objectLiteral,
+                        helperFunctions,
+                        identifierBindings,
+                    });
+                    if (!methodFromObject)
+                        continue;
+                    registerMethod(methodFromObject, null, objectLiteral);
+                }
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
+    }
+    return {
+        methodCallsites,
+        methodRendererCallsites,
+        methodPayloadKeys,
+        methodReadinessHints,
+    };
+}
+function buildRpcSchemaReport(input) {
+    const staticSignals = buildRpcSchemaStaticSignals({
+        jsFiles: input.jsFiles,
+        sourceByFile: input.sourceByFile,
+    });
+    const runtimeSignals = extractRuntimeRpcSignals(input.runtimeProbe);
+    const statusCounts = buildValueCountMap(input.statusRows);
+    const statusesByFile = buildFileValueMap(input.statusRows);
+    const binaryMethods = new Set(input.binary?.rpcLikeMethods ?? []);
+    const bundleCountByMethod = buildValueCountMap(input.methodRows);
+    const bundleFilesByMethod = new Map();
+    for (const row of input.methodRows) {
+        bundleFilesByMethod.set(row.value, new Set(row.files));
+    }
+    const allMethods = new Set();
+    for (const row of input.methodRows)
+        allMethods.add(row.value);
+    for (const method of binaryMethods)
+        allMethods.add(method);
+    for (const method of runtimeSignals.methodCounts.keys())
+        allMethods.add(method);
+    for (const method of staticSignals.methodCallsites.keys())
+        allMethods.add(method);
+    const methods = [];
+    for (const method of allMethods) {
+        if (!looksLikeRpcMethod(method))
+            continue;
+        const bundleFiles = bundleFilesByMethod.get(method) ?? new Set();
+        const callsites = new Set(staticSignals.methodCallsites.get(method) ?? []);
+        const rendererCallsites = new Set(staticSignals.methodRendererCallsites.get(method) ?? []);
+        const payloadKeys = new Set(staticSignals.methodPayloadKeys.get(method) ?? []);
+        const readinessHints = new Set(staticSignals.methodReadinessHints.get(method) ?? []);
+        const envelopeHints = new Set(runtimeSignals.methodEnvelopes.get(method) ?? []);
+        const bundleCount = bundleCountByMethod.get(method) ?? 0;
+        const runtimeCount = runtimeSignals.methodCounts.get(method) ?? 0;
+        const fromBinary = binaryMethods.has(method);
+        const fromBundle = bundleCount > 0;
+        const fromRuntime = runtimeCount > 0;
+        if (callsites.size === 0 && bundleFiles.size > 0) {
+            for (const file of bundleFiles)
+                callsites.add(`${file}:0:bundle-index`);
+        }
+        for (const file of bundleFiles) {
+            const layer = classifyRuntimeLayer(file);
+            if (layer === "renderer" || layer === "renderer-worker") {
+                rendererCallsites.add(`${file}:0:bundle-index`);
+            }
+            const statuses = statusesByFile.get(file);
+            if (!statuses)
+                continue;
+            for (const status of statuses)
+                readinessHints.add(status);
+        }
+        for (const callsite of callsites) {
+            for (const envelope of inferEnvelopeKindsFromText(callsite))
+                envelopeHints.add(envelope);
+            const callsiteFile = callsite.split(":")[0] ?? "";
+            const statuses = statusesByFile.get(callsiteFile);
+            if (!statuses)
+                continue;
+            for (const status of statuses)
+                readinessHints.add(status);
+        }
+        for (const key of runtimeSignals.methodPayloadKeys.get(method) ?? [])
+            payloadKeys.add(key);
+        for (const key of payloadKeys) {
+            for (const envelope of inferEnvelopeKindsFromText(key))
+                envelopeHints.add(envelope);
+        }
+        for (const envelope of inferEnvelopeKindsFromText(method))
+            envelopeHints.add(envelope);
+        if (envelopeHints.size === 0) {
+            if (ENVELOPE_EVENT_HINT.test(method)) {
+                envelopeHints.add("event");
+            }
+            else {
+                envelopeHints.add("request");
+            }
+        }
+        let confidence = 0.15;
+        if (fromBundle)
+            confidence += 0.45;
+        if (fromBinary)
+            confidence += 0.2;
+        if (fromRuntime)
+            confidence += 0.2;
+        if (rendererCallsites.size > 0)
+            confidence += 0.08;
+        if (payloadKeys.size > 0)
+            confidence += 0.07;
+        confidence = Math.min(0.99, roundMetric(confidence));
+        methods.push({
+            method,
+            confidence,
+            sources: {
+                bundle: fromBundle,
+                binary: fromBinary,
+                runtime: fromRuntime,
+            },
+            bundleCount,
+            runtimeCount,
+            callsites: Array.from(callsites).sort((a, b) => a.localeCompare(b)).slice(0, 24),
+            rendererCallsites: Array.from(rendererCallsites).sort((a, b) => a.localeCompare(b)).slice(0, 20),
+            payloadKeys: Array.from(payloadKeys).sort((a, b) => a.localeCompare(b)).slice(0, 24),
+            readinessHints: rankValuesByCount(readinessHints, statusCounts, 12),
+            envelopes: Array.from(envelopeHints).sort((a, b) => a.localeCompare(b)),
+        });
+    }
+    methods.sort((a, b) => {
+        if (a.confidence !== b.confidence)
+            return b.confidence - a.confidence;
+        if (a.bundleCount !== b.bundleCount)
+            return b.bundleCount - a.bundleCount;
+        if (a.runtimeCount !== b.runtimeCount)
+            return b.runtimeCount - a.runtimeCount;
+        return a.method.localeCompare(b.method);
+    });
+    return {
+        generatedAtUtc: new Date().toISOString(),
+        strategy: "Unified RPC schema from bundle index + binary strings + runtime logs + AST renderer callsites, with inferred payload keys and envelope kinds.",
+        methods,
+        coverage: {
+            methods: methods.length,
+            fromBundle: methods.filter((row) => row.sources.bundle).length,
+            fromBinary: methods.filter((row) => row.sources.binary).length,
+            fromRuntime: methods.filter((row) => row.sources.runtime).length,
+            withPayloadKeys: methods.filter((row) => row.payloadKeys.length > 0).length,
+            withRendererCallsites: methods.filter((row) => row.rendererCallsites.length > 0).length,
+        },
+        envelopes: {
+            request: methods.filter((row) => row.envelopes.includes("request")).length,
+            response: methods.filter((row) => row.envelopes.includes("response")).length,
+            event: methods.filter((row) => row.envelopes.includes("event")).length,
+        },
+        runtimeProbe: {
+            used: input.runtimeProbe.attempted,
+            linesScanned: runtimeSignals.linesScanned,
+            methodsDetected: runtimeSignals.methodCounts.size,
+        },
+    };
 }
 function classifyRuntimeLayer(file) {
     const normalized = toPosixPath(file).toLowerCase();
@@ -3165,6 +3810,10 @@ function buildSessionFlowReport(input) {
     const statesByFile = buildFileValueMap(input.stateKeyRows);
     const statusesByFile = buildFileValueMap(input.statusRows);
     const ipcByFile = buildFileValueMap(input.ipcRows);
+    const rpcSchemaByMethod = new Map();
+    for (const row of input.rpcSchema.methods) {
+        rpcSchemaByMethod.set(row.method, row);
+    }
     const entries = [];
     for (const route of routes) {
         const owningFiles = route.files
@@ -3190,6 +3839,19 @@ function buildSessionFlowReport(input) {
         const ipcChannels = collectValuesForFiles(ipcByFile, files, ipcCounts, 8, ipcRegex);
         const eventChain = events.slice(0, 4);
         const rpcChain = rpcMethods.slice(0, 3);
+        const envelopeSet = new Set();
+        for (const method of rpcMethods) {
+            const schema = rpcSchemaByMethod.get(method);
+            if (!schema)
+                continue;
+            for (const envelope of schema.envelopes)
+                envelopeSet.add(envelope);
+        }
+        if (envelopeSet.size === 0 && rpcMethods.length > 0) {
+            envelopeSet.add("request");
+        }
+        const envelopes = Array.from(envelopeSet).sort((a, b) => a.localeCompare(b));
+        const envelopeChain = envelopes.slice(0, 3);
         const stateChain = stateKeys.slice(0, 3);
         const readinessChain = readiness.slice(0, 3);
         entries.push({
@@ -3198,12 +3860,14 @@ function buildSessionFlowReport(input) {
             routeKeywords,
             events,
             rpcMethods,
+            envelopes,
             stateKeys,
             readiness,
             ipcChannels,
             chain: {
                 events: eventChain,
                 rpcMethods: rpcChain,
+                envelopes: envelopeChain,
                 stateKeys: stateChain,
                 readiness: readinessChain,
             },
@@ -3227,7 +3891,7 @@ function buildSessionFlowReport(input) {
         .slice(0, 12);
     return {
         generatedAtUtc: new Date().toISOString(),
-        method: "Correlation model: route -> events -> RPC -> state keys -> readiness statuses by shared owning files in core chunks.",
+        method: "Correlation model: route -> events -> RPC -> envelope -> state keys -> readiness statuses by shared owning files in core chunks and rpc-schema envelope hints.",
         focusRouteCount: routes.length,
         totalRouteCandidates: input.routeRows.length,
         entries,
@@ -3267,10 +3931,11 @@ function formatSessionFlowMarkdown(report) {
         rows.push(`- Route Keywords: ${formatInlineList(entry.routeKeywords, "_none_")}`);
         rows.push(`- Events: ${formatInlineList(entry.events, "_none_")}`);
         rows.push(`- RPC: ${formatInlineList(entry.rpcMethods, "_none_")}`);
+        rows.push(`- Envelopes: ${formatInlineList(entry.envelopes, "_none_")}`);
         rows.push(`- State Keys: ${formatInlineList(entry.stateKeys, "_none_")}`);
         rows.push(`- Readiness: ${formatInlineList(entry.readiness, "_none_")}`);
         rows.push(`- IPC: ${formatInlineList(entry.ipcChannels, "_none_")}`);
-        rows.push(`- Chain: \`${entry.route}\` -> ${formatInlineList(entry.chain.events, "_none_")} -> ${formatInlineList(entry.chain.rpcMethods, "_none_")} -> ${formatInlineList(entry.chain.stateKeys, "_none_")} -> ${formatInlineList(entry.chain.readiness, "_none_")}`);
+        rows.push(`- Chain: \`${entry.route}\` -> ${formatInlineList(entry.chain.events, "_none_")} -> ${formatInlineList(entry.chain.rpcMethods, "_none_")} -> ${formatInlineList(entry.chain.envelopes, "_none_")} -> ${formatInlineList(entry.chain.stateKeys, "_none_")} -> ${formatInlineList(entry.chain.readiness, "_none_")}`);
         rows.push("");
     }
     rows.push("## Core Flow Owners");
@@ -3294,6 +3959,14 @@ function buildRouteBoundaryGraphReport(input) {
     const routesByFile = buildFileValueMap(input.routeRows);
     const rpcByFile = buildFileValueMap(input.methodRows);
     const ipcByFile = buildFileValueMap(input.ipcRows);
+    const rpcEnvelopesByMethod = new Map();
+    const envelopeCounts = new Map();
+    for (const row of input.rpcSchema.methods) {
+        rpcEnvelopesByMethod.set(row.method, row.envelopes);
+        for (const envelope of row.envelopes) {
+            envelopeCounts.set(envelope, (envelopeCounts.get(envelope) ?? 0) + 1);
+        }
+    }
     const nodes = new Map();
     const edges = new Map();
     const ensureNode = (node) => {
@@ -3389,6 +4062,23 @@ function buildRouteBoundaryGraphReport(input) {
                 score: rpcCounts.get(method) ?? 1,
             });
             addEdge(boundaryNodeId, rpcNodeId, "boundary_rpc", rpcCounts.get(method) ?? 1, boundary.ownerFile);
+            const methodEnvelopes = rpcEnvelopesByMethod.get(method) ?? [];
+            const envelopeValues = methodEnvelopes.length > 0 ? methodEnvelopes : Array.from(inferEnvelopeKindsFromText(method));
+            if (envelopeValues.length === 0)
+                envelopeValues.push("request");
+            for (const envelope of envelopeValues) {
+                const envelopeNodeId = `envelope:${envelope}`;
+                ensureNode({
+                    id: envelopeNodeId,
+                    kind: "envelope",
+                    label: envelope,
+                    ownerFile: "",
+                    chunkId: "",
+                    score: envelopeCounts.get(envelope) ?? 1,
+                });
+                addEdge(boundaryNodeId, envelopeNodeId, "boundary_envelope", rpcCounts.get(method) ?? 1, boundary.ownerFile);
+                addEdge(envelopeNodeId, rpcNodeId, "envelope_rpc", rpcCounts.get(method) ?? 1, boundary.ownerFile);
+            }
         }
     }
     const edgeRows = Array.from(edges.values())
@@ -3414,16 +4104,19 @@ function buildRouteBoundaryGraphReport(input) {
     });
     return {
         generatedAtUtc: new Date().toISOString(),
-        strategy: "Route -> component boundary -> IPC/RPC graph inferred from boundary ownership files and indexed route/method/channel signals.",
+        strategy: "Route -> component boundary -> envelope -> IPC/RPC graph inferred from boundary ownership files, rpc-schema envelopes, and indexed route/method/channel signals.",
         nodes: nodeRows,
         edges: edgeRows,
         coverage: {
             routes: nodeRows.filter((node) => node.kind === "route").length,
             boundaries: nodeRows.filter((node) => node.kind === "boundary").length,
             ipcChannels: nodeRows.filter((node) => node.kind === "ipc").length,
+            envelopes: nodeRows.filter((node) => node.kind === "envelope").length,
             rpcMethods: nodeRows.filter((node) => node.kind === "rpc").length,
             routeToBoundaryEdges: edgeRows.filter((edge) => edge.kind === "route_boundary").length,
             boundaryToIpcEdges: edgeRows.filter((edge) => edge.kind === "boundary_ipc").length,
+            boundaryToEnvelopeEdges: edgeRows.filter((edge) => edge.kind === "boundary_envelope").length,
+            envelopeToRpcEdges: edgeRows.filter((edge) => edge.kind === "envelope_rpc").length,
             boundaryToRpcEdges: edgeRows.filter((edge) => edge.kind === "boundary_rpc").length,
         },
     };
@@ -3601,6 +4294,7 @@ async function runRuntimeProbe(input) {
             errors: [],
             warningClassification: { system: [], logic: [], unknown: [] },
             errorClassification: { system: [], logic: [], unknown: [] },
+            capturedLines: [],
             logPath: toPosixPath(logPath),
         };
         fs.writeFileSync(logPath, "Runtime probe skipped: Electron executable not found.\n", "utf8");
@@ -3677,6 +4371,7 @@ async function runRuntimeProbe(input) {
         errors.unshift(`spawn-error: ${spawnErrorMessage}`);
     const warningClassification = classifyProbeLines(warnings, 120);
     const errorClassification = classifyProbeLines(errors, 120);
+    const capturedLines = lines.slice(0, 8000);
     const spawned = !!child.pid && !spawnErrorMessage;
     return {
         attempted: true,
@@ -3694,6 +4389,7 @@ async function runRuntimeProbe(input) {
         errors,
         warningClassification,
         errorClassification,
+        capturedLines,
         logPath: toPosixPath(logPath),
     };
 }
@@ -3715,7 +4411,7 @@ function maybeCollectBinaryString(candidate, rawMatches) {
 }
 function extractRpcMethodsFromText(text, out) {
     const methodPropertyRegex = /["'`]method["'`]\s*:\s*["'`]([^"'`]{3,180})["'`]/g;
-    const rpcPathRegex = /\b((?:codex|thread|turn|review|conversation|session|chat|model|skills|apps|mcpServer|mcp|account|feedback|command|config)\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+){0,5})\b/g;
+    const rpcPathRegex = /(^|[^A-Za-z0-9_.-])((?:codex|thread|turn|review|conversation|session|chat|model|skills|apps|mcpServer|mcp|account|feedback|command|config)\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+){0,5})(?![A-Za-z0-9._-])/g;
     let match = null;
     while ((match = methodPropertyRegex.exec(text)) !== null) {
         const value = match[1];
@@ -3723,7 +4419,7 @@ function extractRpcMethodsFromText(text, out) {
             out.add(value);
     }
     while ((match = rpcPathRegex.exec(text)) !== null) {
-        const value = match[1];
+        const value = match[2];
         if (looksLikeRpcMethod(value))
             out.add(value);
     }
@@ -3855,6 +4551,20 @@ ${input.ipcContractMap.orphanSignals.missingMainHandlers.slice(0, Math.min(top, 
 - missing renderer subscriptions:
 ${input.ipcContractMap.orphanSignals.missingRendererSubscriptions.slice(0, Math.min(top, 20)).map((row) => `- \`${row}\``).join("\n") || "- _none_"}
 
+## RPC Schema (Unified Source of Truth)
+- methods: ${input.rpcSchema.coverage.methods}
+- from bundle: ${input.rpcSchema.coverage.fromBundle}
+- from binary: ${input.rpcSchema.coverage.fromBinary}
+- from runtime: ${input.rpcSchema.coverage.fromRuntime}
+- with payload keys: ${input.rpcSchema.coverage.withPayloadKeys}
+- with renderer callsites: ${input.rpcSchema.coverage.withRendererCallsites}
+- envelope request methods: ${input.rpcSchema.envelopes.request}
+- envelope response methods: ${input.rpcSchema.envelopes.response}
+- envelope event methods: ${input.rpcSchema.envelopes.event}
+- runtime lines scanned for schema: ${input.rpcSchema.runtimeProbe.linesScanned}
+- top rpc schema methods:
+${input.rpcSchema.methods.slice(0, Math.min(top, 16)).map((row) => `- \`${row.method}\` (confidence=${row.confidence}, payload=${row.payloadKeys.length}, envelopes=${row.envelopes.join("|") || "none"})`).join("\n") || "- _none_"}
+
 ## Session Flow
 - focus routes: ${input.sessionFlow.focusRouteCount}
 - total route candidates: ${input.sessionFlow.totalRouteCandidates}
@@ -3879,10 +4589,20 @@ ${input.runtimeProbe.errors.slice(0, Math.min(top, 10)).map((line) => `- ${line}
 - route nodes: ${input.routeBoundaryGraph.coverage.routes}
 - boundary nodes: ${input.routeBoundaryGraph.coverage.boundaries}
 - ipc nodes: ${input.routeBoundaryGraph.coverage.ipcChannels}
+- envelope nodes: ${input.routeBoundaryGraph.coverage.envelopes}
 - rpc nodes: ${input.routeBoundaryGraph.coverage.rpcMethods}
 - route->boundary edges: ${input.routeBoundaryGraph.coverage.routeToBoundaryEdges}
 - boundary->ipc edges: ${input.routeBoundaryGraph.coverage.boundaryToIpcEdges}
+- boundary->envelope edges: ${input.routeBoundaryGraph.coverage.boundaryToEnvelopeEdges}
+- envelope->rpc edges: ${input.routeBoundaryGraph.coverage.envelopeToRpcEdges}
 - boundary->rpc edges: ${input.routeBoundaryGraph.coverage.boundaryToRpcEdges}
+
+## Reference Parity Gaps (1code + CodexMonitor)
+- weighted coverage: ${input.referenceParityGaps.coverage.weightedCoveragePercent}%
+- weighted gap score: ${input.referenceParityGaps.coverage.weightedGapScore}
+- domains scored: ${input.referenceParityGaps.coverage.domains}
+- top prioritized gaps:
+${input.referenceParityGaps.topGaps.map((row) => `- #${row.priorityRank} ${row.label} [${row.domain}] tier=${row.confidenceTier} impact=${row.impactScore} coverage=${row.coveragePercent}% gap=${row.gapScore} missing=${row.missingKeywords.slice(0, 8).join(", ") || "none"}`).join("\n") || "- _none_"}
 
 ## Chunk Dependency Graph (out-degree)
 ${formatTopRows(graphOutRows, top)}
@@ -4122,23 +4842,6 @@ async function runReverse(options) {
         top: options.top,
         referenceProfile,
     });
-    const sessionFlow = buildSessionFlowReport({
-        top: options.top,
-        routeRows,
-        messageTypeRows,
-        methodRows,
-        stateKeyRows,
-        statusRows,
-        ipcRows,
-        referenceProfile,
-    });
-    const sessionFlowMarkdown = formatSessionFlowMarkdown(sessionFlow);
-    const routeBoundaryGraph = buildRouteBoundaryGraphReport({
-        routeRows,
-        methodRows,
-        ipcRows,
-        componentBoundaries,
-    });
     let runtimeProbeResult = {
         attempted: false,
         success: false,
@@ -4155,6 +4858,7 @@ async function runReverse(options) {
         errors: [],
         warningClassification: { system: [], logic: [], unknown: [] },
         errorClassification: { system: [], logic: [], unknown: [] },
+        capturedLines: [],
         logPath: toPosixPath(path.join(reportDir, "runtime-probe.log")),
     };
     if (options.runtimeProbe) {
@@ -4178,6 +4882,44 @@ async function runReverse(options) {
             (0, exec_1.writeInfo)(`Runtime probe errors captured: ${runtimeProbeResult.errors.length}`);
         }
     }
+    const rpcSchema = buildRpcSchemaReport({
+        methodRows,
+        statusRows,
+        binary: binaryResult,
+        runtimeProbe: runtimeProbeResult,
+        jsFiles,
+        sourceByFile,
+    });
+    const sessionFlow = buildSessionFlowReport({
+        top: options.top,
+        routeRows,
+        messageTypeRows,
+        methodRows,
+        stateKeyRows,
+        statusRows,
+        ipcRows,
+        rpcSchema,
+        referenceProfile,
+    });
+    const sessionFlowMarkdown = formatSessionFlowMarkdown(sessionFlow);
+    const routeBoundaryGraph = buildRouteBoundaryGraphReport({
+        routeRows,
+        methodRows,
+        ipcRows,
+        componentBoundaries,
+        rpcSchema,
+    });
+    const referenceParityGaps = buildReferenceParityGapsReport({
+        referenceProfile,
+        routeRows,
+        methodRows,
+        messageTypeRows,
+        statusRows,
+        stateKeyRows,
+        ipcRows,
+        componentBoundaries,
+        rpcSchema,
+    });
     const summary = {
         generatedAtUtc: new Date().toISOString(),
         appDir: options.appDir,
@@ -4202,6 +4944,13 @@ async function runReverse(options) {
             ipcChannels: ipcRows.length,
             methods: methodRows.length,
             rpcCatalog: rpcCatalog.length,
+            rpcSchemaMethods: rpcSchema.coverage.methods,
+            rpcSchemaFromRuntime: rpcSchema.coverage.fromRuntime,
+            rpcSchemaWithPayload: rpcSchema.coverage.withPayloadKeys,
+            rpcSchemaWithRendererCallsites: rpcSchema.coverage.withRendererCallsites,
+            rpcEnvelopeRequestMethods: rpcSchema.envelopes.request,
+            rpcEnvelopeResponseMethods: rpcSchema.envelopes.response,
+            rpcEnvelopeEventMethods: rpcSchema.envelopes.event,
             routes: routeRows.length,
             messageTypes: messageTypeRows.length,
             statuses: statusRows.length,
@@ -4216,6 +4965,7 @@ async function runReverse(options) {
             sessionFlowRoutes: sessionFlow.entries.length,
             routeBoundaryGraphNodes: routeBoundaryGraph.nodes.length,
             routeBoundaryGraphEdges: routeBoundaryGraph.edges.length,
+            routeBoundaryGraphEnvelopes: routeBoundaryGraph.coverage.envelopes,
             cssVars: designSystem.vars.length,
             cssClasses: designSystem.classes.length,
             cssColors: designSystem.colors.length,
@@ -4225,6 +4975,12 @@ async function runReverse(options) {
             runtimeProbeErrorsSystem: runtimeProbeResult.errorClassification.system.length,
             runtimeProbeErrorsLogic: runtimeProbeResult.errorClassification.logic.length,
             runtimeProbeErrorsUnknown: runtimeProbeResult.errorClassification.unknown.length,
+            runtimeProbeCapturedLines: runtimeProbeResult.capturedLines.length,
+            referenceParityWeightedCoverage: referenceParityGaps.coverage.weightedCoveragePercent,
+            referenceParityWeightedGapScore: referenceParityGaps.coverage.weightedGapScore,
+            referenceParityCritical: referenceParityGaps.domains.filter((row) => row.confidenceTier === "critical").length,
+            referenceParityHigh: referenceParityGaps.domains.filter((row) => row.confidenceTier === "high").length,
+            referenceParityMedium: referenceParityGaps.domains.filter((row) => row.confidenceTier === "medium").length,
         },
         referenceContext: {
             sourcePath: referenceProfile.sourcePath,
@@ -4242,6 +4998,14 @@ async function runReverse(options) {
                 ui: referenceProfile.keywordGroups.ui.length,
             },
         },
+        referenceParity: {
+            weightedCoveragePercent: referenceParityGaps.coverage.weightedCoveragePercent,
+            weightedGapScore: referenceParityGaps.coverage.weightedGapScore,
+            topGapDomain: referenceParityGaps.topGaps[0]?.domain ?? null,
+            topGapScore: referenceParityGaps.topGaps[0]?.gapScore ?? null,
+            topGapImpactScore: referenceParityGaps.topGaps[0]?.impactScore ?? null,
+            topGapTier: referenceParityGaps.topGaps[0]?.confidenceTier ?? null,
+        },
         runtimeProbe: runtimeProbeResult,
         binary: binaryResult
             ? {
@@ -4257,6 +5021,7 @@ async function runReverse(options) {
     writeJson(path.join(reportDir, "ipc-channels.json"), ipcRows);
     writeJson(path.join(reportDir, "methods.json"), methodRows);
     writeJson(path.join(reportDir, "rpc-catalog.json"), rpcCatalog);
+    writeJson(path.join(reportDir, "rpc-schema.json"), rpcSchema);
     writeJson(path.join(reportDir, "routes.json"), routeRows);
     writeJson(path.join(reportDir, "message-types.json"), messageTypeRows);
     writeJson(path.join(reportDir, "statuses.json"), statusRows);
@@ -4266,6 +5031,7 @@ async function runReverse(options) {
     writeJson(path.join(reportDir, "component-boundaries.json"), componentBoundaries);
     writeJson(path.join(reportDir, "session-flow.json"), sessionFlow);
     writeJson(path.join(reportDir, "route-boundary-graph.json"), routeBoundaryGraph);
+    writeJson(path.join(reportDir, "reference-parity-gaps.json"), referenceParityGaps);
     writeJson(path.join(reportDir, "runtime-probe.json"), runtimeProbeResult);
     writeJson(path.join(reportDir, "parse-failures.json"), parseFailureRows);
     writeJson(path.join(reportDir, "design-system.json"), designSystem);
@@ -4301,8 +5067,10 @@ async function runReverse(options) {
         domainReport,
         componentBoundaries,
         ipcContractMap,
+        rpcSchema,
         sessionFlow,
         routeBoundaryGraph,
+        referenceParityGaps,
         referenceProfile,
         runtimeProbe: runtimeProbeResult,
         binary: binaryResult,
@@ -4311,9 +5079,11 @@ async function runReverse(options) {
     (0, exec_1.writeSuccess)(`Report root: ${toPosixPath(reportDir)}`);
     (0, exec_1.writeSuccess)(`Architecture report: ${toPosixPath(path.join(reportDir, "architecture.md"))}`);
     (0, exec_1.writeSuccess)(`IPC contract map: ${toPosixPath(path.join(reportDir, "ipc-contract-map.json"))}`);
+    (0, exec_1.writeSuccess)(`RPC schema: ${toPosixPath(path.join(reportDir, "rpc-schema.json"))}`);
     (0, exec_1.writeSuccess)(`Component boundaries: ${toPosixPath(path.join(reportDir, "component-boundaries.json"))}`);
     (0, exec_1.writeSuccess)(`Session flow JSON: ${toPosixPath(path.join(reportDir, "session-flow.json"))}`);
     (0, exec_1.writeSuccess)(`Route-boundary graph: ${toPosixPath(path.join(reportDir, "route-boundary-graph.json"))}`);
+    (0, exec_1.writeSuccess)(`Reference parity gaps: ${toPosixPath(path.join(reportDir, "reference-parity-gaps.json"))}`);
     (0, exec_1.writeSuccess)(`Session flow: ${toPosixPath(path.join(reportDir, "session-flow.md"))}`);
     (0, exec_1.writeSuccess)(`Runtime probe: ${toPosixPath(path.join(reportDir, "runtime-probe.json"))}`);
     (0, exec_1.writeSuccess)(`Reference priors: ${toPosixPath(path.join(reportDir, "reference-signals.json"))}`);
