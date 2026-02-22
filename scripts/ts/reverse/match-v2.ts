@@ -1,7 +1,12 @@
 import * as path from "node:path";
 import * as ts from "typescript";
 
-import type { ReferenceModel, ReferenceSymbolRow, ReferenceSymbolSource } from "./reference-model";
+import type {
+  ReferenceModel,
+  ReferenceSymbolRow,
+  ReferenceSymbolSource,
+  UnifiedReferenceFileProfile,
+} from "./reference-model";
 
 export interface FileRecord {
   relPath: string;
@@ -105,6 +110,8 @@ interface ReferenceFileProfile {
   maxScore: number;
   symbolCount: number;
   tokens: Set<string>;
+  origin: "symbol-map" | "path-map";
+  layer: "main" | "renderer" | "services" | "tauri" | "unknown";
 }
 
 interface SourceReferenceAnchor {
@@ -235,10 +242,62 @@ function buildReferenceTargetPath(referenceFile: string): string {
   if (normalized.startsWith("src-tauri/src/")) {
     return `reconstructed/src-tauri-adapter/${normalized.replace(/^src-tauri\/src\//, "").replace(/\.rs$/i, ".ts")}`;
   }
+  if (normalized.startsWith("src/main/")) {
+    return `reconstructed/${normalized.replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/renderer/")) {
+    return `reconstructed/${normalized.replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/services/")) {
+    return `reconstructed/${normalized.replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/features/")) {
+    return `reconstructed/src/renderer/${normalized.replace(/^src\//, "").replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/components/") || normalized.startsWith("src/hooks/")) {
+    return `reconstructed/src/renderer/${normalized.replace(/^src\//, "").replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/lib/") || normalized.startsWith("src/state/")) {
+    return `reconstructed/src/services/${normalized.replace(/^src\//, "").replace(/\.tsx?$/i, ".ts")}`;
+  }
+  if (normalized.startsWith("src/")) {
+    return `reconstructed/src/services/${normalized.replace(/^src\//, "").replace(/\.tsx?$/i, ".ts")}`;
+  }
   if (/\.rs$/i.test(normalized)) {
     return `reconstructed/src-tauri-adapter/${normalized.replace(/\.rs$/i, ".ts")}`;
   }
   return `reconstructed/${normalized}`;
+}
+
+function isGenericFileStem(stem: string): boolean {
+  return /^(types?|utils?|index|mod|common|shared|state|constants?|helpers?)$/i.test(stem);
+}
+
+function buildSignalAwareTargetPath(input: {
+  referenceFile: string;
+  signal: FileSignalProfile;
+  hits: string[];
+}): string {
+  const target = buildReferenceTargetPath(input.referenceFile);
+  const normalized = toPosixPath(target);
+  const ext = path.posix.extname(normalized) || ".ts";
+  const dir = path.posix.dirname(normalized);
+  const stem = path.posix.basename(normalized, ext);
+  if (!isGenericFileStem(stem)) return normalized;
+
+  const preferredTokens = dedupeKeywords(
+    [
+      ...input.hits,
+      ...Array.from(input.signal.contextKeywords).slice(0, 80),
+      input.signal.dominantDomain,
+    ],
+    24,
+  ).filter((token) => token.length >= 3 && !/^(types?|utils?|common|shared|state|constants?|unknown)$/.test(token));
+  const selectedToken = preferredTokens[0];
+  if (!selectedToken) return normalized;
+  const safeToken = selectedToken.replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "");
+  if (!safeToken) return normalized;
+  return path.posix.join(dir, `${safeToken}${ext}`);
 }
 
 function isGenericReferenceFilePath(file: string): boolean {
@@ -256,6 +315,52 @@ function classifyReferenceDomain(file: string): string {
   if (/(route|router|navigation|sidebar|panel|layout|viewer|view|ui)/.test(normalized)) return "navigation";
   if (/(event|stream|delta|status|state|runtime|ipc|tauri|backend|transport|sync|ready)/.test(normalized)) return "async_readiness";
   return "unknown";
+}
+
+const MATCH_V2_REGRESSION_HINTS: Array<{
+  sourcePattern: RegExp;
+  preferredReferencePatterns: RegExp[];
+  avoidReferencePatterns?: RegExp[];
+}> = [
+  {
+    sourcePattern: /^\.vite\/build\/main-/i,
+    preferredReferencePatterns: [/(^|\/)src\/main\//i, /src-tauri\/src\//i, /(backend|ipc|window)/i],
+  },
+  {
+    sourcePattern: /^\.vite\/build\/worker/i,
+    preferredReferencePatterns: [/src-tauri\/src\//i, /(backend|state|types|daemon|workspace)/i],
+    avoidReferencePatterns: [/(^|\/)src\/renderer\//i],
+  },
+  {
+    sourcePattern: /^webview\/assets\/index-/i,
+    preferredReferencePatterns: [/(^|\/)src\/renderer\//i, /(features|layout|app|chat)/i],
+  },
+  {
+    sourcePattern: /^webview\/assets\/worker-/i,
+    preferredReferencePatterns: [/(^|\/)src\/renderer\//i, /(chat|thread|event|stream|view)/i],
+  },
+  {
+    sourcePattern: /^webview\/assets\/automation-/i,
+    preferredReferencePatterns: [/(automation|queue|event|job|task)/i],
+  },
+  {
+    sourcePattern: /^webview\/assets\/diff-/i,
+    preferredReferencePatterns: [/(diff|patch|git)/i],
+  },
+];
+
+function scoreRegressionHint(sourceFile: string, referenceFile: string): number {
+  const normalizedSource = toPosixPath(sourceFile);
+  const normalizedReference = toPosixPath(referenceFile);
+  let boost = 0;
+  for (const rule of MATCH_V2_REGRESSION_HINTS) {
+    if (!rule.sourcePattern.test(normalizedSource)) continue;
+    const preferredHit = rule.preferredReferencePatterns.some((pattern) => pattern.test(normalizedReference));
+    const avoidHit = rule.avoidReferencePatterns?.some((pattern) => pattern.test(normalizedReference)) ?? false;
+    if (preferredHit) boost += 0.95;
+    if (avoidHit) boost -= 0.85;
+  }
+  return boost;
 }
 
 function getLayerMismatchPenalty(layer: ReturnType<typeof classifyRuntimeLayer>, referenceFile: string): number {
@@ -428,16 +533,63 @@ function collectObfuscatedSymbolsFromSource(input: { relPath: string; source: st
   return candidates;
 }
 
-function buildReferenceFileProfiles(symbols: ReferenceSymbolRow[]): ReferenceFileProfile[] {
+function inferReferenceLayer(file: string): "main" | "renderer" | "services" | "tauri" | "unknown" {
+  const normalized = toPosixPath(file).toLowerCase();
+  if (normalized.startsWith("src/main/")) return "main";
+  if (normalized.startsWith("src/renderer/")) return "renderer";
+  if (normalized.startsWith("src/services/")) return "services";
+  if (normalized.startsWith("src-tauri/src/")) return "tauri";
+  if (normalized.startsWith("src/features/")) return "renderer";
+  if (normalized.startsWith("src/components/")) return "renderer";
+  if (normalized.startsWith("src/hooks/")) return "renderer";
+  if (normalized.startsWith("src/lib/")) return "services";
+  if (normalized.startsWith("src/state/")) return "services";
+  return "unknown";
+}
+
+function buildReferenceFileProfiles(
+  symbols: ReferenceSymbolRow[],
+  unifiedFiles: UnifiedReferenceFileProfile[],
+): ReferenceFileProfile[] {
   const map = new Map<string, ReferenceFileProfile>();
   for (const symbol of symbols) {
     const key = `${symbol.source}|${symbol.file}`;
-    const row = map.get(key) ?? { source: symbol.source, file: symbol.file, maxScore: 0, symbolCount: 0, tokens: new Set<string>() };
+    const row = map.get(key) ?? {
+      source: symbol.source,
+      file: symbol.file,
+      maxScore: 0,
+      symbolCount: 0,
+      tokens: new Set<string>(),
+      origin: "symbol-map" as const,
+      layer: inferReferenceLayer(symbol.file),
+    };
     row.maxScore = Math.max(row.maxScore, symbol.score);
     row.symbolCount += 1;
     for (const token of symbol.tokens) row.tokens.add(token.toLowerCase());
+    row.origin = "symbol-map";
+    row.layer = inferReferenceLayer(symbol.file);
     map.set(key, row);
   }
+
+  for (const row of unifiedFiles) {
+    const key = `${row.source}|${row.file}`;
+    const current = map.get(key) ?? {
+      source: row.source,
+      file: row.file,
+      maxScore: 0,
+      symbolCount: 0,
+      tokens: new Set<string>(),
+      origin: row.origin,
+      layer: inferReferenceLayer(row.file),
+    };
+    current.maxScore = Math.max(current.maxScore, row.maxScore);
+    current.symbolCount = Math.max(current.symbolCount, row.symbolCount);
+    for (const token of row.tokens) current.tokens.add(token.toLowerCase());
+    if (current.origin !== "symbol-map") current.origin = row.origin;
+    current.layer = inferReferenceLayer(row.file);
+    map.set(key, current);
+  }
+
   return Array.from(map.values());
 }
 
@@ -547,14 +699,18 @@ function scoreReferenceFileProfile(input: { sourceFile: string; profile: Referen
 
   const layer = classifyRuntimeLayer(input.sourceFile);
   let layerBoost = 0;
-  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.file.includes("/renderer/")) layerBoost += 1.7;
-  if ((layer === "main" || layer === "main-worker") && input.profile.file.includes("/main/")) layerBoost += 1.7;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "renderer") layerBoost += 1.9;
+  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "main") layerBoost += 1.9;
   if (layer === "preload" && input.profile.file.includes("/preload/")) layerBoost += 1.5;
+  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "tauri") layerBoost += 0.9;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "services") layerBoost += 0.8;
 
   const layerMismatchPenalty = getLayerMismatchPenalty(layer, input.profile.file);
   const domain = scoreDomainAlignment(input.fileSignals, input.profile.file);
-  const qualityBoost = Math.min(2.4, input.profile.maxScore / 850);
+  const qualityBoost = Math.min(2.6, input.profile.maxScore / 820);
   const sourceBoost = input.profile.source === "1code" ? 0.35 : 0.25;
+  const originBoost = input.profile.origin === "symbol-map" ? 0.55 : 0.35;
+  const regressionBoost = scoreRegressionHint(input.sourceFile, input.profile.file);
   const genericPathPenalty = isGenericReferenceFilePath(input.profile.file) ? 2.8 : 0;
   const broadFilePenalty = input.profile.symbolCount > 6 ? Math.min(3.4, (input.profile.symbolCount - 6) * 0.34) : 0;
   const heavyTokenPenalty = input.profile.tokens.size > 85 ? Math.min(1.5, (input.profile.tokens.size - 85) * 0.025) : 0;
@@ -565,6 +721,8 @@ function scoreReferenceFileProfile(input: { sourceFile: string; profile: Referen
     domain.boost +
     qualityBoost +
     sourceBoost +
+    originBoost +
+    regressionBoost +
     getFileSignalScore(input.fileSignals) -
     genericPathPenalty -
     broadFilePenalty -
@@ -648,9 +806,11 @@ function isFileCandidateForPlan(input: {
   if (!bundlerChunkLike) return false;
 
   const signalStrength = getTotalSignalStrength(input.signal);
-  const strongCoreSignals = isLikelyCoreAppFile(input.relPath) && signalStrength >= 11 && input.signal.contextKeywords.size >= 7;
-  const anchorDrivenSignals = !!input.sourceAnchor && input.sourceAnchor.score >= 4.1 && signalStrength >= 9;
-  return strongCoreSignals || anchorDrivenSignals;
+  const strongCoreSignals = isLikelyCoreAppFile(input.relPath) && signalStrength >= 7 && input.signal.contextKeywords.size >= 5;
+  const anchorDrivenSignals = !!input.sourceAnchor && input.sourceAnchor.score >= 3.4 && signalStrength >= 6;
+  const richFlowSignals = input.signal.flow >= 8 && input.signal.ipcRpc >= 4 && input.signal.contextKeywords.size >= 6;
+  const dominantKnownDomain = input.signal.dominantDomain !== "unknown" && signalStrength >= 8;
+  return strongCoreSignals || anchorDrivenSignals || richFlowSignals || dominantKnownDomain;
 }
 
 export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMatchV2Input): DeobfuscationTableReport {
@@ -677,7 +837,10 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
     class: referenceSymbolProfile.symbols.filter((symbol) => symbol.symbolKind === "class"),
     function: referenceSymbolProfile.symbols.filter((symbol) => symbol.symbolKind === "function"),
   };
-  const referenceFileProfiles = buildReferenceFileProfiles(referenceSymbolProfile.symbols);
+  const referenceFileProfiles = buildReferenceFileProfiles(
+    referenceSymbolProfile.symbols,
+    input.referenceModel.unified.files,
+  );
   const sourceReferenceAnchors = computeSourceReferenceAnchors({
     jsFiles: input.jsFiles,
     fileSignals,
@@ -786,7 +949,11 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       ) {
         if (!isGenericBestProfile) {
           const confidenceRaw = Math.min(0.96, roundMetric(0.24 + selectedFileScore / 12.5));
-          const targetProjectPath = buildReferenceTargetPath(selectedProfile.file);
+          const targetProjectPath = buildSignalAwareTargetPath({
+            referenceFile: selectedProfile.file,
+            signal,
+            hits: selectedFileHits,
+          });
           const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
           const targetLimit = usedNonGenericFallback ? 2 : 1;
           if (targetCount >= targetLimit) {
@@ -846,7 +1013,11 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           }
         }
         if (fallbackAnchor && fallbackAnchor.score >= 3.1) {
-          const targetProjectPath = buildReferenceTargetPath(fallbackAnchor.profile.file);
+          const targetProjectPath = buildSignalAwareTargetPath({
+            referenceFile: fallbackAnchor.profile.file,
+            signal,
+            hits: fallbackAnchor.hits,
+          });
           const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
           if (targetCount < 1) {
             const confidence = Math.min(0.92, roundMetric(0.2 + fallbackAnchor.score / 13));
@@ -905,7 +1076,11 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           }
         }
         if (floorFallback && floorFallback.score >= 1.8 && floorFallback.hits.length >= 1) {
-          const targetProjectPath = buildReferenceTargetPath(floorFallback.profile.file);
+          const targetProjectPath = buildSignalAwareTargetPath({
+            referenceFile: floorFallback.profile.file,
+            signal,
+            hits: floorFallback.hits,
+          });
           const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
           if (targetCount < 2) {
             const confidence = Math.min(0.78, roundMetric(0.32 + floorFallback.score / 20));
@@ -1006,7 +1181,11 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       if (symbolTargetByFile.has(fileTargetKey)) continue;
 
       const confidence = Math.min(0.95, roundMetric(0.22 + bestScore / 13.2));
-      const targetProjectPath = buildReferenceTargetPath(bestReference.file);
+      const targetProjectPath = buildSignalAwareTargetPath({
+        referenceFile: bestReference.file,
+        signal,
+        hits: bestHits,
+      });
       const id = `${candidate.kind}|${candidate.sourceFile}|${candidate.name}|${bestReference.name}|${bestReference.file}`;
       if (seenEntry.has(id)) continue;
 
@@ -1041,6 +1220,118 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           `match-v2-score: ${roundMetric(bestScore)}`,
         ],
       });
+    }
+  }
+
+  const minMappedFiles = 4;
+  const maxMappedFiles = 6;
+  if (filePlans.length < minMappedFiles) {
+    const mappedSourceFiles = new Set(filePlans.map((row) => row.sourceFile));
+    const unresolvedRows: Array<{
+      sourceFile: string;
+      profile: ReferenceFileProfile;
+      score: number;
+      hits: string[];
+      signal: FileSignalProfile;
+      sourceAnchor?: SourceReferenceAnchor;
+    }> = [];
+
+    for (const file of input.jsFiles) {
+      const relPath = file.relPath;
+      if (mappedSourceFiles.has(relPath)) continue;
+      if (!isDeobfuscationCandidateFile(relPath)) continue;
+      const signal = fileSignals.get(relPath);
+      if (!signal) continue;
+      if (!isLikelyCoreAppFile(relPath) && signal.contextKeywords.size < 4) continue;
+
+      const sourceAnchor = sourceReferenceAnchors.get(relPath);
+      const signalStrength = getTotalSignalStrength(signal);
+      if (signalStrength < 7) continue;
+
+      let best: { profile: ReferenceFileProfile; score: number; hits: string[] } | undefined;
+      for (const profile of referenceFileProfiles) {
+        if (isGenericReferenceFilePath(profile.file)) continue;
+        const scored = scoreReferenceFileProfile({ sourceFile: relPath, profile, fileSignals: signal });
+        if (!best || scored.score > best.score) {
+          best = { profile, score: scored.score, hits: scored.hits };
+        }
+      }
+      if (!best) continue;
+      if (best.score < 1.4) continue;
+      if (best.hits.length < 1 && signalStrength < 11) continue;
+      unresolvedRows.push({
+        sourceFile: relPath,
+        profile: best.profile,
+        score: best.score,
+        hits: best.hits,
+        signal,
+        sourceAnchor,
+      });
+    }
+
+    unresolvedRows.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      const signalA = getTotalSignalStrength(a.signal);
+      const signalB = getTotalSignalStrength(b.signal);
+      if (signalA !== signalB) return signalB - signalA;
+      return a.sourceFile.localeCompare(b.sourceFile);
+    });
+
+    for (const row of unresolvedRows) {
+      if (filePlans.length >= maxMappedFiles) break;
+      const targetProjectPath = buildSignalAwareTargetPath({
+        referenceFile: row.profile.file,
+        signal: row.signal,
+        hits: row.hits,
+      });
+      const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
+      if (targetCount >= 2) continue;
+
+      const confidence = Math.min(0.74, roundMetric(0.28 + row.score / 18));
+      const proposedName = path.basename(row.profile.file).replace(/\.[^.]+$/, "");
+      const rationale = [
+        `keyword-overlap: ${row.hits.join(", ") || "none"}`,
+        `signals: ast=${row.signal.ast}, ipcRpc=${row.signal.ipcRpc}, state=${row.signal.state}, boundary=${row.signal.boundary}, flow=${row.signal.flow}`,
+        `dominant-domain: ${row.signal.dominantDomain}`,
+        row.sourceAnchor
+          ? `source-anchor: ${row.sourceAnchor.primaryFile} (score=${row.sourceAnchor.score})`
+          : "source-anchor: none",
+        "fallback: regression-fill-non-generic",
+        targetCount > 0 ? "target-collision: allowed-duplicate-target-mapping" : "target-collision: none",
+        `reference-file: ${row.profile.file}`,
+        `match-v2-score: ${roundMetric(row.score)}`,
+      ];
+
+      filePlans.push({
+        sourceFile: row.sourceFile,
+        proposedModulePath: targetProjectPath,
+        confidence,
+        rationale,
+        referenceSource: row.profile.source,
+      });
+      filePlanCountByTargetPath.set(targetProjectPath, targetCount + 1);
+
+      const id = `file|${row.sourceFile}|${targetProjectPath}`;
+      if (!seenEntry.has(id)) {
+        seenEntry.add(id);
+        entries.push({
+          id,
+          kind: "file",
+          obfuscated: row.sourceFile,
+          deobfuscated: proposedName,
+          sourceFile: row.sourceFile,
+          targetProjectPath,
+          confidence,
+          reference: {
+            source: row.profile.source,
+            symbol: proposedName,
+            file: row.profile.file,
+            kind: "module-file",
+            score: row.profile.maxScore,
+          },
+          rationale,
+        });
+      }
     }
   }
 

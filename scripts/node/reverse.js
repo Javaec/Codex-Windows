@@ -45,10 +45,8 @@ const webstorm_project_1 = require("./reverse/webstorm-project");
 const session_route_flow_1 = require("./reverse/session-route-flow");
 const reference_parity_1 = require("./reverse/reference-parity");
 const rpc_schema_1 = require("./reverse/rpc-schema");
+const ipc_contract_map_1 = require("./reverse/ipc-contract-map");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
-const REFERENCE_MAP_DEFAULT_PATH = path.resolve(REPO_ROOT, "reference", "analysis", "1code-codexmonitor-architecture-map.md");
-const REFERENCE_1CODE_SYMBOL_MAP_DEFAULT_PATH = path.resolve(REPO_ROOT, "reference", "analysis", "1code-symbol-map.json");
-const REFERENCE_CODEXMONITOR_SYMBOL_MAP_DEFAULT_PATH = path.resolve(REPO_ROOT, "reference", "analysis", "CodexMonitor-symbol-map.json");
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const TARGET_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css", ".html", ".json"]);
 const IPC_SUFFIX_KIND_MAP = [
@@ -300,116 +298,6 @@ const REFERENCE_DOMAIN_WEIGHTS = {
     settings_skills: 1.0,
     async_readiness: 1.1,
 };
-const REFERENCE_PRIOR_BASE = {
-    routes: [
-        "route",
-        "layout",
-        "home",
-        "projects",
-        "codex",
-        "git",
-        "log",
-        "settings",
-        "workspace",
-        "worktree",
-        "inbox",
-        "automation",
-        "chat",
-        "thread",
-        "session",
-        "terminal",
-        "diff",
-        "plan",
-    ],
-    methods: [
-        "sendUserMessage",
-        "startThread",
-        "threadLiveSubscribe",
-        "threadLiveUnsubscribe",
-        "connectWorkspace",
-        "respond_to_server_request",
-        "createAppRouter",
-        "chats.create",
-        "chats.forkSubChat",
-        "chats.rollbackToMessage",
-        "codex.chat",
-        "codex.cancel",
-        "codex.cleanup",
-    ],
-    stateKeys: [
-        "threadStatusById",
-        "itemsByThread",
-        "threadsByWorkspace",
-        "activeThreadIdByWorkspace",
-        "selectedAgentChatIdAtom",
-        "selectedProjectAtom",
-        "queues",
-        "queueSentTriggers",
-        "statuses",
-        "approvals",
-        "userInputRequests",
-        "tokenUsageByThread",
-        "rateLimitsByWorkspace",
-        "accountByWorkspace",
-    ],
-    readiness: [
-        "ready",
-        "submitted",
-        "streaming",
-        "error",
-        "loading",
-        "pending",
-        "connected",
-        "disconnected",
-        "polling",
-        "live",
-        "idle",
-    ],
-    events: [
-        "app-server-event",
-        "turn/started",
-        "turn/completed",
-        "thread/status/changed",
-        "thread/tokenUsage/updated",
-        "thread/live_attached",
-        "thread/live_detached",
-        "thread/live_heartbeat",
-        "item/started",
-        "item/completed",
-        "terminal-output",
-        "terminal-exit",
-    ],
-    ipc: [
-        "window:",
-        "chat:",
-        "auth:",
-        "git:",
-        "app:",
-        "update:",
-        "stream:",
-        "file-changed",
-        "app-server-event",
-        "terminal-output",
-        "terminal-exit",
-    ],
-    ui: [
-        "App",
-        "AppContent",
-        "AgentsLayout",
-        "AgentsContent",
-        "ChatView",
-        "NewChatForm",
-        "QueueProcessor",
-        "MainApp",
-        "AppLayout",
-        "DesktopLayout",
-        "TabletLayout",
-        "PhoneLayout",
-        "useThreads",
-        "useAppServerEvents",
-        "useRemoteThreadLiveConnection",
-    ],
-};
 function parseArgs(argv) {
     const defaults = {
         appDir: path.resolve(REPO_ROOT, "work", "app"),
@@ -423,7 +311,7 @@ function parseArgs(argv) {
         electronExe: "",
         maxPrettyBytes: 12 * 1024 * 1024,
         top: 200,
-        referenceMapPath: REFERENCE_MAP_DEFAULT_PATH,
+        referenceMapPath: reference_model_1.DEFAULT_REFERENCE_MAP_PATH,
     };
     const options = { ...defaults };
     if (argv.length === 0) {
@@ -2758,208 +2646,6 @@ function resolveIpcChannelFromCall(node, spec, helperFunctions, constantBindings
         return "";
     return binding.staticChannel;
 }
-function buildIpcContractMap(input) {
-    const usages = [];
-    const moduleIndexByFile = buildIpcWrapperModuleIndex(input);
-    const knownJsAbsPaths = new Set(input.jsFiles.map((file) => file.absPath));
-    const relPathByAbs = new Map();
-    for (const file of input.jsFiles)
-        relPathByAbs.set(file.absPath, file.relPath);
-    let filesWithWrappers = 0;
-    let wrappersDiscovered = 0;
-    let wrapperInvocationsResolved = 0;
-    const globalWrapperLookup = buildGlobalIpcWrapperLookup({
-        jsFiles: input.jsFiles,
-        sourceByFile: input.sourceByFile,
-        moduleIndexByFile,
-    });
-    const globalWrappersDiscovered = Array.from(globalWrapperLookup.byName.values()).filter((spec) => spec.source === "wrapper").length;
-    for (const file of input.jsFiles) {
-        const relPath = file.relPath;
-        if (!isCandidateBoundaryFile(relPath) && !isLikelyCoreAppFile(relPath))
-            continue;
-        const layer = classifyRuntimeLayer(relPath);
-        const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
-        try {
-            const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-            const helperFunctions = buildIpcChannelHelperMap(sourceFile);
-            const constantBindings = buildIpcChannelConstantEvalMap({
-                sourceFile,
-                helperFunctions,
-            });
-            const decodeWrappers = layer === "renderer" || layer === "renderer-worker" || layer === "preload";
-            let ipcObjectAliases = buildIpcObjectAliasSet(sourceFile);
-            let wrapperSpecs = new Map();
-            let importedWrapperSpecs = new Map();
-            if (decodeWrappers) {
-                const indexedModule = moduleIndexByFile.get(relPath);
-                if (indexedModule) {
-                    ipcObjectAliases = indexedModule.ipcObjectAliases;
-                    wrapperSpecs = indexedModule.wrapperSpecs;
-                }
-                else {
-                    const wrapperIndex = buildIpcWrapperMap(sourceFile);
-                    ipcObjectAliases = wrapperIndex.ipcObjectAliases;
-                    wrapperSpecs = wrapperIndex.wrapperSpecs;
-                }
-                importedWrapperSpecs = buildImportedWrapperAliasMap({
-                    sourceFile,
-                    fileAbsPath: file.absPath,
-                    knownJsAbsPaths,
-                    relPathByAbs,
-                    moduleIndexByFile,
-                });
-            }
-            if (decodeWrappers && wrapperSpecs.size > 0) {
-                filesWithWrappers += 1;
-                wrappersDiscovered += wrapperSpecs.size;
-            }
-            const visit = (node) => {
-                if (ts.isCallExpression(node)) {
-                    const callName = getExpressionName(node.expression);
-                    if (!callName) {
-                        ts.forEachChild(node, visit);
-                        return;
-                    }
-                    const callSpec = wrapperSpecs.get(callName) ??
-                        importedWrapperSpecs.get(callName) ??
-                        buildDirectIpcSpecFromCallName(callName, ipcObjectAliases) ??
-                        resolveGlobalIpcWrapperSpec(callName, globalWrapperLookup);
-                    if (!callSpec) {
-                        ts.forEachChild(node, visit);
-                        return;
-                    }
-                    const channel = resolveIpcChannelFromCall(node, callSpec, helperFunctions, constantBindings);
-                    if (!channel || !looksLikeIpcChannel(channel)) {
-                        ts.forEachChild(node, visit);
-                        return;
-                    }
-                    if (isIgnoredIpcChannel(channel)) {
-                        ts.forEachChild(node, visit);
-                        return;
-                    }
-                    const role = inferIpcRole(callName, layer) ?? inferIpcRoleByKind(callSpec.kind, layer);
-                    if (role) {
-                        usages.push({ file: relPath, layer, channel, role, callName });
-                        if (callSpec.source !== "direct") {
-                            wrapperInvocationsResolved += 1;
-                        }
-                    }
-                }
-                ts.forEachChild(node, visit);
-            };
-            visit(sourceFile);
-        }
-        catch {
-            const regexPattern = /\b([a-zA-Z0-9_$.]+)\.(handle|on|once|invoke|send|sendSync|postMessage)\(\s*["'`]([^"'`\n\r]{2,180})["'`]/g;
-            const fallbackAliases = new Set();
-            let match = null;
-            while ((match = regexPattern.exec(source)) !== null) {
-                const callName = `${match[1]}.${match[2]}`;
-                const channel = match[3];
-                if (!looksLikeIpcChannel(channel))
-                    continue;
-                if (isIgnoredIpcChannel(channel))
-                    continue;
-                const callSpec = buildDirectIpcSpecFromCallName(callName, fallbackAliases);
-                if (!callSpec)
-                    continue;
-                const role = inferIpcRole(callName, layer) ?? inferIpcRoleByKind(callSpec.kind, layer);
-                if (!role)
-                    continue;
-                usages.push({ file: relPath, layer, channel, role, callName });
-            }
-        }
-    }
-    const channelMap = new Map();
-    const ensureRow = (channel) => {
-        const existing = channelMap.get(channel);
-        if (existing)
-            return existing;
-        const row = {
-            channel,
-            score: 0,
-            mainHandlers: [],
-            rendererInvokes: [],
-            rendererSubscriptions: [],
-            mainEmits: [],
-            coverage: {
-                hasMainHandler: false,
-                hasRendererInvoke: false,
-                hasRendererSubscription: false,
-                hasMainEmit: false,
-                missingMainHandler: false,
-                missingRendererSubscription: false,
-            },
-        };
-        channelMap.set(channel, row);
-        return row;
-    };
-    for (const usage of usages) {
-        const row = ensureRow(usage.channel);
-        if (usage.role === "main_handler")
-            row.mainHandlers.push(usage.file);
-        if (usage.role === "renderer_invoke")
-            row.rendererInvokes.push(usage.file);
-        if (usage.role === "renderer_subscribe")
-            row.rendererSubscriptions.push(usage.file);
-        if (usage.role === "main_emit")
-            row.mainEmits.push(usage.file);
-    }
-    for (const row of channelMap.values()) {
-        row.mainHandlers = Array.from(new Set(row.mainHandlers)).sort((a, b) => a.localeCompare(b));
-        row.rendererInvokes = Array.from(new Set(row.rendererInvokes)).sort((a, b) => a.localeCompare(b));
-        row.rendererSubscriptions = Array.from(new Set(row.rendererSubscriptions)).sort((a, b) => a.localeCompare(b));
-        row.mainEmits = Array.from(new Set(row.mainEmits)).sort((a, b) => a.localeCompare(b));
-        row.coverage.hasMainHandler = row.mainHandlers.length > 0;
-        row.coverage.hasRendererInvoke = row.rendererInvokes.length > 0;
-        row.coverage.hasRendererSubscription = row.rendererSubscriptions.length > 0;
-        row.coverage.hasMainEmit = row.mainEmits.length > 0;
-        row.coverage.missingMainHandler = row.coverage.hasRendererInvoke && !row.coverage.hasMainHandler;
-        row.coverage.missingRendererSubscription =
-            row.coverage.hasMainEmit && !row.coverage.hasRendererSubscription;
-        row.score =
-            row.mainHandlers.length * 3 +
-                row.rendererInvokes.length * 3 +
-                row.rendererSubscriptions.length * 2 +
-                row.mainEmits.length * 2;
-    }
-    const channels = Array.from(channelMap.values())
-        .filter((row) => !isIgnoredIpcChannel(row.channel))
-        .sort((a, b) => {
-        if (a.score !== b.score)
-            return b.score - a.score;
-        return a.channel.localeCompare(b.channel);
-    });
-    const missingMainHandlers = channels
-        .filter((row) => row.coverage.missingMainHandler)
-        .map((row) => row.channel);
-    const missingRendererSubscriptions = channels
-        .filter((row) => row.coverage.missingRendererSubscription)
-        .map((row) => row.channel);
-    return {
-        generatedAtUtc: new Date().toISOString(),
-        strategy: "Approximate IPC contract map from static callsite extraction (ipcMain/ipcRenderer/webContents.send) with layer classification by chunk ownership.",
-        channels,
-        wrappers: {
-            filesWithWrappers,
-            wrappersDiscovered,
-            wrapperInvocationsResolved,
-            globalWrappersDiscovered,
-        },
-        orphanSignals: {
-            missingMainHandlers,
-            missingRendererSubscriptions,
-        },
-        coverage: {
-            channels: channels.length,
-            withMainHandlers: channels.filter((row) => row.coverage.hasMainHandler).length,
-            withRendererInvokes: channels.filter((row) => row.coverage.hasRendererInvoke).length,
-            withRendererSubscriptions: channels.filter((row) => row.coverage.hasRendererSubscription).length,
-            withMainEmits: channels.filter((row) => row.coverage.hasMainEmit).length,
-        },
-    };
-}
 function parseWebviewIndexAssets(webviewIndexPath) {
     if (!fs.existsSync(webviewIndexPath))
         return { scripts: [], styles: [] };
@@ -3646,8 +3332,6 @@ async function runReverse(options) {
     const referenceModel = (0, reference_model_1.loadReferenceModel)({
         referenceMapPath: options.referenceMapPath,
         reportDir,
-        oneCodeSymbolMapPath: REFERENCE_1CODE_SYMBOL_MAP_DEFAULT_PATH,
-        codexMonitorSymbolMapPath: REFERENCE_CODEXMONITOR_SYMBOL_MAP_DEFAULT_PATH,
     });
     const referenceProfile = referenceModel.signals;
     if (referenceProfile.loaded) {
@@ -3695,7 +3379,57 @@ async function runReverse(options) {
         referenceProfile,
     });
     const rpcCatalog = buildRpcCatalog(methodRows, binaryResult);
-    const ipcContractMap = buildIpcContractMap({ jsFiles, sourceByFile });
+    const ipcContractMap = (0, ipc_contract_map_1.buildIpcContractMap)({
+        jsFiles,
+        sourceByFile,
+        helpers: {
+            isCandidateBoundaryFile,
+            isLikelyCoreAppFile,
+            classifyRuntimeLayer,
+            normalizeSourceForPrint,
+            buildIpcChannelHelperMap,
+            buildIpcChannelConstantEvalMap: ({ sourceFile, helperFunctions }) => buildIpcChannelConstantEvalMap({
+                sourceFile,
+                helperFunctions: helperFunctions,
+            }),
+            buildIpcObjectAliasSet,
+            buildIpcWrapperMap,
+            buildIpcWrapperModuleIndex: ({ jsFiles: moduleJsFiles, sourceByFile: moduleSources }) => buildIpcWrapperModuleIndex({
+                jsFiles: moduleJsFiles.map((file) => ({
+                    absPath: file.absPath,
+                    relPath: file.relPath,
+                    ext: path.extname(file.relPath),
+                    sizeBytes: 0,
+                })),
+                sourceByFile: moduleSources,
+            }),
+            buildImportedWrapperAliasMap: (moduleInput) => buildImportedWrapperAliasMap({
+                sourceFile: moduleInput.sourceFile,
+                fileAbsPath: moduleInput.fileAbsPath,
+                knownJsAbsPaths: moduleInput.knownJsAbsPaths,
+                relPathByAbs: moduleInput.relPathByAbs,
+                moduleIndexByFile: moduleInput.moduleIndexByFile,
+            }),
+            buildGlobalIpcWrapperLookup: ({ jsFiles: moduleJsFiles, sourceByFile: moduleSources, moduleIndexByFile }) => buildGlobalIpcWrapperLookup({
+                jsFiles: moduleJsFiles.map((file) => ({
+                    absPath: file.absPath,
+                    relPath: file.relPath,
+                    ext: path.extname(file.relPath),
+                    sizeBytes: 0,
+                })),
+                sourceByFile: moduleSources,
+                moduleIndexByFile: moduleIndexByFile,
+            }),
+            buildDirectIpcSpecFromCallName,
+            resolveGlobalIpcWrapperSpec,
+            resolveIpcChannelFromCall: (node, spec, helperFunctions, constantBindings) => resolveIpcChannelFromCall(node, spec, helperFunctions, constantBindings),
+            inferIpcRole,
+            inferIpcRoleByKind,
+            getExpressionName,
+            looksLikeIpcChannel,
+            isIgnoredIpcChannel,
+        },
+    });
     const componentBoundaries = buildComponentBoundariesReport({
         jsFiles,
         importsGraph,
@@ -3972,6 +3706,7 @@ async function runReverse(options) {
         referenceModel: {
             generatedAtUtc: referenceModel.generatedAtUtc,
             unifiedFiles: referenceModel.unified.files.length,
+            pathMapEntries: referenceModel.unified.pathMap.length,
             domainCount: Object.keys(referenceModel.unified.domainKeywords).length,
         },
         deobfuscation: {

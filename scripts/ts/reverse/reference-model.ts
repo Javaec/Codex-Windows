@@ -52,6 +52,32 @@ export interface UnifiedReferenceFileProfile {
   symbolCount: number;
   maxScore: number;
   tokens: string[];
+  origin: "symbol-map" | "path-map";
+}
+
+export interface ReferencePathMapRow {
+  source: ReferenceSymbolSource;
+  file: string;
+  layer: "main" | "renderer" | "services" | "tauri" | "unknown";
+  tokens: string[];
+  score: number;
+}
+
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REFERENCE_ANALYSIS_ROOT = path.join(REPO_ROOT, "reference", "analysis");
+
+export const DEFAULT_REFERENCE_MAP_PATH = path.join(
+  REFERENCE_ANALYSIS_ROOT,
+  "1code-codexmonitor-architecture-map.md",
+);
+export const DEFAULT_1CODE_SYMBOL_MAP_PATH = path.join(REFERENCE_ANALYSIS_ROOT, "1code-symbol-map.json");
+export const DEFAULT_CODEXMONITOR_SYMBOL_MAP_PATH = path.join(
+  REFERENCE_ANALYSIS_ROOT,
+  "CodexMonitor-symbol-map.json",
+);
+
+function normalizeReferenceInputPath(candidate: string): string {
+  return path.resolve(candidate);
 }
 
 export interface ReferenceModel {
@@ -61,14 +87,15 @@ export interface ReferenceModel {
   unified: {
     files: UnifiedReferenceFileProfile[];
     domainKeywords: Record<string, string[]>;
+    pathMap: ReferencePathMapRow[];
   };
 }
 
 export interface LoadReferenceModelInput {
-  referenceMapPath: string;
+  referenceMapPath?: string;
   reportDir: string;
-  oneCodeSymbolMapPath: string;
-  codexMonitorSymbolMapPath: string;
+  oneCodeSymbolMapPath?: string;
+  codexMonitorSymbolMapPath?: string;
 }
 
 function toPosixPath(input: string): string {
@@ -232,6 +259,119 @@ function buildEmptyReferenceKeywordGroups(): ReferenceKeywordGroups {
     ...base,
     domains: buildReferenceDomainKeywords(base),
   };
+}
+
+function inferLayerFromReferenceFile(file: string): "main" | "renderer" | "services" | "tauri" | "unknown" {
+  const normalized = toPosixPath(file).toLowerCase();
+  if (normalized.startsWith("src/main/")) return "main";
+  if (normalized.startsWith("src/renderer/")) return "renderer";
+  if (normalized.startsWith("src/services/")) return "services";
+  if (normalized.startsWith("src-tauri/src/")) return "tauri";
+  if (normalized.startsWith("src/features/")) return "renderer";
+  if (normalized.startsWith("src/components/")) return "renderer";
+  if (normalized.startsWith("src/hooks/")) return "renderer";
+  if (normalized.startsWith("src/lib/")) return "services";
+  if (normalized.startsWith("src/state/")) return "services";
+  return "unknown";
+}
+
+function normalizeArchitectureReferencePath(raw: string): string {
+  const normalized = toPosixPath(raw.trim()).replace(/^["'`]+|["'`]+$/g, "");
+  if (!normalized) return "";
+  const clean = normalized.replace(/[)>:;,]+$/g, "");
+
+  const oneCodeAnchor = "/reference/1code/";
+  const codexMonitorAnchor = "/reference/codexmonitor/";
+  const lower = clean.toLowerCase();
+  if (lower.includes(oneCodeAnchor)) {
+    return clean.slice(lower.indexOf(oneCodeAnchor) + oneCodeAnchor.length);
+  }
+  if (lower.includes(codexMonitorAnchor)) {
+    return clean.slice(lower.indexOf(codexMonitorAnchor) + codexMonitorAnchor.length);
+  }
+  if (/^(?:[a-z]:)?\/.+\/src-tauri\/src\//i.test(clean)) {
+    return clean.slice(clean.toLowerCase().indexOf("src-tauri/src/"));
+  }
+  if (/^(?:[a-z]:)?\/.+\/src\//i.test(clean)) {
+    return clean.slice(clean.toLowerCase().indexOf("src/"));
+  }
+  if (/^(?:src|src-tauri\/src)\//i.test(clean)) return clean;
+  return "";
+}
+
+function inferReferenceSourceFromLine(line: string, currentHeadingSource: ReferenceSymbolSource | null): ReferenceSymbolSource | null {
+  const lower = line.toLowerCase();
+  if (lower.includes("reference/1code") || /^##\s*1code\b/i.test(line)) return "1code";
+  if (lower.includes("reference/codexmonitor") || /^##\s*codexmonitor\b/i.test(line)) return "codexmonitor";
+  return currentHeadingSource;
+}
+
+function extractArchitecturePathMapRows(markdown: string): ReferencePathMapRow[] {
+  const rows = new Map<string, ReferencePathMapRow>();
+  const lines = markdown.split(/\r?\n/g);
+  let currentSource: ReferenceSymbolSource | null = null;
+
+  for (const line of lines) {
+    currentSource = inferReferenceSourceFromLine(line, currentSource);
+
+    const candidates = new Set<string>();
+    const backtickRegex = /`([^`\n\r]+)`/g;
+    let backtickMatch: RegExpExecArray | null = null;
+    while ((backtickMatch = backtickRegex.exec(line)) !== null) {
+      candidates.add(backtickMatch[1]);
+    }
+    const pathRegex = /\b(?:[A-Za-z]:\/[^\s|)]+|\/[^\s|)]+|(?:src|src-tauri\/src)\/[^\s|)]+)/g;
+    let pathMatch: RegExpExecArray | null = null;
+    while ((pathMatch = pathRegex.exec(line)) !== null) {
+      candidates.add(pathMatch[0]);
+    }
+
+    for (const candidate of candidates) {
+      const normalizedPath = normalizeArchitectureReferencePath(candidate);
+      if (!normalizedPath) continue;
+      if (!/\.(?:tsx?|jsx?|rs)$/i.test(normalizedPath)) continue;
+      const source =
+        currentSource ??
+        (normalizedPath.startsWith("src-tauri/src/") ? "codexmonitor" : null);
+      if (!source) continue;
+
+      const layer = inferLayerFromReferenceFile(normalizedPath);
+      const tokens = dedupeKeywords(
+        [
+          ...splitReferenceToken(normalizedPath),
+          ...extractNameTokens(path.basename(normalizedPath, path.extname(normalizedPath))),
+        ],
+        96,
+      ).map((token) => token.toLowerCase());
+      if (tokens.length === 0) continue;
+
+      const key = `${source}|${normalizedPath}`;
+      const existing = rows.get(key);
+      if (existing) {
+        const merged = dedupeKeywords([...existing.tokens, ...tokens], 128).map((token) => token.toLowerCase());
+        rows.set(key, {
+          ...existing,
+          tokens: merged,
+          score: Math.max(existing.score, layer === "unknown" ? 120 : 170),
+        });
+        continue;
+      }
+
+      rows.set(key, {
+        source,
+        file: normalizedPath,
+        layer,
+        tokens,
+        score: layer === "unknown" ? 120 : 170,
+      });
+    }
+  }
+
+  return Array.from(rows.values()).sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.source !== b.source) return a.source.localeCompare(b.source);
+    return a.file.localeCompare(b.file);
+  });
 }
 
 function extractNameTokens(value: string): string[] {
@@ -427,8 +567,21 @@ function loadReferenceSymbolProfile(input: {
   };
 }
 
-function buildUnifiedReferenceFileProfiles(symbols: ReferenceSymbolRow[]): UnifiedReferenceFileProfile[] {
-  const map = new Map<string, { source: ReferenceSymbolSource; file: string; maxScore: number; symbolCount: number; tokens: Set<string> }>();
+function buildUnifiedReferenceFileProfiles(
+  symbols: ReferenceSymbolRow[],
+  pathMapRows: ReferencePathMapRow[],
+): UnifiedReferenceFileProfile[] {
+  const map = new Map<
+    string,
+    {
+      source: ReferenceSymbolSource;
+      file: string;
+      maxScore: number;
+      symbolCount: number;
+      tokens: Set<string>;
+      origin: "symbol-map" | "path-map";
+    }
+  >();
 
   for (const symbol of symbols) {
     const key = `${symbol.source}|${symbol.file}`;
@@ -438,10 +591,28 @@ function buildUnifiedReferenceFileProfiles(symbols: ReferenceSymbolRow[]): Unifi
       maxScore: 0,
       symbolCount: 0,
       tokens: new Set<string>(),
+      origin: "symbol-map" as const,
     };
     current.maxScore = Math.max(current.maxScore, symbol.score);
     current.symbolCount += 1;
     for (const token of symbol.tokens) current.tokens.add(token);
+    current.origin = "symbol-map";
+    map.set(key, current);
+  }
+
+  for (const row of pathMapRows) {
+    const key = `${row.source}|${row.file}`;
+    const current = map.get(key) ?? {
+      source: row.source,
+      file: row.file,
+      maxScore: 0,
+      symbolCount: 0,
+      tokens: new Set<string>(),
+      origin: "path-map" as const,
+    };
+    current.maxScore = Math.max(current.maxScore, row.score);
+    for (const token of row.tokens) current.tokens.add(token.toLowerCase());
+    if (current.origin !== "symbol-map") current.origin = "path-map";
     map.set(key, current);
   }
 
@@ -452,6 +623,7 @@ function buildUnifiedReferenceFileProfiles(symbols: ReferenceSymbolRow[]): Unifi
       symbolCount: row.symbolCount,
       maxScore: row.maxScore,
       tokens: Array.from(row.tokens).sort((a, b) => a.localeCompare(b)),
+      origin: row.origin,
     }))
     .sort((a, b) => {
       if (a.maxScore !== b.maxScore) return b.maxScore - a.maxScore;
@@ -461,20 +633,31 @@ function buildUnifiedReferenceFileProfiles(symbols: ReferenceSymbolRow[]): Unifi
 }
 
 export function loadReferenceModel(input: LoadReferenceModelInput): ReferenceModel {
-  const signals = loadReferenceSignalProfile(input.referenceMapPath, input.reportDir);
+  const referenceMapPath = normalizeReferenceInputPath(input.referenceMapPath ?? DEFAULT_REFERENCE_MAP_PATH);
+  const oneCodeSymbolMapPath = normalizeReferenceInputPath(
+    input.oneCodeSymbolMapPath ?? DEFAULT_1CODE_SYMBOL_MAP_PATH,
+  );
+  const codexMonitorSymbolMapPath = normalizeReferenceInputPath(
+    input.codexMonitorSymbolMapPath ?? DEFAULT_CODEXMONITOR_SYMBOL_MAP_PATH,
+  );
+
+  const signals = loadReferenceSignalProfile(referenceMapPath, input.reportDir);
   const symbols = loadReferenceSymbolProfile({
     reportDir: input.reportDir,
-    oneCodeSymbolMapPath: input.oneCodeSymbolMapPath,
-    codexMonitorSymbolMapPath: input.codexMonitorSymbolMapPath,
+    oneCodeSymbolMapPath,
+    codexMonitorSymbolMapPath,
   });
+  const architectureText = signals.loaded && fs.existsSync(referenceMapPath) ? readUtf8(referenceMapPath) : "";
+  const pathMap = architectureText ? extractArchitecturePathMapRows(architectureText) : [];
 
   return {
     generatedAtUtc: new Date().toISOString(),
     signals,
     symbols,
     unified: {
-      files: buildUnifiedReferenceFileProfiles(symbols.symbols),
+      files: buildUnifiedReferenceFileProfiles(symbols.symbols, pathMap),
       domainKeywords: signals.keywordGroups.domains,
+      pathMap,
     },
   };
 }

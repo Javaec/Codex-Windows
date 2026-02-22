@@ -7,8 +7,9 @@ Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 
 ## Pipeline modules
 
-- `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth.
+- `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth (architecture map + symbol maps + extracted path map).
 - `scripts/ts/reverse/match-v2.ts` multi-signal file/symbol matching.
+- `scripts/ts/reverse/ipc-contract-map.ts` IPC contract map extraction stage.
 - `scripts/ts/reverse/rpc-schema.ts` RPC schema extraction (bundle + binary + runtime + AST static signals).
 - `scripts/ts/reverse/session-route-flow.ts` session flow + route-boundary graph.
 - `scripts/ts/reverse/reference-parity.ts` reference parity gaps report.
@@ -47,7 +48,7 @@ npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-
 - `report/design-system.json`
 - `report/reference-signals.json`
 - `report/reference-symbols.json`
-- `report/reference-model.json` (unified reference source-of-truth from architecture map + both symbol maps)
+- `report/reference-model.json` (unified reference source-of-truth from architecture map + both symbol maps + path map)
 - `report/reference-parity-gaps.json`
 - `report/1code-codexmonitor-architecture-map.md` (copied reference context, when found)
 - `project/*` generated IDE-friendly test project (clean re-create on each run)

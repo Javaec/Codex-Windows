@@ -2,7 +2,7 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-codex-app-bigstroke-5`
+- Latest validated run: `work/reverse-codex-app-bigstroke-6`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -13,11 +13,13 @@
 - Reference model as single source-of-truth:
   - `report/reference-model.json`
   - generated from architecture map + both symbol maps in `scripts/ts/reverse/reference-model.ts`
+  - now also extracts `unified.pathMap` from architecture-map file paths and merges it into unified file profiles
 - Match-v2 deobfuscation stage:
   - implemented in `scripts/ts/reverse/match-v2.ts`
   - file-level + symbol-level scoring by multiple signals (AST, IPC/RPC, state keys, component boundaries, route/event flow)
-  - domain-aware scoring from unified reference keywords, source-anchor weighting, and anti-generic target penalties
-  - controlled fallback to non-generic second-best file candidate (keeps mappedFiles in 2-4 range without generic `types/utils/index` noise)
+  - domain-aware scoring from unified reference keywords + path-map tokens, source-anchor weighting, and anti-generic target penalties
+  - regression-hint boosts + controlled non-generic fallback tiers
+  - signal-aware target-path renaming when reference basename is generic
 - Deobfuscation report layer extracted from god object:
   - `scripts/ts/reverse/deobfuscation-report.ts`
   - owns markdown/csv/rename-plan formatting and target-path normalization
@@ -30,6 +32,9 @@
 - Reference parity gap stage extracted from god object:
   - `scripts/ts/reverse/reference-parity.ts`
   - owns `buildReferenceParityGapsReport`
+- IPC contract map stage extracted from god object:
+  - `scripts/ts/reverse/ipc-contract-map.ts`
+  - `reverse.ts` now calls stage via explicit helper contract
 - RPC schema stage extracted from god object:
   - `scripts/ts/reverse/rpc-schema.ts`
   - owns runtime/static RPC method merge, payload key extraction, envelope inference
@@ -72,9 +77,9 @@
 - `npm install`
 - `tsc --noEmit`
 - `eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json`
-- Last validated result (`bigstroke-5`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
+- Last validated result (`bigstroke-6`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
 
-## Latest Metrics (`bigstroke-5`)
+## Latest Metrics (`bigstroke-6`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -82,16 +87,20 @@
 - IPC channels: 9
 - Component boundaries: 27
 - Deobfuscation:
-  - mapped files: 2
-  - mapped symbols: 8
-  - entries: 10
-  - reconstructed targets: 7
+  - mapped files: 6
+  - mapped symbols: 9
+  - entries: 15
+  - reconstructed targets: 6
+- Reference model:
+  - unified files: 100
+  - path-map entries: 31
 - Pipeline size:
-  - `scripts/ts/reverse.ts`: 4541 LOC (down from 5072 before rpc-schema extraction)
+  - `scripts/ts/reverse.ts`: 4196 LOC (down from 5072 before rpc-schema extraction)
 
 ## Known Gaps / Noise
 - Runtime probe still captures environment-specific noise (`ENOENT` worktrees, git remote checks, broadcast handlers without subscribers).
 - Weighted reference parity is still partial (`~40.58%` weighted coverage in last run), with largest gaps in chat/session domain.
+- File-level mapping now reaches 6, but two plans can still converge to the same reference path family; next pass should improve source->target separation.
 
 ## Next Improvements (Generator-First)
 - Keep fixing generator output and mapping heuristics instead of editing generated code manually.
