@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_CODEXMONITOR_SYMBOL_MAP_PATH = exports.DEFAULT_1CODE_SYMBOL_MAP_PATH = exports.DEFAULT_REFERENCE_MAP_PATH = exports.DEFAULT_PARITY_TIER_THRESHOLDS = exports.DEFAULT_REFERENCE_DOMAIN_METADATA = void 0;
+exports.splitReferenceToken = splitReferenceToken;
 exports.buildReferenceDomainDefinitions = buildReferenceDomainDefinitions;
 exports.loadReferenceModel = loadReferenceModel;
 const fs = __importStar(require("node:fs"));

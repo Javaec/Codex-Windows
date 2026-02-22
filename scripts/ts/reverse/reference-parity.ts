@@ -35,6 +35,12 @@ export interface ReferenceSignalProfile {
   };
 }
 
+export interface ReferenceDomainDefinition {
+  label: string;
+  parityWeight: number;
+  keywords: string[];
+}
+
 export interface ComponentBoundaryEntry {
   componentNames: string[];
   hookNames: string[];
@@ -119,8 +125,7 @@ export function buildReferenceParityGapsReport(input: {
   ipcRows: IndexRow[];
   componentBoundaries: ComponentBoundariesReport;
   rpcSchema: RpcSchemaReport;
-  domainKeywords: Record<string, { label: string; keywords: string[] }>;
-  domainWeights: Record<string, number>;
+  domainDefinitions: Record<string, ReferenceDomainDefinition>;
   tierThresholds: { critical: number; high: number };
   helpers: ReferenceParityHelpers;
 }): ReferenceParityGapsReport {
@@ -168,7 +173,7 @@ export function buildReferenceParityGapsReport(input: {
   const observedValueList = Array.from(observedValues);
   const domains: ReferenceParityGapDomainRow[] = [];
 
-  for (const [domainKey, domainConfig] of Object.entries(input.domainKeywords)) {
+  for (const [domainKey, domainConfig] of Object.entries(input.domainDefinitions)) {
     const referenceKeywords = input.helpers.dedupeKeywords(
       [...domainConfig.keywords, ...(input.referenceProfile.keywordGroups.domains[domainKey] ?? [])],
       260,
@@ -184,7 +189,7 @@ export function buildReferenceParityGapsReport(input: {
     }
     const coveragePercent =
       referenceKeywords.length > 0 ? roundMetric((matched.length / referenceKeywords.length) * 100) : 100;
-    const priorityWeight = input.domainWeights[domainKey] ?? 1;
+    const priorityWeight = domainConfig.parityWeight;
     const gapScore = roundMetric((100 - coveragePercent) * priorityWeight);
     const missingRatio = 1 - coveragePercent / 100;
     const evidenceStrength = Math.min(1, referenceKeywords.length / 140);

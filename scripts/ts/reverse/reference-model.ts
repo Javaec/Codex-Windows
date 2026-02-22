@@ -161,7 +161,7 @@ function dedupeKeywords(values: Iterable<string>, max: number): string[] {
   return Array.from(out).sort((a, b) => a.localeCompare(b));
 }
 
-function splitReferenceToken(token: string): string[] {
+export function splitReferenceToken(token: string): string[] {
   const normalized = token.trim();
   if (normalized.length === 0) return [];
   const parts = normalized.split(/[^A-Za-z0-9_./:-]+/g).filter((part) => part.length >= 3);

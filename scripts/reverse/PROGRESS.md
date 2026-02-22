@@ -2,8 +2,8 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-regression-bigstroke-10/core-no-binary`
-- Latest regression suite: `work/reverse-regression-bigstroke-10`
+- Latest validated run: `work/reverse-regression-bigstroke-11/core-no-binary`
+- Latest regression suite: `work/reverse-regression-bigstroke-11`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -32,6 +32,10 @@
   - regression-calibrated profile sourced from `scripts/ts/reverse/regression-config.ts`
 - `domain-report` + `component-boundaries` extracted from god object:
   - `scripts/ts/reverse/domain-boundaries.ts`
+- Domain/session/parity orchestration extracted from god object:
+  - `scripts/ts/reverse/domain-flow-parity.ts`
+  - domain definitions are now consumed directly from `reference-model.unified.domainDefinitions`
+  - no local parity keyword/weight adapters in `reverse.ts`
 - IPC stage extracted:
   - `scripts/ts/reverse/ipc-contract-map.ts`
 - IPC wrapper decode internals extracted:
@@ -42,6 +46,7 @@
   - `scripts/ts/reverse/session-route-flow.ts`
 - Reference parity stage extracted:
   - `scripts/ts/reverse/reference-parity.ts`
+  - now accepts `domainDefinitions` directly (label + keywords + parityWeight) from `reference-model`
 - Deobfuscation formatting extracted:
   - `scripts/ts/reverse/deobfuscation-report.ts`
 - Project generator extracted:
@@ -93,7 +98,7 @@
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
 
-## Latest Metrics (`reverse-regression-bigstroke-10/core-no-binary`)
+## Latest Metrics (`reverse-regression-bigstroke-11/core-no-binary`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -113,10 +118,11 @@
   - generic-path noise: 0
   - install/tsc/eslint: clean
 - Pipeline size:
-  - `scripts/ts/reverse.ts`: 2829 LOC
+  - `scripts/ts/reverse.ts`: 2771 LOC
   - `scripts/ts/reverse/ipc-wrapper-decode.ts`: 1184 LOC
+  - `scripts/ts/reverse/domain-flow-parity.ts`: 201 LOC
 
-## Latest Regression Suite (`reverse-regression-bigstroke-10`)
+## Latest Regression Suite (`reverse-regression-bigstroke-11`)
 - `core-no-binary`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=10
@@ -128,6 +134,6 @@
 - Symbol recovery improved but remains conservative to protect generic-path gates.
 
 ## Next Improvements (Generator-First)
-- Continue slicing `reverse.ts` toward orchestration-only (next candidates: domain report post-processing and component-boundary synthesis helpers).
+- Continue slicing `reverse.ts` toward orchestration-only (next candidates: summary/report serialization and runtime-probe orchestration).
 - Keep calibrating symbol ownership weights on fixed regression runs for gradual mappedSymbols growth.
 - Extend snapshot baseline coverage as new app snapshot versions are added.

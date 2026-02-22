@@ -42,8 +42,7 @@ const reference_model_1 = require("./reverse/reference-model");
 const match_v2_1 = require("./reverse/match-v2");
 const deobfuscation_report_1 = require("./reverse/deobfuscation-report");
 const webstorm_project_1 = require("./reverse/webstorm-project");
-const session_route_flow_1 = require("./reverse/session-route-flow");
-const reference_parity_1 = require("./reverse/reference-parity");
+const domain_flow_parity_1 = require("./reverse/domain-flow-parity");
 const rpc_schema_1 = require("./reverse/rpc-schema");
 const ipc_contract_map_1 = require("./reverse/ipc-contract-map");
 const ipc_wrapper_decode_1 = require("./reverse/ipc-wrapper-decode");
@@ -382,20 +381,6 @@ function escapeRegex(value) {
 }
 function roundMetric(value) {
     return Math.round(value * 100) / 100;
-}
-function splitReferenceToken(token) {
-    const normalized = token.trim();
-    if (normalized.length === 0)
-        return [];
-    const parts = normalized.split(/[^A-Za-z0-9_./:-]+/g).filter((part) => part.length >= 3);
-    const nested = [];
-    for (const part of parts) {
-        nested.push(part);
-        const slashParts = part.split(/[/:.]/g).filter((item) => item.length >= 3);
-        for (const slashPart of slashParts)
-            nested.push(slashPart);
-    }
-    return nested;
 }
 function normalizeSourceForPrint(text) {
     return text
@@ -1196,7 +1181,7 @@ function isDeobfuscationCandidateFile(file) {
     return false;
 }
 function addValueTokens(target, value, limit) {
-    for (const token of splitReferenceToken(value)) {
+    for (const token of (0, reference_model_1.splitReferenceToken)(value)) {
         const normalized = token.toLowerCase();
         if (normalized.length < 3)
             continue;
@@ -1985,26 +1970,31 @@ async function runReverse(options) {
         classes: Array.from(cssClasses).sort((a, b) => a.localeCompare(b)),
         colors: Array.from(cssColors).sort((a, b) => a.localeCompare(b)),
     };
-    const domainDefinitions = referenceModel.unified.domainDefinitions;
-    const domainBoundaryHelpers = {
-        dedupeKeywords,
-        isCandidateBoundaryFile,
-        isLikelyCoreAppFile,
-        isVendorFile: (file) => VENDOR_FILE_HINTS.test(file),
-        getChunkIdFromFile,
-    };
-    const domainReport = (0, domain_boundaries_1.buildDomainReport)({
+    const { domainDefinitions, domainReport, componentBoundaries } = (0, domain_flow_parity_1.buildDomainBoundaryPipeline)({
         top: options.top,
-        routeRows,
-        methodRows,
-        messageTypeRows,
-        statusRows,
-        stateKeyRows,
-        ipcRows,
-        cssVars: designSystem.vars,
-        cssClasses: designSystem.classes,
-        domainDefinitions,
-        helpers: domainBoundaryHelpers,
+        jsFiles,
+        importsGraph,
+        sourceByFile,
+        rows: {
+            routeRows,
+            methodRows,
+            messageTypeRows,
+            statusRows,
+            stateKeyRows,
+            ipcRows,
+        },
+        designSystem: {
+            vars: designSystem.vars,
+            classes: designSystem.classes,
+        },
+        referenceModel,
+        helpers: {
+            dedupeKeywords,
+            isCandidateBoundaryFile,
+            isLikelyCoreAppFile,
+            isVendorFile: (file) => VENDOR_FILE_HINTS.test(file),
+            getChunkIdFromFile,
+        },
     });
     const rpcCatalog = buildRpcCatalog(methodRows, binaryResult);
     const ipcWrapperDecode = (0, ipc_wrapper_decode_1.createIpcWrapperDecodeRuntime)({
@@ -2061,20 +2051,6 @@ async function runReverse(options) {
             looksLikeIpcChannel,
             isIgnoredIpcChannel,
         },
-    });
-    const componentBoundaries = (0, domain_boundaries_1.buildComponentBoundariesReport)({
-        jsFiles,
-        importsGraph,
-        sourceByFile,
-        routeRows,
-        methodRows,
-        messageTypeRows,
-        statusRows,
-        stateKeyRows,
-        ipcRows,
-        top: options.top,
-        referenceProfile,
-        helpers: domainBoundaryHelpers,
     });
     const deobfuscationTable = (0, match_v2_1.buildDeobfuscationTableMatchV2)({
         top: options.top,
@@ -2160,61 +2136,29 @@ async function runReverse(options) {
             getPropertyNameText,
         },
     });
-    const sessionRouteHelpers = {
-        dedupeKeywords,
-        escapeRegex,
-        buildValueCountMap,
-        buildFileValueMap,
-        isLikelyCoreAppFile,
-        isCandidateBoundaryFile,
-        inferEnvelopeKindsFromText: rpc_schema_1.inferEnvelopeKindsFromText,
-    };
-    const sessionFlow = (0, session_route_flow_1.buildSessionFlowReport)({
+    const { sessionFlow, sessionFlowMarkdown, routeBoundaryGraph, referenceParityGaps } = (0, domain_flow_parity_1.buildFlowParityPipeline)({
         top: options.top,
-        routeRows,
-        messageTypeRows,
-        methodRows,
-        stateKeyRows,
-        statusRows,
-        ipcRows,
-        rpcSchema,
-        referenceProfile,
-        helpers: sessionRouteHelpers,
-    });
-    const sessionFlowMarkdown = (0, session_route_flow_1.formatSessionFlowMarkdown)(sessionFlow);
-    const routeBoundaryGraph = (0, session_route_flow_1.buildRouteBoundaryGraphReport)({
-        routeRows,
-        methodRows,
-        ipcRows,
+        rows: {
+            routeRows,
+            methodRows,
+            messageTypeRows,
+            statusRows,
+            stateKeyRows,
+            ipcRows,
+        },
         componentBoundaries,
         rpcSchema,
-        helpers: sessionRouteHelpers,
-    });
-    const parityDomainKeywords = {};
-    const parityDomainWeights = {};
-    for (const [domainKey, domainConfig] of Object.entries(domainDefinitions)) {
-        parityDomainKeywords[domainKey] = {
-            label: domainConfig.label,
-            keywords: domainConfig.keywords,
-        };
-        parityDomainWeights[domainKey] = domainConfig.parityWeight;
-    }
-    const referenceParityGaps = (0, reference_parity_1.buildReferenceParityGapsReport)({
-        referenceProfile,
-        routeRows,
-        methodRows,
-        messageTypeRows,
-        statusRows,
-        stateKeyRows,
-        ipcRows,
-        componentBoundaries,
-        rpcSchema,
-        domainKeywords: parityDomainKeywords,
-        domainWeights: parityDomainWeights,
+        referenceModel,
         tierThresholds: reference_model_1.DEFAULT_PARITY_TIER_THRESHOLDS,
         helpers: {
             dedupeKeywords,
-            splitReferenceToken,
+            escapeRegex,
+            buildValueCountMap,
+            buildFileValueMap,
+            isLikelyCoreAppFile,
+            isCandidateBoundaryFile,
+            inferEnvelopeKindsFromText: rpc_schema_1.inferEnvelopeKindsFromText,
+            splitReferenceToken: reference_model_1.splitReferenceToken,
         },
     });
     (0, exec_1.writeHeader)("Generating project");

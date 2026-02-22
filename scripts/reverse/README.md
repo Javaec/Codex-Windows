@@ -9,6 +9,7 @@ Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 
 - `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth (architecture map + symbol maps + extracted path map).
 - `scripts/ts/reverse/domain-boundaries.ts` domain scoring + component boundary extraction stage.
+- `scripts/ts/reverse/domain-flow-parity.ts` orchestration stage for domain/boundary/session/parity reports wired to unified reference-model.
 - `scripts/ts/reverse/match-v2.ts` multi-signal file/symbol matching.
 - `scripts/ts/reverse/ipc-contract-map.ts` IPC contract map extraction stage.
 - `scripts/ts/reverse/ipc-wrapper-decode.ts` IPC wrapper decode internals (alias/wrapper/global lookup extraction) used by IPC contract stage.
@@ -30,6 +31,9 @@ npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Code
 
 Regression baselines are pinned by app snapshot version (`name@version`) in:
 `scripts/reverse/regression-baselines.json`.
+
+Reference inputs are owned by `reference-model.ts` only (architecture map + both symbol maps + path map extraction),
+and consumed by downstream stages through thin adapters.
 
 ## Output
 

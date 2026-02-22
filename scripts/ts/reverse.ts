@@ -16,6 +16,7 @@ import {
   loadReferenceModel,
   DEFAULT_PARITY_TIER_THRESHOLDS,
   DEFAULT_REFERENCE_MAP_PATH,
+  splitReferenceToken,
   type ReferenceModel,
   type ReferenceSignalProfile,
   type ReferenceSymbolProfile,
@@ -28,13 +29,11 @@ import {
 } from "./reverse/deobfuscation-report";
 import { buildWebStormTestProject, type WebStormTestProjectReport } from "./reverse/webstorm-project";
 import {
-  buildRouteBoundaryGraphReport,
-  buildSessionFlowReport,
-  formatSessionFlowMarkdown,
   type RouteBoundaryGraphReport,
   type SessionFlowReport,
 } from "./reverse/session-route-flow";
-import { buildReferenceParityGapsReport, type ReferenceParityGapsReport } from "./reverse/reference-parity";
+import { type ReferenceParityGapsReport } from "./reverse/reference-parity";
+import { buildDomainBoundaryPipeline, buildFlowParityPipeline } from "./reverse/domain-flow-parity";
 import {
   buildRpcSchemaReport,
   inferEnvelopeKindsFromText,
@@ -48,8 +47,6 @@ import {
 } from "./reverse/ipc-contract-map";
 import { createIpcWrapperDecodeRuntime } from "./reverse/ipc-wrapper-decode";
 import {
-  buildComponentBoundariesReport,
-  buildDomainReport,
   formatDomainReportMarkdown,
   type ComponentBoundariesReport,
   type DomainReport,
@@ -481,19 +478,6 @@ function escapeRegex(value: string): string {
 
 function roundMetric(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function splitReferenceToken(token: string): string[] {
-  const normalized = token.trim();
-  if (normalized.length === 0) return [];
-  const parts = normalized.split(/[^A-Za-z0-9_./:-]+/g).filter((part) => part.length >= 3);
-  const nested: string[] = [];
-  for (const part of parts) {
-    nested.push(part);
-    const slashParts = part.split(/[/:.]/g).filter((item) => item.length >= 3);
-    for (const slashPart of slashParts) nested.push(slashPart);
-  }
-  return nested;
 }
 
 type ObfuscatedSymbolCandidate = {
@@ -2267,27 +2251,31 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     classes: Array.from(cssClasses).sort((a, b) => a.localeCompare(b)),
     colors: Array.from(cssColors).sort((a, b) => a.localeCompare(b)),
   };
-  const domainDefinitions = referenceModel.unified.domainDefinitions;
-  const domainBoundaryHelpers = {
-    dedupeKeywords,
-    isCandidateBoundaryFile,
-    isLikelyCoreAppFile,
-    isVendorFile: (file: string): boolean => VENDOR_FILE_HINTS.test(file),
-    getChunkIdFromFile,
-  };
-
-  const domainReport = buildDomainReport({
+  const { domainDefinitions, domainReport, componentBoundaries } = buildDomainBoundaryPipeline({
     top: options.top,
-    routeRows,
-    methodRows,
-    messageTypeRows,
-    statusRows,
-    stateKeyRows,
-    ipcRows,
-    cssVars: designSystem.vars,
-    cssClasses: designSystem.classes,
-    domainDefinitions,
-    helpers: domainBoundaryHelpers,
+    jsFiles,
+    importsGraph,
+    sourceByFile,
+    rows: {
+      routeRows,
+      methodRows,
+      messageTypeRows,
+      statusRows,
+      stateKeyRows,
+      ipcRows,
+    },
+    designSystem: {
+      vars: designSystem.vars,
+      classes: designSystem.classes,
+    },
+    referenceModel,
+    helpers: {
+      dedupeKeywords,
+      isCandidateBoundaryFile,
+      isLikelyCoreAppFile,
+      isVendorFile: (file: string): boolean => VENDOR_FILE_HINTS.test(file),
+      getChunkIdFromFile,
+    },
   });
   const rpcCatalog = buildRpcCatalog(methodRows, binaryResult);
   const ipcWrapperDecode = createIpcWrapperDecodeRuntime({
@@ -2354,20 +2342,6 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       looksLikeIpcChannel,
       isIgnoredIpcChannel,
     },
-  });
-  const componentBoundaries = buildComponentBoundariesReport({
-    jsFiles,
-    importsGraph,
-    sourceByFile,
-    routeRows,
-    methodRows,
-    messageTypeRows,
-    statusRows,
-    stateKeyRows,
-    ipcRows,
-    top: options.top,
-    referenceProfile,
-    helpers: domainBoundaryHelpers,
   });
   const deobfuscationTable = buildDeobfuscationTableMatchV2({
     top: options.top,
@@ -2456,60 +2430,28 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       getPropertyNameText,
     },
   });
-  const sessionRouteHelpers = {
-    dedupeKeywords,
-    escapeRegex,
-    buildValueCountMap,
-    buildFileValueMap,
-    isLikelyCoreAppFile,
-    isCandidateBoundaryFile,
-    inferEnvelopeKindsFromText,
-  };
-  const sessionFlow = buildSessionFlowReport({
+  const { sessionFlow, sessionFlowMarkdown, routeBoundaryGraph, referenceParityGaps } = buildFlowParityPipeline({
     top: options.top,
-    routeRows,
-    messageTypeRows,
-    methodRows,
-    stateKeyRows,
-    statusRows,
-    ipcRows,
-    rpcSchema,
-    referenceProfile,
-    helpers: sessionRouteHelpers,
-  });
-  const sessionFlowMarkdown = formatSessionFlowMarkdown(sessionFlow);
-  const routeBoundaryGraph = buildRouteBoundaryGraphReport({
-    routeRows,
-    methodRows,
-    ipcRows,
+    rows: {
+      routeRows,
+      methodRows,
+      messageTypeRows,
+      statusRows,
+      stateKeyRows,
+      ipcRows,
+    },
     componentBoundaries,
     rpcSchema,
-    helpers: sessionRouteHelpers,
-  });
-  const parityDomainKeywords: Record<string, { label: string; keywords: string[] }> = {};
-  const parityDomainWeights: Record<string, number> = {};
-  for (const [domainKey, domainConfig] of Object.entries(domainDefinitions)) {
-    parityDomainKeywords[domainKey] = {
-      label: domainConfig.label,
-      keywords: domainConfig.keywords,
-    };
-    parityDomainWeights[domainKey] = domainConfig.parityWeight;
-  }
-  const referenceParityGaps = buildReferenceParityGapsReport({
-    referenceProfile,
-    routeRows,
-    methodRows,
-    messageTypeRows,
-    statusRows,
-    stateKeyRows,
-    ipcRows,
-    componentBoundaries,
-    rpcSchema,
-    domainKeywords: parityDomainKeywords,
-    domainWeights: parityDomainWeights,
+    referenceModel,
     tierThresholds: DEFAULT_PARITY_TIER_THRESHOLDS,
     helpers: {
       dedupeKeywords,
+      escapeRegex,
+      buildValueCountMap,
+      buildFileValueMap,
+      isLikelyCoreAppFile,
+      isCandidateBoundaryFile,
+      inferEnvelopeKindsFromText,
       splitReferenceToken,
     },
   });
