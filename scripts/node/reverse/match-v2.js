@@ -1156,7 +1156,7 @@ function buildDeobfuscationTableMatchV2(input) {
             });
         }
     }
-    const targetMappedSymbols = 10;
+    const targetMappedSymbols = 11;
     if (entries.filter((entry) => entry.kind !== "file").length < targetMappedSymbols) {
         const mappedSourceFiles = new Set(filePlans.map((row) => row.sourceFile));
         for (const entry of entries) {
@@ -1187,7 +1187,7 @@ function buildDeobfuscationTableMatchV2(input) {
             for (const candidate of symbolCandidates) {
                 const fileTargetKey = `${candidate.sourceFile}|${candidate.kind}|`;
                 const hasAnyTarget = Array.from(symbolTargetByFile).some((key) => key.startsWith(fileTargetKey));
-                if (hasAnyTarget && signal.boundaryOwnership < 10)
+                if (hasAnyTarget && signal.boundaryOwnership < 2 && signal.uiLikelihood < 0.1)
                     continue;
                 const referencePool = symbolsByKind[candidate.kind];
                 let best;
@@ -1207,9 +1207,9 @@ function buildDeobfuscationTableMatchV2(input) {
                 }
                 if (!best)
                     continue;
-                if (best.score < 4.4)
+                if (best.score < 3.8)
                     continue;
-                if (best.hits.length < 2 && getTotalSignalStrength(signal) < 12)
+                if (best.hits.length < 2 && getTotalSignalStrength(signal) < 10)
                     continue;
                 symbolRecoveryRows.push({
                     candidate,

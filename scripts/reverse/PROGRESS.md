@@ -2,8 +2,8 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-regression-bigstroke-11/core-no-binary`
-- Latest regression suite: `work/reverse-regression-bigstroke-11`
+- Latest validated run: `work/reverse-regression-bigstroke-13/core-no-binary`
+- Latest regression suite: `work/reverse-regression-bigstroke-13`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -40,6 +40,9 @@
   - `scripts/ts/reverse/ipc-contract-map.ts`
 - IPC wrapper decode internals extracted:
   - `scripts/ts/reverse/ipc-wrapper-decode.ts`
+- Runtime probe orchestration extracted from god object:
+  - `scripts/ts/reverse/runtime-probe.ts`
+  - `reverse.ts` now uses module-level runtime probe API + classification helper
 - RPC schema stage extracted:
   - `scripts/ts/reverse/rpc-schema.ts`
 - Session/graph stage extracted:
@@ -49,6 +52,9 @@
   - now accepts `domainDefinitions` directly (label + keywords + parityWeight) from `reference-model`
 - Deobfuscation formatting extracted:
   - `scripts/ts/reverse/deobfuscation-report.ts`
+- Report writing extracted:
+  - `scripts/ts/reverse/report-writer.ts`
+  - all final report json/markdown/csv/txt writes are delegated from `reverse.ts`
 - Project generator extracted:
   - `scripts/ts/reverse/webstorm-project.ts`
 
@@ -98,7 +104,7 @@
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
 
-## Latest Metrics (`reverse-regression-bigstroke-11/core-no-binary`)
+## Latest Metrics (`reverse-regression-bigstroke-13/core-no-binary`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -118,11 +124,13 @@
   - generic-path noise: 0
   - install/tsc/eslint: clean
 - Pipeline size:
-  - `scripts/ts/reverse.ts`: 2771 LOC
+  - `scripts/ts/reverse.ts`: 2479 LOC
   - `scripts/ts/reverse/ipc-wrapper-decode.ts`: 1184 LOC
   - `scripts/ts/reverse/domain-flow-parity.ts`: 201 LOC
+  - `scripts/ts/reverse/runtime-probe.ts`: 291 LOC
+  - `scripts/ts/reverse/report-writer.ts`: 97 LOC
 
-## Latest Regression Suite (`reverse-regression-bigstroke-11`)
+## Latest Regression Suite (`reverse-regression-bigstroke-13`)
 - `core-no-binary`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=10
