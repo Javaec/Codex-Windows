@@ -37,6 +37,8 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
 const regression_config_1 = require("./reverse/regression-config");
+const output_discipline_1 = require("./reverse/output-discipline");
+const exec_1 = require("./lib/exec");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const REGRESSION_BASELINE_SCHEMA_VERSION = 1;
 function toPosixPath(input) {
@@ -45,7 +47,13 @@ function toPosixPath(input) {
 function parseArgs(argv) {
     const options = {
         appDir: path.resolve(REPO_ROOT, "work", "app"),
-        outRoot: path.resolve(REPO_ROOT, "work", "reverse-regression"),
+        outRoot: output_discipline_1.DEFAULT_REVERSE_REGRESSION_LATEST_DIR,
+        runsRoot: output_discipline_1.DEFAULT_REVERSE_REGRESSION_RUNS_ROOT,
+        keepLastRuns: 8,
+        runId: "",
+        noLatestSync: false,
+        noAutocalibrate: false,
+        matchVariant: "",
     };
     for (let i = 0; i < argv.length; i += 1) {
         const token = argv[i]?.toLowerCase();
@@ -63,6 +71,34 @@ function parseArgs(argv) {
         }
         if (token === "-outroot") {
             options.outRoot = path.resolve(readValue());
+            continue;
+        }
+        if (token === "-runsroot") {
+            options.runsRoot = path.resolve(readValue());
+            continue;
+        }
+        if (token === "-keeplastruns") {
+            const value = Number(readValue());
+            if (!Number.isFinite(value) || value < 1) {
+                throw new Error("-KeepLastRuns must be a number >= 1");
+            }
+            options.keepLastRuns = Math.floor(value);
+            continue;
+        }
+        if (token === "-runid") {
+            options.runId = readValue().trim();
+            continue;
+        }
+        if (token === "-nolatestsync") {
+            options.noLatestSync = true;
+            continue;
+        }
+        if (token === "-noautocalibrate") {
+            options.noAutocalibrate = true;
+            continue;
+        }
+        if (token === "-matchvariant") {
+            options.matchVariant = readValue().trim();
             continue;
         }
         throw new Error(`Unknown option: ${argv[i]}`);
@@ -182,20 +218,32 @@ function collectOutputPreview(stdout, stderr) {
         .filter((line) => line.length > 0)
         .slice(0, 40);
 }
-function runRegressionCase(options, runId, label, args) {
-    const outDir = path.join(options.outRoot, runId);
+function toDistanceFromRange(value, minValue, maxValue) {
+    if (value < minValue)
+        return minValue - value;
+    if (value > maxValue)
+        return value - maxValue;
+    return 0;
+}
+function runRegressionCase(input) {
+    const outDir = path.join(input.outRoot, input.runId);
     const commandArgs = [
         path.join(REPO_ROOT, "scripts", "node", "reverse.js"),
         "-AppDir",
-        options.appDir,
+        input.appDir,
         "-OutDir",
         outDir,
-        ...args,
+        ...input.args,
     ];
+    const env = {
+        ...process.env,
+        REVERSE_MATCH_V2_VARIANT: input.variantId,
+    };
     const run = (0, node_child_process_1.spawnSync)(process.execPath, commandArgs, {
         cwd: REPO_ROOT,
         encoding: "utf8",
         windowsHide: true,
+        env,
     });
     const success = run.status === 0;
     const summaryPath = path.join(outDir, "report", "summary.json");
@@ -211,14 +259,16 @@ function runRegressionCase(options, runId, label, args) {
     if (!success) {
         const previewPath = path.join(outDir, "report", "regression-run-output-preview.json");
         writeJson(previewPath, {
-            runId,
+            runId: input.runId,
+            variantId: input.variantId,
             exitCode: run.status ?? -1,
             outputPreview: collectOutputPreview(run.stdout || "", run.stderr || ""),
         });
     }
     return {
-        id: runId,
-        label,
+        id: input.runId,
+        label: input.label,
+        variantId: input.variantId,
         outDir: toPosixPath(outDir),
         exitCode: run.status ?? -1,
         success,
@@ -228,12 +278,108 @@ function runRegressionCase(options, runId, label, args) {
         qualityFailures,
     };
 }
-function formatReportMarkdown(results, baseline, baselinesPath) {
+function scoreVariantResult(results) {
+    const mappedFilesAverage = results.length > 0
+        ? Number((results.reduce((sum, row) => sum + row.mappedFiles, 0) / results.length).toFixed(2))
+        : 0;
+    const mappedSymbolsAverage = results.length > 0
+        ? Number((results.reduce((sum, row) => sum + row.mappedSymbols, 0) / results.length).toFixed(2))
+        : 0;
+    let score = 0;
+    let hitsMappedFileTarget = 0;
+    let hitsMappedSymbolTarget = 0;
+    let failedRuns = 0;
+    let qualityFailures = 0;
+    for (const row of results) {
+        if (!row.success) {
+            score -= 1200;
+            failedRuns += 1;
+        }
+        else {
+            score += 320;
+        }
+        if (!row.qualityPassed) {
+            score -= 900;
+            qualityFailures += 1;
+        }
+        else {
+            score += 260;
+        }
+        const mappedFilesDistance = toDistanceFromRange(row.mappedFiles, regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedFilesMin, regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedFilesMax);
+        const mappedSymbolsDistance = toDistanceFromRange(row.mappedSymbols, regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedSymbolsMin, regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedSymbolsMax);
+        if (mappedFilesDistance === 0)
+            hitsMappedFileTarget += 1;
+        if (mappedSymbolsDistance === 0)
+            hitsMappedSymbolTarget += 1;
+        score += row.mappedFiles * 85;
+        score += row.mappedSymbols * 32;
+        score -= mappedFilesDistance * 180;
+        score -= mappedSymbolsDistance * 70;
+    }
+    return {
+        score,
+        mappedFilesAverage,
+        mappedSymbolsAverage,
+        hitsMappedFileTarget,
+        hitsMappedSymbolTarget,
+        failedRuns,
+        qualityFailures,
+        results,
+    };
+}
+function resolveVariantList(options) {
+    if (options.matchVariant.length > 0) {
+        const selected = regression_config_1.MATCH_V2_RUNTIME_VARIANTS.find((variant) => variant.id === options.matchVariant);
+        if (!selected) {
+            throw new Error(`Unknown match-v2 variant: ${options.matchVariant}`);
+        }
+        return [{ id: selected.id, description: selected.description }];
+    }
+    if (options.noAutocalibrate) {
+        const baseline = regression_config_1.MATCH_V2_RUNTIME_VARIANTS.find((variant) => variant.id === regression_config_1.MATCH_V2_DEFAULT_RUNTIME_VARIANT_ID) ??
+            regression_config_1.MATCH_V2_RUNTIME_VARIANTS[0];
+        if (!baseline) {
+            throw new Error("MATCH_V2_RUNTIME_VARIANTS must define at least one variant.");
+        }
+        return [{ id: baseline.id, description: baseline.description }];
+    }
+    if (regression_config_1.MATCH_V2_RUNTIME_VARIANTS.length === 0) {
+        throw new Error("MATCH_V2_RUNTIME_VARIANTS must define at least one variant.");
+    }
+    return regression_config_1.MATCH_V2_RUNTIME_VARIANTS.map((variant) => ({ id: variant.id, description: variant.description }));
+}
+function pickBestVariant(candidates) {
+    if (candidates.length === 0) {
+        throw new Error("Regression calibration candidates are empty.");
+    }
+    const sorted = [...candidates].sort((a, b) => {
+        if (a.score !== b.score)
+            return b.score - a.score;
+        if (a.hitsMappedSymbolTarget !== b.hitsMappedSymbolTarget)
+            return b.hitsMappedSymbolTarget - a.hitsMappedSymbolTarget;
+        if (a.hitsMappedFileTarget !== b.hitsMappedFileTarget)
+            return b.hitsMappedFileTarget - a.hitsMappedFileTarget;
+        if (a.failedRuns !== b.failedRuns)
+            return a.failedRuns - b.failedRuns;
+        if (a.qualityFailures !== b.qualityFailures)
+            return a.qualityFailures - b.qualityFailures;
+        if (a.variantId === regression_config_1.MATCH_V2_DEFAULT_RUNTIME_VARIANT_ID)
+            return -1;
+        if (b.variantId === regression_config_1.MATCH_V2_DEFAULT_RUNTIME_VARIANT_ID)
+            return 1;
+        return a.variantId.localeCompare(b.variantId);
+    });
+    return sorted[0];
+}
+function formatReportMarkdown(selected, variants, baseline, baselinesPath) {
     const rows = [];
     rows.push("# Reverse Regression Report");
     rows.push("");
     rows.push(`- calibration profile: ${regression_config_1.MATCH_V2_CALIBRATION_PROFILE.id}`);
     rows.push(`- fixed runs: ${regression_config_1.MATCH_V2_CALIBRATION_PROFILE.fixedRegressionRuns.join(", ")}`);
+    rows.push(`- calibration targets: mappedFiles=${regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedFilesMin}-${regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedFilesMax}, mappedSymbols=${regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedSymbolsMin}-${regression_config_1.MATCH_V2_CALIBRATION_TARGETS.mappedSymbolsMax}`);
+    rows.push(`- selected variant: ${selected.variantId}`);
+    rows.push(`- selected variant score: ${selected.score}`);
     rows.push(`- app snapshot: ${baseline.snapshot.snapshotKey}`);
     rows.push(`- app package.json: \`${baseline.snapshot.packageJsonPath}\``);
     rows.push(`- baseline profile: ${baseline.status}`);
@@ -242,9 +388,17 @@ function formatReportMarkdown(results, baseline, baselinesPath) {
         rows.push(`- baseline validation failures: ${baseline.failures.join("; ")}`);
     }
     rows.push("");
+    rows.push("## Calibration Variants");
+    rows.push("| Variant | Score | avg mappedFiles | avg mappedSymbols | fileTargetHits | symbolTargetHits | failedRuns | qualityFailures | outRoot |");
+    rows.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+    for (const variant of variants) {
+        rows.push(`| ${variant.variantId} | ${variant.score} | ${variant.mappedFilesAverage} | ${variant.mappedSymbolsAverage} | ${variant.hitsMappedFileTarget} | ${variant.hitsMappedSymbolTarget} | ${variant.failedRuns} | ${variant.qualityFailures} | \`${variant.outRoot}\` |`);
+    }
+    rows.push("");
+    rows.push(`## Selected Variant Runs (${selected.variantId})`);
     rows.push("| Run | Exit | mappedFiles | mappedSymbols | qualityGate | outDir |");
     rows.push("| --- | ---: | ---: | ---: | --- | --- |");
-    for (const result of results) {
+    for (const result of selected.results) {
         rows.push(`| ${result.id} | ${result.exitCode} | ${result.mappedFiles} | ${result.mappedSymbols} | ${result.qualityPassed ? "pass" : "fail"} | \`${result.outDir}\` |`);
         if (result.qualityFailures.length > 0) {
             rows.push(`| ${result.id}:failures |  |  |  | ${result.qualityFailures.join("; ")} |  |`);
@@ -255,30 +409,99 @@ function formatReportMarkdown(results, baseline, baselinesPath) {
 }
 function main() {
     const options = parseArgs(process.argv.slice(2));
-    fs.mkdirSync(options.outRoot, { recursive: true });
     const snapshot = readAppSnapshotInfo(options.appDir);
-    const results = [];
-    for (const run of regression_config_1.FIXED_REGRESSION_RUNS) {
-        const result = runRegressionCase(options, run.id, run.label, run.args);
-        results.push(result);
-        process.stdout.write(`[regression] ${run.id}: exit=${result.exitCode}, mappedFiles=${result.mappedFiles}, mappedSymbols=${result.mappedSymbols}, quality=${result.qualityPassed}\n`);
+    const latestMode = !options.noLatestSync &&
+        (0, output_discipline_1.normalizePathForComparison)(options.outRoot) === (0, output_discipline_1.normalizePathForComparison)(output_discipline_1.DEFAULT_REVERSE_REGRESSION_LATEST_DIR);
+    const stableRun = latestMode
+        ? (0, output_discipline_1.prepareStableRunPaths)({
+            latestDir: options.outRoot,
+            runsRoot: options.runsRoot,
+            keepLastRuns: options.keepLastRuns,
+            runId: options.runId,
+        })
+        : undefined;
+    const activeOutRoot = stableRun ? stableRun.runDir : path.resolve(options.outRoot);
+    (0, exec_1.removePath)(activeOutRoot);
+    fs.mkdirSync(activeOutRoot, { recursive: true });
+    const variantList = resolveVariantList(options);
+    const calibrationBaseDir = path.resolve(REPO_ROOT, "work", "reverse");
+    fs.mkdirSync(calibrationBaseDir, { recursive: true });
+    const calibrationRoot = variantList.length > 1
+        ? fs.mkdtempSync(path.join(calibrationBaseDir, "regression-calibration-"))
+        : "";
+    const variantResults = [];
+    for (const variant of variantList) {
+        const variantOutRoot = variantList.length > 1
+            ? path.join(calibrationRoot, variant.id)
+            : activeOutRoot;
+        fs.mkdirSync(variantOutRoot, { recursive: true });
+        const results = [];
+        for (const run of regression_config_1.FIXED_REGRESSION_RUNS) {
+            const result = runRegressionCase({
+                appDir: options.appDir,
+                outRoot: variantOutRoot,
+                runId: run.id,
+                label: run.label,
+                args: run.args,
+                variantId: variant.id,
+            });
+            results.push(result);
+            process.stdout.write(`[regression][${variant.id}] ${run.id}: exit=${result.exitCode}, mappedFiles=${result.mappedFiles}, mappedSymbols=${result.mappedSymbols}, quality=${result.qualityPassed}\n`);
+        }
+        const scored = scoreVariantResult(results);
+        variantResults.push({
+            variantId: variant.id,
+            variantDescription: variant.description,
+            outRoot: toPosixPath(variantOutRoot),
+            ...scored,
+        });
+    }
+    const selectedVariant = pickBestVariant(variantResults);
+    const selectedVariantOutRoot = path.resolve(selectedVariant.outRoot);
+    if (selectedVariantOutRoot !== path.resolve(activeOutRoot)) {
+        (0, exec_1.removePath)(activeOutRoot);
+        fs.cpSync(selectedVariantOutRoot, activeOutRoot, { recursive: true });
+    }
+    const normalizedSelectedOutRoot = toPosixPath(activeOutRoot);
+    selectedVariant.outRoot = normalizedSelectedOutRoot;
+    selectedVariant.results = selectedVariant.results.map((row) => ({
+        ...row,
+        outDir: toPosixPath(path.join(activeOutRoot, row.id)),
+    }));
+    for (const variant of variantResults) {
+        if (variant.variantId === selectedVariant.variantId) {
+            variant.outRoot = normalizedSelectedOutRoot;
+            variant.results = selectedVariant.results;
+            continue;
+        }
+        if (calibrationRoot.length > 0) {
+            variant.outRoot = "<ephemeral-calibration>";
+            variant.results = variant.results.map((row) => ({
+                ...row,
+                outDir: `<ephemeral-calibration>/${variant.variantId}/${row.id}`,
+            }));
+        }
+    }
+    if (calibrationRoot.length > 0) {
+        (0, exec_1.removePath)(calibrationRoot);
     }
     const baselinesPath = resolveBaselinesPath();
     const baselineStore = loadBaselineStore(baselinesPath);
     const baselineValidation = validateOrCreateBaselineProfile({
         store: baselineStore,
         snapshot,
-        results,
+        results: selectedVariant.results,
     });
     if (baselineValidation.status === "created") {
         writeJson(baselinesPath, baselineStore);
         process.stdout.write(`[regression] created baseline profile for snapshot ${snapshot.snapshotKey} in ${toPosixPath(baselinesPath)}\n`);
     }
-    const reportPath = path.join(options.outRoot, "regression-report.json");
-    const markdownPath = path.join(options.outRoot, "regression-report.md");
+    const reportPath = path.join(activeOutRoot, "regression-report.json");
+    const markdownPath = path.join(activeOutRoot, "regression-report.md");
     const report = {
         generatedAtUtc: new Date().toISOString(),
         calibrationProfile: regression_config_1.MATCH_V2_CALIBRATION_PROFILE,
+        calibrationTargets: regression_config_1.MATCH_V2_CALIBRATION_TARGETS,
         appSnapshot: snapshot,
         baseline: {
             status: baselineValidation.status,
@@ -287,18 +510,45 @@ function main() {
             profile: baselineValidation.profile,
         },
         appDir: toPosixPath(options.appDir),
-        outRoot: toPosixPath(options.outRoot),
-        runs: results,
+        outRoot: toPosixPath(activeOutRoot),
+        selectedVariant: {
+            variantId: selectedVariant.variantId,
+            score: selectedVariant.score,
+            mappedFilesAverage: selectedVariant.mappedFilesAverage,
+            mappedSymbolsAverage: selectedVariant.mappedSymbolsAverage,
+            hitsMappedFileTarget: selectedVariant.hitsMappedFileTarget,
+            hitsMappedSymbolTarget: selectedVariant.hitsMappedSymbolTarget,
+            failedRuns: selectedVariant.failedRuns,
+            qualityFailures: selectedVariant.qualityFailures,
+        },
+        variants: variantResults.map((variant) => ({
+            variantId: variant.variantId,
+            variantDescription: variant.variantDescription,
+            outRoot: variant.outRoot,
+            score: variant.score,
+            mappedFilesAverage: variant.mappedFilesAverage,
+            mappedSymbolsAverage: variant.mappedSymbolsAverage,
+            hitsMappedFileTarget: variant.hitsMappedFileTarget,
+            hitsMappedSymbolTarget: variant.hitsMappedSymbolTarget,
+            failedRuns: variant.failedRuns,
+            qualityFailures: variant.qualityFailures,
+            runs: variant.results,
+        })),
+        runs: selectedVariant.results,
     };
     writeJson(reportPath, report);
-    fs.writeFileSync(markdownPath, formatReportMarkdown(results, baselineValidation, baselinesPath), "utf8");
-    const failed = results.some((row) => !row.success || !row.qualityPassed) ||
+    fs.writeFileSync(markdownPath, formatReportMarkdown(selectedVariant, variantResults, baselineValidation, baselinesPath), "utf8");
+    if (stableRun) {
+        const publishResult = (0, output_discipline_1.publishStableRun)(stableRun);
+        process.stdout.write(`[regression] synced latest=${toPosixPath(stableRun.latestDir)} run=${stableRun.runId} removed=${publishResult.removedRuns.length}\n`);
+    }
+    const failed = selectedVariant.results.some((row) => !row.success || !row.qualityPassed) ||
         baselineValidation.failures.length > 0;
     if (failed) {
-        process.stderr.write(`[regression] failed, inspect ${toPosixPath(reportPath)} and ${toPosixPath(markdownPath)}\n`);
+        process.stderr.write(`[regression] failed, inspect ${toPosixPath(path.join(activeOutRoot, "regression-report.json"))} and ${toPosixPath(path.join(activeOutRoot, "regression-report.md"))}\n`);
         return 1;
     }
-    process.stdout.write(`[regression] success, report: ${toPosixPath(markdownPath)}\n`);
+    process.stdout.write(`[regression] success, report: ${toPosixPath(path.join(activeOutRoot, "regression-report.md"))}\n`);
     return 0;
 }
 process.exit(main());

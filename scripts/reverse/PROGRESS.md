@@ -2,8 +2,8 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-regression-bigstroke-14/core-no-binary`
-- Latest regression suite: `work/reverse-regression-bigstroke-14`
+- Latest validated run: `work/reverse/regression-latest/core-no-binary`
+- Latest regression suite: `work/reverse/regression-latest`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -55,15 +55,24 @@
 - Report writing extracted:
   - `scripts/ts/reverse/report-writer.ts`
   - all final report json/markdown/csv/txt writes are delegated from `reverse.ts`
+- Architecture markdown builder extracted:
+  - `scripts/ts/reverse/architecture-report.ts`
+- Summary composition extracted:
+  - `scripts/ts/reverse/summary-composer.ts`
 - Project generator extracted:
   - `scripts/ts/reverse/webstorm-project.ts`
+- Stable output discipline added:
+  - `scripts/ts/reverse/output-discipline.ts`
+  - reverse runs sync to `work/reverse/latest`
+  - regression suites sync to `work/reverse/regression-latest`
+  - archived runs are rotated via keep-last-N cleanup
 
 ## Hard Quality Gates
 - Gate stage: `scripts/ts/reverse/quality-gates.ts`
 - Output: `report/quality-gates.json`
 - Enforced conditions per run:
   - `mappedFiles` in `[4..6]`
-  - `mappedSymbols` floor `>= 10`
+  - `mappedSymbols` floor `>= 12`
   - `mappedSymbols` must not regress against history (`work/reverse-quality-history.json`)
   - no generic-path noise in reconstructed targets (`types/utils/index/common/shared`)
   - generated project checks must be clean:
@@ -83,12 +92,19 @@
 - Config: `scripts/ts/reverse/regression-config.ts`
 - Runner: `scripts/ts/reverse-regression.ts`
 - NPM command:
-  - `npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Codex-Windows\work\reverse-regression`
+  - `npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app`
 - Current fixed suite:
   - `core-no-binary`
   - `core-no-binary-no-pretty`
   - `core-no-binary-top120`
   - `core-runtime-probe-soft`
+- Match-v2 regression calibration variants:
+  - `baseline`
+  - `ownership_boost`
+  - `file_recall_boost`
+- Calibration targets (fixed-suite scoring):
+  - mappedFiles: `5..6`
+  - mappedSymbols: `12..16`
 - Snapshot-version baseline store:
   - file: `scripts/reverse/regression-baselines.json`
   - profile key: `name@version` (example: `openai-codex-electron@26.217.1959`)
@@ -105,7 +121,7 @@
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
 
-## Latest Metrics (`reverse-regression-bigstroke-14/core-no-binary`)
+## Latest Metrics (`work/reverse/regression-latest/core-no-binary`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -113,36 +129,39 @@
 - IPC channels: 9
 - Component boundaries: 27
 - Deobfuscation:
-  - mapped files: 4
-  - mapped symbols: 10
-  - entries: 14
-  - reconstructed targets: 7
+  - mapped files: 6
+  - mapped symbols: 16
+  - entries: 22
+  - reconstructed targets: 12
 - Reference model:
-  - unified files: 100
+  - unified files: 99
   - path-map entries: 30
 - Quality gates:
   - pass: true
   - generic-path noise: 0
   - install/tsc/eslint: clean
 - Pipeline size:
-  - `scripts/ts/reverse.ts`: 2479 LOC
+  - `scripts/ts/reverse.ts`: 2206 LOC
+  - `scripts/ts/reverse/architecture-report.ts`: 269 LOC
+  - `scripts/ts/reverse/summary-composer.ts`: 230 LOC
   - `scripts/ts/reverse/ipc-wrapper-decode.ts`: 1184 LOC
   - `scripts/ts/reverse/domain-flow-parity.ts`: 201 LOC
   - `scripts/ts/reverse/runtime-probe.ts`: 291 LOC
   - `scripts/ts/reverse/report-writer.ts`: 97 LOC
 
-## Latest Regression Suite (`reverse-regression-bigstroke-14`)
-- `core-no-binary`: pass, mappedFiles=4, mappedSymbols=10
-- `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=10
-- `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=10
-- `core-runtime-probe-soft`: pass, mappedFiles=4, mappedSymbols=10
+## Latest Regression Suite (`work/reverse/regression-latest`)
+- Selected variant: `baseline`
+- `core-no-binary`: pass, mappedFiles=6, mappedSymbols=16
+- `core-no-binary-no-pretty`: pass, mappedFiles=6, mappedSymbols=16
+- `core-no-binary-top120`: pass, mappedFiles=6, mappedSymbols=16
+- `core-runtime-probe-soft`: pass, mappedFiles=6, mappedSymbols=16
 
 ## Known Gaps / Noise
 - Runtime probe remains environment-dependent and can still produce machine-specific variance.
 - Reference parity is still partial, especially in chat/session coverage depth.
-- Symbol recovery improved but remains conservative to protect generic-path gates.
+- Symbol recovery now reaches upper calibration band `16` without generic-path leakage; next gap is lifting symbol semantic precision.
 
 ## Next Improvements (Generator-First)
-- Continue slicing `reverse.ts` toward orchestration-only (next candidates: summary/build-metrics composition and report markdown assembly).
-- Keep calibrating symbol ownership weights on fixed regression runs for gradual mappedSymbols growth.
+- Continue slicing `reverse.ts` toward orchestration-only (next candidates: additional extraction/index helpers and binary/rpc utilities).
+- Keep calibrating symbol ownership precision on fixed regression runs while holding mappedSymbols at `16` and avoiding generic leakage.
 - Extend snapshot baseline coverage as new app snapshot versions are added.

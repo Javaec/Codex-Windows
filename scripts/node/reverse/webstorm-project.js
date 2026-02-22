@@ -394,8 +394,10 @@ function buildWebStormTestProject(input) {
             moduleLines.push("export const __chunk = chunk;");
         }
         else {
+            moduleLines.push("const pickChunkSymbol = (symbolName) => chunk[symbolName];");
+            moduleLines.push("");
             for (const exportRow of exportRows) {
-                moduleLines.push(`export const ${exportRow.name} = chunk[${JSON.stringify(exportRow.sourceSymbol)}];`);
+                moduleLines.push(`export const ${exportRow.name} = pickChunkSymbol(${JSON.stringify(exportRow.sourceSymbol)});`);
             }
         }
         moduleLines.push("export default chunk;", "");

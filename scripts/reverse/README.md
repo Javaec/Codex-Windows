@@ -17,26 +17,35 @@ Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 - `scripts/ts/reverse/rpc-schema.ts` RPC schema extraction (bundle + binary + runtime + AST static signals).
 - `scripts/ts/reverse/session-route-flow.ts` session flow + route-boundary graph.
 - `scripts/ts/reverse/reference-parity.ts` reference parity gaps report.
+- `scripts/ts/reverse/architecture-report.ts` architecture markdown builder extracted from reverse orchestrator.
+- `scripts/ts/reverse/summary-composer.ts` summary.json composition extracted from reverse orchestrator.
 - `scripts/ts/reverse/report-writer.ts` report artifact writer (json/markdown/csv/txt outputs).
 - `scripts/ts/reverse/quality-gates.ts` hard quality gate enforcement (mappedFiles/symbol growth/generic noise/project checks/artifact integrity).
 - `scripts/ts/reverse/regression-config.ts` fixed regression runs + match-v2 calibrated weight profile.
+- `scripts/ts/reverse/output-discipline.ts` stable `latest` output sync + archived runs keep-last-N cleanup.
 - `scripts/ts/reverse/webstorm-project.ts` TS-first project reconstruction.
-- `scripts/ts/reverse-regression.ts` locked regression-run driver over fixed run-set.
+- `scripts/ts/reverse-regression.ts` fixed-suite regression driver + match-v2 variant auto-calibration.
 
 ## Run
 
 ```powershell
 npm run build:runner
-npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-Windows\work\reverse-codex-app
-npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Codex-Windows\work\reverse-regression
+npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app
+npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app
 ```
+
+Default stable output roots:
+- reverse latest: `C:\Codex-Windows\work\reverse\latest`
+- reverse runs archive: `C:\Codex-Windows\work\reverse\runs`
+- regression latest: `C:\Codex-Windows\work\reverse\regression-latest`
+- regression runs archive: `C:\Codex-Windows\work\reverse\regression-runs`
 
 Regression baselines are pinned by app snapshot version (`name@version`) in:
 `scripts/reverse/regression-baselines.json`.
 
 Current hard quality gates include:
 - `mappedFiles` in `4..6`
-- `mappedSymbols >= 10` and no regression versus history
+- `mappedSymbols >= 12` and no regression versus history
 - no generic-path noise (`types/utils/index/common/shared`)
 - generated project checks must pass (`npm install`, `tsc`, `eslint`)
 
@@ -96,3 +105,15 @@ and consumed by downstream stages through thin adapters.
 - `-MaxPrettyMb <num>` cap per-file size for pretty pass
 - `-Top <num>` top rows in markdown report sections
 - `-ReferenceMap <path>` explicit reference architecture map (default is auto-loaded from `reference/analysis/1code-codexmonitor-architecture-map.md`)
+- `-RunsRoot <path>` archive root for run snapshots (default: `work/reverse/runs`)
+- `-KeepLastRuns <num>` keep latest N archived runs (default: `12`)
+- `-RunId <value>` explicit stable run id
+- `-NoLatestSync` disable `latest` sync + keep-last cleanup discipline
+
+Regression-only options:
+- `-RunsRoot <path>` archive root for regression suites (default: `work/reverse/regression-runs`)
+- `-KeepLastRuns <num>` keep latest N regression suites (default: `8`)
+- `-RunId <value>` explicit stable regression run id
+- `-NoLatestSync` disable stable `regression-latest` sync
+- `-NoAutocalibrate` run only baseline match-v2 variant
+- `-MatchVariant <id>` run a single explicit match-v2 variant id (`baseline`, `ownership_boost`, `file_recall_boost`)

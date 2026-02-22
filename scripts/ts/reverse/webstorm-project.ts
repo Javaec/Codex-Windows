@@ -347,7 +347,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       string,
       {
         sourceSymbol: string;
-        kind: "class" | "function";
+        kind: "class" | "function" | "variable";
         confidence: number;
       }
     >;
@@ -362,7 +362,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     reference: string;
     rationale: string[];
     sourceSymbol: string;
-    kind: "class" | "function" | "file";
+    kind: "class" | "function" | "variable" | "file";
   }): void => {
     const targetPath = toProjectRelativeTargetPath(inputRow.targetPath);
     const sourceFile = normalizeDeobfSourceFile(inputRow.sourceFile);
@@ -436,7 +436,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     chunkArtifactPath: string;
     confidence: number;
     symbols: string[];
-    exports: Array<{ name: string; sourceSymbol: string; kind: "class" | "function"; confidence: number }>;
+    exports: Array<{ name: string; sourceSymbol: string; kind: "class" | "function" | "variable"; confidence: number }>;
     references: string[];
     rationale: string[];
   }> = [];
@@ -489,8 +489,10 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     if (exportRows.length === 0) {
       moduleLines.push("export const __chunk = chunk;");
     } else {
+      moduleLines.push("const pickChunkSymbol = (symbolName) => chunk[symbolName];");
+      moduleLines.push("");
       for (const exportRow of exportRows) {
-        moduleLines.push(`export const ${exportRow.name} = chunk[${JSON.stringify(exportRow.sourceSymbol)}];`);
+        moduleLines.push(`export const ${exportRow.name} = pickChunkSymbol(${JSON.stringify(exportRow.sourceSymbol)});`);
       }
     }
     moduleLines.push("export default chunk;", "");

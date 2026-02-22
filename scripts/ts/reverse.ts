@@ -16,51 +16,48 @@ import {
   DEFAULT_PARITY_TIER_THRESHOLDS,
   DEFAULT_REFERENCE_MAP_PATH,
   splitReferenceToken,
-  type ReferenceModel,
-  type ReferenceSignalProfile,
-  type ReferenceSymbolProfile,
 } from "./reverse/reference-model";
-import { buildDeobfuscationTableMatchV2, type DeobfuscationTableReport } from "./reverse/match-v2";
+import { buildDeobfuscationTableMatchV2 } from "./reverse/match-v2";
 import {
   formatDeobfuscationTableCsv,
   formatDeobfuscationTableMarkdown,
   formatRenamePlanMarkdown,
 } from "./reverse/deobfuscation-report";
-import { buildWebStormTestProject, type WebStormTestProjectReport } from "./reverse/webstorm-project";
-import {
-  type RouteBoundaryGraphReport,
-  type SessionFlowReport,
-} from "./reverse/session-route-flow";
-import { type ReferenceParityGapsReport } from "./reverse/reference-parity";
+import { buildWebStormTestProject } from "./reverse/webstorm-project";
 import { buildDomainBoundaryPipeline, buildFlowParityPipeline } from "./reverse/domain-flow-parity";
 import {
   buildRpcSchemaReport,
   inferEnvelopeKindsFromText,
-  type RpcSchemaReport,
   type RuntimeRpcNoiseMode,
 } from "./reverse/rpc-schema";
-import {
-  buildIpcContractMap,
-  type IpcContractMapReport,
-} from "./reverse/ipc-contract-map";
+import { buildIpcContractMap } from "./reverse/ipc-contract-map";
 import { createIpcWrapperDecodeRuntime } from "./reverse/ipc-wrapper-decode";
-import {
-  formatDomainReportMarkdown,
-  type ComponentBoundariesReport,
-  type DomainReport,
-} from "./reverse/domain-boundaries";
-import { enforceQualityGates, type QualityGateReport } from "./reverse/quality-gates";
+import { enforceQualityGates } from "./reverse/quality-gates";
 import { writeReverseReportArtifacts } from "./reverse/report-writer";
+import { applyNameMemory, persistNameMemory } from "./reverse/name-memory";
 import {
   classifyProbeLine,
   findElectronExecutableCandidates,
   runRuntimeProbe,
   type RuntimeProbeResult,
 } from "./reverse/runtime-probe";
+import { buildArchitectureMarkdown } from "./reverse/architecture-report";
+import { composeReverseSummary } from "./reverse/summary-composer";
+import {
+  DEFAULT_REVERSE_LATEST_DIR,
+  DEFAULT_REVERSE_RUNS_ROOT,
+  normalizePathForComparison,
+  prepareStableRunPaths,
+  publishStableRun,
+} from "./reverse/output-discipline";
 
 interface ReverseOptions {
   appDir: string;
   outDir: string;
+  runsRoot: string;
+  keepLastRuns: number;
+  runId: string;
+  noLatestSync: boolean;
   noPretty: boolean;
   noBinary: boolean;
   noClean: boolean;
@@ -269,7 +266,11 @@ const ELECTRON_SYSTEM_IPC_CHANNEL_PATTERNS = [
 function parseArgs(argv: string[]): ParsedArgs {
   const defaults: ReverseOptions = {
     appDir: path.resolve(REPO_ROOT, "work", "app"),
-    outDir: path.resolve(REPO_ROOT, "work", "reverse-codex-app"),
+    outDir: DEFAULT_REVERSE_LATEST_DIR,
+    runsRoot: DEFAULT_REVERSE_RUNS_ROOT,
+    keepLastRuns: 12,
+    runId: "",
+    noLatestSync: false,
     noPretty: false,
     noBinary: false,
     noClean: false,
@@ -312,6 +313,23 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "outdir":
         options.outDir = path.resolve(readValue());
+        break;
+      case "runsroot":
+        options.runsRoot = path.resolve(readValue());
+        break;
+      case "keeplastruns": {
+        const value = Number(readValue());
+        if (!Number.isFinite(value) || value < 1) {
+          throw new Error("-KeepLastRuns must be a number >= 1.");
+        }
+        options.keepLastRuns = Math.floor(value);
+        break;
+      }
+      case "runid":
+        options.runId = readValue().trim();
+        break;
+      case "nolatestsync":
+        options.noLatestSync = true;
         break;
       case "nopretty":
         options.noPretty = true;
@@ -376,7 +394,11 @@ function printUsage(): void {
   process.stdout.write("  node scripts/node/reverse.js [options]\n\n");
   process.stdout.write("Options:\n");
   process.stdout.write("  -AppDir <path>        Input extracted app directory (default: .\\work\\app)\n");
-  process.stdout.write("  -OutDir <path>        Output directory (default: .\\work\\reverse-codex-app)\n");
+  process.stdout.write("  -OutDir <path>        Output directory (default: .\\work\\reverse\\latest)\n");
+  process.stdout.write("  -RunsRoot <path>      Archived run root (default: .\\work\\reverse\\runs)\n");
+  process.stdout.write("  -KeepLastRuns <num>   Keep latest N archived runs (default: 12)\n");
+  process.stdout.write("  -RunId <value>        Stable run identifier (default: auto timestamp)\n");
+  process.stdout.write("  -NoLatestSync         Disable latest + run archive discipline\n");
   process.stdout.write("  -NoPretty             Skip TypeScript-printer reformat output\n");
   process.stdout.write("  -NoBinary             Skip protocol/method extraction from bundled codex binary\n");
   process.stdout.write("  -NoClean              Do not delete existing output directory\n");
@@ -1245,12 +1267,6 @@ function filterRowsByFiles(rows: IndexRow[], keepFile: (file: string) => boolean
   return out;
 }
 
-function formatTopRows(rows: Array<{ value: string; count: number }>, top: number): string {
-  if (rows.length === 0) return "_none_";
-  const lines = rows.slice(0, top).map((row) => `- \`${row.value}\` (${row.count})`);
-  return lines.join("\n");
-}
-
 function buildValueCountMap(rows: IndexRow[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of rows) out.set(row.value, row.count);
@@ -1508,238 +1524,6 @@ function extractBinaryProtocolStrings(binaryPath: string): BinaryExtractionResul
     rawMatches: Array.from(rawMatches).sort((a, b) => a.localeCompare(b)),
     rpcLikeMethods: Array.from(rpcLikeMethods).sort((a, b) => a.localeCompare(b)),
   };
-}
-
-function generateArchitectureMarkdown(input: {
-  options: ReverseOptions;
-  appDir: string;
-  outDir: string;
-  packageMain: string | null;
-  webviewScripts: string[];
-  webviewStyles: string[];
-  files: FileRecord[];
-  jsFiles: FileRecord[];
-  cssFiles: FileRecord[];
-  parseFailures: Array<{ file: string; reason: string }>;
-  prettyStats: { prettyOk: number; copiedRaw: number; skippedLarge: number };
-  importsGraph: Record<string, string[]>;
-  ipcRows: IndexRow[];
-  methodRows: IndexRow[];
-  routeRows: IndexRow[];
-  messageTypeRows: IndexRow[];
-  statusRows: IndexRow[];
-  stateKeyRows: IndexRow[];
-  cssVars: string[];
-  cssClasses: string[];
-  cssColors: string[];
-  domainReport: DomainReport;
-  domainDefinitions: Record<string, { label: string; keywords: string[] }>;
-  componentBoundaries: ComponentBoundariesReport;
-  ipcContractMap: IpcContractMapReport;
-  rpcSchema: RpcSchemaReport;
-  deobfuscationTable: DeobfuscationTableReport;
-  qualityGates: QualityGateReport;
-  sessionFlow: SessionFlowReport;
-  routeBoundaryGraph: RouteBoundaryGraphReport;
-  referenceParityGaps: ReferenceParityGapsReport;
-  referenceProfile: ReferenceSignalProfile;
-  runtimeProbe: RuntimeProbeResult;
-  binary: BinaryExtractionResult | null;
-}): string {
-  const top = input.options.top;
-  const totalBytes = input.files.reduce((sum, file) => sum + file.sizeBytes, 0);
-  const topSizeRows = [...input.jsFiles]
-    .sort((a, b) => b.sizeBytes - a.sizeBytes)
-    .slice(0, top)
-    .map((item) => ({ value: item.relPath, count: item.sizeBytes }));
-
-  const graphOutRows = Object.entries(input.importsGraph)
-    .map(([file, deps]) => ({ value: file, count: deps.length }))
-    .sort((a, b) => b.count - a.count);
-
-  return `# Codex App Reverse Report
-
-## Scope
-- Input app dir: \`${toPosixPath(input.appDir)}\`
-- Output dir: \`${toPosixPath(input.outDir)}\`
-- Files indexed: ${input.files.length}
-- JS files: ${input.jsFiles.length}
-- CSS files: ${input.cssFiles.length}
-- Total indexed bytes: ${totalBytes}
-
-## Entrypoints
-- package.main: \`${input.packageMain ?? "<missing>"}\`
-- webview scripts:
-${input.webviewScripts.length > 0 ? input.webviewScripts.map((item) => `- \`${item}\``).join("\n") : "- _none_"}
-- webview styles:
-${input.webviewStyles.length > 0 ? input.webviewStyles.map((item) => `- \`${item}\``).join("\n") : "- _none_"}
-
-## Decompile Pass
-- pretty rendered: ${input.prettyStats.prettyOk}
-- copied as raw: ${input.prettyStats.copiedRaw}
-- skipped by size limit: ${input.prettyStats.skippedLarge}
-- parse failures: ${input.parseFailures.length}
-${input.parseFailures.length > 0 ? input.parseFailures.slice(0, top).map((failure) => `- \`${failure.file}\` :: ${failure.reason}`).join("\n") : ""}
-
-## Reference Priors (1code + CodexMonitor)
-- source map path: \`${input.referenceProfile.sourcePath}\`
-- source map loaded: ${input.referenceProfile.loaded}
-- source map copy: \`${input.referenceProfile.copiedPath || "<none>"}\`
-- source bytes: ${input.referenceProfile.bytes}
-- route priors: ${input.referenceProfile.keywordGroups.routes.length}
-- method priors: ${input.referenceProfile.keywordGroups.methods.length}
-- state priors: ${input.referenceProfile.keywordGroups.stateKeys.length}
-- readiness priors: ${input.referenceProfile.keywordGroups.readiness.length}
-- event priors: ${input.referenceProfile.keywordGroups.events.length}
-- ipc priors: ${input.referenceProfile.keywordGroups.ipc.length}
-- ui priors: ${input.referenceProfile.keywordGroups.ui.length}
-- warnings:
-${input.referenceProfile.warnings.length > 0 ? input.referenceProfile.warnings.map((item) => `- ${item}`).join("\n") : "- _none_"}
-- excerpt:
-${input.referenceProfile.excerpt.length > 0 ? input.referenceProfile.excerpt.map((item) => `- ${item}`).join("\n") : "- _none_"}
-
-## IPC Channels
-${formatTopRows(input.ipcRows, top)}
-
-## RPC Methods
-${formatTopRows(input.methodRows, top)}
-
-## Message Types
-${formatTopRows(input.messageTypeRows, top)}
-
-## Status Values
-${formatTopRows(input.statusRows, top)}
-
-## Route Candidates
-${formatTopRows(input.routeRows, top)}
-
-## State Keys
-${formatTopRows(input.stateKeyRows, top)}
-
-## Domain Focus (UI & Logic)
-${formatDomainReportMarkdown(input.domainReport, top, input.domainDefinitions)}
-
-## Component Boundaries
-- boundary files: ${input.componentBoundaries.coverage.boundaryFiles}
-- candidate files: ${input.componentBoundaries.coverage.candidateFiles}
-- avg UI likelihood: ${input.componentBoundaries.coverage.avgUiLikelihood}
-- max ownership score: ${input.componentBoundaries.coverage.maxOwnershipScore}
-- Top ownership files:
-${input.componentBoundaries.boundaries.slice(0, Math.min(top, 20)).map((row) => `- \`${row.ownerFile}\` (score=${row.ownershipScore}, ui=${row.uiLikelihood}, refHits=${row.referenceSignalHits}, chunk=\`${row.chunkId}\`)`).join("\n") || "- _none_"}
-
-## IPC Contract Map
-- channels: ${input.ipcContractMap.coverage.channels}
-- channels with main handlers: ${input.ipcContractMap.coverage.withMainHandlers}
-- channels with renderer invokes: ${input.ipcContractMap.coverage.withRendererInvokes}
-- channels with renderer subscriptions: ${input.ipcContractMap.coverage.withRendererSubscriptions}
-- channels with main emits: ${input.ipcContractMap.coverage.withMainEmits}
-- wrapper files: ${input.ipcContractMap.wrappers.filesWithWrappers}
-- wrappers discovered: ${input.ipcContractMap.wrappers.wrappersDiscovered}
-- global wrappers discovered: ${input.ipcContractMap.wrappers.globalWrappersDiscovered}
-- wrapper invocations resolved: ${input.ipcContractMap.wrappers.wrapperInvocationsResolved}
-- missing main handlers:
-${input.ipcContractMap.orphanSignals.missingMainHandlers.slice(0, Math.min(top, 20)).map((row) => `- \`${row}\``).join("\n") || "- _none_"}
-- missing renderer subscriptions:
-${input.ipcContractMap.orphanSignals.missingRendererSubscriptions.slice(0, Math.min(top, 20)).map((row) => `- \`${row}\``).join("\n") || "- _none_"}
-
-## RPC Schema (Unified Source of Truth)
-- methods: ${input.rpcSchema.coverage.methods}
-- from bundle: ${input.rpcSchema.coverage.fromBundle}
-- from binary: ${input.rpcSchema.coverage.fromBinary}
-- from runtime: ${input.rpcSchema.coverage.fromRuntime}
-- with payload keys: ${input.rpcSchema.coverage.withPayloadKeys}
-- with renderer callsites: ${input.rpcSchema.coverage.withRendererCallsites}
-- envelope request methods: ${input.rpcSchema.envelopes.request}
-- envelope response methods: ${input.rpcSchema.envelopes.response}
-- envelope event methods: ${input.rpcSchema.envelopes.event}
-- runtime noise mode: ${input.rpcSchema.runtimeProbe.noiseMode}
-- soft-recovered runtime methods: ${input.rpcSchema.runtimeProbe.softRecoveredMethods}
-- runtime lines scanned for schema: ${input.rpcSchema.runtimeProbe.linesScanned}
-- top rpc schema methods:
-${input.rpcSchema.methods.slice(0, Math.min(top, 16)).map((row) => `- \`${row.method}\` (confidence=${row.confidence}, payload=${row.payloadKeys.length}, envelopes=${row.envelopes.join("|") || "none"})`).join("\n") || "- _none_"}
-
-## Deobfuscation Table
-- mapped symbols: ${input.deobfuscationTable.coverage.mappedSymbols}
-- mapped files: ${input.deobfuscationTable.coverage.mappedFiles}
-- obfuscated symbol candidates: ${input.deobfuscationTable.coverage.obfuscatedSymbolCandidates}
-- obfuscated file candidates: ${input.deobfuscationTable.coverage.obfuscatedFileCandidates}
-- symbol maps loaded: ${input.deobfuscationTable.referenceInputs.loaded}
-- top file relocations:
-${input.deobfuscationTable.filePlans.slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` -> \`${row.proposedModulePath}\` (confidence=${row.confidence})`).join("\n") || "- _none_"}
-- top symbol renames:
-${input.deobfuscationTable.entries.filter((row) => row.kind !== "file").slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` :: \`${row.obfuscated}\` -> \`${row.deobfuscated}\` (confidence=${row.confidence}, ref=${row.reference.source})`).join("\n") || "- _none_"}
-
-## Quality Gates
-- pass: ${input.qualityGates.passed}
-- mappedFiles gate: ${input.qualityGates.targets.mappedFilesMin}-${input.qualityGates.targets.mappedFilesMax}
-- mappedFiles current: ${input.qualityGates.metrics.mappedFiles}
-- mappedSymbols current: ${input.qualityGates.metrics.mappedSymbols}
-- mappedSymbols previous: ${input.qualityGates.metrics.previousMappedSymbols}
-- generic-path noise rows: ${input.qualityGates.metrics.genericNoisePaths.length}
-- chunk artifacts: rows=${input.qualityGates.metrics.chunkArtifactRows}, uniqueSource=${input.qualityGates.metrics.chunkArtifactUniqueSource}, uniqueArtifact=${input.qualityGates.metrics.chunkArtifactUniqueArtifact}
-- project checks: install=${input.qualityGates.metrics.installSuccess}, tscErrors=${input.qualityGates.metrics.tscErrors}, eslintErrors=${input.qualityGates.metrics.eslintErrors}, eslintWarnings=${input.qualityGates.metrics.eslintWarnings}
-- failures:
-${input.qualityGates.failures.length > 0 ? input.qualityGates.failures.map((item) => `- ${item}`).join("\n") : "- _none_"}
-
-## Session Flow
-- focus routes: ${input.sessionFlow.focusRouteCount}
-- total route candidates: ${input.sessionFlow.totalRouteCandidates}
-- core owners:
-${input.sessionFlow.coreFlowOwners.slice(0, Math.min(top, 12)).map((row) => `- \`${row.file}\` (${row.score})`).join("\n") || "- _none_"}
-
-## Runtime Probe Classification
-- attempted: ${input.runtimeProbe.attempted}
-- success: ${input.runtimeProbe.success}
-- forced stop: ${input.runtimeProbe.forcedStop}
-- duration ms: ${input.runtimeProbe.durationMs}
-- warnings total: ${input.runtimeProbe.warnings.length}
-  system: ${input.runtimeProbe.warningClassification.system.length}, logic: ${input.runtimeProbe.warningClassification.logic.length}, unknown: ${input.runtimeProbe.warningClassification.unknown.length}
-- errors total: ${input.runtimeProbe.errors.length}
-  system: ${input.runtimeProbe.errorClassification.system.length}, logic: ${input.runtimeProbe.errorClassification.logic.length}, unknown: ${input.runtimeProbe.errorClassification.unknown.length}
-- top warning lines:
-${input.runtimeProbe.warnings.slice(0, Math.min(top, 10)).map((line) => `- ${line}`).join("\n") || "- _none_"}
-- top error lines:
-${input.runtimeProbe.errors.slice(0, Math.min(top, 10)).map((line) => `- ${line}`).join("\n") || "- _none_"}
-
-## Route -> Boundary -> IPC/RPC Graph
-- route nodes: ${input.routeBoundaryGraph.coverage.routes}
-- boundary nodes: ${input.routeBoundaryGraph.coverage.boundaries}
-- ipc nodes: ${input.routeBoundaryGraph.coverage.ipcChannels}
-- envelope nodes: ${input.routeBoundaryGraph.coverage.envelopes}
-- rpc nodes: ${input.routeBoundaryGraph.coverage.rpcMethods}
-- route->boundary edges: ${input.routeBoundaryGraph.coverage.routeToBoundaryEdges}
-- boundary->ipc edges: ${input.routeBoundaryGraph.coverage.boundaryToIpcEdges}
-- boundary->envelope edges: ${input.routeBoundaryGraph.coverage.boundaryToEnvelopeEdges}
-- envelope->rpc edges: ${input.routeBoundaryGraph.coverage.envelopeToRpcEdges}
-- boundary->rpc edges: ${input.routeBoundaryGraph.coverage.boundaryToRpcEdges}
-
-## Reference Parity Gaps (1code + CodexMonitor)
-- weighted coverage: ${input.referenceParityGaps.coverage.weightedCoveragePercent}%
-- weighted gap score: ${input.referenceParityGaps.coverage.weightedGapScore}
-- domains scored: ${input.referenceParityGaps.coverage.domains}
-- top prioritized gaps:
-${input.referenceParityGaps.topGaps.map((row) => `- #${row.priorityRank} ${row.label} [${row.domain}] tier=${row.confidenceTier} impact=${row.impactScore} coverage=${row.coveragePercent}% gap=${row.gapScore} missing=${row.missingKeywords.slice(0, 8).join(", ") || "none"}`).join("\n") || "- _none_"}
-
-## Chunk Dependency Graph (out-degree)
-${formatTopRows(graphOutRows, top)}
-
-## Largest JS Files
-${formatTopRows(topSizeRows, top)}
-
-## Design System Signals
-- CSS vars: ${input.cssVars.length}
-- CSS classes: ${input.cssClasses.length}
-- Color tokens: ${input.cssColors.length}
-- Top CSS vars:
-${input.cssVars.slice(0, top).map((item) => `- \`${item}\``).join("\n") || "- _none_"}
-
-## Bundled Binary Signals
-- Binary source: \`${input.binary?.binaryPath ? toPosixPath(input.binary.binaryPath) : "<none>"}\`
-- Binary raw protocol strings: ${input.binary?.rawMatches.length ?? 0}
-- Binary rpc-like methods: ${input.binary?.rpcLikeMethods.length ?? 0}
-- Top binary rpc-like methods:
-${input.binary && input.binary.rpcLikeMethods.length > 0 ? input.binary.rpcLikeMethods.slice(0, top).map((item) => `- \`${item}\``).join("\n") : "- _none_"}
-`;
 }
 
 function copyRawFiles(files: FileRecord[], rawDir: string): void {
@@ -2062,7 +1846,7 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       isIgnoredIpcChannel,
     },
   });
-  const deobfuscationTable = buildDeobfuscationTableMatchV2({
+  let deobfuscationTable = buildDeobfuscationTableMatchV2({
     top: options.top,
     jsFiles,
     sourceByFile,
@@ -2075,6 +1859,25 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     componentBoundaries,
     referenceModel,
   });
+  const appKey = `${packageJson.name || "unknown-app"}@${packageJson.version || "unknown-version"}`;
+  const nameMemoryApplied = applyNameMemory({
+    repoRoot: REPO_ROOT,
+    appKey,
+    deobfuscationTable,
+  });
+  deobfuscationTable = nameMemoryApplied.deobfuscationTable;
+  writeInfo(
+    `Name memory apply: tracked=${nameMemoryApplied.tracked}, applied=${nameMemoryApplied.applied}, renamed=${nameMemoryApplied.renamed}, deduplicated=${nameMemoryApplied.deduplicated}`,
+  );
+  const nameMemory = persistNameMemory({
+    repoRoot: REPO_ROOT,
+    appKey,
+    deobfuscationTable,
+  });
+  writeInfo(
+    `Name memory: tracked=${nameMemory.totalTracked}, added=${nameMemory.added}, updated=${nameMemory.updated}, renamed=${nameMemory.renamed}`,
+  );
+  writeInfo(`Name memory file: ${nameMemory.memoryPath}`);
   const deobfuscationMarkdown = formatDeobfuscationTableMarkdown(deobfuscationTable);
   const deobfuscationCsv = formatDeobfuscationTableCsv(deobfuscationTable);
   const renamePlanMarkdown = formatRenamePlanMarkdown(deobfuscationTable);
@@ -2229,13 +2032,11 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     }
   }
 
-  const summary = {
+  const summary = composeReverseSummary({
     generatedAtUtc: new Date().toISOString(),
     appDir: options.appDir,
     outDir: options.outDir,
-    packageName: packageJson.name ?? null,
-    packageVersion: packageJson.version ?? null,
-    packageMain: packageJson.main ?? null,
+    packageJson,
     filesIndexed: files.length,
     jsFiles: jsFiles.length,
     cssFiles: cssFiles.length,
@@ -2250,121 +2051,32 @@ async function runReverse(options: ReverseOptions): Promise<number> {
       skippedLarge: prettyStats.skippedLarge,
     },
     parseErrors: parseErrors.length + prettyFailures.length,
-    signals: {
-      ipcChannels: ipcRows.length,
-      methods: methodRows.length,
-      rpcCatalog: rpcCatalog.length,
-      rpcSchemaMethods: rpcSchema.coverage.methods,
-      rpcSchemaFromRuntime: rpcSchema.coverage.fromRuntime,
-      rpcSchemaWithPayload: rpcSchema.coverage.withPayloadKeys,
-      rpcSchemaWithRendererCallsites: rpcSchema.coverage.withRendererCallsites,
-      rpcSchemaRuntimeSoftRecoveredMethods: rpcSchema.runtimeProbe.softRecoveredMethods,
-      rpcEnvelopeRequestMethods: rpcSchema.envelopes.request,
-      rpcEnvelopeResponseMethods: rpcSchema.envelopes.response,
-      rpcEnvelopeEventMethods: rpcSchema.envelopes.event,
-      routes: routeRows.length,
-      messageTypes: messageTypeRows.length,
-      statuses: statusRows.length,
-      stateKeys: stateKeyRows.length,
-      ipcContractChannels: ipcContractMap.channels.length,
-      ipcWrapperFiles: ipcContractMap.wrappers.filesWithWrappers,
-      ipcWrappersDiscovered: ipcContractMap.wrappers.wrappersDiscovered,
-      ipcWrapperInvocationsResolved: ipcContractMap.wrappers.wrapperInvocationsResolved,
-      ipcGlobalWrappersDiscovered: ipcContractMap.wrappers.globalWrappersDiscovered,
-      componentBoundaries: componentBoundaries.boundaries.length,
-      componentChunks: componentBoundaries.chunks.length,
-      deobfMappedFiles: deobfuscationTable.coverage.mappedFiles,
-      deobfMappedSymbols: deobfuscationTable.coverage.mappedSymbols,
-      deobfFileCandidates: deobfuscationTable.coverage.obfuscatedFileCandidates,
-      deobfSymbolCandidates: deobfuscationTable.coverage.obfuscatedSymbolCandidates,
-      qualityGatePassed: qualityGates.passed ? 1 : 0,
-      qualityGateFailures: qualityGates.failures.length,
-      qualityGateGenericNoise: qualityGates.metrics.genericNoisePaths.length,
-      sessionFlowRoutes: sessionFlow.entries.length,
-      routeBoundaryGraphNodes: routeBoundaryGraph.nodes.length,
-      routeBoundaryGraphEdges: routeBoundaryGraph.edges.length,
-      routeBoundaryGraphEnvelopes: routeBoundaryGraph.coverage.envelopes,
-      cssVars: designSystem.vars.length,
-      cssClasses: designSystem.classes.length,
-      cssColors: designSystem.colors.length,
-      runtimeProbeWarningsSystem: runtimeProbeResult.warningClassification.system.length,
-      runtimeProbeWarningsLogic: runtimeProbeResult.warningClassification.logic.length,
-      runtimeProbeWarningsUnknown: runtimeProbeResult.warningClassification.unknown.length,
-      runtimeProbeErrorsSystem: runtimeProbeResult.errorClassification.system.length,
-      runtimeProbeErrorsLogic: runtimeProbeResult.errorClassification.logic.length,
-      runtimeProbeErrorsUnknown: runtimeProbeResult.errorClassification.unknown.length,
-      runtimeProbeCapturedLines: runtimeProbeResult.capturedLines.length,
-      referenceParityWeightedCoverage: referenceParityGaps.coverage.weightedCoveragePercent,
-      referenceParityWeightedGapScore: referenceParityGaps.coverage.weightedGapScore,
-      referenceParityCritical: referenceParityGaps.domains.filter((row) => row.confidenceTier === "critical").length,
-      referenceParityHigh: referenceParityGaps.domains.filter((row) => row.confidenceTier === "high").length,
-      referenceParityMedium: referenceParityGaps.domains.filter((row) => row.confidenceTier === "medium").length,
-    },
-    referenceContext: {
-      sourcePath: referenceProfile.sourcePath,
-      copiedPath: referenceProfile.copiedPath,
-      loaded: referenceProfile.loaded,
-      bytes: referenceProfile.bytes,
-      warningCount: referenceProfile.warnings.length,
-      priorCounts: {
-        routes: referenceProfile.keywordGroups.routes.length,
-        methods: referenceProfile.keywordGroups.methods.length,
-        stateKeys: referenceProfile.keywordGroups.stateKeys.length,
-        readiness: referenceProfile.keywordGroups.readiness.length,
-        events: referenceProfile.keywordGroups.events.length,
-        ipc: referenceProfile.keywordGroups.ipc.length,
-        ui: referenceProfile.keywordGroups.ui.length,
-      },
-    },
-    referenceSymbols: {
-      loaded: referenceSymbolProfile.loaded,
-      oneCodePath: referenceSymbolProfile.oneCodePath,
-      codexMonitorPath: referenceSymbolProfile.codexMonitorPath,
-      symbolCount: referenceSymbolProfile.symbols.length,
-      warningCount: referenceSymbolProfile.warnings.length,
-    },
-    referenceModel: {
-      generatedAtUtc: referenceModel.generatedAtUtc,
-      unifiedFiles: referenceModel.unified.files.length,
-      pathMapEntries: referenceModel.unified.pathMap.length,
-      domainCount: Object.keys(referenceModel.unified.domainKeywords).length,
-    },
-    deobfuscation: {
-      mappedFiles: deobfuscationTable.coverage.mappedFiles,
-      mappedSymbols: deobfuscationTable.coverage.mappedSymbols,
-      entries: deobfuscationTable.entries.length,
-      filePlans: deobfuscationTable.filePlans.length,
-      referenceLoaded: deobfuscationTable.referenceInputs.loaded,
-    },
-    project: {
-      rootPath: webStormTestProject.rootPath,
-      chunkFiles: webStormTestProject.chunkFiles,
-      reconstructedFiles: webStormTestProject.reconstructedFiles,
-      mappedTargets: webStormTestProject.mappedTargets,
-      mappingArtifacts: webStormTestProject.mappingArtifacts,
-      checks: webStormTestProject.checks,
-    },
+    ipcRows,
+    methodRows,
+    routeRows,
+    messageTypeRows,
+    statusRows,
+    stateKeyRows,
+    rpcCatalog,
+    rpcSchema,
+    ipcContractMap,
+    componentBoundaries,
+    deobfuscationTable,
     qualityGates,
-    referenceParity: {
-      weightedCoveragePercent: referenceParityGaps.coverage.weightedCoveragePercent,
-      weightedGapScore: referenceParityGaps.coverage.weightedGapScore,
-      topGapDomain: referenceParityGaps.topGaps[0]?.domain ?? null,
-      topGapScore: referenceParityGaps.topGaps[0]?.gapScore ?? null,
-      topGapImpactScore: referenceParityGaps.topGaps[0]?.impactScore ?? null,
-      topGapTier: referenceParityGaps.topGaps[0]?.confidenceTier ?? null,
-    },
+    sessionFlow,
+    routeBoundaryGraph,
+    designSystem,
     runtimeProbe: runtimeProbeResult,
-    binary: binaryResult
-      ? {
-          source: binaryResult.binaryPath,
-          rawMatches: binaryResult.rawMatches.length,
-          rpcLikeMethods: binaryResult.rpcLikeMethods.length,
-        }
-      : null,
-  };
+    referenceModel,
+    referenceSignals: referenceProfile,
+    referenceSymbols: referenceSymbolProfile,
+    project: webStormTestProject,
+    referenceParityGaps,
+    binary: binaryResult,
+  });
 
-  const architectureMarkdown = generateArchitectureMarkdown({
-    options,
+  const architectureMarkdown = buildArchitectureMarkdown({
+    top: options.top,
     appDir: options.appDir,
     outDir: options.outDir,
     packageMain: packageJson.main ?? null,
@@ -2465,7 +2177,42 @@ async function main(): Promise<number> {
     printUsage();
     return 0;
   }
-  return runReverse(parsed.options);
+  const options = parsed.options;
+  const latestMode =
+    !options.noLatestSync &&
+    normalizePathForComparison(options.outDir) === normalizePathForComparison(DEFAULT_REVERSE_LATEST_DIR);
+  if (!latestMode) {
+    return runReverse(options);
+  }
+
+  const stableRun = prepareStableRunPaths({
+    latestDir: options.outDir,
+    runsRoot: options.runsRoot,
+    keepLastRuns: options.keepLastRuns,
+    runId: options.runId,
+  });
+  const runOptions: ReverseOptions = {
+    ...options,
+    outDir: stableRun.runDir,
+    noClean: false,
+  };
+
+  let resultCode = 0;
+  let runError: unknown;
+  try {
+    resultCode = await runReverse(runOptions);
+  } catch (error) {
+    runError = error;
+  }
+
+  const publishResult = publishStableRun(stableRun);
+  writeInfo(`Stable latest synced: ${toPosixPath(stableRun.latestDir)} (run=${stableRun.runId})`);
+  if (publishResult.removedRuns.length > 0) {
+    writeInfo(`Stable run cleanup: removed ${publishResult.removedRuns.length} archived runs`);
+  }
+
+  if (runError) throw runError;
+  return resultCode;
 }
 
 main()

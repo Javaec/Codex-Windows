@@ -34,6 +34,7 @@ function formatDeobfuscationTableMarkdown(report) {
     rows.push("## Method");
     rows.push(`- ${report.strategy}`);
     rows.push(`- Calibration profile: ${report.calibration.profileId}`);
+    rows.push(`- Runtime variant: ${report.calibration.variantId}`);
     rows.push(`- Fixed regression runs: ${report.calibration.fixedRegressionRuns.join(", ") || "none"}`);
     rows.push(`- Reference symbols loaded: ${report.referenceInputs.loaded ? "yes" : "no"} (${report.referenceInputs.symbolCount})`);
     rows.push(`- Files scanned: ${report.coverage.filesScanned}`);
@@ -160,7 +161,7 @@ function formatRenamePlanMarkdown(report) {
         return a.obfuscated.localeCompare(b.obfuscated);
     });
     rows.push("");
-    rows.push("## Step 2. Class/Function Rename");
+    rows.push("## Step 2. Class/Function/Variable Rename");
     if (sortedSymbols.length === 0) {
         rows.push("- _none_");
     }

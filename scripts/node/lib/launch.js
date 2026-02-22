@@ -227,6 +227,67 @@ function buildWebviewAutoscrollScript() {
     scheduleForcedSwitchScroll("sidebar-click");
   }
 
+  function isComposerInputElement(node) {
+    if (!isElement(node)) return false;
+    if (isLikelySidebarElement(node)) return false;
+    const tagName = node.tagName.toLowerCase();
+    if (tagName === "textarea") return true;
+    if (node.isContentEditable) return true;
+    if (tagName === "input") {
+      const inputType = String(node.getAttribute("type") || "text").toLowerCase();
+      return inputType === "text" || inputType === "search";
+    }
+    return Boolean(node.closest("textarea,[contenteditable='true'],input[type='text'],input[type='search']"));
+  }
+
+  function handlePotentialComposerSubmit(event) {
+    const target = event.target;
+    if (!isElement(target)) return;
+    if (isLikelySidebarElement(target)) return;
+    const form = target.closest("form");
+    if (!form) return;
+    if (isLikelySidebarElement(form)) return;
+    scheduleForcedSwitchScroll("composer-submit");
+  }
+
+  function handlePotentialComposerEnter(event) {
+    if (!(event instanceof KeyboardEvent)) return;
+    if (event.key !== "Enter") return;
+    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (event.repeat || event.isComposing) return;
+    if (!isComposerInputElement(event.target)) return;
+    scheduleForcedSwitchScroll("composer-enter");
+  }
+
+  function hasComposerInputWithin(root) {
+    if (!isElement(root)) return false;
+    if (isLikelySidebarElement(root)) return false;
+    return Boolean(root.querySelector("textarea,[contenteditable='true'],input[type='text'],input[type='search']"));
+  }
+
+  function handlePotentialComposerClick(event) {
+    const target = event.target;
+    if (!isElement(target)) return;
+    const clickable = target.closest("button,[role='button'],input[type='submit']");
+    if (!clickable) return;
+    if (isLikelySidebarElement(clickable)) return;
+
+    const rect = clickable.getBoundingClientRect();
+    if (rect.height <= 0 || rect.width <= 0) return;
+    if (rect.top < window.innerHeight * 0.45) return;
+
+    const form = clickable.closest("form");
+    if (form && hasComposerInputWithin(form)) {
+      scheduleForcedSwitchScroll("composer-click");
+      return;
+    }
+
+    const container = clickable.parentElement;
+    if (container && hasComposerInputWithin(container)) {
+      scheduleForcedSwitchScroll("composer-click");
+    }
+  }
+
   function mutationMarksSidebarSwitch(mutation) {
     if (mutation.type !== "attributes") return false;
     const target = mutation.target;
@@ -287,6 +348,9 @@ function buildWebviewAutoscrollScript() {
     window.addEventListener("popstate", handleRoutePotentialChange, true);
     window.addEventListener("hashchange", handleRoutePotentialChange, true);
     document.addEventListener("click", handlePotentialSidebarClick, true);
+    document.addEventListener("click", handlePotentialComposerClick, true);
+    document.addEventListener("submit", handlePotentialComposerSubmit, true);
+    document.addEventListener("keydown", handlePotentialComposerEnter, true);
     observer.observe(document.body, {
       childList: true,
       subtree: true,
