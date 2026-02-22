@@ -1,8 +1,8 @@
 # Reverse/Deobfuscation Progress Notes
 
 ## Snapshot
-- Date (UTC): 2026-02-21
-- Latest validated run: `work/reverse-codex-app-refactor-tsfirst-smoke3`
+- Date (UTC): 2026-02-22
+- Latest validated run: `work/reverse-codex-app-bigstroke-5`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -30,6 +30,10 @@
 - Reference parity gap stage extracted from god object:
   - `scripts/ts/reverse/reference-parity.ts`
   - owns `buildReferenceParityGapsReport`
+- RPC schema stage extracted from god object:
+  - `scripts/ts/reverse/rpc-schema.ts`
+  - owns runtime/static RPC method merge, payload key extraction, envelope inference
+  - wired through explicit helper contracts from `reverse.ts` (no hidden cross-module state)
 - Generated deobfuscation artifacts:
   - `report/deobfuscation-table.json`
   - `report/deobfuscation-table.md`
@@ -68,9 +72,9 @@
 - `npm install`
 - `tsc --noEmit`
 - `eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json`
-- Last validated result (`refactor-tsfirst-smoke3`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
+- Last validated result (`bigstroke-5`): install=ok, tsc=0 errors, eslint=0 errors/0 warnings.
 
-## Latest Metrics (`refactor-tsfirst-smoke3`)
+## Latest Metrics (`bigstroke-5`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -82,6 +86,8 @@
   - mapped symbols: 8
   - entries: 10
   - reconstructed targets: 7
+- Pipeline size:
+  - `scripts/ts/reverse.ts`: 4541 LOC (down from 5072 before rpc-schema extraction)
 
 ## Known Gaps / Noise
 - Runtime probe still captures environment-specific noise (`ENOENT` worktrees, git remote checks, broadcast handlers without subscribers).

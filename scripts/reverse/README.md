@@ -5,6 +5,15 @@ By default every run loads `reference/analysis/1code-codexmonitor-architecture-m
 
 Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 
+## Pipeline modules
+
+- `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth.
+- `scripts/ts/reverse/match-v2.ts` multi-signal file/symbol matching.
+- `scripts/ts/reverse/rpc-schema.ts` RPC schema extraction (bundle + binary + runtime + AST static signals).
+- `scripts/ts/reverse/session-route-flow.ts` session flow + route-boundary graph.
+- `scripts/ts/reverse/reference-parity.ts` reference parity gaps report.
+- `scripts/ts/reverse/webstorm-project.ts` TS-first project reconstruction.
+
 ## Run
 
 ```powershell

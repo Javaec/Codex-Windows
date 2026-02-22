@@ -541,6 +541,20 @@ function scoreReferenceSymbolMatch(input) {
 function getTotalSignalStrength(profile) {
     return profile.ast + profile.ipcRpc + profile.state + profile.boundary + profile.flow;
 }
+function isFileCandidateForPlan(input) {
+    const baseName = path.basename(input.relPath);
+    const bareName = baseName.replace(/\.[^.]+$/, "");
+    const obviousObfuscated = isLikelyObfuscatedClassName(bareName) || /-(?:[A-Za-z0-9]{6,})\.(?:js|mjs|cjs)$/i.test(baseName);
+    if (obviousObfuscated)
+        return true;
+    const bundlerChunkLike = /^(?:index|main|chunk|worker|desktop|channel|clone|data-controls|diff|agent-settings|automation|git-settings|init)-[A-Za-z0-9]{6,}\.(?:js|mjs|cjs)$/i.test(baseName);
+    if (!bundlerChunkLike)
+        return false;
+    const signalStrength = getTotalSignalStrength(input.signal);
+    const strongCoreSignals = isLikelyCoreAppFile(input.relPath) && signalStrength >= 11 && input.signal.contextKeywords.size >= 7;
+    const anchorDrivenSignals = !!input.sourceAnchor && input.sourceAnchor.score >= 4.1 && signalStrength >= 9;
+    return strongCoreSignals || anchorDrivenSignals;
+}
 function buildDeobfuscationTableMatchV2(input) {
     const referenceProfile = input.referenceModel.signals;
     const referenceSymbolProfile = input.referenceModel.symbols;
@@ -590,8 +604,10 @@ function buildDeobfuscationTableMatchV2(input) {
         if (!isLikelyCoreAppFile(relPath) && signal.contextKeywords.size < 3)
             continue;
         const sourceAnchor = sourceReferenceAnchors.get(relPath);
-        if (isLikelyObfuscatedClassName(path.basename(relPath).split(".")[0]) || /-(?:[A-Za-z0-9]{6,})\.(?:js|mjs|cjs)$/i.test(path.basename(relPath))) {
+        const signalStrength = getTotalSignalStrength(signal);
+        if (isFileCandidateForPlan({ relPath, signal, sourceAnchor })) {
             obfuscatedFileCandidates += 1;
+            let mappedFilePlan = false;
             let bestFileScore = 0;
             let bestFileHits = [];
             let bestProfile;
@@ -617,30 +633,32 @@ function buildDeobfuscationTableMatchV2(input) {
                     bestProfile = profile;
                 }
             }
-            const signalStrength = getTotalSignalStrength(signal);
             let selectedProfile = bestProfile;
             let selectedFileScore = bestFileScore;
             let selectedFileHits = bestFileHits;
             let usedNonGenericFallback = false;
             if (bestProfile && isGenericReferenceFilePath(bestProfile.file)) {
-                let fallbackScore = 0;
-                let fallbackHits = [];
-                let fallbackProfile;
+                const fallbackRows = [];
                 for (const profile of referenceFileProfiles) {
                     if (isGenericReferenceFilePath(profile.file))
                         continue;
                     const scored = scoreReferenceFileProfile({ sourceFile: relPath, profile, fileSignals: signal });
-                    if (scored.score <= fallbackScore)
-                        continue;
-                    fallbackScore = scored.score;
-                    fallbackHits = scored.hits;
-                    fallbackProfile = profile;
+                    fallbackRows.push({ profile, score: scored.score, hits: scored.hits });
                 }
+                fallbackRows.sort((a, b) => b.score - a.score);
+                const fallbackPrimary = fallbackRows[0];
+                const fallbackAnchored = sourceAnchor &&
+                    fallbackRows.find((row) => row.profile.file === sourceAnchor.primaryFile || sourceAnchor.secondaryFiles.includes(row.profile.file));
+                const fallbackRow = fallbackAnchored && fallbackAnchored.score >= ((fallbackPrimary?.score ?? 0) - 1.3) ? fallbackAnchored : fallbackPrimary;
+                const fallbackScore = fallbackRow?.score ?? 0;
+                const fallbackHits = fallbackRow?.hits ?? [];
+                const fallbackProfile = fallbackRow?.profile;
                 const genericGap = bestFileScore - fallbackScore;
                 const sourceAnchorsFallback = sourceAnchor ? fallbackProfile?.file === sourceAnchor.primaryFile : false;
+                const strongSignal = signalStrength >= 12;
                 const shouldUseFallback = !!fallbackProfile &&
-                    fallbackScore >= 3.8 &&
-                    (genericGap <= 3.2 || sourceAnchorsFallback || signalStrength >= 11);
+                    fallbackScore >= 3.0 &&
+                    (genericGap <= 4.5 || sourceAnchorsFallback || signalStrength >= 9);
                 if (fallbackProfile && shouldUseFallback) {
                     selectedProfile = fallbackProfile;
                     selectedFileScore = fallbackScore;
@@ -648,19 +666,21 @@ function buildDeobfuscationTableMatchV2(input) {
                     usedNonGenericFallback = true;
                 }
             }
-            const minFileScore = selectedProfile && isGenericReferenceFilePath(selectedProfile.file) ? 7.2 : 4.6;
-            const minHits = sourceAnchor ? 1 : usedNonGenericFallback ? 1 : 2;
+            const strongSignal = signalStrength >= 12;
+            const minFileScore = selectedProfile && isGenericReferenceFilePath(selectedProfile.file) ? 7.2 : sourceAnchor ? 3.4 : strongSignal ? 3.7 : 4.3;
+            const minHits = sourceAnchor || strongSignal || usedNonGenericFallback ? 1 : 2;
             const isGenericBestProfile = selectedProfile ? isGenericReferenceFilePath(selectedProfile.file) : false;
-            const nonGenericFallbackMinScore = sourceAnchor ? 3.8 : 4.1;
+            const nonGenericFallbackMinScore = sourceAnchor ? 3.0 : strongSignal ? 3.4 : 3.8;
             if (selectedProfile &&
                 selectedFileScore >= (usedNonGenericFallback ? nonGenericFallbackMinScore : minFileScore) &&
-                (selectedFileHits.length >= minHits || signalStrength >= 9) &&
+                (selectedFileHits.length >= minHits || signalStrength >= 8) &&
                 (!isGenericBestProfile || (selectedFileHits.length >= 4 && signalStrength >= 13))) {
                 if (!isGenericBestProfile) {
                     const confidenceRaw = Math.min(0.96, roundMetric(0.24 + selectedFileScore / 12.5));
                     const targetProjectPath = buildReferenceTargetPath(selectedProfile.file);
                     const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
-                    if (targetCount >= 1) {
+                    const targetLimit = usedNonGenericFallback ? 2 : 1;
+                    if (targetCount >= targetLimit) {
                         continue;
                     }
                     const confidence = confidenceRaw;
@@ -671,11 +691,13 @@ function buildDeobfuscationTableMatchV2(input) {
                         `dominant-domain: ${signal.dominantDomain}`,
                         sourceAnchor ? `source-anchor: ${sourceAnchor.primaryFile} (score=${sourceAnchor.score})` : "source-anchor: none",
                         usedNonGenericFallback ? "fallback: controlled-non-generic-second-best" : "fallback: primary-best",
+                        targetCount > 0 ? "target-collision: allowed-duplicate-target-mapping" : "target-collision: none",
                         `reference-file: ${selectedProfile.file}`,
                         `match-v2-score: ${roundMetric(selectedFileScore)}`,
                     ];
                     filePlans.push({ sourceFile: relPath, proposedModulePath: targetProjectPath, confidence, rationale, referenceSource: selectedProfile.source });
                     filePlanCountByTargetPath.set(targetProjectPath, targetCount + 1);
+                    mappedFilePlan = true;
                     const id = `file|${relPath}|${targetProjectPath}`;
                     if (!seenEntry.has(id)) {
                         seenEntry.add(id);
@@ -696,6 +718,126 @@ function buildDeobfuscationTableMatchV2(input) {
                             },
                             rationale,
                         });
+                    }
+                }
+            }
+            if (!mappedFilePlan && sourceAnchor && signalStrength >= 9) {
+                const anchorCandidates = [sourceAnchor.primaryFile, ...sourceAnchor.secondaryFiles].filter((candidate) => !isGenericReferenceFilePath(candidate));
+                let fallbackAnchor;
+                for (const candidateFile of anchorCandidates) {
+                    const profile = referenceFileProfiles.find((item) => item.file === candidateFile);
+                    if (!profile)
+                        continue;
+                    const scored = scoreReferenceFileProfile({ sourceFile: relPath, profile, fileSignals: signal });
+                    if (!fallbackAnchor || scored.score > fallbackAnchor.score) {
+                        fallbackAnchor = { profile, score: scored.score, hits: scored.hits };
+                    }
+                }
+                if (fallbackAnchor && fallbackAnchor.score >= 3.1) {
+                    const targetProjectPath = buildReferenceTargetPath(fallbackAnchor.profile.file);
+                    const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
+                    if (targetCount < 1) {
+                        const confidence = Math.min(0.92, roundMetric(0.2 + fallbackAnchor.score / 13));
+                        const proposedName = path.basename(fallbackAnchor.profile.file).replace(/\.[^.]+$/, "");
+                        const rationale = [
+                            `keyword-overlap: ${fallbackAnchor.hits.join(", ") || "none"}`,
+                            `signals: ast=${signal.ast}, ipcRpc=${signal.ipcRpc}, state=${signal.state}, boundary=${signal.boundary}, flow=${signal.flow}`,
+                            `dominant-domain: ${signal.dominantDomain}`,
+                            `source-anchor: ${sourceAnchor.primaryFile} (score=${sourceAnchor.score})`,
+                            "fallback: anchor-secondary-non-generic",
+                            "target-collision: none",
+                            `reference-file: ${fallbackAnchor.profile.file}`,
+                            `match-v2-score: ${roundMetric(fallbackAnchor.score)}`,
+                        ];
+                        filePlans.push({
+                            sourceFile: relPath,
+                            proposedModulePath: targetProjectPath,
+                            confidence,
+                            rationale,
+                            referenceSource: fallbackAnchor.profile.source,
+                        });
+                        filePlanCountByTargetPath.set(targetProjectPath, targetCount + 1);
+                        mappedFilePlan = true;
+                        const id = `file|${relPath}|${targetProjectPath}`;
+                        if (!seenEntry.has(id)) {
+                            seenEntry.add(id);
+                            entries.push({
+                                id,
+                                kind: "file",
+                                obfuscated: relPath,
+                                deobfuscated: proposedName,
+                                sourceFile: relPath,
+                                targetProjectPath,
+                                confidence,
+                                reference: {
+                                    source: fallbackAnchor.profile.source,
+                                    symbol: proposedName,
+                                    file: fallbackAnchor.profile.file,
+                                    kind: "module-file",
+                                    score: fallbackAnchor.profile.maxScore,
+                                },
+                                rationale,
+                            });
+                        }
+                    }
+                }
+            }
+            if (!mappedFilePlan && signalStrength >= 8) {
+                let floorFallback;
+                for (const profile of referenceFileProfiles) {
+                    if (isGenericReferenceFilePath(profile.file))
+                        continue;
+                    const scored = scoreReferenceFileProfile({ sourceFile: relPath, profile, fileSignals: signal });
+                    if (!floorFallback || scored.score > floorFallback.score) {
+                        floorFallback = { profile, score: scored.score, hits: scored.hits };
+                    }
+                }
+                if (floorFallback && floorFallback.score >= 1.8 && floorFallback.hits.length >= 1) {
+                    const targetProjectPath = buildReferenceTargetPath(floorFallback.profile.file);
+                    const targetCount = filePlanCountByTargetPath.get(targetProjectPath) ?? 0;
+                    if (targetCount < 2) {
+                        const confidence = Math.min(0.78, roundMetric(0.32 + floorFallback.score / 20));
+                        const proposedName = path.basename(floorFallback.profile.file).replace(/\.[^.]+$/, "");
+                        const rationale = [
+                            `keyword-overlap: ${floorFallback.hits.join(", ") || "none"}`,
+                            `signals: ast=${signal.ast}, ipcRpc=${signal.ipcRpc}, state=${signal.state}, boundary=${signal.boundary}, flow=${signal.flow}`,
+                            `dominant-domain: ${signal.dominantDomain}`,
+                            sourceAnchor ? `source-anchor: ${sourceAnchor.primaryFile} (score=${sourceAnchor.score})` : "source-anchor: none",
+                            "fallback: non-generic-floor-candidate",
+                            targetCount > 0 ? "target-collision: allowed-duplicate-target-mapping" : "target-collision: none",
+                            `reference-file: ${floorFallback.profile.file}`,
+                            `match-v2-score: ${roundMetric(floorFallback.score)}`,
+                        ];
+                        filePlans.push({
+                            sourceFile: relPath,
+                            proposedModulePath: targetProjectPath,
+                            confidence,
+                            rationale,
+                            referenceSource: floorFallback.profile.source,
+                        });
+                        filePlanCountByTargetPath.set(targetProjectPath, targetCount + 1);
+                        mappedFilePlan = true;
+                        const id = `file|${relPath}|${targetProjectPath}`;
+                        if (!seenEntry.has(id)) {
+                            seenEntry.add(id);
+                            entries.push({
+                                id,
+                                kind: "file",
+                                obfuscated: relPath,
+                                deobfuscated: proposedName,
+                                sourceFile: relPath,
+                                targetProjectPath,
+                                confidence,
+                                reference: {
+                                    source: floorFallback.profile.source,
+                                    symbol: proposedName,
+                                    file: floorFallback.profile.file,
+                                    kind: "module-file",
+                                    score: floorFallback.profile.maxScore,
+                                },
+                                rationale,
+                            });
+                        }
                     }
                 }
             }

@@ -44,6 +44,7 @@ const deobfuscation_report_1 = require("./reverse/deobfuscation-report");
 const webstorm_project_1 = require("./reverse/webstorm-project");
 const session_route_flow_1 = require("./reverse/session-route-flow");
 const reference_parity_1 = require("./reverse/reference-parity");
+const rpc_schema_1 = require("./reverse/rpc-schema");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const REFERENCE_MAP_DEFAULT_PATH = path.resolve(REPO_ROOT, "reference", "analysis", "1code-codexmonitor-architecture-map.md");
 const REFERENCE_1CODE_SYMBOL_MAP_DEFAULT_PATH = path.resolve(REPO_ROOT, "reference", "analysis", "1code-symbol-map.json");
@@ -289,50 +290,6 @@ const DOMAIN_KEYWORDS = {
         ],
     },
 };
-const ENVELOPE_REQUEST_HINT = /(invoke|request|query|mutation|create|update|delete|set|get|list|start|stop|run|cancel|send|login|logout|open|close|archive|resume|interrupt|approve|reject)/i;
-const ENVELOPE_RESPONSE_HINT = /(response|result|reply|resolved|resolve|ack|ok|success|failed|error)/i;
-const ENVELOPE_EVENT_HINT = /(event|stream|delta|heartbeat|subscribe|unsubscribe|listener|listen|notify|notification|attached|detached|changed|updated|output)/i;
-const PAYLOAD_KEY_STOPWORDS = new Set([
-    "id",
-    "ids",
-    "type",
-    "kind",
-    "method",
-    "params",
-    "payload",
-    "data",
-    "jsonrpc",
-    "request",
-    "response",
-    "event",
-    "result",
-    "error",
-    "ok",
-    "status",
-    "value",
-    "meta",
-    "timestamp",
-    "errno",
-    "code",
-    "syscall",
-    "path",
-    "stack",
-    "name",
-    "message",
-    "errormessage",
-    "errorname",
-    "errorstack",
-    "enoent",
-    "exists",
-    "exist",
-    "js",
-    "ts",
-]);
-const RUNTIME_METHOD_NOISE_LINE_HINT = /(enoent|path does not exist|errorstack|at [a-z0-9_$]+\s*\(|\/\.codex\/|\\\.codex\\|[a-z]:\\users\\|\/users\/|\/home\/|\.vite\/build|app:\/\/-\/assets\/)/i;
-const RUNTIME_METHOD_NOISE_PATH_HINT = /(worktrees?|workspace|users?|home|assets?|contents?|resources?)/i;
-const RUNTIME_METHOD_STRICT_PREFIXES = new Set(["thread", "turn", "conversation", "review", "session", "chat", "account", "config", "mcpServer", "skills", "model", "apps", "feedback", "command", "mcp"]);
-const RUNTIME_PAYLOAD_SEGMENT_HINT = /\{[^{}]{2,1600}\}/g;
-const RUNTIME_PAYLOAD_CONTEXT_HINT = /\b(payload|params|request|response|event|result|input|data|body)\b/i;
 const PARITY_TIER_THRESHOLDS = {
     critical: 78,
     high: 52,
@@ -1893,481 +1850,6 @@ function buildRpcCatalog(methodRows, binary) {
             return a.binary ? -1 : 1;
         return a.value.localeCompare(b.value);
     });
-}
-function addMapSetEntry(map, key, value) {
-    const set = map.get(key) ?? new Set();
-    set.add(value);
-    map.set(key, set);
-}
-function resolveObjectLiteralFromExpression(expression, objectLiterals) {
-    const normalized = unwrapExpressionWrappers(expression);
-    if (ts.isObjectLiteralExpression(normalized))
-        return normalized;
-    if (ts.isIdentifier(normalized))
-        return objectLiterals.get(normalized.text) ?? null;
-    if (ts.isBinaryExpression(normalized) && normalized.operatorToken.kind === ts.SyntaxKind.CommaToken) {
-        return resolveObjectLiteralFromExpression(normalized.right, objectLiterals);
-    }
-    return null;
-}
-function normalizePayloadKey(value) {
-    return value.trim().replace(/^['"]+|['"]+$/g, "");
-}
-function isMeaningfulPayloadKey(value) {
-    const normalized = normalizePayloadKey(value);
-    if (normalized.length < 3 || normalized.length > 64)
-        return false;
-    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(normalized))
-        return false;
-    if (/^\d+$/.test(normalized))
-        return false;
-    if (/\.(?:js|ts|tsx|jsx|map|json|md|txt)$/i.test(normalized))
-        return false;
-    if (/^[A-Z0-9_]{3,}$/.test(normalized))
-        return false;
-    const lower = normalized.toLowerCase();
-    if (PAYLOAD_KEY_STOPWORDS.has(lower))
-        return false;
-    if (lower.includes("error") || lower.includes("stack"))
-        return false;
-    return true;
-}
-function collectPayloadKeysFromObjectLiteral(objectLiteral, objectLiterals, out, depth = 0) {
-    if (depth > 2)
-        return;
-    for (const property of objectLiteral.properties) {
-        if (ts.isSpreadAssignment(property)) {
-            const nestedSpread = resolveObjectLiteralFromExpression(property.expression, objectLiterals);
-            if (nestedSpread)
-                collectPayloadKeysFromObjectLiteral(nestedSpread, objectLiterals, out, depth + 1);
-            continue;
-        }
-        if (ts.isShorthandPropertyAssignment(property)) {
-            if (isMeaningfulPayloadKey(property.name.text))
-                out.add(normalizePayloadKey(property.name.text));
-            continue;
-        }
-        if (!ts.isPropertyAssignment(property))
-            continue;
-        const propertyName = getPropertyNameText(property.name) ?? "";
-        if (propertyName.length > 0 && isMeaningfulPayloadKey(propertyName)) {
-            out.add(normalizePayloadKey(propertyName));
-        }
-        const nested = resolveObjectLiteralFromExpression(property.initializer, objectLiterals);
-        if (nested &&
-            (depth === 0 || /^(payload|params|data|body|input|args|options|request|response|context)$/i.test(propertyName))) {
-            collectPayloadKeysFromObjectLiteral(nested, objectLiterals, out, depth + 1);
-        }
-        if (ts.isArrayLiteralExpression(property.initializer) && depth < 2) {
-            for (const element of property.initializer.elements) {
-                if (!ts.isObjectLiteralExpression(element))
-                    continue;
-                collectPayloadKeysFromObjectLiteral(element, objectLiterals, out, depth + 1);
-            }
-        }
-    }
-}
-function extractRpcMethodFromObjectLiteral(input) {
-    for (const property of input.objectLiteral.properties) {
-        if (!ts.isPropertyAssignment(property))
-            continue;
-        const propertyName = (getPropertyNameText(property.name) ?? "").toLowerCase();
-        if (!propertyName)
-            continue;
-        if (!/^(method|rpcmethod|rpc_method|rpc|path)$/i.test(propertyName))
-            continue;
-        const value = resolveStaticStringExpression({
-            expression: property.initializer,
-            helperFunctions: input.helperFunctions,
-            identifierBindings: input.identifierBindings,
-        });
-        if (looksLikeRpcMethod(value))
-            return value;
-    }
-    return "";
-}
-function inferEnvelopeKindsFromText(text) {
-    const normalized = text.toLowerCase();
-    const out = new Set();
-    if (ENVELOPE_REQUEST_HINT.test(normalized))
-        out.add("request");
-    if (ENVELOPE_RESPONSE_HINT.test(normalized))
-        out.add("response");
-    if (ENVELOPE_EVENT_HINT.test(normalized))
-        out.add("event");
-    return out;
-}
-function isRuntimeMethodLikelyNoise(method, line) {
-    const normalizedMethod = method.toLowerCase();
-    const normalizedLine = line.toLowerCase();
-    const methodParts = normalizedMethod.split("/").filter((part) => part.length > 0);
-    const first = methodParts[0] ?? "";
-    if (!RUNTIME_METHOD_STRICT_PREFIXES.has(first) && !method.startsWith("codex/")) {
-        return true;
-    }
-    if (normalizedLine.includes(`.${normalizedMethod}`))
-        return true;
-    if (normalizedLine.includes(`/${normalizedMethod}`) && RUNTIME_METHOD_NOISE_LINE_HINT.test(normalizedLine)) {
-        return true;
-    }
-    if (RUNTIME_METHOD_NOISE_LINE_HINT.test(normalizedLine) &&
-        methodParts.some((part) => RUNTIME_METHOD_NOISE_PATH_HINT.test(part))) {
-        return true;
-    }
-    if (/^codex\/worktrees?\//i.test(method))
-        return true;
-    return false;
-}
-function extractRuntimePayloadSegments(line) {
-    const segments = new Set();
-    RUNTIME_PAYLOAD_SEGMENT_HINT.lastIndex = 0;
-    let match = null;
-    while ((match = RUNTIME_PAYLOAD_SEGMENT_HINT.exec(line)) !== null) {
-        const segment = match[0];
-        if (segment.length < 4)
-            continue;
-        segments.add(segment);
-    }
-    if (segments.size > 0) {
-        return Array.from(segments);
-    }
-    if (RUNTIME_PAYLOAD_CONTEXT_HINT.test(line)) {
-        return [line];
-    }
-    return [];
-}
-function extractPayloadKeysFromRuntimeLine(line) {
-    const keys = new Set();
-    const segments = extractRuntimePayloadSegments(line);
-    if (segments.length === 0)
-        return keys;
-    const quotedKeyRegex = /["']([A-Za-z_][A-Za-z0-9_.-]{1,63})["']\s*:/g;
-    const bareKeyRegex = /\b([A-Za-z_][A-Za-z0-9_]{1,63})\s*:/g;
-    for (const segment of segments) {
-        quotedKeyRegex.lastIndex = 0;
-        bareKeyRegex.lastIndex = 0;
-        let match = null;
-        while ((match = quotedKeyRegex.exec(segment)) !== null) {
-            if (!isMeaningfulPayloadKey(match[1]))
-                continue;
-            keys.add(normalizePayloadKey(match[1]));
-        }
-        while ((match = bareKeyRegex.exec(segment)) !== null) {
-            if (!isMeaningfulPayloadKey(match[1]))
-                continue;
-            keys.add(normalizePayloadKey(match[1]));
-        }
-    }
-    return keys;
-}
-function isRuntimeMethodStrongContext(input) {
-    const normalizedLine = input.line.toLowerCase();
-    if (input.knownRuntimeMethods.has(input.method))
-        return true;
-    if (/["'`]method["'`]\s*:/.test(input.line))
-        return true;
-    if (input.linePayloadKeys.size >= 2 && RUNTIME_PAYLOAD_CONTEXT_HINT.test(input.line))
-        return true;
-    if (input.lineClass === "logic" && /\brpc\b|\binvoke\b|\brequest\b|\bresponse\b|\bevent\b/.test(normalizedLine)) {
-        return true;
-    }
-    return false;
-}
-function extractRuntimeRpcSignals(input) {
-    const methodCounts = new Map();
-    const methodPayloadKeys = new Map();
-    const methodEnvelopes = new Map();
-    const softRecoveredMethods = new Set();
-    const candidateLines = input.runtimeProbe.capturedLines.length > 0
-        ? input.runtimeProbe.capturedLines
-        : [...input.runtimeProbe.warnings, ...input.runtimeProbe.errors];
-    for (const line of candidateLines) {
-        const lineClass = classifyProbeLine(line);
-        const lineLooksRpcish = /["'`]method["'`]\s*:|\/(thread|turn|conversation|session|chat|account|config|mcpServer|skills)\//i.test(line) ||
-            /\brpc\b|\binvoke\b|\brequest\b|\bresponse\b|\bevent\b/i.test(line);
-        if (lineClass !== "logic" && !lineLooksRpcish)
-            continue;
-        const methods = new Set();
-        extractRpcMethodsFromText(line, methods);
-        if (methods.size === 0)
-            continue;
-        const linePayloadKeys = extractPayloadKeysFromRuntimeLine(line);
-        const lineEnvelopes = inferEnvelopeKindsFromText(line);
-        for (const method of methods) {
-            if (!looksLikeRpcMethod(method))
-                continue;
-            const noisy = isRuntimeMethodLikelyNoise(method, line);
-            if (noisy) {
-                if (input.noiseMode !== "soft")
-                    continue;
-                if (!isRuntimeMethodStrongContext({
-                    method,
-                    line,
-                    lineClass,
-                    linePayloadKeys,
-                    knownRuntimeMethods: input.knownRuntimeMethods,
-                })) {
-                    continue;
-                }
-                softRecoveredMethods.add(method);
-            }
-            methodCounts.set(method, (methodCounts.get(method) ?? 0) + 1);
-            for (const key of linePayloadKeys) {
-                addMapSetEntry(methodPayloadKeys, method, key);
-            }
-            for (const envelope of lineEnvelopes) {
-                addMapSetEntry(methodEnvelopes, method, envelope);
-            }
-        }
-    }
-    return {
-        linesScanned: candidateLines.length,
-        methodCounts,
-        methodPayloadKeys,
-        methodEnvelopes,
-        softRecoveredMethods,
-    };
-}
-function buildRpcSchemaStaticSignals(input) {
-    const methodCallsites = new Map();
-    const methodRendererCallsites = new Map();
-    const methodPayloadKeys = new Map();
-    const methodReadinessHints = new Map();
-    for (const file of input.jsFiles) {
-        const source = normalizeSourceForPrint(input.sourceByFile.get(file.relPath) ?? readUtf8(file.absPath));
-        let sourceFile;
-        try {
-            sourceFile = ts.createSourceFile(file.relPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-        }
-        catch {
-            continue;
-        }
-        const helperFunctions = buildIpcChannelHelperMap(sourceFile);
-        const identifierBindings = buildIpcChannelConstantEvalMap({
-            sourceFile,
-            helperFunctions,
-        });
-        const objectLiterals = buildObjectLiteralBindingMap(sourceFile);
-        const layer = classifyRuntimeLayer(file.relPath);
-        const isRendererLayer = layer === "renderer" || layer === "renderer-worker";
-        const visit = (node) => {
-            if (ts.isCallExpression(node)) {
-                const callName = getExpressionName(node.expression) ?? "call";
-                const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-                const callsite = `${file.relPath}:${position.line + 1}:${callName}`;
-                const callSnippet = node.getText(sourceFile).toLowerCase();
-                const readinessHints = Array.from(STATUS_WORDS).filter((status) => callSnippet.includes(status));
-                const registerMethod = (method, payloadExpression, payloadObjectLiteral) => {
-                    if (!looksLikeRpcMethod(method))
-                        return;
-                    addMapSetEntry(methodCallsites, method, callsite);
-                    if (isRendererLayer)
-                        addMapSetEntry(methodRendererCallsites, method, callsite);
-                    const payloadKeys = methodPayloadKeys.get(method) ?? new Set();
-                    if (payloadExpression) {
-                        const payloadObject = resolveObjectLiteralFromExpression(payloadExpression, objectLiterals);
-                        if (payloadObject) {
-                            collectPayloadKeysFromObjectLiteral(payloadObject, objectLiterals, payloadKeys, 0);
-                        }
-                    }
-                    if (payloadObjectLiteral) {
-                        collectPayloadKeysFromObjectLiteral(payloadObjectLiteral, objectLiterals, payloadKeys, 0);
-                    }
-                    if (payloadKeys.size > 0)
-                        methodPayloadKeys.set(method, payloadKeys);
-                    for (const readiness of readinessHints) {
-                        addMapSetEntry(methodReadinessHints, method, readiness);
-                    }
-                };
-                const firstArg = node.arguments[0];
-                if (firstArg) {
-                    const firstArgValue = resolveStaticStringExpression({
-                        expression: firstArg,
-                        helperFunctions,
-                        identifierBindings,
-                    });
-                    if (looksLikeRpcMethod(firstArgValue)) {
-                        registerMethod(firstArgValue, node.arguments[1] ?? null, null);
-                    }
-                }
-                for (const arg of node.arguments) {
-                    const objectLiteral = resolveObjectLiteralFromExpression(arg, objectLiterals);
-                    if (!objectLiteral)
-                        continue;
-                    const methodFromObject = extractRpcMethodFromObjectLiteral({
-                        objectLiteral,
-                        helperFunctions,
-                        identifierBindings,
-                    });
-                    if (!methodFromObject)
-                        continue;
-                    registerMethod(methodFromObject, null, objectLiteral);
-                }
-            }
-            ts.forEachChild(node, visit);
-        };
-        visit(sourceFile);
-    }
-    return {
-        methodCallsites,
-        methodRendererCallsites,
-        methodPayloadKeys,
-        methodReadinessHints,
-    };
-}
-function buildRpcSchemaReport(input) {
-    const staticSignals = buildRpcSchemaStaticSignals({
-        jsFiles: input.jsFiles,
-        sourceByFile: input.sourceByFile,
-    });
-    const knownRuntimeMethods = new Set();
-    for (const row of input.methodRows) {
-        knownRuntimeMethods.add(row.value);
-    }
-    for (const method of input.binary?.rpcLikeMethods ?? []) {
-        knownRuntimeMethods.add(method);
-    }
-    const runtimeSignals = extractRuntimeRpcSignals({
-        runtimeProbe: input.runtimeProbe,
-        noiseMode: input.runtimeRpcNoiseMode,
-        knownRuntimeMethods,
-    });
-    const statusCounts = buildValueCountMap(input.statusRows);
-    const statusesByFile = buildFileValueMap(input.statusRows);
-    const binaryMethods = new Set(input.binary?.rpcLikeMethods ?? []);
-    const bundleCountByMethod = buildValueCountMap(input.methodRows);
-    const bundleFilesByMethod = new Map();
-    for (const row of input.methodRows) {
-        bundleFilesByMethod.set(row.value, new Set(row.files));
-    }
-    const allMethods = new Set();
-    for (const row of input.methodRows)
-        allMethods.add(row.value);
-    for (const method of binaryMethods)
-        allMethods.add(method);
-    for (const method of runtimeSignals.methodCounts.keys())
-        allMethods.add(method);
-    for (const method of staticSignals.methodCallsites.keys())
-        allMethods.add(method);
-    const methods = [];
-    for (const method of allMethods) {
-        if (!looksLikeRpcMethod(method))
-            continue;
-        const bundleFiles = bundleFilesByMethod.get(method) ?? new Set();
-        const callsites = new Set(staticSignals.methodCallsites.get(method) ?? []);
-        const rendererCallsites = new Set(staticSignals.methodRendererCallsites.get(method) ?? []);
-        const payloadKeys = new Set(staticSignals.methodPayloadKeys.get(method) ?? []);
-        const readinessHints = new Set(staticSignals.methodReadinessHints.get(method) ?? []);
-        const envelopeHints = new Set(runtimeSignals.methodEnvelopes.get(method) ?? []);
-        const bundleCount = bundleCountByMethod.get(method) ?? 0;
-        const runtimeCount = runtimeSignals.methodCounts.get(method) ?? 0;
-        const fromBinary = binaryMethods.has(method);
-        const fromBundle = bundleCount > 0;
-        const fromRuntime = runtimeCount > 0;
-        if (callsites.size === 0 && bundleFiles.size > 0) {
-            for (const file of bundleFiles)
-                callsites.add(`${file}:0:bundle-index`);
-        }
-        for (const file of bundleFiles) {
-            const layer = classifyRuntimeLayer(file);
-            if (layer === "renderer" || layer === "renderer-worker") {
-                rendererCallsites.add(`${file}:0:bundle-index`);
-            }
-            const statuses = statusesByFile.get(file);
-            if (!statuses)
-                continue;
-            for (const status of statuses)
-                readinessHints.add(status);
-        }
-        for (const callsite of callsites) {
-            for (const envelope of inferEnvelopeKindsFromText(callsite))
-                envelopeHints.add(envelope);
-            const callsiteFile = callsite.split(":")[0] ?? "";
-            const statuses = statusesByFile.get(callsiteFile);
-            if (!statuses)
-                continue;
-            for (const status of statuses)
-                readinessHints.add(status);
-        }
-        for (const key of runtimeSignals.methodPayloadKeys.get(method) ?? [])
-            payloadKeys.add(key);
-        for (const key of payloadKeys) {
-            for (const envelope of inferEnvelopeKindsFromText(key))
-                envelopeHints.add(envelope);
-        }
-        for (const envelope of inferEnvelopeKindsFromText(method))
-            envelopeHints.add(envelope);
-        if (envelopeHints.size === 0) {
-            if (ENVELOPE_EVENT_HINT.test(method)) {
-                envelopeHints.add("event");
-            }
-            else {
-                envelopeHints.add("request");
-            }
-        }
-        let confidence = 0.15;
-        if (fromBundle)
-            confidence += 0.45;
-        if (fromBinary)
-            confidence += 0.2;
-        if (fromRuntime)
-            confidence += 0.2;
-        if (rendererCallsites.size > 0)
-            confidence += 0.08;
-        if (payloadKeys.size > 0)
-            confidence += 0.07;
-        confidence = Math.min(0.99, roundMetric(confidence));
-        methods.push({
-            method,
-            confidence,
-            sources: {
-                bundle: fromBundle,
-                binary: fromBinary,
-                runtime: fromRuntime,
-            },
-            bundleCount,
-            runtimeCount,
-            callsites: Array.from(callsites).sort((a, b) => a.localeCompare(b)).slice(0, 24),
-            rendererCallsites: Array.from(rendererCallsites).sort((a, b) => a.localeCompare(b)).slice(0, 20),
-            payloadKeys: Array.from(payloadKeys).sort((a, b) => a.localeCompare(b)).slice(0, 24),
-            readinessHints: rankValuesByCount(readinessHints, statusCounts, 12),
-            envelopes: Array.from(envelopeHints).sort((a, b) => a.localeCompare(b)),
-        });
-    }
-    methods.sort((a, b) => {
-        if (a.confidence !== b.confidence)
-            return b.confidence - a.confidence;
-        if (a.bundleCount !== b.bundleCount)
-            return b.bundleCount - a.bundleCount;
-        if (a.runtimeCount !== b.runtimeCount)
-            return b.runtimeCount - a.runtimeCount;
-        return a.method.localeCompare(b.method);
-    });
-    return {
-        generatedAtUtc: new Date().toISOString(),
-        strategy: `Unified RPC schema from bundle index + binary strings + runtime logs + AST renderer callsites, with inferred payload keys and envelope kinds (runtime noise mode=${input.runtimeRpcNoiseMode}).`,
-        methods,
-        coverage: {
-            methods: methods.length,
-            fromBundle: methods.filter((row) => row.sources.bundle).length,
-            fromBinary: methods.filter((row) => row.sources.binary).length,
-            fromRuntime: methods.filter((row) => row.sources.runtime).length,
-            withPayloadKeys: methods.filter((row) => row.payloadKeys.length > 0).length,
-            withRendererCallsites: methods.filter((row) => row.rendererCallsites.length > 0).length,
-        },
-        envelopes: {
-            request: methods.filter((row) => row.envelopes.includes("request")).length,
-            response: methods.filter((row) => row.envelopes.includes("response")).length,
-            event: methods.filter((row) => row.envelopes.includes("event")).length,
-        },
-        runtimeProbe: {
-            used: input.runtimeProbe.attempted,
-            linesScanned: runtimeSignals.linesScanned,
-            methodsDetected: runtimeSignals.methodCounts.size,
-            noiseMode: input.runtimeRpcNoiseMode,
-            softRecoveredMethods: runtimeSignals.softRecoveredMethods.size,
-        },
-    };
 }
 function classifyRuntimeLayer(file) {
     const normalized = toPosixPath(file).toLowerCase();
@@ -4283,7 +3765,7 @@ async function runReverse(options) {
             (0, exec_1.writeInfo)(`Runtime probe errors captured: ${runtimeProbeResult.errors.length}`);
         }
     }
-    const rpcSchema = buildRpcSchemaReport({
+    const rpcSchema = (0, rpc_schema_1.buildRpcSchemaReport)({
         methodRows,
         statusRows,
         binary: binaryResult,
@@ -4291,6 +3773,25 @@ async function runReverse(options) {
         runtimeRpcNoiseMode: options.runtimeRpcNoiseMode,
         jsFiles,
         sourceByFile,
+        statusWords: STATUS_WORDS,
+        helpers: {
+            looksLikeRpcMethod,
+            extractRpcMethodsFromText,
+            classifyRuntimeLayer,
+            classifyProbeLine,
+            buildIpcChannelHelperMap,
+            buildIpcChannelConstantEvalMap: ({ sourceFile, helperFunctions }) => buildIpcChannelConstantEvalMap({
+                sourceFile,
+                helperFunctions: helperFunctions,
+            }),
+            resolveStaticStringExpression: ({ expression, helperFunctions, identifierBindings }) => resolveStaticStringExpression({
+                expression,
+                helperFunctions: helperFunctions,
+                identifierBindings: identifierBindings,
+            }),
+            getExpressionName,
+            getPropertyNameText,
+        },
     });
     const sessionRouteHelpers = {
         dedupeKeywords,
@@ -4299,7 +3800,7 @@ async function runReverse(options) {
         buildFileValueMap,
         isLikelyCoreAppFile,
         isCandidateBoundaryFile,
-        inferEnvelopeKindsFromText,
+        inferEnvelopeKindsFromText: rpc_schema_1.inferEnvelopeKindsFromText,
     };
     const sessionFlow = (0, session_route_flow_1.buildSessionFlowReport)({
         top: options.top,
