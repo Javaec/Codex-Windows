@@ -101,6 +101,23 @@ function hasAllowedTargetPrefix(value) {
     const normalized = toPosixPath(value).replace(/^\.?\//, "");
     return regression_config_1.REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
+function countLowConfidenceSymbols(report) {
+    return report.entries.filter((entry) => (entry.kind === "class" || entry.kind === "function") && entry.confidence < 0.65).length;
+}
+function countNoisySymbolNames(report) {
+    return report.entries.filter((entry) => {
+        if (entry.kind !== "class" && entry.kind !== "function")
+            return false;
+        const name = entry.deobfuscated;
+        if (/(Ref\d+$|N\d+$|Line\d+$)/i.test(name))
+            return true;
+        if (/(SrcMain|SrcRenderer|SrcServices|SrcTauri)/i.test(name))
+            return true;
+        if (/(V\d+){2,}$/i.test(name))
+            return true;
+        return false;
+    }).length;
+}
 function validateChunkArtifacts(projectRoot, chunkArtifacts, reconstructed) {
     const failures = [];
     const genericNoisePaths = [];
@@ -157,11 +174,19 @@ function enforceQualityGates(input) {
     const failures = [];
     const mappedFiles = input.deobfuscationTable.coverage.mappedFiles;
     const mappedSymbols = input.deobfuscationTable.coverage.mappedSymbols;
+    const lowConfidenceSymbols = countLowConfidenceSymbols(input.deobfuscationTable);
+    const noisySymbolNames = countNoisySymbolNames(input.deobfuscationTable);
     if (mappedFiles < regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin || mappedFiles > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax) {
         failures.push(`mappedFiles out of gate range: ${mappedFiles} (expected ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin}-${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax})`);
     }
     if (mappedSymbols < regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin) {
         failures.push(`mappedSymbols below gate floor: ${mappedSymbols} (expected >= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin})`);
+    }
+    if (lowConfidenceSymbols > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax) {
+        failures.push(`low-confidence symbol count above gate ceiling: ${lowConfidenceSymbols} (expected <= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax})`);
+    }
+    if (noisySymbolNames > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax) {
+        failures.push(`noisy symbol-name count above gate ceiling: ${noisySymbolNames} (expected <= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax})`);
     }
     if (!input.projectChecks.install.success) {
         failures.push("generated project gate failed: npm install is not successful");
@@ -192,6 +217,8 @@ function enforceQualityGates(input) {
         metrics: {
             mappedFiles,
             mappedSymbols,
+            lowConfidenceSymbols,
+            noisySymbolNames,
             previousMappedSymbols,
             genericNoisePaths: artifactValidation.genericNoisePaths,
             installSuccess: input.projectChecks.install.success,
@@ -207,6 +234,8 @@ function enforceQualityGates(input) {
             mappedFilesMin: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin,
             mappedFilesMax: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax,
             mappedSymbolsMin: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin,
+            lowConfidenceSymbolsMax: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax,
+            noisySymbolNamesMax: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax,
             allowedTargetPrefixes: [...regression_config_1.REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes],
         },
         failures,

@@ -43,6 +43,8 @@ export interface QualityGateReport {
   metrics: {
     mappedFiles: number;
     mappedSymbols: number;
+    lowConfidenceSymbols: number;
+    noisySymbolNames: number;
     previousMappedSymbols: number;
     genericNoisePaths: string[];
     installSuccess: boolean;
@@ -58,6 +60,8 @@ export interface QualityGateReport {
     mappedFilesMin: number;
     mappedFilesMax: number;
     mappedSymbolsMin: number;
+    lowConfidenceSymbolsMax: number;
+    noisySymbolNamesMax: number;
     allowedTargetPrefixes: string[];
   };
   failures: string[];
@@ -139,6 +143,23 @@ function hasAllowedTargetPrefix(value: string): boolean {
   return REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
+function countLowConfidenceSymbols(report: DeobfuscationTableReport): number {
+  return report.entries.filter(
+    (entry) => (entry.kind === "class" || entry.kind === "function") && entry.confidence < 0.65,
+  ).length;
+}
+
+function countNoisySymbolNames(report: DeobfuscationTableReport): number {
+  return report.entries.filter((entry) => {
+    if (entry.kind !== "class" && entry.kind !== "function") return false;
+    const name = entry.deobfuscated;
+    if (/(Ref\d+$|N\d+$|Line\d+$)/i.test(name)) return true;
+    if (/(SrcMain|SrcRenderer|SrcServices|SrcTauri)/i.test(name)) return true;
+    if (/(V\d+){2,}$/i.test(name)) return true;
+    return false;
+  }).length;
+}
+
 function validateChunkArtifacts(
   projectRoot: string,
   chunkArtifacts: ChunkArtifactRow[],
@@ -201,6 +222,8 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
   const failures: string[] = [];
   const mappedFiles = input.deobfuscationTable.coverage.mappedFiles;
   const mappedSymbols = input.deobfuscationTable.coverage.mappedSymbols;
+  const lowConfidenceSymbols = countLowConfidenceSymbols(input.deobfuscationTable);
+  const noisySymbolNames = countNoisySymbolNames(input.deobfuscationTable);
   if (mappedFiles < REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin || mappedFiles > REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax) {
     failures.push(
       `mappedFiles out of gate range: ${mappedFiles} (expected ${REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin}-${REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax})`,
@@ -209,6 +232,16 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
   if (mappedSymbols < REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin) {
     failures.push(
       `mappedSymbols below gate floor: ${mappedSymbols} (expected >= ${REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin})`,
+    );
+  }
+  if (lowConfidenceSymbols > REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax) {
+    failures.push(
+      `low-confidence symbol count above gate ceiling: ${lowConfidenceSymbols} (expected <= ${REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax})`,
+    );
+  }
+  if (noisySymbolNames > REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax) {
+    failures.push(
+      `noisy symbol-name count above gate ceiling: ${noisySymbolNames} (expected <= ${REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax})`,
     );
   }
 
@@ -252,6 +285,8 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
     metrics: {
       mappedFiles,
       mappedSymbols,
+      lowConfidenceSymbols,
+      noisySymbolNames,
       previousMappedSymbols,
       genericNoisePaths: artifactValidation.genericNoisePaths,
       installSuccess: input.projectChecks.install.success,
@@ -267,6 +302,8 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
       mappedFilesMin: REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin,
       mappedFilesMax: REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax,
       mappedSymbolsMin: REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin,
+      lowConfidenceSymbolsMax: REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax,
+      noisySymbolNamesMax: REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax,
       allowedTargetPrefixes: [...REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes],
     },
     failures,

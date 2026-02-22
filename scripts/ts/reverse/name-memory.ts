@@ -145,6 +145,7 @@ function isNoisyNameToken(token: string): boolean {
   if (/^\d+$/.test(token)) return true;
   if (/^v\d+$/i.test(token)) return true;
   if (/^ref\d*$/i.test(token)) return true;
+  if (/^line\d+$/i.test(token)) return true;
   if (/^bs\d+$/i.test(token)) return true;
   if (/^(src|chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token)) return true;
   return false;
@@ -179,7 +180,7 @@ function sanitizeSymbolName(input: {
   const layer = inferLayerFromReference(input.referenceFile);
   const layerToken = layer === "domain" ? "domain" : layer;
   if (unique.length === 0) unique.push(layerToken);
-  if (!unique.includes(layerToken)) unique.push(layerToken);
+  if (unique.length <= 2 && !unique.includes(layerToken)) unique.push(layerToken);
 
   const joined = unique.join(" ");
   if (input.kind === "class") {
@@ -188,6 +189,33 @@ function sanitizeSymbolName(input: {
   }
   const next = toCamelCase(joined);
   return next.length > 0 ? next : "domainValue";
+}
+
+function isIdentifierLikeName(name: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+}
+
+function shouldSanitizeName(entry: DeobfuscationTableEntry): boolean {
+  if (entry.kind === "file") return false;
+  const name = entry.deobfuscated.trim();
+  if (name.length < 3) return true;
+  if (name.length > 90) return true;
+  if (!isIdentifierLikeName(name)) return true;
+  if (/(Ref\d+$|N\d+$|Line\d+$)/i.test(name)) return true;
+  if (/(V\d+){2,}$/i.test(name)) return true;
+  if (/^([a-z]{1,2}\d*|[A-Z]{1,2}\d*)$/i.test(name)) return true;
+  if (/^(domain|main|renderer|services|tauri|handler|module|symbol|value)([A-Z0-9].*)?$/i.test(name)) return true;
+  return false;
+}
+
+function buildStableCollisionSuffix(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const normalized = (hash >>> 0).toString(36).toUpperCase();
+  return `Id${normalized.slice(0, 5)}`;
 }
 
 function buildDedupeName(input: {
@@ -244,6 +272,10 @@ function buildDedupeName(input: {
     const withBoth = toName([...uniqueTokens, obfuscatedTokens[0]!, `line${sourceLine}`]);
     if (!input.usedNames.has(withBoth)) return withBoth;
   }
+
+  const collisionKey = `${input.entry.kind}|${input.entry.sourceFile}|${input.entry.obfuscated}|${input.entry.reference.file}`;
+  const withHash = `${baseName}${buildStableCollisionSuffix(collisionKey)}`;
+  if (!input.usedNames.has(withHash)) return withHash;
 
   let nextName = baseName;
   let suffix = 2;
@@ -452,6 +484,7 @@ export function applyNameMemory(input: ApplyNameMemoryInput): ApplyNameMemoryRes
 
   for (const entry of nextReport.entries) {
     if (entry.kind === "file") continue;
+    if (!shouldSanitizeName(entry)) continue;
     const nextName = sanitizeSymbolName({
       name: entry.deobfuscated,
       kind: entry.kind,
