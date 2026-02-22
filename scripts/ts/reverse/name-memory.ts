@@ -147,6 +147,9 @@ function isNoisyNameToken(token: string): boolean {
   if (/^ref\d*$/i.test(token)) return true;
   if (/^line\d+$/i.test(token)) return true;
   if (/^bs\d+$/i.test(token)) return true;
+  if (/^x\d+[a-z0-9]+$/i.test(token)) return true;
+  if (/^[a-z]{1,2}\d{2,}$/i.test(token)) return true;
+  if (/^(webview|vite|build|index|base|uniq|chunk|chunks|diagram|gantt|kanban|treemap|sequence|architecture|flow|block)$/i.test(token)) return true;
   if (/^(src|chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token)) return true;
   return false;
 }
@@ -167,20 +170,21 @@ function sanitizeSymbolName(input: {
   kind: "class" | "function" | "variable";
   referenceFile: string;
 }): string {
-  const referenceTokens = splitTokens(input.referenceFile.replace(/\.[^.]+$/, ""));
+  const referenceStem = path.posix.basename(toPosixPath(input.referenceFile).replace(/\.[^.]+$/, ""));
+  const referenceTokens = splitTokens(referenceStem);
   const rawTokens = [...splitTokens(input.name), ...referenceTokens];
   const filtered = rawTokens.filter((token) => !isNoisyNameToken(token));
   const unique: string[] = [];
   for (const token of filtered) {
     if (unique.includes(token)) continue;
     unique.push(token);
-    if (unique.length >= 4) break;
+    if (unique.length >= 3) break;
   }
 
   const layer = inferLayerFromReference(input.referenceFile);
   const layerToken = layer === "domain" ? "domain" : layer;
   if (unique.length === 0) unique.push(layerToken);
-  if (unique.length <= 2 && !unique.includes(layerToken)) unique.push(layerToken);
+  if (unique.length <= 1 && !unique.includes(layerToken)) unique.push(layerToken);
 
   const joined = unique.join(" ");
   if (input.kind === "class") {
@@ -199,10 +203,12 @@ function shouldSanitizeName(entry: DeobfuscationTableEntry): boolean {
   if (entry.kind === "file") return false;
   const name = entry.deobfuscated.trim();
   if (name.length < 3) return true;
-  if (name.length > 90) return true;
+  if (name.length > 64) return true;
   if (!isIdentifierLikeName(name)) return true;
   if (/(Ref\d+$|N\d+$|Line\d+$)/i.test(name)) return true;
   if (/(V\d+){2,}$/i.test(name)) return true;
+  if (/(SrcMain|SrcRenderer|SrcServices|SrcTauri)/i.test(name)) return true;
+  if (/(Webview|Vite|Build|Diagram|Gantt|Kanban|Treemap|Sequence|Architecture|BaseUniq|Chunk)/i.test(name)) return true;
   if (/^([a-z]{1,2}\d*|[A-Z]{1,2}\d*)$/i.test(name)) return true;
   if (/^(domain|main|renderer|services|tauri|handler|module|symbol|value)([A-Z0-9].*)?$/i.test(name)) return true;
   return false;
@@ -224,9 +230,9 @@ function buildDedupeName(input: {
 }): string {
   if (input.entry.kind === "file") return input.entry.deobfuscated;
   const sourceLine = extractSourceLine(input.entry.sourceFile);
-  const sourceFile = normalizeSourceFile(input.entry.sourceFile).replace(/\.[^.]+$/, "");
-  const referenceFile = input.entry.reference.file.replace(/\.[^.]+$/, "");
-  const targetFile = input.entry.targetProjectPath.replace(/\.[^.]+$/, "");
+  const sourceStem = path.posix.basename(toPosixPath(normalizeSourceFile(input.entry.sourceFile)).replace(/\.[^.]+$/, ""));
+  const referenceStem = path.posix.basename(toPosixPath(input.entry.reference.file).replace(/\.[^.]+$/, ""));
+  const targetStem = path.posix.basename(toPosixPath(input.entry.targetProjectPath).replace(/\.[^.]+$/, ""));
   const obfuscatedTokens = splitTokens(input.entry.obfuscated).filter((token) => !isNoisyNameToken(token));
 
   const toIdentifier = input.entry.kind === "class" ? toPascalCase : toCamelCase;
@@ -239,20 +245,21 @@ function buildDedupeName(input: {
 
   const seedTokens = [
     ...splitTokens(input.entry.deobfuscated),
-    ...splitTokens(sourceFile),
-    ...splitTokens(referenceFile),
-    ...splitTokens(targetFile),
+    ...splitTokens(referenceStem),
+    ...splitTokens(targetStem),
+    ...splitTokens(sourceStem),
+    ...obfuscatedTokens,
   ];
   const uniqueTokens: string[] = [];
   for (const token of seedTokens) {
     if (isNoisyNameToken(token)) continue;
     if (uniqueTokens.includes(token)) continue;
     uniqueTokens.push(token);
-    if (uniqueTokens.length >= 8) break;
+    if (uniqueTokens.length >= 4) break;
   }
 
   const layerToken = inferLayerFromReference(input.entry.reference.file);
-  if (layerToken !== "domain" && !uniqueTokens.includes(layerToken)) {
+  if (layerToken !== "domain" && uniqueTokens.length <= 2 && !uniqueTokens.includes(layerToken)) {
     uniqueTokens.push(layerToken);
   }
   if (uniqueTokens.length === 0) uniqueTokens.push("domain");
@@ -264,16 +271,8 @@ function buildDedupeName(input: {
     const withObfuscated = toName([...uniqueTokens, obfuscatedTokens[0]!]);
     if (!input.usedNames.has(withObfuscated)) return withObfuscated;
   }
-  if (sourceLine > 0) {
-    const withLine = toName([...uniqueTokens, `line${sourceLine}`]);
-    if (!input.usedNames.has(withLine)) return withLine;
-  }
-  if (obfuscatedTokens.length > 0 && sourceLine > 0) {
-    const withBoth = toName([...uniqueTokens, obfuscatedTokens[0]!, `line${sourceLine}`]);
-    if (!input.usedNames.has(withBoth)) return withBoth;
-  }
 
-  const collisionKey = `${input.entry.kind}|${input.entry.sourceFile}|${input.entry.obfuscated}|${input.entry.reference.file}`;
+  const collisionKey = `${input.entry.kind}|${input.entry.sourceFile}|${input.entry.obfuscated}|${input.entry.reference.file}|${sourceLine}`;
   const withHash = `${baseName}${buildStableCollisionSuffix(collisionKey)}`;
   if (!input.usedNames.has(withHash)) return withHash;
 

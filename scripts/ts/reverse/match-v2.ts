@@ -1406,6 +1406,34 @@ function countMappedSymbolEntries(entries: DeobfuscationTableEntry[]): number {
   return seen.size;
 }
 
+function normalizeFallbackConfidence(entries: DeobfuscationTableEntry[]): number {
+  let normalized = 0;
+  for (const entry of entries) {
+    if (entry.kind !== "class" && entry.kind !== "function") continue;
+    if (entry.confidence >= 0.65) continue;
+    if (isGenericReferenceFilePath(entry.reference.file)) continue;
+    const rationaleText = entry.rationale.join(" | ").toLowerCase();
+    const fallbackBased =
+      rationaleText.includes("fallback: aggressive-symbol-coverage") ||
+      rationaleText.includes("fallback: final-symbol-completion") ||
+      rationaleText.includes("fallback: high-recall-non-generic-fill") ||
+      rationaleText.includes("fallback: mass-fill-non-generic") ||
+      rationaleText.includes("quality-pass: reranked-low-quality-symbol-entry");
+    if (!fallbackBased) continue;
+    const hasSignals = rationaleText.includes("signals:");
+    const strongReference = entry.reference.score >= 8;
+    const hasAnchorSignal = rationaleText.includes("source-anchor:") && !rationaleText.includes("source-anchor: none");
+    if (!hasSignals && !hasAnchorSignal) continue;
+    if (!strongReference && !hasAnchorSignal) continue;
+    entry.confidence = 0.65;
+    if (!entry.rationale.includes("confidence-normalize: fallback-floor-0.65")) {
+      entry.rationale = [...entry.rationale, "confidence-normalize: fallback-floor-0.65"];
+    }
+    normalized += 1;
+  }
+  return normalized;
+}
+
 function getEntrySourceLine(value: string): number {
   const separatorIndex = value.lastIndexOf(":");
   if (separatorIndex <= 0) return 0;
@@ -3423,6 +3451,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
     referenceFileProfiles,
   });
   refineSymbolNames(collapsedEntries);
+  const normalizedFallbackConfidence = normalizeFallbackConfidence(collapsedEntries);
 
   collapsedEntries.sort((a, b) => {
     if (a.confidence !== b.confidence) return b.confidence - a.confidence;
@@ -3448,7 +3477,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
   return {
     generatedAtUtc: new Date().toISOString(),
     strategy:
-      `match-v2 multi-signal mapping: reference-guided file+symbol deobfuscation using AST, IPC/RPC, state keys, component boundaries, route/event flow, and layer/path-map alignment. quality-pass reviewed=${qualityPass.reviewed}, improved=${qualityPass.improved}.`,
+      `match-v2 multi-signal mapping: reference-guided file+symbol deobfuscation using AST, IPC/RPC, state keys, component boundaries, route/event flow, and layer/path-map alignment. quality-pass reviewed=${qualityPass.reviewed}, improved=${qualityPass.improved}. confidence-normalized=${normalizedFallbackConfidence}.`,
     calibration: {
       profileId: MATCH_V2_RUNTIME.profileId,
       fixedRegressionRuns: [...MATCH_V2_CALIBRATION_PROFILE.fixedRegressionRuns],
