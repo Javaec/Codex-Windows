@@ -77,6 +77,15 @@ function normalizeSourceFile(value) {
         return value;
     return value.slice(0, separatorIndex);
 }
+function extractSourceLine(value) {
+    const separatorIndex = value.lastIndexOf(":");
+    if (separatorIndex <= 0)
+        return 0;
+    const parsed = Number(value.slice(separatorIndex + 1));
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return 0;
+    return Math.floor(parsed);
+}
 function makeSymbolKey(entry) {
     return `${entry.kind}|${normalizeSourceFile(entry.sourceFile)}|${entry.obfuscated}`;
 }
@@ -112,9 +121,13 @@ function isNoisyNameToken(token) {
         return true;
     if (/^\d+$/.test(token))
         return true;
+    if (/^v\d+$/i.test(token))
+        return true;
+    if (/^ref\d*$/i.test(token))
+        return true;
     if (/^bs\d+$/i.test(token))
         return true;
-    if (/^(chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token))
+    if (/^(src|chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token))
         return true;
     return false;
 }
@@ -157,18 +170,91 @@ function sanitizeSymbolName(input) {
     const next = toCamelCase(joined);
     return next.length > 0 ? next : "domainValue";
 }
+function buildDedupeName(input) {
+    if (input.entry.kind === "file")
+        return input.entry.deobfuscated;
+    const sourceLine = extractSourceLine(input.entry.sourceFile);
+    const sourceFile = normalizeSourceFile(input.entry.sourceFile).replace(/\.[^.]+$/, "");
+    const referenceFile = input.entry.reference.file.replace(/\.[^.]+$/, "");
+    const targetFile = input.entry.targetProjectPath.replace(/\.[^.]+$/, "");
+    const obfuscatedTokens = splitTokens(input.entry.obfuscated).filter((token) => !isNoisyNameToken(token));
+    const toIdentifier = input.entry.kind === "class" ? toPascalCase : toCamelCase;
+    const fallback = input.entry.kind === "class" ? "DomainSymbol" : "domainValue";
+    const toName = (tokens) => {
+        const joined = tokens.join(" ");
+        return toIdentifier(joined) || toIdentifier(input.entry.deobfuscated) || fallback;
+    };
+    const seedTokens = [
+        ...splitTokens(input.entry.deobfuscated),
+        ...splitTokens(sourceFile),
+        ...splitTokens(referenceFile),
+        ...splitTokens(targetFile),
+    ];
+    const uniqueTokens = [];
+    for (const token of seedTokens) {
+        if (isNoisyNameToken(token))
+            continue;
+        if (uniqueTokens.includes(token))
+            continue;
+        uniqueTokens.push(token);
+        if (uniqueTokens.length >= 8)
+            break;
+    }
+    const layerToken = inferLayerFromReference(input.entry.reference.file);
+    if (layerToken !== "domain" && !uniqueTokens.includes(layerToken)) {
+        uniqueTokens.push(layerToken);
+    }
+    if (uniqueTokens.length === 0)
+        uniqueTokens.push("domain");
+    const baseName = toName(uniqueTokens);
+    if (!input.usedNames.has(baseName))
+        return baseName;
+    if (obfuscatedTokens.length > 0) {
+        const withObfuscated = toName([...uniqueTokens, obfuscatedTokens[0]]);
+        if (!input.usedNames.has(withObfuscated))
+            return withObfuscated;
+    }
+    if (sourceLine > 0) {
+        const withLine = toName([...uniqueTokens, `line${sourceLine}`]);
+        if (!input.usedNames.has(withLine))
+            return withLine;
+    }
+    if (obfuscatedTokens.length > 0 && sourceLine > 0) {
+        const withBoth = toName([...uniqueTokens, obfuscatedTokens[0], `line${sourceLine}`]);
+        if (!input.usedNames.has(withBoth))
+            return withBoth;
+    }
+    let nextName = baseName;
+    let suffix = 2;
+    while (input.usedNames.has(nextName) && suffix < 5000) {
+        nextName = `${baseName}N${suffix}`;
+        suffix += 1;
+    }
+    return nextName;
+}
 function dedupeNames(report) {
     const symbolEntries = report.entries.filter((entry) => entry.kind !== "file");
     const grouped = new Map();
+    const usedNamesByScope = new Map();
     for (const entry of symbolEntries) {
-        const rows = grouped.get(entry.deobfuscated) ?? [];
+        const scopeKey = `${entry.kind}|${entry.targetProjectPath}`;
+        const namesInScope = usedNamesByScope.get(scopeKey) ?? new Set();
+        namesInScope.add(entry.deobfuscated);
+        usedNamesByScope.set(scopeKey, namesInScope);
+        const groupedKey = `${scopeKey}|${entry.deobfuscated}`;
+        const rows = grouped.get(groupedKey) ?? [];
         rows.push(entry);
-        grouped.set(entry.deobfuscated, rows);
+        grouped.set(groupedKey, rows);
     }
     let renamed = 0;
     for (const rows of grouped.values()) {
         if (rows.length <= 1)
             continue;
+        const first = rows[0];
+        if (!first)
+            continue;
+        const scopeKey = `${first.kind}|${first.targetProjectPath}`;
+        const usedNames = usedNamesByScope.get(scopeKey) ?? new Set();
         rows.sort((a, b) => {
             if (a.confidence !== b.confidence)
                 return b.confidence - a.confidence;
@@ -180,16 +266,17 @@ function dedupeNames(report) {
                 continue;
             if (entry.kind === "file")
                 continue;
-            const base = sanitizeSymbolName({
-                name: entry.deobfuscated,
-                kind: entry.kind,
-                referenceFile: entry.reference.file,
+            usedNames.delete(entry.deobfuscated);
+            const nextName = buildDedupeName({
+                entry,
+                usedNames,
             });
-            const suffix = entry.kind === "class" ? `Ref${index + 1}` : `Ref${index + 1}`;
-            const nextName = `${base}${suffix}`;
-            if (entry.deobfuscated === nextName)
+            if (entry.deobfuscated === nextName) {
+                usedNames.add(nextName);
                 continue;
+            }
             entry.deobfuscated = nextName;
+            usedNames.add(nextName);
             entry.rationale = [...entry.rationale, "name-memory: deduplicated-after-apply"];
             renamed += 1;
         }

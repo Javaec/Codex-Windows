@@ -100,6 +100,14 @@ function normalizeSourceFile(value: string): string {
   return value.slice(0, separatorIndex);
 }
 
+function extractSourceLine(value: string): number {
+  const separatorIndex = value.lastIndexOf(":");
+  if (separatorIndex <= 0) return 0;
+  const parsed = Number(value.slice(separatorIndex + 1));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed);
+}
+
 function makeSymbolKey(entry: DeobfuscationTableEntry): string {
   return `${entry.kind}|${normalizeSourceFile(entry.sourceFile)}|${entry.obfuscated}`;
 }
@@ -135,8 +143,10 @@ function splitTokens(value: string): string[] {
 function isNoisyNameToken(token: string): boolean {
   if (token.length <= 1) return true;
   if (/^\d+$/.test(token)) return true;
+  if (/^v\d+$/i.test(token)) return true;
+  if (/^ref\d*$/i.test(token)) return true;
   if (/^bs\d+$/i.test(token)) return true;
-  if (/^(chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token)) return true;
+  if (/^(src|chunk|chunks|asset|assets|auto\d*|renderer\d*|main\d*|services\d*|tauri\d*|domain|symbol|module)$/i.test(token)) return true;
   return false;
 }
 
@@ -180,18 +190,94 @@ function sanitizeSymbolName(input: {
   return next.length > 0 ? next : "domainValue";
 }
 
+function buildDedupeName(input: {
+  entry: DeobfuscationTableEntry;
+  usedNames: Set<string>;
+}): string {
+  if (input.entry.kind === "file") return input.entry.deobfuscated;
+  const sourceLine = extractSourceLine(input.entry.sourceFile);
+  const sourceFile = normalizeSourceFile(input.entry.sourceFile).replace(/\.[^.]+$/, "");
+  const referenceFile = input.entry.reference.file.replace(/\.[^.]+$/, "");
+  const targetFile = input.entry.targetProjectPath.replace(/\.[^.]+$/, "");
+  const obfuscatedTokens = splitTokens(input.entry.obfuscated).filter((token) => !isNoisyNameToken(token));
+
+  const toIdentifier = input.entry.kind === "class" ? toPascalCase : toCamelCase;
+  const fallback = input.entry.kind === "class" ? "DomainSymbol" : "domainValue";
+
+  const toName = (tokens: string[]): string => {
+    const joined = tokens.join(" ");
+    return toIdentifier(joined) || toIdentifier(input.entry.deobfuscated) || fallback;
+  };
+
+  const seedTokens = [
+    ...splitTokens(input.entry.deobfuscated),
+    ...splitTokens(sourceFile),
+    ...splitTokens(referenceFile),
+    ...splitTokens(targetFile),
+  ];
+  const uniqueTokens: string[] = [];
+  for (const token of seedTokens) {
+    if (isNoisyNameToken(token)) continue;
+    if (uniqueTokens.includes(token)) continue;
+    uniqueTokens.push(token);
+    if (uniqueTokens.length >= 8) break;
+  }
+
+  const layerToken = inferLayerFromReference(input.entry.reference.file);
+  if (layerToken !== "domain" && !uniqueTokens.includes(layerToken)) {
+    uniqueTokens.push(layerToken);
+  }
+  if (uniqueTokens.length === 0) uniqueTokens.push("domain");
+
+  const baseName = toName(uniqueTokens);
+  if (!input.usedNames.has(baseName)) return baseName;
+
+  if (obfuscatedTokens.length > 0) {
+    const withObfuscated = toName([...uniqueTokens, obfuscatedTokens[0]!]);
+    if (!input.usedNames.has(withObfuscated)) return withObfuscated;
+  }
+  if (sourceLine > 0) {
+    const withLine = toName([...uniqueTokens, `line${sourceLine}`]);
+    if (!input.usedNames.has(withLine)) return withLine;
+  }
+  if (obfuscatedTokens.length > 0 && sourceLine > 0) {
+    const withBoth = toName([...uniqueTokens, obfuscatedTokens[0]!, `line${sourceLine}`]);
+    if (!input.usedNames.has(withBoth)) return withBoth;
+  }
+
+  let nextName = baseName;
+  let suffix = 2;
+  while (input.usedNames.has(nextName) && suffix < 5000) {
+    nextName = `${baseName}N${suffix}`;
+    suffix += 1;
+  }
+  return nextName;
+}
+
 function dedupeNames(report: DeobfuscationTableReport): number {
   const symbolEntries = report.entries.filter((entry) => entry.kind !== "file");
   const grouped = new Map<string, DeobfuscationTableEntry[]>();
+  const usedNamesByScope = new Map<string, Set<string>>();
   for (const entry of symbolEntries) {
-    const rows = grouped.get(entry.deobfuscated) ?? [];
+    const scopeKey = `${entry.kind}|${entry.targetProjectPath}`;
+    const namesInScope = usedNamesByScope.get(scopeKey) ?? new Set<string>();
+    namesInScope.add(entry.deobfuscated);
+    usedNamesByScope.set(scopeKey, namesInScope);
+
+    const groupedKey = `${scopeKey}|${entry.deobfuscated}`;
+    const rows = grouped.get(groupedKey) ?? [];
     rows.push(entry);
-    grouped.set(entry.deobfuscated, rows);
+    grouped.set(groupedKey, rows);
   }
 
   let renamed = 0;
   for (const rows of grouped.values()) {
     if (rows.length <= 1) continue;
+    const first = rows[0];
+    if (!first) continue;
+    const scopeKey = `${first.kind}|${first.targetProjectPath}`;
+    const usedNames = usedNamesByScope.get(scopeKey) ?? new Set<string>();
+
     rows.sort((a, b) => {
       if (a.confidence !== b.confidence) return b.confidence - a.confidence;
       return b.reference.score - a.reference.score;
@@ -200,15 +286,17 @@ function dedupeNames(report: DeobfuscationTableReport): number {
       const entry = rows[index];
       if (!entry) continue;
       if (entry.kind === "file") continue;
-      const base = sanitizeSymbolName({
-        name: entry.deobfuscated,
-        kind: entry.kind,
-        referenceFile: entry.reference.file,
+      usedNames.delete(entry.deobfuscated);
+      const nextName = buildDedupeName({
+        entry,
+        usedNames,
       });
-      const suffix = entry.kind === "class" ? `Ref${index + 1}` : `Ref${index + 1}`;
-      const nextName = `${base}${suffix}`;
-      if (entry.deobfuscated === nextName) continue;
+      if (entry.deobfuscated === nextName) {
+        usedNames.add(nextName);
+        continue;
+      }
       entry.deobfuscated = nextName;
+      usedNames.add(nextName);
       entry.rationale = [...entry.rationale, "name-memory: deduplicated-after-apply"];
       renamed += 1;
     }
