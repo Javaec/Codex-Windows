@@ -499,6 +499,8 @@ function buildFileSignalProfiles(input) {
             ipcRpc: 0,
             state: 0,
             boundary: 0,
+            boundaryOwnership: 0,
+            uiLikelihood: 0,
             flow: 0,
             domainScores: {},
             dominantDomain: "unknown",
@@ -543,6 +545,12 @@ function buildFileSignalProfiles(input) {
         const profile = ensureProfile(boundary.ownerFile);
         profile.boundary += 3;
         profile.ast += 2;
+        if (typeof boundary.ownershipScore === "number" && Number.isFinite(boundary.ownershipScore)) {
+            profile.boundaryOwnership = Math.max(profile.boundaryOwnership, boundary.ownershipScore);
+        }
+        if (typeof boundary.uiLikelihood === "number" && Number.isFinite(boundary.uiLikelihood)) {
+            profile.uiLikelihood = Math.max(profile.uiLikelihood, boundary.uiLikelihood);
+        }
         const groups = [
             boundary.referenceHints,
             boundary.componentNames,
@@ -567,11 +575,15 @@ function buildFileSignalProfiles(input) {
 }
 function getFileSignalScore(profile) {
     const signalWeights = regression_config_1.MATCH_V2_SCORE_WEIGHTS.signal;
+    const ownershipBoost = Math.min(0.9, profile.boundaryOwnership / 42);
+    const uiBoost = Math.min(0.5, profile.uiLikelihood * 0.5);
     return roundMetric(Math.min(signalWeights.astCap, profile.ast * signalWeights.astWeight) +
         Math.min(signalWeights.ipcRpcCap, profile.ipcRpc * signalWeights.ipcRpcWeight) +
         Math.min(signalWeights.stateCap, profile.state * signalWeights.stateWeight) +
         Math.min(signalWeights.boundaryCap, profile.boundary * signalWeights.boundaryWeight) +
-        Math.min(signalWeights.flowCap, profile.flow * signalWeights.flowWeight));
+        Math.min(signalWeights.flowCap, profile.flow * signalWeights.flowWeight) +
+        ownershipBoost +
+        uiBoost);
 }
 function scoreReferenceFileProfile(input) {
     const fileWeights = regression_config_1.MATCH_V2_SCORE_WEIGHTS.file;
@@ -631,6 +643,36 @@ function scoreReferenceFileProfile(input) {
         rustPenalty;
     return { score, hits: dedupeKeywords(hits, 12) };
 }
+function scoreSymbolOwnershipAlignment(input) {
+    const referencePath = toPosixPath(input.referenceFile).toLowerCase();
+    const isRendererReference = /(^|\/)src\/renderer\//.test(referencePath);
+    const isMainReference = /(^|\/)src\/main\//.test(referencePath);
+    const isServicesReference = /(^|\/)src\/services\//.test(referencePath);
+    const isTauriReference = /^src-tauri\/src\//.test(referencePath) || /(^|\/)src-tauri-adapter\//.test(referencePath);
+    const ownership = input.fileSignals.boundaryOwnership;
+    const uiLikelihood = input.fileSignals.uiLikelihood;
+    const ownershipBoost = Math.min(0.95, ownership / 36);
+    const hitBoost = Math.min(0.45, input.hitCount * 0.08);
+    let boost = 0;
+    let penalty = 0;
+    if (isRendererReference && uiLikelihood >= 0.45) {
+        boost += Math.min(0.85, uiLikelihood * 0.9);
+    }
+    if ((isMainReference || isTauriReference) && uiLikelihood <= 0.35 && ownership >= 10) {
+        boost += Math.min(0.6, ownership / 28);
+    }
+    if (isServicesReference && ownership >= 12 && input.fileSignals.state >= 4) {
+        boost += 0.35;
+    }
+    if (isRendererReference && uiLikelihood < 0.2 && input.sourceLayer !== "renderer" && input.sourceLayer !== "renderer-worker") {
+        penalty += 0.55;
+    }
+    if ((isMainReference || isTauriReference) && uiLikelihood >= 0.75 && input.sourceLayer === "renderer") {
+        penalty += 0.4;
+    }
+    boost += ownershipBoost + hitBoost;
+    return { boost, penalty };
+}
 function scoreReferenceSymbolMatch(input) {
     const symbolWeights = regression_config_1.MATCH_V2_SCORE_WEIGHTS.symbol;
     const scopedKeywords = new Set(input.fileSignals.contextKeywords);
@@ -669,6 +711,12 @@ function scoreReferenceSymbolMatch(input) {
     const pathMapLayerAlignmentBoost = /(^|\/)src\/(?:main|renderer|services)\//.test(toPosixPath(input.reference.file)) && layerMismatchPenalty === 0
         ? symbolWeights.pathMapLayerAlignBoost
         : 0;
+    const ownershipAlignment = scoreSymbolOwnershipAlignment({
+        sourceLayer: layer,
+        referenceFile: input.reference.file,
+        fileSignals: input.fileSignals,
+        hitCount: hits.length,
+    });
     const score = hits.length * symbolWeights.tokenHitWeight +
         layerBoost +
         domain.boost +
@@ -676,6 +724,7 @@ function scoreReferenceSymbolMatch(input) {
         symbolKindBoost +
         qualityBoost +
         pathMapLayerAlignmentBoost +
+        ownershipAlignment.boost +
         getFileSignalScore(input.fileSignals) +
         Math.min(symbolWeights.candidateTokenBoostCap, input.candidate.tokens.length * symbolWeights.candidateTokenBoostStep) -
         genericPathPenalty -
@@ -683,6 +732,7 @@ function scoreReferenceSymbolMatch(input) {
         genericNamePenalty -
         layerMismatchPenalty -
         domain.penalty -
+        ownershipAlignment.penalty -
         rustPenalty;
     return { score, hits: dedupeKeywords(hits, 12) };
 }
@@ -1097,10 +1147,149 @@ function buildDeobfuscationTableMatchV2(input) {
                 rationale: [
                     `keyword-overlap: ${bestHits.join(", ") || "none"}`,
                     `signals: ast=${signal.ast}, ipcRpc=${signal.ipcRpc}, state=${signal.state}, boundary=${signal.boundary}, flow=${signal.flow}`,
+                    `ownership: boundaryScore=${roundMetric(signal.boundaryOwnership)}, uiLikelihood=${roundMetric(signal.uiLikelihood)}`,
                     `dominant-domain: ${signal.dominantDomain}`,
                     hasAnchor ? `source-anchor: ${anchorFileLabel}` : "source-anchor: none",
                     `source-line: ${candidate.line}`,
                     `match-v2-score: ${roundMetric(bestScore)}`,
+                ],
+            });
+        }
+    }
+    const targetMappedSymbols = 10;
+    if (entries.filter((entry) => entry.kind !== "file").length < targetMappedSymbols) {
+        const mappedSourceFiles = new Set(filePlans.map((row) => row.sourceFile));
+        for (const entry of entries) {
+            if (entry.kind === "file")
+                continue;
+            const separatorIndex = entry.sourceFile.indexOf(":");
+            const entrySourceFile = separatorIndex > 0 ? entry.sourceFile.slice(0, separatorIndex) : entry.sourceFile;
+            if (entrySourceFile.length > 0)
+                mappedSourceFiles.add(entrySourceFile);
+        }
+        const symbolRecoveryRows = [];
+        for (const file of input.jsFiles) {
+            const relPath = file.relPath;
+            if (!mappedSourceFiles.has(relPath))
+                continue;
+            if (!isDeobfuscationCandidateFile(relPath))
+                continue;
+            const signal = fileSignals.get(relPath);
+            if (!signal)
+                continue;
+            if (signal.boundaryOwnership < 8 && signal.uiLikelihood < 0.25)
+                continue;
+            const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
+            if (!source)
+                continue;
+            const sourceAnchor = sourceReferenceAnchors.get(relPath);
+            const symbolCandidates = collectObfuscatedSymbolsFromSource({ relPath, source });
+            for (const candidate of symbolCandidates) {
+                const fileTargetKey = `${candidate.sourceFile}|${candidate.kind}|`;
+                const hasAnyTarget = Array.from(symbolTargetByFile).some((key) => key.startsWith(fileTargetKey));
+                if (hasAnyTarget && signal.boundaryOwnership < 10)
+                    continue;
+                const referencePool = symbolsByKind[candidate.kind];
+                let best;
+                for (const reference of referencePool) {
+                    if (isGenericReferenceFilePath(reference.file))
+                        continue;
+                    const scored = scoreReferenceSymbolMatch({
+                        sourceFile: relPath,
+                        candidate,
+                        reference,
+                        fileSignals: signal,
+                        anchor: sourceAnchor,
+                    });
+                    if (!best || scored.score > best.score) {
+                        best = { reference, score: scored.score, hits: scored.hits };
+                    }
+                }
+                if (!best)
+                    continue;
+                if (best.score < 4.4)
+                    continue;
+                if (best.hits.length < 2 && getTotalSignalStrength(signal) < 12)
+                    continue;
+                symbolRecoveryRows.push({
+                    candidate,
+                    reference: best.reference,
+                    score: best.score,
+                    hits: best.hits,
+                    signal,
+                    sourceAnchor,
+                });
+            }
+        }
+        symbolRecoveryRows.sort((a, b) => {
+            if (a.score !== b.score)
+                return b.score - a.score;
+            if (a.candidate.sourceFile !== b.candidate.sourceFile) {
+                return a.candidate.sourceFile.localeCompare(b.candidate.sourceFile);
+            }
+            return a.candidate.name.localeCompare(b.candidate.name);
+        });
+        for (const row of symbolRecoveryRows) {
+            if (entries.filter((entry) => entry.kind !== "file").length >= targetMappedSymbols)
+                break;
+            const candidate = row.candidate;
+            const reference = row.reference;
+            const referenceKey = `${reference.source}|${reference.name}|${reference.file}`;
+            const matchedCount = symbolMatchCountByReference.get(referenceKey) ?? 0;
+            if (matchedCount >= 3)
+                continue;
+            const sourceTargetKey = `${candidate.sourceFile}|${reference.file}`;
+            const sourceTargetCount = symbolMatchCountBySourceTarget.get(sourceTargetKey) ?? 0;
+            if (sourceTargetCount >= 3)
+                continue;
+            const fileTargetKey = `${candidate.sourceFile}|${candidate.kind}|${reference.name}`;
+            if (symbolTargetByFile.has(fileTargetKey))
+                continue;
+            const targetFileMatchCount = symbolMatchCountByTargetFile.get(reference.file) ?? 0;
+            if (targetFileMatchCount >= 6)
+                continue;
+            const perFileCount = symbolMatchCountByFile.get(candidate.sourceFile) ?? 0;
+            if (perFileCount >= 20)
+                continue;
+            const confidence = Math.min(0.91, roundMetric(0.2 + row.score / 13.8));
+            const targetProjectPath = buildSignalAwareTargetPath({
+                referenceFile: reference.file,
+                signal: row.signal,
+                hits: row.hits,
+            });
+            const id = `${candidate.kind}|${candidate.sourceFile}|${candidate.name}|${reference.name}|${reference.file}|recovery`;
+            if (seenEntry.has(id))
+                continue;
+            seenEntry.add(id);
+            symbolTargetByFile.add(fileTargetKey);
+            symbolMatchCountByReference.set(referenceKey, matchedCount + 1);
+            symbolMatchCountByFile.set(candidate.sourceFile, perFileCount + 1);
+            symbolMatchCountByTargetFile.set(reference.file, targetFileMatchCount + 1);
+            symbolMatchCountBySourceTarget.set(sourceTargetKey, sourceTargetCount + 1);
+            entries.push({
+                id,
+                kind: candidate.kind,
+                obfuscated: candidate.name,
+                deobfuscated: reference.name,
+                sourceFile: `${candidate.sourceFile}:${candidate.line}`,
+                targetProjectPath,
+                confidence,
+                reference: {
+                    source: reference.source,
+                    symbol: reference.name,
+                    file: reference.file,
+                    kind: reference.kind,
+                    score: reference.score,
+                },
+                rationale: [
+                    `keyword-overlap: ${row.hits.join(", ") || "none"}`,
+                    `signals: ast=${row.signal.ast}, ipcRpc=${row.signal.ipcRpc}, state=${row.signal.state}, boundary=${row.signal.boundary}, flow=${row.signal.flow}`,
+                    `ownership: boundaryScore=${roundMetric(row.signal.boundaryOwnership)}, uiLikelihood=${roundMetric(row.signal.uiLikelihood)}`,
+                    `dominant-domain: ${row.signal.dominantDomain}`,
+                    row.sourceAnchor ? `source-anchor: ${row.sourceAnchor.primaryFile} (score=${row.sourceAnchor.score})` : "source-anchor: none",
+                    "fallback: ownership-symbol-recovery-non-generic",
+                    `source-line: ${candidate.line}`,
+                    `match-v2-score: ${roundMetric(row.score)}`,
                 ],
             });
         }

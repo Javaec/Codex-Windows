@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "profiles": {
+    "openai-codex-electron@26.217.1959": {
+      "appName": "openai-codex-electron",
+      "appVersion": "26.217.1959",
+      "calibrationProfile": "regression-core-v2",
+      "updatedAtUtc": "2026-02-22T09:40:49.721Z",
+      "runs": {
+        "core-no-binary": {
+          "mappedFiles": 4,
+          "mappedSymbols": 10
+        },
+        "core-no-binary-no-pretty": {
+          "mappedFiles": 4,
+          "mappedSymbols": 10
+        },
+        "core-no-binary-top120": {
+          "mappedFiles": 4,
+          "mappedSymbols": 10
+        },
+        "core-runtime-probe-soft": {
+          "mappedFiles": 4,
+          "mappedSymbols": 10
+        }
+      }
+    }
+  }
+}

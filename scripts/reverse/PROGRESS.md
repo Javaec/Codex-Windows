@@ -2,8 +2,8 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-codex-app-bigstroke-7`
-- Latest regression suite: `work/reverse-regression-bigstroke-7`
+- Latest validated run: `work/reverse-regression-bigstroke-10/core-no-binary`
+- Latest regression suite: `work/reverse-regression-bigstroke-10`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -25,12 +25,17 @@
     - component boundaries
     - route/event flow
     - layer/path-map alignment
+  - ownership-aware symbol scoring:
+    - boundary ownership signal
+    - UI likelihood signal
+  - controlled non-generic symbol recovery pass
   - regression-calibrated profile sourced from `scripts/ts/reverse/regression-config.ts`
-  - controlled non-generic fallback and regression-fill to keep mappedFiles inside gate target
 - `domain-report` + `component-boundaries` extracted from god object:
   - `scripts/ts/reverse/domain-boundaries.ts`
 - IPC stage extracted:
   - `scripts/ts/reverse/ipc-contract-map.ts`
+- IPC wrapper decode internals extracted:
+  - `scripts/ts/reverse/ipc-wrapper-decode.ts`
 - RPC schema stage extracted:
   - `scripts/ts/reverse/rpc-schema.ts`
 - Session/graph stage extracted:
@@ -71,6 +76,10 @@
   - `core-no-binary`
   - `core-no-binary-no-pretty`
   - `core-no-binary-top120`
+  - `core-runtime-probe-soft`
+- Snapshot-version baseline store:
+  - file: `scripts/reverse/regression-baselines.json`
+  - profile key: `name@version` (example: `openai-codex-electron@26.217.1959`)
 
 ## Generated Project (IDE-Oriented)
 - Target folder: `project`
@@ -84,7 +93,7 @@
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
 
-## Latest Metrics (`bigstroke-7`)
+## Latest Metrics (`reverse-regression-bigstroke-10/core-no-binary`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -93,8 +102,8 @@
 - Component boundaries: 27
 - Deobfuscation:
   - mapped files: 4
-  - mapped symbols: 9
-  - entries: 13
+  - mapped symbols: 10
+  - entries: 14
   - reconstructed targets: 7
 - Reference model:
   - unified files: 100
@@ -104,19 +113,21 @@
   - generic-path noise: 0
   - install/tsc/eslint: clean
 - Pipeline size:
-  - `scripts/ts/reverse.ts`: 3636 LOC (down from 4196 before this extraction pass)
+  - `scripts/ts/reverse.ts`: 2829 LOC
+  - `scripts/ts/reverse/ipc-wrapper-decode.ts`: 1184 LOC
 
-## Latest Regression Suite (`reverse-regression-bigstroke-7`)
-- `core-no-binary`: pass, mappedFiles=4, mappedSymbols=9
-- `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=9
-- `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=9
+## Latest Regression Suite (`reverse-regression-bigstroke-10`)
+- `core-no-binary`: pass, mappedFiles=4, mappedSymbols=10
+- `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=10
+- `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=10
+- `core-runtime-probe-soft`: pass, mappedFiles=4, mappedSymbols=10
 
 ## Known Gaps / Noise
-- Runtime probe still collects environment-specific noise in some runs.
+- Runtime probe remains environment-dependent and can still produce machine-specific variance.
 - Reference parity is still partial, especially in chat/session coverage depth.
-- Symbol recovery is stable but still conservative; next gain should come from stronger callsite ownership signals.
+- Symbol recovery improved but remains conservative to protect generic-path gates.
 
 ## Next Improvements (Generator-First)
-- Continue slicing `reverse.ts` toward orchestration-only (next candidate: helper-heavy IPC decode internals).
-- Expand fixed regression suite with runtime-probe variant and app-version-pinned baseline snapshots.
-- Improve symbol-level precision for renderer chunks without widening generic-path acceptance.
+- Continue slicing `reverse.ts` toward orchestration-only (next candidates: domain report post-processing and component-boundary synthesis helpers).
+- Keep calibrating symbol ownership weights on fixed regression runs for gradual mappedSymbols growth.
+- Extend snapshot baseline coverage as new app snapshot versions are added.

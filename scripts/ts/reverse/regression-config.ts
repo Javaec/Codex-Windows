@@ -71,7 +71,7 @@ export interface MatchV2Thresholds {
 export const MATCH_V2_CALIBRATION_PROFILE = {
   id: "regression-core-v2",
   description: "Fixed-weight profile calibrated on locked regression runs from Codex app bundle snapshots.",
-  fixedRegressionRuns: ["core-no-binary", "core-no-binary-no-pretty", "core-no-binary-top120"],
+  fixedRegressionRuns: ["core-no-binary", "core-no-binary-no-pretty", "core-no-binary-top120", "core-runtime-probe-soft"],
 };
 
 export const MATCH_V2_SCORE_WEIGHTS: MatchV2ScoreWeights = {
@@ -204,4 +204,11 @@ export const FIXED_REGRESSION_RUNS: FixedRegressionRun[] = [
     label: "Core run without binary and narrower reporting window",
     args: ["-NoBinary", "-Top", "120"],
   },
+  {
+    id: "core-runtime-probe-soft",
+    label: "Core run with runtime probe enabled (soft runtime RPC noise mode)",
+    args: ["-NoBinary", "-RuntimeProbe", "-RuntimeProbeMs", "12000", "-RuntimeRpcNoiseMode", "soft"],
+  },
 ];
+
+export const REVERSE_REGRESSION_BASELINES_FILE = "scripts/reverse/regression-baselines.json";

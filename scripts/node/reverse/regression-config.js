@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FIXED_REGRESSION_RUNS = exports.REVERSE_QUALITY_GATE_TARGETS = exports.MATCH_V2_REGRESSION_HINTS = exports.MATCH_V2_THRESHOLDS = exports.MATCH_V2_SCORE_WEIGHTS = exports.MATCH_V2_CALIBRATION_PROFILE = void 0;
+exports.REVERSE_REGRESSION_BASELINES_FILE = exports.FIXED_REGRESSION_RUNS = exports.REVERSE_QUALITY_GATE_TARGETS = exports.MATCH_V2_REGRESSION_HINTS = exports.MATCH_V2_THRESHOLDS = exports.MATCH_V2_SCORE_WEIGHTS = exports.MATCH_V2_CALIBRATION_PROFILE = void 0;
 exports.MATCH_V2_CALIBRATION_PROFILE = {
     id: "regression-core-v2",
     description: "Fixed-weight profile calibrated on locked regression runs from Codex app bundle snapshots.",
-    fixedRegressionRuns: ["core-no-binary", "core-no-binary-no-pretty", "core-no-binary-top120"],
+    fixedRegressionRuns: ["core-no-binary", "core-no-binary-no-pretty", "core-no-binary-top120", "core-runtime-probe-soft"],
 };
 exports.MATCH_V2_SCORE_WEIGHTS = {
     file: {
@@ -118,4 +118,10 @@ exports.FIXED_REGRESSION_RUNS = [
         label: "Core run without binary and narrower reporting window",
         args: ["-NoBinary", "-Top", "120"],
     },
+    {
+        id: "core-runtime-probe-soft",
+        label: "Core run with runtime probe enabled (soft runtime RPC noise mode)",
+        args: ["-NoBinary", "-RuntimeProbe", "-RuntimeProbeMs", "12000", "-RuntimeRpcNoiseMode", "soft"],
+    },
 ];
+exports.REVERSE_REGRESSION_BASELINES_FILE = "scripts/reverse/regression-baselines.json";

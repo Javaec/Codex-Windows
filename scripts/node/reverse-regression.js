@@ -38,6 +38,7 @@ const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
 const regression_config_1 = require("./reverse/regression-config");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const REGRESSION_BASELINE_SCHEMA_VERSION = 1;
 function toPosixPath(input) {
     return input.replace(/\\/g, "/");
 }
@@ -74,6 +75,105 @@ function readJson(filePath) {
 function writeJson(filePath, value) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+function readAppSnapshotInfo(appDir) {
+    const candidatePackagePaths = [
+        path.join(appDir, "package.json"),
+        path.join(appDir, "resources", "app", "package.json"),
+    ];
+    for (const packagePath of candidatePackagePaths) {
+        if (!fs.existsSync(packagePath))
+            continue;
+        const parsed = readJson(packagePath);
+        if (typeof parsed.name !== "string" || parsed.name.trim().length === 0) {
+            throw new Error(`Invalid app snapshot package name in ${toPosixPath(packagePath)}`);
+        }
+        if (typeof parsed.version !== "string" || parsed.version.trim().length === 0) {
+            throw new Error(`Invalid app snapshot version in ${toPosixPath(packagePath)}`);
+        }
+        const appName = parsed.name.trim();
+        const appVersion = parsed.version.trim();
+        return {
+            appName,
+            appVersion,
+            packageJsonPath: toPosixPath(packagePath),
+            snapshotKey: `${appName}@${appVersion}`,
+        };
+    }
+    throw new Error(`App snapshot package.json is missing in ${candidatePackagePaths.map((candidate) => toPosixPath(candidate)).join(", ")}`);
+}
+function resolveBaselinesPath() {
+    return path.resolve(REPO_ROOT, regression_config_1.REVERSE_REGRESSION_BASELINES_FILE);
+}
+function loadBaselineStore(baselinesPath) {
+    if (!fs.existsSync(baselinesPath)) {
+        return { version: REGRESSION_BASELINE_SCHEMA_VERSION, profiles: {} };
+    }
+    const parsed = readJson(baselinesPath);
+    if (parsed.version !== REGRESSION_BASELINE_SCHEMA_VERSION) {
+        throw new Error(`Unsupported regression baseline schema in ${toPosixPath(baselinesPath)}: ${parsed.version}`);
+    }
+    if (typeof parsed.profiles !== "object" || parsed.profiles === null || Array.isArray(parsed.profiles)) {
+        throw new Error(`Invalid regression baseline profiles in ${toPosixPath(baselinesPath)}`);
+    }
+    return parsed;
+}
+function toBaselineRunMetrics(results) {
+    const runs = {};
+    for (const result of results) {
+        runs[result.id] = {
+            mappedFiles: result.mappedFiles,
+            mappedSymbols: result.mappedSymbols,
+        };
+    }
+    return runs;
+}
+function validateOrCreateBaselineProfile(input) {
+    const existingProfile = input.store.profiles[input.snapshot.snapshotKey];
+    if (!existingProfile) {
+        const profile = {
+            appName: input.snapshot.appName,
+            appVersion: input.snapshot.appVersion,
+            calibrationProfile: regression_config_1.MATCH_V2_CALIBRATION_PROFILE.id,
+            updatedAtUtc: new Date().toISOString(),
+            runs: toBaselineRunMetrics(input.results),
+        };
+        input.store.profiles[input.snapshot.snapshotKey] = profile;
+        return {
+            status: "created",
+            snapshot: input.snapshot,
+            failures: [],
+            profile,
+        };
+    }
+    const failures = [];
+    if (existingProfile.calibrationProfile !== regression_config_1.MATCH_V2_CALIBRATION_PROFILE.id) {
+        failures.push(`baseline calibration mismatch: ${existingProfile.calibrationProfile} != ${regression_config_1.MATCH_V2_CALIBRATION_PROFILE.id}`);
+    }
+    for (const fixedRun of regression_config_1.FIXED_REGRESSION_RUNS) {
+        const baselineRun = existingProfile.runs[fixedRun.id];
+        if (!baselineRun) {
+            failures.push(`baseline is missing fixed run ${fixedRun.id}`);
+            continue;
+        }
+        const result = input.results.find((row) => row.id === fixedRun.id);
+        if (!result) {
+            failures.push(`result set is missing fixed run ${fixedRun.id}`);
+            continue;
+        }
+        if (result.mappedFiles < baselineRun.mappedFiles) {
+            failures.push(`${fixedRun.id} mappedFiles regression: ${result.mappedFiles} < baseline ${baselineRun.mappedFiles}`);
+        }
+        if (result.mappedSymbols < baselineRun.mappedSymbols) {
+            failures.push(`${fixedRun.id} mappedSymbols regression: ${result.mappedSymbols} < baseline ${baselineRun.mappedSymbols}`);
+        }
+    }
+    return {
+        status: "validated",
+        snapshot: input.snapshot,
+        failures,
+        profile: existingProfile,
+    };
 }
 function collectOutputPreview(stdout, stderr) {
     return `${stdout}\n${stderr}`
@@ -128,12 +228,19 @@ function runRegressionCase(options, runId, label, args) {
         qualityFailures,
     };
 }
-function formatReportMarkdown(results) {
+function formatReportMarkdown(results, baseline, baselinesPath) {
     const rows = [];
     rows.push("# Reverse Regression Report");
     rows.push("");
     rows.push(`- calibration profile: ${regression_config_1.MATCH_V2_CALIBRATION_PROFILE.id}`);
     rows.push(`- fixed runs: ${regression_config_1.MATCH_V2_CALIBRATION_PROFILE.fixedRegressionRuns.join(", ")}`);
+    rows.push(`- app snapshot: ${baseline.snapshot.snapshotKey}`);
+    rows.push(`- app package.json: \`${baseline.snapshot.packageJsonPath}\``);
+    rows.push(`- baseline profile: ${baseline.status}`);
+    rows.push(`- baselines file: \`${toPosixPath(baselinesPath)}\``);
+    if (baseline.failures.length > 0) {
+        rows.push(`- baseline validation failures: ${baseline.failures.join("; ")}`);
+    }
     rows.push("");
     rows.push("| Run | Exit | mappedFiles | mappedSymbols | qualityGate | outDir |");
     rows.push("| --- | ---: | ---: | ---: | --- | --- |");
@@ -149,24 +256,44 @@ function formatReportMarkdown(results) {
 function main() {
     const options = parseArgs(process.argv.slice(2));
     fs.mkdirSync(options.outRoot, { recursive: true });
+    const snapshot = readAppSnapshotInfo(options.appDir);
     const results = [];
     for (const run of regression_config_1.FIXED_REGRESSION_RUNS) {
         const result = runRegressionCase(options, run.id, run.label, run.args);
         results.push(result);
         process.stdout.write(`[regression] ${run.id}: exit=${result.exitCode}, mappedFiles=${result.mappedFiles}, mappedSymbols=${result.mappedSymbols}, quality=${result.qualityPassed}\n`);
     }
+    const baselinesPath = resolveBaselinesPath();
+    const baselineStore = loadBaselineStore(baselinesPath);
+    const baselineValidation = validateOrCreateBaselineProfile({
+        store: baselineStore,
+        snapshot,
+        results,
+    });
+    if (baselineValidation.status === "created") {
+        writeJson(baselinesPath, baselineStore);
+        process.stdout.write(`[regression] created baseline profile for snapshot ${snapshot.snapshotKey} in ${toPosixPath(baselinesPath)}\n`);
+    }
     const reportPath = path.join(options.outRoot, "regression-report.json");
     const markdownPath = path.join(options.outRoot, "regression-report.md");
     const report = {
         generatedAtUtc: new Date().toISOString(),
         calibrationProfile: regression_config_1.MATCH_V2_CALIBRATION_PROFILE,
+        appSnapshot: snapshot,
+        baseline: {
+            status: baselineValidation.status,
+            failures: baselineValidation.failures,
+            baselinesFile: toPosixPath(baselinesPath),
+            profile: baselineValidation.profile,
+        },
         appDir: toPosixPath(options.appDir),
         outRoot: toPosixPath(options.outRoot),
         runs: results,
     };
     writeJson(reportPath, report);
-    fs.writeFileSync(markdownPath, formatReportMarkdown(results), "utf8");
-    const failed = results.some((row) => !row.success || !row.qualityPassed);
+    fs.writeFileSync(markdownPath, formatReportMarkdown(results, baselineValidation, baselinesPath), "utf8");
+    const failed = results.some((row) => !row.success || !row.qualityPassed) ||
+        baselineValidation.failures.length > 0;
     if (failed) {
         process.stderr.write(`[regression] failed, inspect ${toPosixPath(reportPath)} and ${toPosixPath(markdownPath)}\n`);
         return 1;

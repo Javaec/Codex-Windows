@@ -11,6 +11,7 @@ Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 - `scripts/ts/reverse/domain-boundaries.ts` domain scoring + component boundary extraction stage.
 - `scripts/ts/reverse/match-v2.ts` multi-signal file/symbol matching.
 - `scripts/ts/reverse/ipc-contract-map.ts` IPC contract map extraction stage.
+- `scripts/ts/reverse/ipc-wrapper-decode.ts` IPC wrapper decode internals (alias/wrapper/global lookup extraction) used by IPC contract stage.
 - `scripts/ts/reverse/rpc-schema.ts` RPC schema extraction (bundle + binary + runtime + AST static signals).
 - `scripts/ts/reverse/session-route-flow.ts` session flow + route-boundary graph.
 - `scripts/ts/reverse/reference-parity.ts` reference parity gaps report.
@@ -26,6 +27,9 @@ npm run build:runner
 npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-Windows\work\reverse-codex-app
 npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Codex-Windows\work\reverse-regression
 ```
+
+Regression baselines are pinned by app snapshot version (`name@version`) in:
+`scripts/reverse/regression-baselines.json`.
 
 ## Output
 
