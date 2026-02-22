@@ -34,6 +34,12 @@ npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Code
 Regression baselines are pinned by app snapshot version (`name@version`) in:
 `scripts/reverse/regression-baselines.json`.
 
+Current hard quality gates include:
+- `mappedFiles` in `4..6`
+- `mappedSymbols >= 10` and no regression versus history
+- no generic-path noise (`types/utils/index/common/shared`)
+- generated project checks must pass (`npm install`, `tsc`, `eslint`)
+
 Reference inputs are owned by `reference-model.ts` only (architecture map + both symbol maps + path map extraction),
 and consumed by downstream stages through thin adapters.
 

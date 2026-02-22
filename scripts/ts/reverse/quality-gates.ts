@@ -57,6 +57,7 @@ export interface QualityGateReport {
   targets: {
     mappedFilesMin: number;
     mappedFilesMax: number;
+    mappedSymbolsMin: number;
     allowedTargetPrefixes: string[];
   };
   failures: string[];
@@ -205,6 +206,11 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
       `mappedFiles out of gate range: ${mappedFiles} (expected ${REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin}-${REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax})`,
     );
   }
+  if (mappedSymbols < REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin) {
+    failures.push(
+      `mappedSymbols below gate floor: ${mappedSymbols} (expected >= ${REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin})`,
+    );
+  }
 
   if (!input.projectChecks.install.success) {
     failures.push("generated project gate failed: npm install is not successful");
@@ -260,6 +266,7 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
     targets: {
       mappedFilesMin: REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin,
       mappedFilesMax: REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax,
+      mappedSymbolsMin: REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin,
       allowedTargetPrefixes: [...REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes],
     },
     failures,

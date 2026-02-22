@@ -169,6 +169,7 @@ export const MATCH_V2_REGRESSION_HINTS: MatchV2RegressionHintRule[] = [
 export interface ReverseQualityGateTargets {
   mappedFilesMin: number;
   mappedFilesMax: number;
+  mappedSymbolsMin: number;
   genericPathNoiseSegments: string[];
   allowedTargetPrefixes: string[];
   mappedSymbolsHistoryFile: string;
@@ -177,6 +178,7 @@ export interface ReverseQualityGateTargets {
 export const REVERSE_QUALITY_GATE_TARGETS: ReverseQualityGateTargets = {
   mappedFilesMin: 4,
   mappedFilesMax: 6,
+  mappedSymbolsMin: 10,
   genericPathNoiseSegments: ["types", "utils", "index", "common", "shared"],
   allowedTargetPrefixes: ["src/main/", "src/renderer/", "src/services/", "src-tauri-adapter/"],
   mappedSymbolsHistoryFile: "work/reverse-quality-history.json",

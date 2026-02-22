@@ -335,6 +335,7 @@ function normalizeArchitectureReferencePath(raw: string): string {
   const normalized = toPosixPath(raw.trim()).replace(/^["'`]+|["'`]+$/g, "");
   if (!normalized) return "";
   const clean = normalized.replace(/[)>:;,]+$/g, "");
+  if (clean.includes("{") || clean.includes("}")) return "";
 
   const oneCodeAnchor = "/reference/1code/";
   const codexMonitorAnchor = "/reference/codexmonitor/";

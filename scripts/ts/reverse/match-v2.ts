@@ -1337,19 +1337,26 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       hits: string[];
       signal: FileSignalProfile;
       sourceAnchor?: SourceReferenceAnchor;
+      isMappedSourceFile: boolean;
     }> = [];
 
     for (const file of input.jsFiles) {
       const relPath = file.relPath;
-      if (!mappedSourceFiles.has(relPath)) continue;
       if (!isDeobfuscationCandidateFile(relPath)) continue;
       const signal = fileSignals.get(relPath);
       if (!signal) continue;
+      const isMappedSourceFile = mappedSourceFiles.has(relPath);
+      if (!isMappedSourceFile) {
+        const signalStrength = getTotalSignalStrength(signal);
+        const hasStrongOwnership = signal.boundaryOwnership >= 22 || signal.uiLikelihood >= 0.7;
+        if (signalStrength < 16 && !hasStrongOwnership) continue;
+      }
       if (signal.boundaryOwnership < 8 && signal.uiLikelihood < 0.25) continue;
 
       const source = normalizeSourceForPrint(input.sourceByFile.get(relPath) ?? "");
       if (!source) continue;
       const sourceAnchor = sourceReferenceAnchors.get(relPath);
+      if (!isMappedSourceFile && !sourceAnchor) continue;
       const symbolCandidates = collectObfuscatedSymbolsFromSource({ relPath, source });
       for (const candidate of symbolCandidates) {
         const fileTargetKey = `${candidate.sourceFile}|${candidate.kind}|`;
@@ -1372,8 +1379,10 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           }
         }
         if (!best) continue;
-        if (best.score < 3.8) continue;
+        const minScore = isMappedSourceFile ? 3.8 : 4.9;
+        if (best.score < minScore) continue;
         if (best.hits.length < 2 && getTotalSignalStrength(signal) < 10) continue;
+        if (!isMappedSourceFile && best.hits.length < 2) continue;
 
         symbolRecoveryRows.push({
           candidate,
@@ -1382,6 +1391,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           hits: best.hits,
           signal,
           sourceAnchor,
+          isMappedSourceFile,
         });
       }
     }
@@ -1414,6 +1424,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
 
       const perFileCount = symbolMatchCountByFile.get(candidate.sourceFile) ?? 0;
       if (perFileCount >= 20) continue;
+      if (!row.isMappedSourceFile && perFileCount >= 1) continue;
 
       const confidence = Math.min(0.91, roundMetric(0.2 + row.score / 13.8));
       const targetProjectPath = buildSignalAwareTargetPath({

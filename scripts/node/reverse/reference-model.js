@@ -261,6 +261,8 @@ function normalizeArchitectureReferencePath(raw) {
     if (!normalized)
         return "";
     const clean = normalized.replace(/[)>:;,]+$/g, "");
+    if (clean.includes("{") || clean.includes("}"))
+        return "";
     const oneCodeAnchor = "/reference/1code/";
     const codexMonitorAnchor = "/reference/codexmonitor/";
     const lower = clean.toLowerCase();

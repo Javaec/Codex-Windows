@@ -160,6 +160,9 @@ function enforceQualityGates(input) {
     if (mappedFiles < regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin || mappedFiles > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax) {
         failures.push(`mappedFiles out of gate range: ${mappedFiles} (expected ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin}-${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax})`);
     }
+    if (mappedSymbols < regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin) {
+        failures.push(`mappedSymbols below gate floor: ${mappedSymbols} (expected >= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin})`);
+    }
     if (!input.projectChecks.install.success) {
         failures.push("generated project gate failed: npm install is not successful");
     }
@@ -203,6 +206,7 @@ function enforceQualityGates(input) {
         targets: {
             mappedFilesMin: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMin,
             mappedFilesMax: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedFilesMax,
+            mappedSymbolsMin: regression_config_1.REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin,
             allowedTargetPrefixes: [...regression_config_1.REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes],
         },
         failures,

@@ -2,8 +2,8 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse-regression-bigstroke-13/core-no-binary`
-- Latest regression suite: `work/reverse-regression-bigstroke-13`
+- Latest validated run: `work/reverse-regression-bigstroke-14/core-no-binary`
+- Latest regression suite: `work/reverse-regression-bigstroke-14`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
 ## Implemented Capabilities
@@ -63,6 +63,7 @@
 - Output: `report/quality-gates.json`
 - Enforced conditions per run:
   - `mappedFiles` in `[4..6]`
+  - `mappedSymbols` floor `>= 10`
   - `mappedSymbols` must not regress against history (`work/reverse-quality-history.json`)
   - no generic-path noise in reconstructed targets (`types/utils/index/common/shared`)
   - generated project checks must be clean:
@@ -104,7 +105,7 @@
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
 
-## Latest Metrics (`reverse-regression-bigstroke-13/core-no-binary`)
+## Latest Metrics (`reverse-regression-bigstroke-14/core-no-binary`)
 - Indexed files: 443
 - JS files: 440
 - Routes: 21
@@ -118,7 +119,7 @@
   - reconstructed targets: 7
 - Reference model:
   - unified files: 100
-  - path-map entries: 31
+  - path-map entries: 30
 - Quality gates:
   - pass: true
   - generic-path noise: 0
@@ -130,7 +131,7 @@
   - `scripts/ts/reverse/runtime-probe.ts`: 291 LOC
   - `scripts/ts/reverse/report-writer.ts`: 97 LOC
 
-## Latest Regression Suite (`reverse-regression-bigstroke-13`)
+## Latest Regression Suite (`reverse-regression-bigstroke-14`)
 - `core-no-binary`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-no-pretty`: pass, mappedFiles=4, mappedSymbols=10
 - `core-no-binary-top120`: pass, mappedFiles=4, mappedSymbols=10
@@ -142,6 +143,6 @@
 - Symbol recovery improved but remains conservative to protect generic-path gates.
 
 ## Next Improvements (Generator-First)
-- Continue slicing `reverse.ts` toward orchestration-only (next candidates: summary/report serialization and runtime-probe orchestration).
+- Continue slicing `reverse.ts` toward orchestration-only (next candidates: summary/build-metrics composition and report markdown assembly).
 - Keep calibrating symbol ownership weights on fixed regression runs for gradual mappedSymbols growth.
 - Extend snapshot baseline coverage as new app snapshot versions are added.
