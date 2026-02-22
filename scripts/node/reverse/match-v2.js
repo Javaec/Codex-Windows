@@ -1275,7 +1275,7 @@ function isLowQualitySymbolEntry(entry) {
         return true;
     if (rationaleText.includes("fallback: high-recall-non-generic-fill"))
         return true;
-    if (entry.confidence < 0.62)
+    if (entry.confidence < 0.66)
         return true;
     if (/^(domain(class|handler|symbol)|[a-z]+handlerv?\d*)$/i.test(entry.deobfuscated))
         return true;
@@ -1371,7 +1371,10 @@ function applySymbolQualityPass(input) {
         if (best.score < minimumAcceptableScore)
             continue;
         const projectedScore = Math.min(0.9, roundMetric(0.24 + best.score / 12.5)) * 100 + best.reference.score + (best.hits.length > 0 ? 1.5 : 0);
-        if (!isAggressiveFallback && projectedScore <= currentEntryScore + 2.4)
+        const lowConfidenceEntry = entry.confidence < 0.66;
+        if (!isAggressiveFallback && !lowConfidenceEntry && projectedScore <= currentEntryScore + 2.4)
+            continue;
+        if (!isAggressiveFallback && lowConfidenceEntry && projectedScore <= currentEntryScore + 0.8)
             continue;
         const usedNameKey = `${symbolKind}|${entry.deobfuscated.toLowerCase()}`;
         usedNamesByKind.delete(usedNameKey);
@@ -1403,7 +1406,8 @@ function applySymbolQualityPass(input) {
             signal,
             hits: best.hits,
         });
-        entry.confidence = Math.max(entry.confidence, Math.min(0.9, roundMetric(0.24 + best.score / 12.5)));
+        const rerankedConfidence = Math.min(0.93, roundMetric(0.28 + best.score / 12));
+        entry.confidence = Math.max(entry.confidence, rerankedConfidence);
         entry.rationale = [
             ...entry.rationale,
             "quality-pass: reranked-low-quality-symbol-entry",
