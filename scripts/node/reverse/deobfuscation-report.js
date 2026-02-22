@@ -33,6 +33,8 @@ function formatDeobfuscationTableMarkdown(report) {
     rows.push("");
     rows.push("## Method");
     rows.push(`- ${report.strategy}`);
+    rows.push(`- Calibration profile: ${report.calibration.profileId}`);
+    rows.push(`- Fixed regression runs: ${report.calibration.fixedRegressionRuns.join(", ") || "none"}`);
     rows.push(`- Reference symbols loaded: ${report.referenceInputs.loaded ? "yes" : "no"} (${report.referenceInputs.symbolCount})`);
     rows.push(`- Files scanned: ${report.coverage.filesScanned}`);
     rows.push(`- Obfuscated file candidates: ${report.coverage.obfuscatedFileCandidates}`);

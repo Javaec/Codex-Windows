@@ -7,6 +7,12 @@ import type {
   ReferenceSymbolSource,
   UnifiedReferenceFileProfile,
 } from "./reference-model";
+import {
+  MATCH_V2_CALIBRATION_PROFILE,
+  MATCH_V2_REGRESSION_HINTS,
+  MATCH_V2_SCORE_WEIGHTS,
+  MATCH_V2_THRESHOLDS,
+} from "./regression-config";
 
 export interface FileRecord {
   relPath: string;
@@ -66,6 +72,10 @@ export interface DeobfuscationFilePlan {
 export interface DeobfuscationTableReport {
   generatedAtUtc: string;
   strategy: string;
+  calibration: {
+    profileId: string;
+    fixedRegressionRuns: string[];
+  };
   referenceInputs: {
     architectureMapPath: string;
     oneCodeSymbolMapPath: string;
@@ -316,38 +326,6 @@ function classifyReferenceDomain(file: string): string {
   if (/(event|stream|delta|status|state|runtime|ipc|tauri|backend|transport|sync|ready)/.test(normalized)) return "async_readiness";
   return "unknown";
 }
-
-const MATCH_V2_REGRESSION_HINTS: Array<{
-  sourcePattern: RegExp;
-  preferredReferencePatterns: RegExp[];
-  avoidReferencePatterns?: RegExp[];
-}> = [
-  {
-    sourcePattern: /^\.vite\/build\/main-/i,
-    preferredReferencePatterns: [/(^|\/)src\/main\//i, /src-tauri\/src\//i, /(backend|ipc|window)/i],
-  },
-  {
-    sourcePattern: /^\.vite\/build\/worker/i,
-    preferredReferencePatterns: [/src-tauri\/src\//i, /(backend|state|types|daemon|workspace)/i],
-    avoidReferencePatterns: [/(^|\/)src\/renderer\//i],
-  },
-  {
-    sourcePattern: /^webview\/assets\/index-/i,
-    preferredReferencePatterns: [/(^|\/)src\/renderer\//i, /(features|layout|app|chat)/i],
-  },
-  {
-    sourcePattern: /^webview\/assets\/worker-/i,
-    preferredReferencePatterns: [/(^|\/)src\/renderer\//i, /(chat|thread|event|stream|view)/i],
-  },
-  {
-    sourcePattern: /^webview\/assets\/automation-/i,
-    preferredReferencePatterns: [/(automation|queue|event|job|task)/i],
-  },
-  {
-    sourcePattern: /^webview\/assets\/diff-/i,
-    preferredReferencePatterns: [/(diff|patch|git)/i],
-  },
-];
 
 function scoreRegressionHint(sourceFile: string, referenceFile: string): number {
   const normalizedSource = toPosixPath(sourceFile);
@@ -681,16 +659,18 @@ function buildFileSignalProfiles(input: {
 }
 
 function getFileSignalScore(profile: FileSignalProfile): number {
+  const signalWeights = MATCH_V2_SCORE_WEIGHTS.signal;
   return roundMetric(
-    Math.min(3.2, profile.ast * 0.08) +
-      Math.min(4.4, profile.ipcRpc * 0.14) +
-      Math.min(2.8, profile.state * 0.1) +
-      Math.min(2.8, profile.boundary * 0.12) +
-      Math.min(2.2, profile.flow * 0.09),
+    Math.min(signalWeights.astCap, profile.ast * signalWeights.astWeight) +
+      Math.min(signalWeights.ipcRpcCap, profile.ipcRpc * signalWeights.ipcRpcWeight) +
+      Math.min(signalWeights.stateCap, profile.state * signalWeights.stateWeight) +
+      Math.min(signalWeights.boundaryCap, profile.boundary * signalWeights.boundaryWeight) +
+      Math.min(signalWeights.flowCap, profile.flow * signalWeights.flowWeight),
   );
 }
 
 function scoreReferenceFileProfile(input: { sourceFile: string; profile: ReferenceFileProfile; fileSignals: FileSignalProfile }): { score: number; hits: string[] } {
+  const fileWeights = MATCH_V2_SCORE_WEIGHTS.file;
   const hits: string[] = [];
   for (const token of input.profile.tokens) {
     if (!input.fileSignals.contextKeywords.has(token)) continue;
@@ -699,29 +679,54 @@ function scoreReferenceFileProfile(input: { sourceFile: string; profile: Referen
 
   const layer = classifyRuntimeLayer(input.sourceFile);
   let layerBoost = 0;
-  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "renderer") layerBoost += 1.9;
-  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "main") layerBoost += 1.9;
-  if (layer === "preload" && input.profile.file.includes("/preload/")) layerBoost += 1.5;
-  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "tauri") layerBoost += 0.9;
-  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "services") layerBoost += 0.8;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "renderer") layerBoost += fileWeights.layerRendererBoost;
+  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "main") layerBoost += fileWeights.layerMainBoost;
+  if (layer === "preload" && input.profile.file.includes("/preload/")) layerBoost += fileWeights.layerPreloadBoost;
+  if ((layer === "main" || layer === "main-worker") && input.profile.layer === "tauri") {
+    layerBoost += fileWeights.layerMainToTauriBoost;
+  }
+  if ((layer === "renderer" || layer === "renderer-worker") && input.profile.layer === "services") {
+    layerBoost += fileWeights.layerRendererToServicesBoost;
+  }
 
   const layerMismatchPenalty = getLayerMismatchPenalty(layer, input.profile.file);
   const domain = scoreDomainAlignment(input.fileSignals, input.profile.file);
-  const qualityBoost = Math.min(2.6, input.profile.maxScore / 820);
-  const sourceBoost = input.profile.source === "1code" ? 0.35 : 0.25;
-  const originBoost = input.profile.origin === "symbol-map" ? 0.55 : 0.35;
+  const qualityBoost = Math.min(fileWeights.qualityBoostCap, input.profile.maxScore / fileWeights.qualityDivisor);
+  const sourceBoost =
+    input.profile.source === "1code" ? fileWeights.sourceOneCodeBoost : fileWeights.sourceCodexMonitorBoost;
+  const originBoost =
+    input.profile.origin === "symbol-map" ? fileWeights.originSymbolMapBoost : fileWeights.originPathMapBoost;
+  const pathMapAlignmentBoost =
+    input.profile.origin === "path-map" && layerMismatchPenalty === 0 && input.profile.layer !== "unknown"
+      ? fileWeights.pathMapLayerAlignBoost
+      : 0;
+  const pathMapUnknownPenalty =
+    input.profile.origin === "path-map" && input.profile.layer === "unknown" ? fileWeights.pathMapUnknownPenalty : 0;
   const regressionBoost = scoreRegressionHint(input.sourceFile, input.profile.file);
-  const genericPathPenalty = isGenericReferenceFilePath(input.profile.file) ? 2.8 : 0;
-  const broadFilePenalty = input.profile.symbolCount > 6 ? Math.min(3.4, (input.profile.symbolCount - 6) * 0.34) : 0;
-  const heavyTokenPenalty = input.profile.tokens.size > 85 ? Math.min(1.5, (input.profile.tokens.size - 85) * 0.025) : 0;
-  const rustPenalty = /\.rs$/i.test(input.profile.file) ? 0.45 : 0;
+  const genericPathPenalty = isGenericReferenceFilePath(input.profile.file) ? fileWeights.genericPathPenalty : 0;
+  const broadFilePenalty =
+    input.profile.symbolCount > fileWeights.broadFilePenaltyStart
+      ? Math.min(
+          fileWeights.broadFilePenaltyCap,
+          (input.profile.symbolCount - fileWeights.broadFilePenaltyStart) * fileWeights.broadFilePenaltyStep,
+        )
+      : 0;
+  const heavyTokenPenalty =
+    input.profile.tokens.size > fileWeights.heavyTokenPenaltyStart
+      ? Math.min(
+          fileWeights.heavyTokenPenaltyCap,
+          (input.profile.tokens.size - fileWeights.heavyTokenPenaltyStart) * fileWeights.heavyTokenPenaltyStep,
+        )
+      : 0;
+  const rustPenalty = /\.rs$/i.test(input.profile.file) ? fileWeights.rustPenalty : 0;
   const score =
-    hits.length * 1.95 +
+    hits.length * fileWeights.tokenHitWeight +
     layerBoost +
     domain.boost +
     qualityBoost +
     sourceBoost +
     originBoost +
+    pathMapAlignmentBoost +
     regressionBoost +
     getFileSignalScore(input.fileSignals) -
     genericPathPenalty -
@@ -729,6 +734,7 @@ function scoreReferenceFileProfile(input: { sourceFile: string; profile: Referen
     heavyTokenPenalty -
     layerMismatchPenalty -
     domain.penalty -
+    pathMapUnknownPenalty -
     rustPenalty;
   return { score, hits: dedupeKeywords(hits, 12) };
 }
@@ -740,6 +746,7 @@ function scoreReferenceSymbolMatch(input: {
   fileSignals: FileSignalProfile;
   anchor?: SourceReferenceAnchor;
 }): { score: number; hits: string[] } {
+  const symbolWeights = MATCH_V2_SCORE_WEIGHTS.symbol;
   const scopedKeywords = new Set<string>(input.fileSignals.contextKeywords);
   for (const token of input.candidate.tokens) scopedKeywords.add(token);
 
@@ -751,29 +758,44 @@ function scoreReferenceSymbolMatch(input: {
 
   const layer = classifyRuntimeLayer(input.sourceFile);
   let layerBoost = 0;
-  if ((layer === "renderer" || layer === "renderer-worker") && input.reference.file.includes("/renderer/")) layerBoost += 1.5;
-  if ((layer === "main" || layer === "main-worker") && input.reference.file.includes("/main/")) layerBoost += 1.5;
-  if (layer === "preload" && input.reference.file.includes("/preload/")) layerBoost += 1.2;
+  if ((layer === "renderer" || layer === "renderer-worker") && input.reference.file.includes("/renderer/")) {
+    layerBoost += symbolWeights.layerRendererBoost;
+  }
+  if ((layer === "main" || layer === "main-worker") && input.reference.file.includes("/main/")) {
+    layerBoost += symbolWeights.layerMainBoost;
+  }
+  if (layer === "preload" && input.reference.file.includes("/preload/")) {
+    layerBoost += symbolWeights.layerPreloadBoost;
+  }
 
   const layerMismatchPenalty = getLayerMismatchPenalty(layer, input.reference.file);
   const domain = scoreDomainAlignment(input.fileSignals, input.reference.file);
   const anchorBoost = getAnchorBoost(input.anchor, input.reference.file);
-  const symbolKindBoost = input.candidate.kind === input.reference.symbolKind ? 1.7 : 0;
-  const qualityBoost = Math.min(2.6, input.reference.score / 700);
-  const genericPathPenalty = isGenericReferenceFilePath(input.reference.file) ? 2.1 : 0;
-  const genericNamePenalty = /^(run|main|start|stop|kind|usage|header|app|state|data)$/i.test(input.reference.name) ? 2.3 : 0;
-  const rustPenalty = /\.rs$/i.test(input.reference.file) ? 0.35 : 0;
-  const broadFilePenalty = /(types?|utils?|common|shared|state)/i.test(input.reference.file) ? 0.55 : 0;
+  const symbolKindBoost = input.candidate.kind === input.reference.symbolKind ? symbolWeights.symbolKindBoost : 0;
+  const qualityBoost = Math.min(symbolWeights.qualityBoostCap, input.reference.score / symbolWeights.qualityDivisor);
+  const genericPathPenalty = isGenericReferenceFilePath(input.reference.file) ? symbolWeights.genericPathPenalty : 0;
+  const genericNamePenalty = /^(run|main|start|stop|kind|usage|header|app|state|data)$/i.test(input.reference.name)
+    ? symbolWeights.genericNamePenalty
+    : 0;
+  const rustPenalty = /\.rs$/i.test(input.reference.file) ? symbolWeights.rustPenalty : 0;
+  const broadFilePenalty = /(types?|utils?|common|shared|state)/i.test(input.reference.file)
+    ? symbolWeights.broadFilePenalty
+    : 0;
+  const pathMapLayerAlignmentBoost =
+    /(^|\/)src\/(?:main|renderer|services)\//.test(toPosixPath(input.reference.file)) && layerMismatchPenalty === 0
+      ? symbolWeights.pathMapLayerAlignBoost
+      : 0;
 
   const score =
-    hits.length * 1.85 +
+    hits.length * symbolWeights.tokenHitWeight +
     layerBoost +
     domain.boost +
     anchorBoost +
     symbolKindBoost +
     qualityBoost +
+    pathMapLayerAlignmentBoost +
     getFileSignalScore(input.fileSignals) +
-    Math.min(1.2, input.candidate.tokens.length * 0.25) -
+    Math.min(symbolWeights.candidateTokenBoostCap, input.candidate.tokens.length * symbolWeights.candidateTokenBoostStep) -
     genericPathPenalty -
     broadFilePenalty -
     genericNamePenalty -
@@ -937,10 +959,21 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       }
 
       const strongSignal = signalStrength >= 12;
-      const minFileScore = selectedProfile && isGenericReferenceFilePath(selectedProfile.file) ? 7.2 : sourceAnchor ? 3.4 : strongSignal ? 3.7 : 4.3;
+      const minFileScore =
+        selectedProfile && isGenericReferenceFilePath(selectedProfile.file)
+          ? MATCH_V2_THRESHOLDS.genericSelectionMinScore
+          : sourceAnchor
+            ? 3.4
+            : strongSignal
+              ? 3.7
+              : 4.3;
       const minHits = sourceAnchor || strongSignal || usedNonGenericFallback ? 1 : 2;
       const isGenericBestProfile = selectedProfile ? isGenericReferenceFilePath(selectedProfile.file) : false;
-      const nonGenericFallbackMinScore = sourceAnchor ? 3.0 : strongSignal ? 3.4 : 3.8;
+      const nonGenericFallbackMinScore = sourceAnchor
+        ? MATCH_V2_THRESHOLDS.nonGenericSelectionMinScoreStrongAnchor
+        : strongSignal
+          ? MATCH_V2_THRESHOLDS.nonGenericSelectionMinScoreStrongSignal
+          : MATCH_V2_THRESHOLDS.nonGenericSelectionMinScoreDefault;
       if (
         selectedProfile &&
         selectedFileScore >= (usedNonGenericFallback ? nonGenericFallbackMinScore : minFileScore) &&
@@ -1223,8 +1256,8 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
     }
   }
 
-  const minMappedFiles = 4;
-  const maxMappedFiles = 6;
+  const minMappedFiles = MATCH_V2_THRESHOLDS.minMappedFiles;
+  const maxMappedFiles = MATCH_V2_THRESHOLDS.maxMappedFiles;
   if (filePlans.length < minMappedFiles) {
     const mappedSourceFiles = new Set(filePlans.map((row) => row.sourceFile));
     const unresolvedRows: Array<{
@@ -1354,7 +1387,11 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
   return {
     generatedAtUtc: new Date().toISOString(),
     strategy:
-      "match-v2 multi-signal mapping: reference-guided file+symbol deobfuscation using AST candidates, IPC/RPC routes, state/status keys, component boundaries, and flow signals.",
+      "match-v2 multi-signal mapping: reference-guided file+symbol deobfuscation using AST, IPC/RPC, state keys, component boundaries, route/event flow, and layer/path-map alignment.",
+    calibration: {
+      profileId: MATCH_V2_CALIBRATION_PROFILE.id,
+      fixedRegressionRuns: [...MATCH_V2_CALIBRATION_PROFILE.fixedRegressionRuns],
+    },
     referenceInputs: {
       architectureMapPath: referenceProfile.sourcePath,
       oneCodeSymbolMapPath: referenceSymbolProfile.oneCodePath,

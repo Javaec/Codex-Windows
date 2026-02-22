@@ -63,6 +63,39 @@ export interface ReferencePathMapRow {
   score: number;
 }
 
+export interface ReferenceDomainMetadataRow {
+  label: string;
+  parityWeight: number;
+}
+
+export interface ReferenceDomainDefinition extends ReferenceDomainMetadataRow {
+  keywords: string[];
+}
+
+export const DEFAULT_REFERENCE_DOMAIN_METADATA: Record<string, ReferenceDomainMetadataRow> = {
+  navigation: {
+    label: "Navigation & Layout",
+    parityWeight: 1.2,
+  },
+  chat_sessions: {
+    label: "Chats & Sessions",
+    parityWeight: 1.4,
+  },
+  settings_skills: {
+    label: "Settings & Skills",
+    parityWeight: 1.0,
+  },
+  async_readiness: {
+    label: "Async & Readiness",
+    parityWeight: 1.1,
+  },
+};
+
+export const DEFAULT_PARITY_TIER_THRESHOLDS = {
+  critical: 78,
+  high: 52,
+};
+
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const REFERENCE_ANALYSIS_ROOT = path.join(REPO_ROOT, "reference", "analysis");
 
@@ -87,6 +120,7 @@ export interface ReferenceModel {
   unified: {
     files: UnifiedReferenceFileProfile[];
     domainKeywords: Record<string, string[]>;
+    domainDefinitions: Record<string, ReferenceDomainDefinition>;
     pathMap: ReferencePathMapRow[];
   };
 }
@@ -243,6 +277,28 @@ function buildReferenceDomainKeywords(base: {
     ),
     async_readiness: dedupeKeywords([...base.readiness, ...base.events, ...base.ipc, "stream", "delta"], 140),
   };
+}
+
+export function buildReferenceDomainDefinitions(
+  domainKeywords: Record<string, string[]>,
+): Record<string, ReferenceDomainDefinition> {
+  const out: Record<string, ReferenceDomainDefinition> = {};
+  const knownKeys = new Set<string>([
+    ...Object.keys(DEFAULT_REFERENCE_DOMAIN_METADATA),
+    ...Object.keys(domainKeywords),
+  ]);
+  for (const domainKey of knownKeys) {
+    const metadata = DEFAULT_REFERENCE_DOMAIN_METADATA[domainKey] ?? {
+      label: domainKey,
+      parityWeight: 1,
+    };
+    out[domainKey] = {
+      label: metadata.label,
+      parityWeight: metadata.parityWeight,
+      keywords: dedupeKeywords(domainKeywords[domainKey] ?? [], 260),
+    };
+  }
+  return out;
 }
 
 function buildEmptyReferenceKeywordGroups(): ReferenceKeywordGroups {
@@ -657,6 +713,7 @@ export function loadReferenceModel(input: LoadReferenceModelInput): ReferenceMod
     unified: {
       files: buildUnifiedReferenceFileProfiles(symbols.symbols, pathMap),
       domainKeywords: signals.keywordGroups.domains,
+      domainDefinitions: buildReferenceDomainDefinitions(signals.keywordGroups.domains),
       pathMap,
     },
   };

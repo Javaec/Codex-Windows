@@ -8,18 +8,23 @@ Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 ## Pipeline modules
 
 - `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth (architecture map + symbol maps + extracted path map).
+- `scripts/ts/reverse/domain-boundaries.ts` domain scoring + component boundary extraction stage.
 - `scripts/ts/reverse/match-v2.ts` multi-signal file/symbol matching.
 - `scripts/ts/reverse/ipc-contract-map.ts` IPC contract map extraction stage.
 - `scripts/ts/reverse/rpc-schema.ts` RPC schema extraction (bundle + binary + runtime + AST static signals).
 - `scripts/ts/reverse/session-route-flow.ts` session flow + route-boundary graph.
 - `scripts/ts/reverse/reference-parity.ts` reference parity gaps report.
+- `scripts/ts/reverse/quality-gates.ts` hard quality gate enforcement (mappedFiles/symbol growth/generic noise/project checks/artifact integrity).
+- `scripts/ts/reverse/regression-config.ts` fixed regression runs + match-v2 calibrated weight profile.
 - `scripts/ts/reverse/webstorm-project.ts` TS-first project reconstruction.
+- `scripts/ts/reverse-regression.ts` locked regression-run driver over fixed run-set.
 
 ## Run
 
 ```powershell
 npm run build:runner
 npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-Windows\work\reverse-codex-app
+npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app -OutRoot C:\Codex-Windows\work\reverse-regression
 ```
 
 ## Output
@@ -50,6 +55,7 @@ npm run reverse:codex-app -- -AppDir C:\Codex-Windows\work\app -OutDir C:\Codex-
 - `report/reference-symbols.json`
 - `report/reference-model.json` (unified reference source-of-truth from architecture map + both symbol maps + path map)
 - `report/reference-parity-gaps.json`
+- `report/quality-gates.json` (hard gate result + failures/metrics)
 - `report/1code-codexmonitor-architecture-map.md` (copied reference context, when found)
 - `project/*` generated IDE-friendly test project (clean re-create on each run)
   - `project/src/chunks/*` (single source artifact per chunk)

@@ -33,10 +33,33 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_CODEXMONITOR_SYMBOL_MAP_PATH = exports.DEFAULT_1CODE_SYMBOL_MAP_PATH = exports.DEFAULT_REFERENCE_MAP_PATH = void 0;
+exports.DEFAULT_CODEXMONITOR_SYMBOL_MAP_PATH = exports.DEFAULT_1CODE_SYMBOL_MAP_PATH = exports.DEFAULT_REFERENCE_MAP_PATH = exports.DEFAULT_PARITY_TIER_THRESHOLDS = exports.DEFAULT_REFERENCE_DOMAIN_METADATA = void 0;
+exports.buildReferenceDomainDefinitions = buildReferenceDomainDefinitions;
 exports.loadReferenceModel = loadReferenceModel;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+exports.DEFAULT_REFERENCE_DOMAIN_METADATA = {
+    navigation: {
+        label: "Navigation & Layout",
+        parityWeight: 1.2,
+    },
+    chat_sessions: {
+        label: "Chats & Sessions",
+        parityWeight: 1.4,
+    },
+    settings_skills: {
+        label: "Settings & Skills",
+        parityWeight: 1.0,
+    },
+    async_readiness: {
+        label: "Async & Readiness",
+        parityWeight: 1.1,
+    },
+};
+exports.DEFAULT_PARITY_TIER_THRESHOLDS = {
+    critical: 78,
+    high: 52,
+};
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const REFERENCE_ANALYSIS_ROOT = path.join(REPO_ROOT, "reference", "analysis");
 exports.DEFAULT_REFERENCE_MAP_PATH = path.join(REFERENCE_ANALYSIS_ROOT, "1code-codexmonitor-architecture-map.md");
@@ -175,6 +198,25 @@ function buildReferenceDomainKeywords(base) {
         settings_skills: dedupeKeywords([...base.routes, ...base.stateKeys, "settings", "skill", "skills", "model", "auth", "config"], 140),
         async_readiness: dedupeKeywords([...base.readiness, ...base.events, ...base.ipc, "stream", "delta"], 140),
     };
+}
+function buildReferenceDomainDefinitions(domainKeywords) {
+    const out = {};
+    const knownKeys = new Set([
+        ...Object.keys(exports.DEFAULT_REFERENCE_DOMAIN_METADATA),
+        ...Object.keys(domainKeywords),
+    ]);
+    for (const domainKey of knownKeys) {
+        const metadata = exports.DEFAULT_REFERENCE_DOMAIN_METADATA[domainKey] ?? {
+            label: domainKey,
+            parityWeight: 1,
+        };
+        out[domainKey] = {
+            label: metadata.label,
+            parityWeight: metadata.parityWeight,
+            keywords: dedupeKeywords(domainKeywords[domainKey] ?? [], 260),
+        };
+    }
+    return out;
 }
 function buildEmptyReferenceKeywordGroups() {
     const base = {
@@ -549,6 +591,7 @@ function loadReferenceModel(input) {
         unified: {
             files: buildUnifiedReferenceFileProfiles(symbols.symbols, pathMap),
             domainKeywords: signals.keywordGroups.domains,
+            domainDefinitions: buildReferenceDomainDefinitions(signals.keywordGroups.domains),
             pathMap,
         },
     };

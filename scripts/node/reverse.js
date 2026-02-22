@@ -46,6 +46,8 @@ const session_route_flow_1 = require("./reverse/session-route-flow");
 const reference_parity_1 = require("./reverse/reference-parity");
 const rpc_schema_1 = require("./reverse/rpc-schema");
 const ipc_contract_map_1 = require("./reverse/ipc-contract-map");
+const domain_boundaries_1 = require("./reverse/domain-boundaries");
+const quality_gates_1 = require("./reverse/quality-gates");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const JS_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const TARGET_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css", ".html", ".json"]);
@@ -213,91 +215,6 @@ const ELECTRON_SYSTEM_IPC_CHANNEL_PATTERNS = [
     /^spellcheck(?:er)?[.:]/,
     /getbuiltinmodule/,
 ];
-const DOMAIN_KEYWORDS = {
-    navigation: {
-        label: "Navigation & Layout",
-        keywords: [
-            "route",
-            "navigate",
-            "navigation",
-            "layout",
-            "panel",
-            "sidebar",
-            "header",
-            "footer",
-            "page",
-            "screen",
-            "tab",
-            "inbox",
-            "workspace",
-            "view",
-        ],
-    },
-    chat_sessions: {
-        label: "Chats & Sessions",
-        keywords: [
-            "chat",
-            "thread",
-            "turn",
-            "conversation",
-            "message",
-            "session",
-            "resumeConversation",
-            "archiveConversation",
-            "sendUserMessage",
-            "sendUserTurn",
-            "agent_message",
-            "agent_reasoning",
-        ],
-    },
-    settings_skills: {
-        label: "Settings & Skills",
-        keywords: [
-            "setting",
-            "config",
-            "model",
-            "account",
-            "auth",
-            "login",
-            "logout",
-            "feature",
-            "preference",
-            "skill",
-            "skills",
-            "mcp",
-            "experimental",
-        ],
-    },
-    async_readiness: {
-        label: "Async & Readiness",
-        keywords: [
-            "ready",
-            "loading",
-            "pending",
-            "queued",
-            "running",
-            "completed",
-            "failed",
-            "error",
-            "stream",
-            "delta",
-            "listener",
-            "event",
-            "status",
-            "interrupt",
-        ],
-    },
-};
-const PARITY_TIER_THRESHOLDS = {
-    critical: 78,
-    high: 52,
-};
-const REFERENCE_DOMAIN_WEIGHTS = {
-    navigation: 1.2,
-    chat_sessions: 1.4,
-    settings_skills: 1.0,
-    async_readiness: 1.1,
-};
 function parseArgs(argv) {
     const defaults = {
         appDir: path.resolve(REPO_ROOT, "work", "app"),
@@ -1219,28 +1136,6 @@ function buildFileValueMap(rows) {
     }
     return out;
 }
-function buildImportersMap(importsGraph) {
-    const out = new Map();
-    for (const [file, deps] of importsGraph.entries()) {
-        for (const dep of deps) {
-            const importers = out.get(dep) ?? new Set();
-            importers.add(file);
-            out.set(dep, importers);
-        }
-    }
-    return out;
-}
-function rankValuesByCount(values, counts, limit) {
-    return Array.from(values)
-        .sort((a, b) => {
-        const countA = counts.get(a) ?? 0;
-        const countB = counts.get(b) ?? 0;
-        if (countA !== countB)
-            return countB - countA;
-        return a.localeCompare(b);
-    })
-        .slice(0, limit);
-}
 function getChunkIdFromFile(file) {
     const normalized = toPosixPath(file);
     const segments = normalized.split("/");
@@ -1277,289 +1172,6 @@ function isCandidateBoundaryFile(file) {
     if (VENDOR_FILE_HINTS.test(normalized))
         return false;
     return true;
-}
-function extractComponentSignals(source) {
-    const components = new Set();
-    const hooks = new Set();
-    const uiIndicators = new Set();
-    const isMeaningfulComponentName = (name) => {
-        if (name.length < 4)
-            return false;
-        if (!/^[A-Z][A-Za-z0-9_]+$/.test(name))
-            return false;
-        if (!/[a-z]/.test(name))
-            return false;
-        if (/^[A-Z][0-9]+$/.test(name))
-            return false;
-        return true;
-    };
-    const isMeaningfulHookName = (name) => {
-        if (name.length < 6)
-            return false;
-        if (!/^use[A-Z][A-Za-z0-9_]+$/.test(name))
-            return false;
-        return true;
-    };
-    const functionPattern = /\bfunction\s+([A-Z][A-Za-z0-9_]*)\s*\(/g;
-    const constPattern = /\b(?:const|let|var)\s+([A-Z][A-Za-z0-9_]*)\s*=\s*(?:\([^)]*\)\s*=>|function\b|memo\(|forwardRef\(|lazy\()/g;
-    const classPattern = /\bclass\s+([A-Z][A-Za-z0-9_]*)\s+extends\s+([A-Za-z0-9_.]+)/g;
-    const hookPattern = /\buse[A-Z][A-Za-z0-9_]+\b/g;
-    let match = null;
-    while ((match = functionPattern.exec(source)) !== null) {
-        if (isMeaningfulComponentName(match[1]))
-            components.add(match[1]);
-    }
-    while ((match = constPattern.exec(source)) !== null) {
-        if (isMeaningfulComponentName(match[1]))
-            components.add(match[1]);
-    }
-    while ((match = classPattern.exec(source)) !== null) {
-        if (!isMeaningfulComponentName(match[1]))
-            continue;
-        if (match[2].includes("Component") || match[2].includes("PureComponent"))
-            components.add(match[1]);
-    }
-    while ((match = hookPattern.exec(source)) !== null) {
-        if (isMeaningfulHookName(match[0]))
-            hooks.add(match[0]);
-    }
-    if (/\bjsx(?:DEV|s)?\s*\(/.test(source) || /\bcreateElement\s*\(/.test(source)) {
-        uiIndicators.add("jsx-runtime");
-    }
-    if (hooks.size > 0)
-        uiIndicators.add("react-hooks");
-    if (/\b(?:router|navigate|route|history\.push|history\.replace)\b/i.test(source)) {
-        uiIndicators.add("routing");
-    }
-    if (/\b(?:thread|conversation|session|message|assistant|user-message)\b/i.test(source)) {
-        uiIndicators.add("chat-session");
-    }
-    if (/\b(?:settings|skill|mcp|auth|model|workspace)\b/i.test(source)) {
-        uiIndicators.add("settings-surface");
-    }
-    return { components, hooks, uiIndicators };
-}
-function countKeywordHits(source, keywords, maxHits) {
-    if (keywords.length === 0 || source.length === 0) {
-        return { hitCount: 0, hits: [] };
-    }
-    const normalizedSource = source.toLowerCase();
-    const hits = [];
-    for (const keyword of keywords) {
-        const normalized = keyword.toLowerCase();
-        if (normalized.length < 3)
-            continue;
-        if (!normalizedSource.includes(normalized))
-            continue;
-        hits.push(keyword);
-        if (hits.length >= maxHits)
-            break;
-    }
-    return {
-        hitCount: hits.length,
-        hits: dedupeKeywords(hits, maxHits),
-    };
-}
-function getDomainKeywords(domainKey, referenceProfile) {
-    const base = DOMAIN_KEYWORDS[domainKey]?.keywords ?? [];
-    const extra = referenceProfile.keywordGroups.domains[domainKey] ?? [];
-    return dedupeKeywords([...base, ...extra], 240);
-}
-function buildComponentBoundariesReport(input) {
-    const routeCounts = buildValueCountMap(input.routeRows);
-    const methodCounts = buildValueCountMap(input.methodRows);
-    const messageCounts = buildValueCountMap(input.messageTypeRows);
-    const statusCounts = buildValueCountMap(input.statusRows);
-    const stateCounts = buildValueCountMap(input.stateKeyRows);
-    const ipcCounts = buildValueCountMap(input.ipcRows);
-    const routesByFile = buildFileValueMap(input.routeRows);
-    const methodsByFile = buildFileValueMap(input.methodRows);
-    const messagesByFile = buildFileValueMap(input.messageTypeRows);
-    const statusesByFile = buildFileValueMap(input.statusRows);
-    const statesByFile = buildFileValueMap(input.stateKeyRows);
-    const ipcByFile = buildFileValueMap(input.ipcRows);
-    const importersByFile = buildImportersMap(input.importsGraph);
-    const boundaries = [];
-    let filesWithComponents = 0;
-    let filesWithSignals = 0;
-    let candidateFiles = 0;
-    for (const file of input.jsFiles) {
-        const relPath = file.relPath;
-        if (!isCandidateBoundaryFile(relPath))
-            continue;
-        candidateFiles += 1;
-        const routes = routesByFile.get(relPath) ?? new Set();
-        const events = messagesByFile.get(relPath) ?? new Set();
-        const methods = methodsByFile.get(relPath) ?? new Set();
-        const stateKeys = statesByFile.get(relPath) ?? new Set();
-        const statuses = statusesByFile.get(relPath) ?? new Set();
-        const ipcChannels = ipcByFile.get(relPath) ?? new Set();
-        const signalCount = routes.size + events.size + methods.size + stateKeys.size + statuses.size + ipcChannels.size;
-        const source = input.sourceByFile.get(relPath) ?? "";
-        const componentSignals = extractComponentSignals(source);
-        const referenceRouteHits = countKeywordHits(source, input.referenceProfile.keywordGroups.routes, 10);
-        const referenceMethodHits = countKeywordHits(source, input.referenceProfile.keywordGroups.methods, 10);
-        const referenceStateHits = countKeywordHits(source, input.referenceProfile.keywordGroups.stateKeys, 10);
-        const referenceEventHits = countKeywordHits(source, input.referenceProfile.keywordGroups.events, 10);
-        const referenceIpcHits = countKeywordHits(source, input.referenceProfile.keywordGroups.ipc, 10);
-        const referenceUiHits = countKeywordHits(source, input.referenceProfile.keywordGroups.ui, 10);
-        const referenceHitCount = referenceRouteHits.hitCount +
-            referenceMethodHits.hitCount +
-            referenceStateHits.hitCount +
-            referenceEventHits.hitCount +
-            referenceIpcHits.hitCount +
-            referenceUiHits.hitCount;
-        const referenceHints = dedupeKeywords([
-            ...referenceRouteHits.hits,
-            ...referenceMethodHits.hits,
-            ...referenceStateHits.hits,
-            ...referenceEventHits.hits,
-            ...referenceIpcHits.hits,
-            ...referenceUiHits.hits,
-        ], 20);
-        const hasComponents = componentSignals.components.size > 0;
-        if (hasComponents)
-            filesWithComponents += 1;
-        if (signalCount > 0)
-            filesWithSignals += 1;
-        if (!hasComponents && signalCount === 0 && !isLikelyCoreAppFile(relPath))
-            continue;
-        const importsOut = input.importsGraph.get(relPath) ?? [];
-        const importsInSet = importersByFile.get(relPath) ?? new Set();
-        const coreImportsOut = importsOut.filter((dep) => isLikelyCoreAppFile(dep));
-        const coreImportsIn = Array.from(importsInSet).filter((dep) => isLikelyCoreAppFile(dep));
-        const categoryCount = Number(routes.size > 0) +
-            Number(events.size > 0) +
-            Number(methods.size > 0) +
-            Number(stateKeys.size > 0) +
-            Number(statuses.size > 0) +
-            Number(ipcChannels.size > 0);
-        const uiScoreRaw = (componentSignals.components.size > 0 ? 3 : 0) +
-            (componentSignals.hooks.size > 0 ? 2 : 0) +
-            (componentSignals.uiIndicators.has("jsx-runtime") ? 2 : 0) +
-            (isLikelyCoreAppFile(relPath) ? 1 : 0) +
-            Math.min(4, referenceUiHits.hitCount) +
-            Math.min(4, categoryCount);
-        const uiLikelihood = Number(Math.min(1, uiScoreRaw / 12).toFixed(2));
-        const ownershipScore = routes.size * 4 +
-            events.size * 3 +
-            methods.size * 5 +
-            stateKeys.size * 3 +
-            statuses.size * 2 +
-            ipcChannels.size * 2 +
-            componentSignals.components.size * 2 +
-            componentSignals.hooks.size +
-            Math.min(20, referenceHitCount * 2) +
-            importsOut.length +
-            importsInSet.size;
-        boundaries.push({
-            id: `boundary-${String(boundaries.length + 1).padStart(4, "0")}`,
-            ownerFile: relPath,
-            chunkId: getChunkIdFromFile(relPath),
-            ownershipScore,
-            uiLikelihood,
-            referenceSignalHits: referenceHitCount,
-            referenceHints,
-            componentNames: Array.from(componentSignals.components).sort((a, b) => a.localeCompare(b)).slice(0, 30),
-            hookNames: Array.from(componentSignals.hooks).sort((a, b) => a.localeCompare(b)).slice(0, 30),
-            uiIndicators: Array.from(componentSignals.uiIndicators).sort((a, b) => a.localeCompare(b)),
-            routes: rankValuesByCount(routes, routeCounts, 16),
-            events: rankValuesByCount(events, messageCounts, 24),
-            rpcMethods: rankValuesByCount(methods, methodCounts, 16),
-            stateKeys: rankValuesByCount(stateKeys, stateCounts, 20),
-            statuses: rankValuesByCount(statuses, statusCounts, 12),
-            ipcChannels: rankValuesByCount(ipcChannels, ipcCounts, 12),
-            importsOut: importsOut.length,
-            importsIn: importsInSet.size,
-            importsToCore: coreImportsOut.slice(0, 20),
-            importedByCore: coreImportsIn.sort((a, b) => a.localeCompare(b)).slice(0, 20),
-        });
-    }
-    boundaries.sort((a, b) => {
-        if (a.ownershipScore !== b.ownershipScore)
-            return b.ownershipScore - a.ownershipScore;
-        if (a.uiLikelihood !== b.uiLikelihood)
-            return b.uiLikelihood - a.uiLikelihood;
-        return a.ownerFile.localeCompare(b.ownerFile);
-    });
-    const chunkMap = new Map();
-    for (const boundary of boundaries) {
-        const list = chunkMap.get(boundary.chunkId) ?? [];
-        list.push(boundary);
-        chunkMap.set(boundary.chunkId, list);
-    }
-    const chunks = [];
-    for (const [chunkId, entries] of chunkMap.entries()) {
-        const componentFreq = new Map();
-        const signalCoverage = {
-            routes: 0,
-            events: 0,
-            rpcMethods: 0,
-            stateKeys: 0,
-            statuses: 0,
-            ipcChannels: 0,
-        };
-        for (const entry of entries) {
-            signalCoverage.routes += entry.routes.length;
-            signalCoverage.events += entry.events.length;
-            signalCoverage.rpcMethods += entry.rpcMethods.length;
-            signalCoverage.stateKeys += entry.stateKeys.length;
-            signalCoverage.statuses += entry.statuses.length;
-            signalCoverage.ipcChannels += entry.ipcChannels.length;
-            for (const name of entry.componentNames) {
-                componentFreq.set(name, (componentFreq.get(name) ?? 0) + 1);
-            }
-        }
-        const topComponents = Array.from(componentFreq.entries())
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => {
-            if (a.count !== b.count)
-                return b.count - a.count;
-            return a.name.localeCompare(b.name);
-        })
-            .slice(0, Math.max(8, Math.floor(input.top / 8)));
-        chunks.push({
-            chunkId,
-            boundaryCount: entries.length,
-            topOwners: entries.slice(0, Math.max(8, Math.floor(input.top / 8))).map((entry) => ({
-                file: entry.ownerFile,
-                ownershipScore: entry.ownershipScore,
-                uiLikelihood: entry.uiLikelihood,
-            })),
-            topComponents,
-            signalCoverage,
-        });
-    }
-    chunks.sort((a, b) => {
-        if (a.boundaryCount !== b.boundaryCount)
-            return b.boundaryCount - a.boundaryCount;
-        return a.chunkId.localeCompare(b.chunkId);
-    });
-    const maxOwnershipScore = boundaries.reduce((max, row) => Math.max(max, row.ownershipScore), 0);
-    const avgUiLikelihood = boundaries.length > 0
-        ? Number((boundaries.reduce((sum, row) => sum + row.uiLikelihood, 0) / boundaries.length).toFixed(3))
-        : 0;
-    return {
-        generatedAtUtc: new Date().toISOString(),
-        strategy: "Approximate component ownership from chunk/file boundaries, AST/regex signal indexes, React-like symbol patterns, and local import graph centrality.",
-        boundaries,
-        chunks,
-        coverage: {
-            jsFiles: input.jsFiles.length,
-            candidateFiles,
-            boundaryFiles: boundaries.length,
-            filesWithComponents,
-            filesWithSignals,
-            maxOwnershipScore,
-            avgUiLikelihood,
-        },
-    };
-}
-function valueContainsKeyword(value, keyword) {
-    return value.toLowerCase().includes(keyword.toLowerCase());
-}
-function rowMatchesAnyKeyword(row, keywords) {
-    return keywords.some((keyword) => valueContainsKeyword(row.value, keyword));
 }
 function isLikelyCoreAppFile(file) {
     const lower = file.toLowerCase();
@@ -1600,100 +1212,6 @@ function isDeobfuscationCandidateFile(file) {
         return true;
     }
     return false;
-}
-function hasCoreFile(row) {
-    return row.files.some((file) => isLikelyCoreAppFile(file) && !VENDOR_FILE_HINTS.test(file));
-}
-function buildDomainReport(input) {
-    const sourceRows = [
-        { source: "routes", rows: input.routeRows },
-        { source: "methods", rows: input.methodRows },
-        { source: "messageTypes", rows: input.messageTypeRows },
-        { source: "statuses", rows: input.statusRows },
-        { source: "stateKeys", rows: input.stateKeyRows },
-        { source: "ipcChannels", rows: input.ipcRows },
-        {
-            source: "cssVars",
-            rows: input.cssVars.map((value) => ({ value, count: 1, files: [] })),
-        },
-        {
-            source: "cssClasses",
-            rows: input.cssClasses.map((value) => ({ value, count: 1, files: [] })),
-        },
-    ];
-    const domains = {};
-    for (const [domainKey, domainConfig] of Object.entries(DOMAIN_KEYWORDS)) {
-        const domainKeywords = getDomainKeywords(domainKey, input.referenceProfile);
-        const signalByKey = new Map();
-        const fileScore = new Map();
-        for (const source of sourceRows) {
-            for (const row of source.rows) {
-                if (row.files.length > 0 && !hasCoreFile(row))
-                    continue;
-                if (!rowMatchesAnyKeyword(row, domainKeywords))
-                    continue;
-                const signalKey = `${source.source}::${row.value}`;
-                const existing = signalByKey.get(signalKey);
-                if (!existing) {
-                    signalByKey.set(signalKey, {
-                        source: source.source,
-                        value: row.value,
-                        count: row.count,
-                        files: [...row.files],
-                    });
-                }
-                else if (row.count > existing.count) {
-                    existing.count = row.count;
-                }
-                for (const file of row.files) {
-                    if (!isLikelyCoreAppFile(file) || VENDOR_FILE_HINTS.test(file))
-                        continue;
-                    const current = fileScore.get(file) ?? 0;
-                    fileScore.set(file, current + row.count);
-                }
-            }
-        }
-        const topSignals = Array.from(signalByKey.values())
-            .sort((a, b) => {
-            if (a.count !== b.count)
-                return b.count - a.count;
-            return a.value.localeCompare(b.value);
-        })
-            .slice(0, input.top);
-        const topFiles = Array.from(fileScore.entries())
-            .map(([file, score]) => ({ file, score }))
-            .sort((a, b) => {
-            if (a.score !== b.score)
-                return b.score - a.score;
-            return a.file.localeCompare(b.file);
-        })
-            .slice(0, input.top);
-        domains[domainKey] = { topSignals, topFiles };
-    }
-    return {
-        generatedAtUtc: new Date().toISOString(),
-        domains,
-    };
-}
-function formatDomainReportMarkdown(domainReport, top) {
-    const sections = [];
-    for (const [domainKey, domainConfig] of Object.entries(DOMAIN_KEYWORDS)) {
-        const domain = domainReport.domains[domainKey];
-        if (!domain)
-            continue;
-        const signalLines = domain.topSignals.length > 0
-            ? domain.topSignals.slice(0, top).map((signal) => `- \`${signal.source}:${signal.value}\` (${signal.count})`)
-            : ["- _none_"];
-        const fileLines = domain.topFiles.length > 0
-            ? domain.topFiles.slice(0, top).map((fileRow) => `- \`${fileRow.file}\` (${fileRow.score})`)
-            : ["- _none_"];
-        sections.push(`### ${domainConfig.label}
-Top signals:
-${signalLines.join("\n")}
-Top files:
-${fileLines.join("\n")}`);
-    }
-    return sections.join("\n\n");
 }
 function addValueTokens(target, value, limit) {
     for (const token of splitReferenceToken(value)) {
@@ -3051,7 +2569,7 @@ ${formatTopRows(input.routeRows, top)}
 ${formatTopRows(input.stateKeyRows, top)}
 
 ## Domain Focus (UI & Logic)
-${formatDomainReportMarkdown(input.domainReport, top)}
+${(0, domain_boundaries_1.formatDomainReportMarkdown)(input.domainReport, top, input.domainDefinitions)}
 
 ## Component Boundaries
 - boundary files: ${input.componentBoundaries.coverage.boundaryFiles}
@@ -3102,6 +2620,18 @@ ${input.rpcSchema.methods.slice(0, Math.min(top, 16)).map((row) => `- \`${row.me
 ${input.deobfuscationTable.filePlans.slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` -> \`${row.proposedModulePath}\` (confidence=${row.confidence})`).join("\n") || "- _none_"}
 - top symbol renames:
 ${input.deobfuscationTable.entries.filter((row) => row.kind !== "file").slice(0, Math.min(top, 12)).map((row) => `- \`${row.sourceFile}\` :: \`${row.obfuscated}\` -> \`${row.deobfuscated}\` (confidence=${row.confidence}, ref=${row.reference.source})`).join("\n") || "- _none_"}
+
+## Quality Gates
+- pass: ${input.qualityGates.passed}
+- mappedFiles gate: ${input.qualityGates.targets.mappedFilesMin}-${input.qualityGates.targets.mappedFilesMax}
+- mappedFiles current: ${input.qualityGates.metrics.mappedFiles}
+- mappedSymbols current: ${input.qualityGates.metrics.mappedSymbols}
+- mappedSymbols previous: ${input.qualityGates.metrics.previousMappedSymbols}
+- generic-path noise rows: ${input.qualityGates.metrics.genericNoisePaths.length}
+- chunk artifacts: rows=${input.qualityGates.metrics.chunkArtifactRows}, uniqueSource=${input.qualityGates.metrics.chunkArtifactUniqueSource}, uniqueArtifact=${input.qualityGates.metrics.chunkArtifactUniqueArtifact}
+- project checks: install=${input.qualityGates.metrics.installSuccess}, tscErrors=${input.qualityGates.metrics.tscErrors}, eslintErrors=${input.qualityGates.metrics.eslintErrors}, eslintWarnings=${input.qualityGates.metrics.eslintWarnings}
+- failures:
+${input.qualityGates.failures.length > 0 ? input.qualityGates.failures.map((item) => `- ${item}`).join("\n") : "- _none_"}
 
 ## Session Flow
 - focus routes: ${input.sessionFlow.focusRouteCount}
@@ -3366,7 +2896,15 @@ async function runReverse(options) {
         classes: Array.from(cssClasses).sort((a, b) => a.localeCompare(b)),
         colors: Array.from(cssColors).sort((a, b) => a.localeCompare(b)),
     };
-    const domainReport = buildDomainReport({
+    const domainDefinitions = referenceModel.unified.domainDefinitions;
+    const domainBoundaryHelpers = {
+        dedupeKeywords,
+        isCandidateBoundaryFile,
+        isLikelyCoreAppFile,
+        isVendorFile: (file) => VENDOR_FILE_HINTS.test(file),
+        getChunkIdFromFile,
+    };
+    const domainReport = (0, domain_boundaries_1.buildDomainReport)({
         top: options.top,
         routeRows,
         methodRows,
@@ -3376,7 +2914,8 @@ async function runReverse(options) {
         ipcRows,
         cssVars: designSystem.vars,
         cssClasses: designSystem.classes,
-        referenceProfile,
+        domainDefinitions,
+        helpers: domainBoundaryHelpers,
     });
     const rpcCatalog = buildRpcCatalog(methodRows, binaryResult);
     const ipcContractMap = (0, ipc_contract_map_1.buildIpcContractMap)({
@@ -3430,7 +2969,7 @@ async function runReverse(options) {
             isIgnoredIpcChannel,
         },
     });
-    const componentBoundaries = buildComponentBoundariesReport({
+    const componentBoundaries = (0, domain_boundaries_1.buildComponentBoundariesReport)({
         jsFiles,
         importsGraph,
         sourceByFile,
@@ -3442,6 +2981,7 @@ async function runReverse(options) {
         ipcRows,
         top: options.top,
         referenceProfile,
+        helpers: domainBoundaryHelpers,
     });
     const deobfuscationTable = (0, match_v2_1.buildDeobfuscationTableMatchV2)({
         top: options.top,
@@ -3557,6 +3097,15 @@ async function runReverse(options) {
         rpcSchema,
         helpers: sessionRouteHelpers,
     });
+    const parityDomainKeywords = {};
+    const parityDomainWeights = {};
+    for (const [domainKey, domainConfig] of Object.entries(domainDefinitions)) {
+        parityDomainKeywords[domainKey] = {
+            label: domainConfig.label,
+            keywords: domainConfig.keywords,
+        };
+        parityDomainWeights[domainKey] = domainConfig.parityWeight;
+    }
     const referenceParityGaps = (0, reference_parity_1.buildReferenceParityGapsReport)({
         referenceProfile,
         routeRows,
@@ -3567,9 +3116,9 @@ async function runReverse(options) {
         ipcRows,
         componentBoundaries,
         rpcSchema,
-        domainKeywords: DOMAIN_KEYWORDS,
-        domainWeights: REFERENCE_DOMAIN_WEIGHTS,
-        tierThresholds: PARITY_TIER_THRESHOLDS,
+        domainKeywords: parityDomainKeywords,
+        domainWeights: parityDomainWeights,
+        tierThresholds: reference_model_1.DEFAULT_PARITY_TIER_THRESHOLDS,
         helpers: {
             dedupeKeywords,
             splitReferenceToken,
@@ -3611,6 +3160,19 @@ async function runReverse(options) {
     }
     if (webStormTestProject.checks.eslint.errors > 0 || webStormTestProject.checks.eslint.warnings > 0) {
         (0, exec_1.writeWarn)(`Project checks: ESLint issues detected (errors=${webStormTestProject.checks.eslint.errors}, warnings=${webStormTestProject.checks.eslint.warnings}).`);
+    }
+    const qualityGates = (0, quality_gates_1.enforceQualityGates)({
+        repoRoot: REPO_ROOT,
+        appDir: options.appDir,
+        outDir: options.outDir,
+        projectRoot: webStormTestProject.rootPath,
+        deobfuscationTable,
+        projectChecks: webStormTestProject.checks,
+    });
+    if (!qualityGates.passed) {
+        for (const failure of qualityGates.failures) {
+            (0, exec_1.writeWarn)(`[QUALITY_GATE] ${failure}`);
+        }
     }
     const summary = {
         generatedAtUtc: new Date().toISOString(),
@@ -3660,6 +3222,9 @@ async function runReverse(options) {
             deobfMappedSymbols: deobfuscationTable.coverage.mappedSymbols,
             deobfFileCandidates: deobfuscationTable.coverage.obfuscatedFileCandidates,
             deobfSymbolCandidates: deobfuscationTable.coverage.obfuscatedSymbolCandidates,
+            qualityGatePassed: qualityGates.passed ? 1 : 0,
+            qualityGateFailures: qualityGates.failures.length,
+            qualityGateGenericNoise: qualityGates.metrics.genericNoisePaths.length,
             sessionFlowRoutes: sessionFlow.entries.length,
             routeBoundaryGraphNodes: routeBoundaryGraph.nodes.length,
             routeBoundaryGraphEdges: routeBoundaryGraph.edges.length,
@@ -3724,6 +3289,7 @@ async function runReverse(options) {
             mappingArtifacts: webStormTestProject.mappingArtifacts,
             checks: webStormTestProject.checks,
         },
+        qualityGates,
         referenceParity: {
             weightedCoveragePercent: referenceParityGaps.coverage.weightedCoveragePercent,
             weightedGapScore: referenceParityGaps.coverage.weightedGapScore,
@@ -3765,6 +3331,7 @@ async function runReverse(options) {
     writeJson(path.join(reportDir, "reference-model.json"), referenceModel);
     writeJson(path.join(reportDir, "reference-signals.json"), referenceProfile);
     writeJson(path.join(reportDir, "reference-symbols.json"), referenceSymbolProfile);
+    writeJson(path.join(reportDir, "quality-gates.json"), qualityGates);
     fs.writeFileSync(path.join(reportDir, "deobfuscation-table.md"), deobfuscationMarkdown, "utf8");
     fs.writeFileSync(path.join(reportDir, "deobfuscation-table.csv"), deobfuscationCsv, "utf8");
     fs.writeFileSync(path.join(reportDir, "rename-plan.md"), renamePlanMarkdown, "utf8");
@@ -3797,10 +3364,12 @@ async function runReverse(options) {
         cssClasses: designSystem.classes,
         cssColors: designSystem.colors,
         domainReport,
+        domainDefinitions,
         componentBoundaries,
         ipcContractMap,
         rpcSchema,
         deobfuscationTable,
+        qualityGates,
         sessionFlow,
         routeBoundaryGraph,
         referenceParityGaps,
@@ -3809,6 +3378,9 @@ async function runReverse(options) {
         binary: binaryResult,
     });
     fs.writeFileSync(path.join(reportDir, "architecture.md"), architectureMarkdown, "utf8");
+    if (!qualityGates.passed) {
+        throw new Error(`Quality gates failed: ${qualityGates.failures.join("; ")}`);
+    }
     (0, exec_1.writeSuccess)(`Report root: ${toPosixPath(reportDir)}`);
     (0, exec_1.writeSuccess)(`Architecture report: ${toPosixPath(path.join(reportDir, "architecture.md"))}`);
     (0, exec_1.writeSuccess)(`IPC contract map: ${toPosixPath(path.join(reportDir, "ipc-contract-map.json"))}`);
@@ -3818,6 +3390,7 @@ async function runReverse(options) {
     (0, exec_1.writeSuccess)(`Session flow JSON: ${toPosixPath(path.join(reportDir, "session-flow.json"))}`);
     (0, exec_1.writeSuccess)(`Route-boundary graph: ${toPosixPath(path.join(reportDir, "route-boundary-graph.json"))}`);
     (0, exec_1.writeSuccess)(`Reference parity gaps: ${toPosixPath(path.join(reportDir, "reference-parity-gaps.json"))}`);
+    (0, exec_1.writeSuccess)(`Quality gates: ${toPosixPath(path.join(reportDir, "quality-gates.json"))}`);
     (0, exec_1.writeSuccess)(`Deobfuscation markdown: ${toPosixPath(path.join(reportDir, "deobfuscation-table.md"))}`);
     (0, exec_1.writeSuccess)(`Deobfuscation CSV: ${toPosixPath(path.join(reportDir, "deobfuscation-table.csv"))}`);
     (0, exec_1.writeSuccess)(`Rename plan: ${toPosixPath(path.join(reportDir, "rename-plan.md"))}`);
