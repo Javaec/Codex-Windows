@@ -63,6 +63,37 @@ function dedupeKeywords(values, max) {
     }
     return Array.from(out).sort((a, b) => a.localeCompare(b));
 }
+function normalizeSemanticToken(token) {
+    const normalized = token.trim().toLowerCase();
+    if (normalized.length <= 4)
+        return normalized;
+    if (normalized.endsWith("ies") && normalized.length > 5) {
+        return `${normalized.slice(0, -3)}y`;
+    }
+    if (normalized.endsWith("s") && !normalized.endsWith("ss")) {
+        return normalized.slice(0, -1);
+    }
+    return normalized;
+}
+function dedupeKeywordsStable(values, max) {
+    const out = [];
+    const seen = new Set();
+    for (const value of values) {
+        const normalized = value.trim().toLowerCase();
+        if (normalized.length < 3 || normalized.length > 90)
+            continue;
+        if (/^\d+$/.test(normalized))
+            continue;
+        const semanticKey = normalizeSemanticToken(normalized);
+        if (seen.has(semanticKey))
+            continue;
+        seen.add(semanticKey);
+        out.push(normalized);
+        if (out.length >= max)
+            break;
+    }
+    return out;
+}
 function splitSignalToken(value) {
     const normalized = value.trim();
     if (normalized.length === 0)
@@ -79,6 +110,49 @@ function splitSignalToken(value) {
         }
     }
     return nested;
+}
+function extractContextTokensFromNode(node, max = 24) {
+    const collected = [];
+    const pushToken = (value) => {
+        for (const token of splitSignalToken(value)) {
+            if (token.length < 3)
+                continue;
+            collected.push(token.toLowerCase());
+            if (collected.length >= max)
+                break;
+        }
+    };
+    const visit = (current) => {
+        if (collected.length >= max)
+            return;
+        if (ts.isIdentifier(current)) {
+            pushToken(current.text);
+        }
+        else if (ts.isPropertyAccessExpression(current)) {
+            pushToken(current.name.text);
+        }
+        else if (ts.isStringLiteralLike(current)) {
+            pushToken(current.text);
+        }
+        else if (ts.isCallExpression(current)) {
+            if (ts.isIdentifier(current.expression)) {
+                pushToken(current.expression.text);
+            }
+            else if (ts.isPropertyAccessExpression(current.expression)) {
+                pushToken(current.expression.name.text);
+            }
+        }
+        ts.forEachChild(current, visit);
+    };
+    visit(node);
+    return dedupeKeywordsStable(collected, max);
+}
+function extractContextTokensFromSourceSnippet(source, index, max = 16) {
+    const start = Math.max(0, index - 120);
+    const end = Math.min(source.length, index + 180);
+    const snippet = source.slice(start, end);
+    const rawTokens = splitSignalToken(snippet).map((token) => token.toLowerCase());
+    return dedupeKeywordsStable(rawTokens, max);
 }
 function addValueTokens(target, value, limit) {
     for (const token of splitSignalToken(value)) {
@@ -186,7 +260,7 @@ function isGenericFileStem(stem) {
     return /^(types?|utils?|index|mod|common|shared|state|constants?|helpers?)$/i.test(stem);
 }
 function isGenericRenameToken(token) {
-    return /^(types?|utils?|index|mod|common|shared|state|constants?|helpers?|src|main|renderer|services|tauri|adapter|lib|hooks?|components?|features?|unknown)$/i.test(token);
+    return /^(types?|utils?|index|mod|common|shared|state|constants?|helpers?|src|main|renderer|services|tauri|adapter|lib|hooks?|components?|features?|unknown|object|require|module|exports|default|prototype|create|value|window|document|global|globalthis|self|symbol|reflect|construct|arguments)$/i.test(token);
 }
 function pickFallbackRenameToken(input) {
     const candidates = [];
@@ -593,7 +667,7 @@ function collectObfuscatedVariablesFromSource(input) {
     catch {
         return out;
     }
-    const pushCandidate = (name, node) => {
+    const pushCandidate = (name, node, contextNode, extraTokens = []) => {
         const isCandidate = mode === "strict" ? isLikelyObfuscatedVariableName(name) : isBroadCandidateVariableName(name);
         if (!isCandidate)
             return;
@@ -603,11 +677,13 @@ function collectObfuscatedVariablesFromSource(input) {
         if (seen.has(key))
             return;
         seen.add(key);
+        const contextTokens = contextNode ? extractContextTokensFromNode(contextNode, 18) : [];
+        const mergedTokens = dedupeKeywordsStable([...extractNameTokens(name), ...contextTokens, ...extraTokens], 18);
         out.push({
             name,
             sourceFile: input.relPath,
             line,
-            tokens: extractNameTokens(name),
+            tokens: mergedTokens,
         });
     };
     const visit = (node) => {
@@ -615,7 +691,7 @@ function collectObfuscatedVariablesFromSource(input) {
             const name = node.name.text;
             if (!node.initializer) {
                 if (mode === "broad")
-                    pushCandidate(name, node.name);
+                    pushCandidate(name, node.name, node.parent);
             }
             else {
                 const skipLiteral = ts.isStringLiteral(node.initializer) ||
@@ -624,11 +700,11 @@ function collectObfuscatedVariablesFromSource(input) {
                     node.initializer.kind === ts.SyntaxKind.FalseKeyword ||
                     node.initializer.kind === ts.SyntaxKind.NullKeyword;
                 if (!skipLiteral || mode === "broad")
-                    pushCandidate(name, node.name);
+                    pushCandidate(name, node.name, node.initializer);
             }
         }
         else if (mode === "broad" && ts.isParameter(node) && ts.isIdentifier(node.name)) {
-            pushCandidate(node.name.text, node.name);
+            pushCandidate(node.name.text, node.name, node.parent);
         }
         ts.forEachChild(node, visit);
     };
@@ -647,11 +723,13 @@ function collectObfuscatedVariablesFromSource(input) {
                 if (seen.has(key))
                     continue;
                 seen.add(key);
+                const snippetTokens = extractContextTokensFromSourceSnippet(input.source, match.index, 14);
+                const tokens = dedupeKeywordsStable([...extractNameTokens(name), ...snippetTokens], 16);
                 out.push({
                     name,
                     sourceFile: input.relPath,
                     line,
-                    tokens: extractNameTokens(name),
+                    tokens,
                 });
             }
         };
@@ -1012,6 +1090,14 @@ function toCamelCaseIdentifier(value) {
         return "";
     return pascal.charAt(0).toLowerCase() + pascal.slice(1);
 }
+function buildObfuscatedDisambiguatorToken(name) {
+    const compact = name.replace(/[^A-Za-z0-9]+/g, "").slice(0, 12);
+    if (compact.length === 0)
+        return "";
+    const normalized = /^\d/.test(compact) ? `x${compact}` : compact;
+    const pascal = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    return `Var${pascal}`;
+}
 function buildVariableName(input) {
     const referencePath = toPosixPath(input.referenceFile).replace(/\.[^.]+$/, "");
     const referenceTokens = referencePath
@@ -1019,14 +1105,17 @@ function buildVariableName(input) {
         .flatMap((part) => extractNameTokens(part))
         .filter((token) => !isGenericRenameToken(token));
     const signalTokens = Array.from(input.signal.contextKeywords).filter((token) => !isGenericRenameToken(token));
-    const tokens = dedupeKeywords([
+    const merged = dedupeKeywordsStable([
         ...input.referenceHits,
         ...input.candidate.tokens,
         ...referenceTokens,
-        ...signalTokens.slice(0, 12),
+        ...signalTokens.slice(0, 16),
         input.signal.dominantDomain,
-    ], 18).filter((token) => token.length >= 3 && !isGenericRenameToken(token));
-    const base = toCamelCaseIdentifier(tokens.slice(0, 3).join(" "));
+    ], 28).filter((token) => token.length >= 3 && !isGenericRenameToken(token));
+    const lowSignalTokens = new Set(["app", "agent", "action", "async", "core", "chat", "state", "data", "value"]);
+    const preferredTokens = merged.filter((token) => !lowSignalTokens.has(token));
+    const selected = (preferredTokens.length >= 2 ? preferredTokens : merged).slice(0, 4);
+    const base = toCamelCaseIdentifier(selected.join(" "));
     if (base.length > 0)
         return base;
     const layer = inferReferenceLayer(input.referenceFile);
@@ -3039,6 +3128,31 @@ function buildDeobfuscationTableMatchV2(input) {
                 referenceHits: row.hits,
             });
             let deobfuscated = baseDeobfuscated;
+            const sourceStem = path.posix.basename(toPosixPath(sourceFile), path.posix.extname(toPosixPath(sourceFile)));
+            const disambiguationTokens = dedupeKeywordsStable([...row.candidate.tokens, ...row.hits, ...extractNameTokens(sourceStem)], 14).filter((token) => token.length >= 3 &&
+                !isGenericRenameToken(token) &&
+                !baseDeobfuscated.toLowerCase().includes(normalizeSemanticToken(token)));
+            if (usedDeobfNames.has(deobfuscated)) {
+                for (const token of disambiguationTokens) {
+                    const tokenSuffix = toPascalCaseIdentifier(token);
+                    if (tokenSuffix.length < 3)
+                        continue;
+                    const candidateName = `${baseDeobfuscated}${tokenSuffix}`;
+                    if (usedDeobfNames.has(candidateName))
+                        continue;
+                    deobfuscated = candidateName;
+                    break;
+                }
+            }
+            if (usedDeobfNames.has(deobfuscated)) {
+                const obfuscatedSuffix = buildObfuscatedDisambiguatorToken(row.candidate.name);
+                if (obfuscatedSuffix.length > 0) {
+                    const candidateName = `${baseDeobfuscated}${obfuscatedSuffix}`;
+                    if (!usedDeobfNames.has(candidateName)) {
+                        deobfuscated = candidateName;
+                    }
+                }
+            }
             let suffixIndex = 2;
             while (usedDeobfNames.has(deobfuscated) && suffixIndex < 1000) {
                 const layer = inferReferenceLayer(row.profile.file);
