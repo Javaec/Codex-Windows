@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.inspectLiftSourceDeclarations = inspectLiftSourceDeclarations;
 exports.liftModuleSource = liftModuleSource;
 const ts = __importStar(require("typescript"));
 const GLOBAL_REFERENCE_EXCLUDES = new Set([
@@ -73,6 +74,23 @@ const GLOBAL_REFERENCE_EXCLUDES = new Set([
     "location",
     "self",
 ]);
+function scoreGeneratedSignal(statementText) {
+    let score = 0;
+    if (/__vite__mapDeps/.test(statementText))
+        score += 0.5;
+    if (/productions_|symbols_|terminals_/.test(statementText))
+        score += 0.45;
+    const commaCount = (statementText.match(/,/g) ?? []).length;
+    if (commaCount > 160)
+        score += 0.35;
+    if (commaCount > 320)
+        score += 0.2;
+    if (statementText.length > 4500)
+        score += 0.35;
+    if (statementText.length > 8000)
+        score += 0.25;
+    return Math.max(0, Math.min(1, score));
+}
 function collectBindingIdentifiers(name, out) {
     if (ts.isIdentifier(name)) {
         out.add(name.text);
@@ -206,12 +224,14 @@ function collectTopLevelRecords(sourceFile, sourceText) {
     const pushStatementDeclaration = (statementIndex, node, name, kind) => {
         if (name.trim().length === 0)
             return;
-        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        const declarationStart = node.getStart(sourceFile);
+        const line = sourceFile.getLineAndCharacterOfPosition(declarationStart).line + 1;
         pushDeclaration({
             name,
             kind,
             line,
             statementIndex,
+            declarationStart,
         });
     };
     sourceFile.statements.forEach((statement, index) => {
@@ -225,6 +245,7 @@ function collectTopLevelRecords(sourceFile, sourceText) {
             index,
             line,
             text,
+            generatedSignal: scoreGeneratedSignal(text),
             declaredNames,
             references,
         });
@@ -308,21 +329,214 @@ function pickFallbackDeclaration(declarations, expectedKind, sourceLine, usedSta
     }
     return best;
 }
-function liftModuleSource(input) {
-    let sourceFile;
+function isSafeIdentifierName(value) {
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
+function countIncludedReferences(statements, includedStatementIndexes) {
+    const counts = new Map();
+    for (const row of statements) {
+        if (!includedStatementIndexes.has(row.index))
+            continue;
+        for (const reference of row.references) {
+            counts.set(reference, (counts.get(reference) ?? 0) + 1);
+        }
+    }
+    return counts;
+}
+function collectIncludedDeclaredNames(statements, includedStatementIndexes) {
+    const names = new Set();
+    for (const row of statements) {
+        if (!includedStatementIndexes.has(row.index))
+            continue;
+        for (const name of row.declaredNames) {
+            names.add(name);
+        }
+    }
+    return names;
+}
+function canRewriteReferencesForCandidate(input) {
+    let sawReference = false;
+    for (const statementIndex of input.includedStatementIndexes) {
+        const statement = input.sourceFile.statements[statementIndex];
+        if (!statement)
+            continue;
+        const visit = (node) => {
+            if (ts.isIdentifier(node) && node.text === input.candidate.sourceSymbol) {
+                if (isDeclarationNameNode(node)) {
+                    const declarationStart = node.getStart(input.sourceFile);
+                    if (declarationStart !== input.candidate.declarationStart)
+                        return false;
+                    return true;
+                }
+                if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node)
+                    return false;
+                if (shouldIgnoreIdentifierReference(node))
+                    return true;
+                sawReference = true;
+            }
+            let isValid = true;
+            node.forEachChild((child) => {
+                if (!isValid)
+                    return;
+                if (!visit(child)) {
+                    isValid = false;
+                }
+            });
+            return isValid;
+        };
+        if (visit(statement) === false)
+            return false;
+    }
+    return sawReference;
+}
+function buildTopLevelRenamePlan(input) {
+    const renameMap = new Map();
+    const referenceRewriteSources = new Set();
+    const referenceCounts = countIncludedReferences(input.statements, input.includedStatementIndexes);
+    const declaredNames = collectIncludedDeclaredNames(input.statements, input.includedStatementIndexes);
+    const usedTargets = new Set();
+    let skipped = 0;
+    for (const candidate of input.candidates) {
+        if (candidate.sourceSymbol === candidate.exportName) {
+            skipped += 1;
+            continue;
+        }
+        if (!isSafeIdentifierName(candidate.sourceSymbol) || !isSafeIdentifierName(candidate.exportName)) {
+            skipped += 1;
+            continue;
+        }
+        const hasReferences = (referenceCounts.get(candidate.sourceSymbol) ?? 0) > 0;
+        if (hasReferences && !canRewriteReferencesForCandidate({
+            sourceFile: input.sourceFile,
+            includedStatementIndexes: input.includedStatementIndexes,
+            candidate,
+        })) {
+            skipped += 1;
+            continue;
+        }
+        if (declaredNames.has(candidate.exportName) && candidate.exportName !== candidate.sourceSymbol) {
+            skipped += 1;
+            continue;
+        }
+        if (usedTargets.has(candidate.exportName)) {
+            skipped += 1;
+            continue;
+        }
+        renameMap.set(candidate.sourceSymbol, candidate.exportName);
+        if (hasReferences)
+            referenceRewriteSources.add(candidate.sourceSymbol);
+        usedTargets.add(candidate.exportName);
+    }
+    return {
+        renameMap,
+        referenceRewriteSources,
+        skipped,
+    };
+}
+function rewriteStatementIdentifierReferences(input) {
+    if (input.renameMap.size === 0 || input.rewriteSources.size === 0) {
+        return {
+            statement: input.statement,
+            replacements: 0,
+        };
+    }
+    let replacements = 0;
+    const transformer = (context) => (root) => {
+        const visit = (node) => {
+            if (ts.isIdentifier(node)) {
+                const sourceName = node.text;
+                if (!input.rewriteSources.has(sourceName)) {
+                    return ts.visitEachChild(node, visit, context);
+                }
+                if (isDeclarationNameNode(node) || shouldIgnoreIdentifierReference(node)) {
+                    return ts.visitEachChild(node, visit, context);
+                }
+                const targetName = input.renameMap.get(sourceName);
+                if (!targetName || targetName === sourceName) {
+                    return ts.visitEachChild(node, visit, context);
+                }
+                replacements += 1;
+                return ts.factory.createIdentifier(targetName);
+            }
+            return ts.visitEachChild(node, visit, context);
+        };
+        return ts.visitNode(root, visit);
+    };
+    const transformed = ts.transform(input.statement, [transformer]);
+    const statement = transformed.transformed[0] ?? input.statement;
+    transformed.dispose();
+    return {
+        statement,
+        replacements,
+    };
+}
+function renameTopLevelStatement(statement, renameMap) {
+    if (renameMap.size === 0)
+        return statement;
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+        const nextName = renameMap.get(statement.name.text);
+        if (!nextName)
+            return statement;
+        return ts.factory.updateFunctionDeclaration(statement, statement.modifiers, statement.asteriskToken, ts.factory.createIdentifier(nextName), statement.typeParameters, statement.parameters, statement.type, statement.body);
+    }
+    if (ts.isClassDeclaration(statement) && statement.name) {
+        const nextName = renameMap.get(statement.name.text);
+        if (!nextName)
+            return statement;
+        return ts.factory.updateClassDeclaration(statement, statement.modifiers, ts.factory.createIdentifier(nextName), statement.typeParameters, statement.heritageClauses, statement.members);
+    }
+    if (ts.isVariableStatement(statement)) {
+        let changed = false;
+        const declarations = statement.declarationList.declarations.map((declaration) => {
+            if (!ts.isIdentifier(declaration.name))
+                return declaration;
+            const nextName = renameMap.get(declaration.name.text);
+            if (!nextName)
+                return declaration;
+            changed = true;
+            return ts.factory.updateVariableDeclaration(declaration, ts.factory.createIdentifier(nextName), declaration.exclamationToken, declaration.type, declaration.initializer);
+        });
+        if (!changed)
+            return statement;
+        return ts.factory.updateVariableStatement(statement, statement.modifiers, ts.factory.updateVariableDeclarationList(statement.declarationList, declarations));
+    }
+    return statement;
+}
+function parseLiftSourceFile(sourceFilePath, sourceText) {
     try {
-        sourceFile = ts.createSourceFile(input.sourceFilePath, input.sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        return ts.createSourceFile(sourceFilePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     }
     catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse source chunk for lifting: ${input.sourceFilePath}. ${message}`);
+        throw new Error(`Failed to parse source chunk for lifting: ${sourceFilePath}. ${message}`);
     }
+}
+function inspectLiftSourceDeclarations(input) {
+    const sourceFile = parseLiftSourceFile(input.sourceFilePath, input.sourceText);
+    const { statements, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
+    const rows = [];
+    for (const declaration of declarations) {
+        const statement = statements[declaration.statementIndex];
+        rows.push({
+            name: declaration.name,
+            kind: declaration.kind,
+            line: declaration.line,
+            statementLength: statement?.text.length ?? 0,
+            generatedSignal: statement?.generatedSignal ?? 0,
+        });
+    }
+    return rows;
+}
+function liftModuleSource(input) {
+    const sourceFile = parseLiftSourceFile(input.sourceFilePath, input.sourceText);
     const { statements, declarationsByName, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
     const includeStatementIndexes = new Set();
     const queue = [];
     const liftedExports = [];
     const unresolvedExports = [];
     const usedPrimaryStatementIndexes = new Set();
+    const renameCandidates = [];
+    const allowClosestFallback = input.allowClosestFallback === true;
     for (const spec of input.exports) {
         const sourceSymbol = spec.sourceSymbol.trim();
         if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(sourceSymbol)) {
@@ -331,10 +545,26 @@ function liftModuleSource(input) {
         }
         const records = declarationsByName.get(sourceSymbol) ?? [];
         let best = pickBestDeclaration(records, spec.kind, spec.sourceLine);
-        if (!best) {
+        if (!best && allowClosestFallback && (spec.kind === "class" || spec.kind === "function")) {
             best = pickFallbackDeclaration(declarations, spec.kind, spec.sourceLine, usedPrimaryStatementIndexes);
         }
         if (!best) {
+            unresolvedExports.push(spec);
+            continue;
+        }
+        const primaryStatement = statements[best.statementIndex];
+        if (best.kind === "variable" &&
+            primaryStatement &&
+            primaryStatement.generatedSignal >= 0.72 &&
+            primaryStatement.text.length > 1200) {
+            unresolvedExports.push(spec);
+            continue;
+        }
+        const maxPrimaryStatementLength = input.maxPrimaryStatementLength > 0 ? input.maxPrimaryStatementLength : 0;
+        if (maxPrimaryStatementLength > 0 &&
+            primaryStatement &&
+            primaryStatement.text.length > maxPrimaryStatementLength &&
+            best.kind === "variable") {
             unresolvedExports.push(spec);
             continue;
         }
@@ -349,12 +579,26 @@ function liftModuleSource(input) {
             kind: spec.kind,
             sourceLine: spec.sourceLine,
         });
+        renameCandidates.push({
+            sourceSymbol: best.name,
+            exportName: spec.exportName,
+            kind: spec.kind,
+            line: best.line,
+            statementIndex: best.statementIndex,
+            declarationStart: best.declarationStart,
+        });
     }
     const dependencyLimit = input.maxDependencyStatements > 0 ? input.maxDependencyStatements : 700;
+    const maxDependencyStatementLength = input.maxDependencyStatementLength > 0 ? input.maxDependencyStatementLength : 0;
+    let dependencyTrimmed = false;
+    let skippedDependencies = 0;
+    let skippedOversizedDependencies = 0;
     while (queue.length > 0) {
-        if (includeStatementIndexes.size > dependencyLimit) {
-            throw new Error(`Dependency closure exceeded limit (${dependencyLimit}) while lifting ${input.sourceFilePath}. ` +
-                `This indicates an overly broad symbol ownership map.`);
+        if (includeStatementIndexes.size >= dependencyLimit) {
+            dependencyTrimmed = true;
+            skippedDependencies += queue.length;
+            queue.length = 0;
+            break;
         }
         const statementIndex = queue.shift();
         if (typeof statementIndex !== "number")
@@ -371,13 +615,63 @@ function liftModuleSource(input) {
                 continue;
             if (includeStatementIndexes.has(dependency.statementIndex))
                 continue;
+            const dependencyStatement = statements[dependency.statementIndex];
+            if (dependency.kind === "variable" &&
+                dependencyStatement &&
+                dependencyStatement.generatedSignal >= 0.82 &&
+                dependencyStatement.text.length > 1600) {
+                dependencyTrimmed = true;
+                skippedDependencies += 1;
+                skippedOversizedDependencies += 1;
+                continue;
+            }
+            if (maxDependencyStatementLength > 0 &&
+                dependencyStatement &&
+                dependencyStatement.text.length > maxDependencyStatementLength) {
+                dependencyTrimmed = true;
+                skippedDependencies += 1;
+                skippedOversizedDependencies += 1;
+                continue;
+            }
+            if (includeStatementIndexes.size >= dependencyLimit) {
+                dependencyTrimmed = true;
+                skippedDependencies += 1;
+                continue;
+            }
             includeStatementIndexes.add(dependency.statementIndex);
             queue.push(dependency.statementIndex);
         }
     }
+    const renamePlan = buildTopLevelRenamePlan({
+        candidates: renameCandidates,
+        sourceFile,
+        includedStatementIndexes: includeStatementIndexes,
+        statements,
+    });
+    const renameMap = renamePlan.renameMap;
+    const referenceRewriteSources = renamePlan.referenceRewriteSources;
+    const renamedDeclarations = renameMap.size;
+    const skippedRenames = renamePlan.skipped;
+    let rewrittenReferenceIdentifiers = 0;
+    const printer = ts.createPrinter({
+        removeComments: false,
+        newLine: ts.NewLineKind.LineFeed,
+    });
     const statementBodies = Array.from(includeStatementIndexes)
         .sort((a, b) => a - b)
-        .map((index) => statements[index]?.text ?? "")
+        .map((index) => sourceFile.statements[index])
+        .filter((statement) => !!statement)
+        .map((statement) => renameTopLevelStatement(statement, renameMap))
+        .map((statement) => rewriteStatementIdentifierReferences({
+        statement,
+        renameMap,
+        rewriteSources: referenceRewriteSources,
+    }))
+        .map((row) => {
+        rewrittenReferenceIdentifiers += row.replacements;
+        return row.statement;
+    })
+        .map((statement) => printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile).trim())
         .filter((text) => text.length > 0);
     const bodyLines = [];
     if (statementBodies.length > 0) {
@@ -392,23 +686,45 @@ function liftModuleSource(input) {
             continue;
         if (exportSpecs.has(key))
             continue;
+        const renamedSource = renameMap.get(spec.sourceSymbol) ?? spec.sourceSymbol;
         exportSpecs.set(key, spec);
+        if (renamedSource !== spec.sourceSymbol) {
+            exportSpecs.set(key, {
+                ...spec,
+                sourceSymbol: renamedSource,
+            });
+        }
     }
     if (exportSpecs.size === 0) {
         bodyLines.push("export {};", "");
     }
     else {
-        bodyLines.push("export {");
+        bodyLines.push("// Public API");
         for (const spec of exportSpecs.values()) {
-            const clause = spec.sourceSymbol === spec.exportName ? spec.sourceSymbol : `${spec.sourceSymbol} as ${spec.exportName}`;
-            bodyLines.push(`  ${clause},`);
+            if (spec.sourceSymbol === spec.exportName) {
+                bodyLines.push(`export { ${spec.exportName} };`);
+                continue;
+            }
+            bodyLines.push(`export const ${spec.exportName} = ${spec.sourceSymbol};`);
         }
-        bodyLines.push("};", "");
+        bodyLines.push("");
     }
     return {
         moduleBody: `${bodyLines.join("\n").trimEnd()}\n`,
-        liftedExports,
+        liftedExports: liftedExports.map((spec) => ({
+            ...spec,
+            sourceSymbol: renameMap.get(spec.sourceSymbol) ?? spec.sourceSymbol,
+        })),
         unresolvedExports,
         includedStatements: includeStatementIndexes.size,
+        dependencyBudget: dependencyLimit,
+        dependencyTrimmed,
+        skippedDependencies,
+        skippedOversizedDependencies,
+        renameCandidates: renameCandidates.length,
+        renamedDeclarations,
+        skippedRenames,
+        rewrittenReferenceSymbols: referenceRewriteSources.size,
+        rewrittenReferenceIdentifiers,
     };
 }

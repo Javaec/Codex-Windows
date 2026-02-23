@@ -1982,8 +1982,6 @@ async function runReverse(options: ReverseOptions): Promise<number> {
     outDir: options.outDir,
     appDir: options.appDir,
     decompiledDir,
-    jsFiles,
-    shouldIncludeChunk: (relPath) => isLikelyCoreAppFile(relPath) || isDeobfuscationCandidateFile(relPath),
     sourcePackage: {
       name: packageJson.name,
       version: packageJson.version,

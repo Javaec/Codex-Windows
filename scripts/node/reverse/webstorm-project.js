@@ -65,13 +65,6 @@ function parseSourceLineHint(value) {
         return 0;
     return Math.floor(parsed);
 }
-function formatPreviewList(values, max) {
-    if (values.length === 0)
-        return "none";
-    const trimmed = values.slice(0, max);
-    const suffix = values.length > max ? ` ... (+${values.length - max} more)` : "";
-    return `${trimmed.join(", ")}${suffix}`;
-}
 function toChunkArtifactPath(sourceFile) {
     const normalized = toPosixPath(sourceFile).replace(/^\.?\//, "");
     return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
@@ -80,11 +73,752 @@ function normalizeTargetModulePath(targetPath) {
     const normalized = toPosixPath(targetPath).replace(/^\.?\//, "");
     return normalized.replace(/\.(?:tsx?|jsx|mjs|cjs|js)$/i, ".ts");
 }
+function toModuleSpecifier(fromDirectory, targetFilePath) {
+    const from = toPosixPath(fromDirectory).replace(/^\.?\//, "");
+    const target = toPosixPath(targetFilePath).replace(/^\.?\//, "").replace(/\.ts$/i, "");
+    const relative = path.posix.relative(from, target);
+    const normalized = relative.startsWith(".") ? relative : `./${relative}`;
+    return normalized;
+}
+function collectBarrelRootsForDirectory(inputDir) {
+    const directory = toPosixPath(inputDir).replace(/^\.?\//, "");
+    const roots = ["src/main", "src/renderer", "src/services", "src-tauri-adapter"];
+    if (roots.includes(directory))
+        return [directory];
+    return roots.filter((root) => directory.startsWith(`${root}/`));
+}
+function buildLayerBarrelIndexes(projectRoot, emittedModulePaths) {
+    const modulePaths = emittedModulePaths
+        .map((item) => toPosixPath(item).replace(/^\.?\//, ""))
+        .filter((item) => item.endsWith(".ts") && !item.endsWith("/index.ts"));
+    if (modulePaths.length === 0)
+        return [];
+    const directoryModules = new Map();
+    const allDirectories = new Set();
+    for (const modulePath of modulePaths) {
+        const moduleDirectory = path.posix.dirname(modulePath);
+        const moduleName = path.posix.basename(modulePath, ".ts");
+        const moduleBucket = directoryModules.get(moduleDirectory) ?? new Set();
+        moduleBucket.add(moduleName);
+        directoryModules.set(moduleDirectory, moduleBucket);
+        const applicableRoots = collectBarrelRootsForDirectory(moduleDirectory);
+        for (const root of applicableRoots) {
+            let cursor = moduleDirectory;
+            while (true) {
+                allDirectories.add(cursor);
+                if (cursor === root)
+                    break;
+                const parent = path.posix.dirname(cursor);
+                if (parent === cursor)
+                    break;
+                cursor = parent;
+            }
+        }
+    }
+    const createdIndexes = [];
+    const sortedDirectories = Array.from(allDirectories).sort((a, b) => b.split("/").length - a.split("/").length || a.localeCompare(b));
+    for (const directory of sortedDirectories) {
+        const files = Array.from(directoryModules.get(directory) ?? []).sort((a, b) => a.localeCompare(b));
+        const childDirectories = Array.from(allDirectories)
+            .filter((item) => path.posix.dirname(item) === directory)
+            .sort((a, b) => a.localeCompare(b));
+        const lines = [];
+        for (const fileName of files) {
+            lines.push(`export * from "${toModuleSpecifier(directory, path.posix.join(directory, `${fileName}.ts`))}";`);
+        }
+        for (const childDirectory of childDirectories) {
+            lines.push(`export * from "${toModuleSpecifier(directory, path.posix.join(childDirectory, "index.ts"))}";`);
+        }
+        if (lines.length === 0)
+            continue;
+        const indexPath = path.join(projectRoot, ...directory.split("/"), "index.ts");
+        (0, exec_1.ensureDir)(path.dirname(indexPath));
+        fs.writeFileSync(indexPath, `${lines.join("\n")}\n`, "utf8");
+        createdIndexes.push(toPosixPath(path.posix.join(directory, "index.ts")));
+    }
+    return createdIndexes.sort((a, b) => a.localeCompare(b));
+}
 function toSafeExportIdentifier(input) {
     const normalized = input.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^\d+/, "").replace(/^_+/, "");
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalized))
         return normalized;
     return "symbol_export";
+}
+const NOISY_IDENTIFIER_SUFFIXES = new Set([
+    "abap",
+    "ada",
+    "apl",
+    "applescript",
+    "arc",
+    "asm",
+    "asciidoc",
+    "astro",
+    "awk",
+    "bash",
+    "bicep",
+    "bsl",
+    "c",
+    "clojure",
+    "cobol",
+    "coffee",
+    "cpp",
+    "csharp",
+    "css",
+    "csv",
+    "dart",
+    "diff",
+    "docker",
+    "elixir",
+    "elm",
+    "erb",
+    "erlang",
+    "fortran",
+    "fsharp",
+    "gdresource",
+    "gdscript",
+    "gdshader",
+    "glsl",
+    "go",
+    "graphql",
+    "groovy",
+    "haml",
+    "handlebars",
+    "haskell",
+    "haxe",
+    "hlsl",
+    "html",
+    "http",
+    "hurl",
+    "java",
+    "javascript",
+    "jinja",
+    "jison",
+    "json",
+    "jsx",
+    "julia",
+    "kotlin",
+    "latex",
+    "less",
+    "liquid",
+    "lua",
+    "markdown",
+    "md",
+    "nginx",
+    "nim",
+    "objc",
+    "perl",
+    "php",
+    "postcss",
+    "pug",
+    "python",
+    "qml",
+    "r",
+    "razor",
+    "regexp",
+    "rst",
+    "ruby",
+    "rust",
+    "sass",
+    "scala",
+    "scss",
+    "shaderlab",
+    "shell",
+    "shellscript",
+    "sql",
+    "stata",
+    "stylus",
+    "svelte",
+    "swift",
+    "toml",
+    "tsx",
+    "typescript",
+    "twig",
+    "vue",
+    "xml",
+    "yaml",
+    "yml",
+]);
+function splitIdentifierTokens(input) {
+    const normalized = input
+        .replace(/[_\-./:]+/g, " ")
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+    return normalized
+        .split(/\s+/g)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+}
+function isNoisyIdentifierToken(token) {
+    const normalized = token.trim().toLowerCase();
+    if (normalized.length === 0)
+        return false;
+    if (NOISY_IDENTIFIER_SUFFIXES.has(normalized))
+        return true;
+    if (/^v\d{1,4}$/i.test(normalized))
+        return true;
+    if (/^(?:renderer|worker|assets|chunk|main|services|tauri|src)\d{1,4}$/i.test(normalized))
+        return true;
+    if (/^[a-z]{1,4}\d{1,6}[a-z0-9]*$/i.test(normalized))
+        return true;
+    if (/^\d+[a-z0-9]+$/i.test(normalized))
+        return true;
+    if (normalized.length >= 6 && /\d/.test(normalized) && !/[aeiou]/i.test(normalized))
+        return true;
+    return false;
+}
+function buildIdentifierFromTokens(tokens, preferPascalCase) {
+    const cleaned = tokens
+        .map((token) => token.replace(/[^A-Za-z0-9_$]/g, ""))
+        .filter((token) => token.length > 0);
+    if (cleaned.length === 0)
+        return "";
+    const pascal = cleaned
+        .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+        .join("");
+    if (preferPascalCase)
+        return pascal;
+    return pascal.charAt(0).toLowerCase() + pascal.slice(1);
+}
+function stripNoisyExportSuffix(input) {
+    const tokens = splitIdentifierTokens(input);
+    if (tokens.length <= 1)
+        return input;
+    let end = tokens.length;
+    while (end > 1 && isNoisyIdentifierToken(tokens[end - 1] ?? "")) {
+        end -= 1;
+    }
+    if (end === tokens.length)
+        return input;
+    const preferPascalCase = /^[A-Z]/.test(input);
+    const rebuilt = buildIdentifierFromTokens(tokens.slice(0, end), preferPascalCase);
+    if (rebuilt.length < 3)
+        return input;
+    return rebuilt;
+}
+function sanitizeExportIdentifierName(input) {
+    const stripped = stripNoisyExportSuffix(input);
+    const preferred = toSafeExportIdentifier(stripped);
+    if (preferred !== "symbol_export")
+        return preferred;
+    return toSafeExportIdentifier(input);
+}
+function getExportKindPriority(kind) {
+    if (kind === "class")
+        return 400;
+    if (kind === "function")
+        return 300;
+    return 100;
+}
+function isNoisyGeneratedExportName(input) {
+    if (/(renderer\d+$|main\d+$|services\d+$|tauri\d+$|var[a-z0-9_]+$|assets\d+$|src\d+$)/i.test(input)) {
+        return true;
+    }
+    const stripped = stripNoisyExportSuffix(input);
+    if (stripped !== input)
+        return true;
+    const tokens = splitIdentifierTokens(input);
+    const tail = tokens[tokens.length - 1] ?? "";
+    if (isNoisyIdentifierToken(tail))
+        return true;
+    return /[A-Za-z]{2,}\d{2,}$/i.test(input);
+}
+function clamp01(value) {
+    if (value <= 0)
+        return 0;
+    if (value >= 1)
+        return 1;
+    return value;
+}
+function scoreExportNameQuality(input) {
+    let score = 1;
+    if (isNoisyGeneratedExportName(input))
+        score -= 0.45;
+    if (stripNoisyExportSuffix(input) !== input)
+        score -= 0.2;
+    if (/V\d{2,}$/i.test(input))
+        score -= 0.4;
+    if (/\d{3,}$/i.test(input))
+        score -= 0.35;
+    if (/(?:^|_)(tmp|temp|var|misc|unknown|value|data)$/i.test(input))
+        score -= 0.2;
+    if (/^[a-z]{1,2}$/i.test(input))
+        score -= 0.3;
+    if (/(?:[A-Z][a-z]+){1,}V\d{2,}/.test(input))
+        score -= 0.1;
+    return clamp01(score);
+}
+function normalizeExportNameRoot(input) {
+    const sanitized = stripNoisyExportSuffix(input);
+    return sanitized.replace(/V\d+$/i, "").replace(/\d+$/i, "").replace(/[_-]+$/, "").toLowerCase();
+}
+function getDeclarationLengthLimit(kind, moduleSizeHint) {
+    if (kind === "variable") {
+        if (moduleSizeHint >= 1800)
+            return 3600;
+        if (moduleSizeHint >= 900)
+            return 5200;
+        return 9000;
+    }
+    if (moduleSizeHint >= 1800)
+        return 8000;
+    if (moduleSizeHint >= 900)
+        return 10000;
+    return 15000;
+}
+function computeSelectionScore(row) {
+    const priorityScore = getExportKindPriority(row.kind);
+    const confidenceScore = row.confidence * 100;
+    const qualityScore = row.nameQuality * 60;
+    const lengthPenalty = row.declarationLength > 0 ? Math.min(45, row.declarationLength / 350) : 0;
+    const generatedPenalty = row.generatedSignal * 70;
+    return priorityScore + confidenceScore + qualityScore - lengthPenalty - generatedPenalty;
+}
+function selectWithCaps(input) {
+    const selected = [];
+    const selectedBySymbol = new Set();
+    const rootCounts = new Map();
+    let variableCount = 0;
+    const pushRow = (row) => {
+        if (selectedBySymbol.has(row.sourceSymbol))
+            return false;
+        if (selected.length >= input.limit)
+            return false;
+        if (row.kind === "variable" && variableCount >= input.maxVariables)
+            return false;
+        const root = normalizeExportNameRoot(row.name);
+        const rootCount = rootCounts.get(root) ?? 0;
+        if (rootCount >= input.perRootCap)
+            return false;
+        selected.push(row);
+        selectedBySymbol.add(row.sourceSymbol);
+        rootCounts.set(root, rootCount + 1);
+        if (row.kind === "variable")
+            variableCount += 1;
+        return true;
+    };
+    for (const seedRow of input.seed ?? []) {
+        pushRow(seedRow);
+    }
+    for (const row of input.rows) {
+        if (selected.length >= input.limit)
+            break;
+        pushRow(row);
+    }
+    return selected;
+}
+function pickDeclarationStatForExport(rows, expectedKind, sourceLine) {
+    if (rows.length === 0)
+        return undefined;
+    const lineHint = sourceLine > 0 ? sourceLine : rows[0]?.line ?? 0;
+    let best;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const row of rows) {
+        let kindPenalty = 0;
+        if (row.kind !== expectedKind) {
+            if (row.kind === "variable" && (expectedKind === "function" || expectedKind === "class"))
+                kindPenalty = 1;
+            else
+                kindPenalty = 3;
+        }
+        const lineDistance = Math.abs(row.line - lineHint) * 0.01;
+        const score = kindPenalty * 100 + lineDistance;
+        if (score < bestScore) {
+            best = row;
+            bestScore = score;
+        }
+    }
+    return best;
+}
+function selectPrimaryExports(input) {
+    const bySourceSymbol = new Map();
+    for (const row of input.rows) {
+        const current = bySourceSymbol.get(row.sourceSymbol);
+        if (!current || computeSelectionScore(row) > computeSelectionScore(current)) {
+            bySourceSymbol.set(row.sourceSymbol, row);
+        }
+    }
+    const ranked = Array.from(bySourceSymbol.values()).sort((a, b) => {
+        const priorityDelta = getExportKindPriority(b.kind) - getExportKindPriority(a.kind);
+        if (priorityDelta !== 0)
+            return priorityDelta;
+        if (a.generatedSignal !== b.generatedSignal)
+            return a.generatedSignal - b.generatedSignal;
+        if (a.nameQuality !== b.nameQuality)
+            return b.nameQuality - a.nameQuality;
+        if (a.declarationLength !== b.declarationLength)
+            return a.declarationLength - b.declarationLength;
+        if (a.confidence !== b.confidence)
+            return b.confidence - a.confidence;
+        return a.name.localeCompare(b.name);
+    });
+    const moduleSizeHint = ranked.length;
+    const ultraDense = moduleSizeHint >= 1800;
+    const dense = moduleSizeHint >= 900;
+    const hasAnyDeclaration = ranked.some((row) => row.hasDeclaration);
+    const maxVariables = ultraDense ? 0 : dense ? 1 : 3;
+    const perRootCap = ultraDense ? 1 : dense ? 1 : 2;
+    const strictRows = [];
+    const fallbackRows = [];
+    for (const row of ranked) {
+        const missingDeclaration = !row.hasDeclaration;
+        const allowMissingDeclarationCallable = (row.kind === "class" || row.kind === "function") &&
+            row.confidence >= 0.94 &&
+            row.nameQuality >= 0.82 &&
+            !dense &&
+            !ultraDense &&
+            !hasAnyDeclaration;
+        if (missingDeclaration && !allowMissingDeclarationCallable) {
+            fallbackRows.push(row);
+            continue;
+        }
+        if (row.kind === "variable" &&
+            row.generatedSignal >= (ultraDense ? 0.42 : dense ? 0.58 : 0.75) &&
+            row.declarationLength >= 900) {
+            fallbackRows.push(row);
+            continue;
+        }
+        const confidenceFloor = row.kind === "variable" ? Math.max(0.7, input.moduleConfidence - 0.12) : Math.max(0.68, input.moduleConfidence - 0.2);
+        const qualityFloor = ultraDense ? 0.7 : dense ? 0.62 : 0.48;
+        const lengthLimit = getDeclarationLengthLimit(row.kind, moduleSizeHint);
+        const generatedFloor = ultraDense ? 0.28 : dense ? 0.44 : 0.92;
+        const declarationAllowed = row.declarationLength <= 0 || row.declarationLength <= lengthLimit;
+        const generatedAllowed = row.generatedSignal <= generatedFloor;
+        const accepted = row.confidence >= confidenceFloor && row.nameQuality >= qualityFloor && declarationAllowed && generatedAllowed;
+        if (accepted)
+            strictRows.push(row);
+        else
+            fallbackRows.push(row);
+    }
+    const hasCallable = strictRows.some((row) => row.kind === "class" || row.kind === "function");
+    const hardLimit = ultraDense ? 12 : dense ? 14 : hasCallable ? 18 : 14;
+    let selected = selectWithCaps({
+        rows: strictRows,
+        limit: hardLimit,
+        maxVariables,
+        perRootCap,
+    });
+    if (!hasCallable) {
+        const callableFallback = fallbackRows.find((row) => row.kind === "class" || row.kind === "function");
+        if (callableFallback) {
+            selected = selectWithCaps({
+                rows: strictRows,
+                limit: hardLimit,
+                maxVariables,
+                perRootCap,
+                seed: [callableFallback],
+            });
+        }
+    }
+    const softFallbackRows = fallbackRows.filter((row) => {
+        const generatedAllowed = row.generatedSignal <= (ultraDense ? 0.28 : dense ? 0.44 : 0.92);
+        if (!generatedAllowed)
+            return false;
+        if (ultraDense || dense)
+            return row.hasDeclaration;
+        if (row.hasDeclaration)
+            return true;
+        return (row.kind === "class" || row.kind === "function") && row.confidence >= 0.93 && row.nameQuality >= 0.82;
+    });
+    if (selected.length < Math.min(8, hardLimit)) {
+        selected = selectWithCaps({
+            rows: [...selected, ...softFallbackRows],
+            limit: hardLimit,
+            maxVariables: Math.max(maxVariables, 1),
+            perRootCap,
+        });
+    }
+    if (selected.length === 0 && ranked.length > 0) {
+        const rankedWithDeclaration = ranked.filter((row) => row.hasDeclaration);
+        selected = selectWithCaps({
+            rows: ultraDense || dense ? [...strictRows, ...softFallbackRows] : rankedWithDeclaration,
+            limit: Math.min(8, hardLimit),
+            maxVariables: Math.max(maxVariables, 1),
+            perRootCap,
+        });
+        if (selected.length === 0) {
+            selected = selectWithCaps({
+                rows: ultraDense || dense ? rankedWithDeclaration : ranked,
+                limit: Math.min(6, hardLimit),
+                maxVariables: Math.max(maxVariables, 1),
+                perRootCap,
+            });
+        }
+    }
+    const selectedKey = new Set(selected.map((row) => `${row.sourceSymbol}|${row.name}|${row.kind}`));
+    const dropped = ranked.filter((row) => !selectedKey.has(`${row.sourceSymbol}|${row.name}|${row.kind}`));
+    return { selected, dropped };
+}
+function determineAdaptiveStatementBudget(input) {
+    const source = input.sourceFile.toLowerCase();
+    let budget = 1200;
+    if (input.candidateExports >= 2500)
+        budget = 280;
+    else if (input.candidateExports >= 1500)
+        budget = 360;
+    else if (input.candidateExports >= 900)
+        budget = 460;
+    else if (input.candidateExports >= 400)
+        budget = 620;
+    else if (input.candidateExports >= 180)
+        budget = 760;
+    if (source.includes("/index-") || source.includes("/chunk-")) {
+        budget = Math.min(budget, 520);
+    }
+    if (source.includes(".vite/build/worker")) {
+        budget = Math.min(budget, 700);
+    }
+    if (input.selectedExports <= 6) {
+        budget = Math.min(budget, 420);
+    }
+    return Math.max(220, budget);
+}
+function determineMaxPrimaryStatementLength(input) {
+    if (input.candidateExports >= 2500)
+        return 2800;
+    if (input.candidateExports >= 1200)
+        return 3600;
+    if (input.candidateExports >= 700)
+        return 5200;
+    if (input.statementBudget <= 420)
+        return 4200;
+    return 9000;
+}
+function determineMaxDependencyStatementLength(input) {
+    if (input.candidateExports >= 2500)
+        return 4200;
+    if (input.candidateExports >= 1200)
+        return 5200;
+    if (input.candidateExports >= 700)
+        return 6500;
+    if (input.statementBudget <= 420)
+        return 5000;
+    return 14000;
+}
+function buildPlaceholderModuleBody(input) {
+    const seen = new Set();
+    const rows = input.exports
+        .filter((row) => {
+        if (seen.has(row.name))
+            return false;
+        seen.add(row.name);
+        return true;
+    })
+        .sort((a, b) => {
+        const kindDelta = getExportKindPriority(b.kind) - getExportKindPriority(a.kind);
+        if (kindDelta !== 0)
+            return kindDelta;
+        if (a.confidence !== b.confidence)
+            return b.confidence - a.confidence;
+        return a.name.localeCompare(b.name);
+    })
+        .slice(0, 12);
+    const lines = [
+        "// Placeholder API generated because AST lift could not resolve safe declarations.",
+        `// Source: ${input.sourceFile}`,
+        "",
+    ];
+    for (const row of rows) {
+        const message = `Unresolved placeholder: ${row.name} (${input.sourceFile})`;
+        if (row.kind === "class") {
+            lines.push(`export class ${row.name} {`);
+            lines.push("  constructor(..._args) {");
+            lines.push(`    throw new Error(${JSON.stringify(message)});`);
+            lines.push("  }");
+            lines.push("}");
+            lines.push("");
+            continue;
+        }
+        if (row.kind === "function") {
+            lines.push(`export function ${row.name}(..._args) {`);
+            lines.push(`  throw new Error(${JSON.stringify(message)});`);
+            lines.push("}");
+            lines.push("");
+            continue;
+        }
+        lines.push(`export const ${row.name} = undefined;`);
+    }
+    if (rows.length === 0) {
+        lines.push("export {};");
+    }
+    return `${lines.join("\n").trimEnd()}\n`;
+}
+function isSafeImportIdentifier(value) {
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
+function toRelativeImportSpecifier(fromModulePath, targetPath) {
+    const fromDir = toPosixPath(path.posix.dirname(fromModulePath)).replace(/^\.?\//, "");
+    const target = toPosixPath(targetPath).replace(/^\.?\//, "");
+    const relative = path.posix.relative(fromDir, target);
+    return relative.startsWith(".") ? relative : `./${relative}`;
+}
+function buildChunkBridgeModuleBody(input) {
+    const rows = input.exports.filter((row) => isSafeImportIdentifier(row.sourceSymbol));
+    if (rows.length === 0) {
+        return buildPlaceholderModuleBody({
+            exports: input.exports,
+            sourceFile: input.sourceFile,
+        });
+    }
+    const uniqueBySource = new Map();
+    let importIndex = 0;
+    for (const row of rows) {
+        if (uniqueBySource.has(row.sourceSymbol))
+            continue;
+        uniqueBySource.set(row.sourceSymbol, `__bridge${importIndex}`);
+        importIndex += 1;
+    }
+    const moduleSpecifier = toRelativeImportSpecifier(input.emittedPath, input.chunkArtifactPath);
+    const importBindings = Array.from(uniqueBySource.entries()).map(([sourceSymbol, alias]) => `${sourceSymbol} as ${alias}`);
+    const lines = [
+        "// Chunk bridge fallback generated because AST lift could not resolve declarations safely.",
+        `// Source: ${input.sourceFile}`,
+        `import { ${importBindings.join(", ")} } from "${moduleSpecifier}";`,
+        "",
+        "// Public API",
+    ];
+    const seenExport = new Set();
+    for (const row of rows) {
+        if (seenExport.has(row.name))
+            continue;
+        seenExport.add(row.name);
+        const alias = uniqueBySource.get(row.sourceSymbol);
+        if (!alias)
+            continue;
+        if (row.name === alias) {
+            lines.push(`export { ${row.name} };`);
+            continue;
+        }
+        lines.push(`export const ${row.name} = ${alias};`);
+    }
+    lines.push("");
+    return `${lines.join("\n").trimEnd()}\n`;
+}
+const CALLSITE_STOPWORDS = new Set([
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "function",
+    "return",
+    "throw",
+    "class",
+    "import",
+    "export",
+    "typeof",
+    "void",
+    "delete",
+    "in",
+    "of",
+    "new",
+    "await",
+    "super",
+    "const",
+    "let",
+    "var",
+]);
+function extractRecoveryTokens(input) {
+    return splitIdentifierTokens(input)
+        .map((token) => token.toLowerCase())
+        .filter((token) => token.length >= 3 && !isNoisyIdentifierToken(token));
+}
+function computeTokenOverlapScore(left, right) {
+    if (left.length === 0 || right.length === 0)
+        return 0;
+    const rightSet = new Set(right);
+    let score = 0;
+    for (const token of left) {
+        if (rightSet.has(token)) {
+            score += 1;
+            continue;
+        }
+        const partial = right.find((item) => item.startsWith(token) || token.startsWith(item));
+        if (partial)
+            score += 0.35;
+    }
+    return score;
+}
+function buildCallsiteFrequencyMap(sourceText) {
+    const frequency = new Map();
+    const callPattern = /\b([A-Za-z_$][A-Za-z0-9_$]{2,})\s*\(/g;
+    let match;
+    while ((match = callPattern.exec(sourceText)) !== null) {
+        const raw = match[1] ?? "";
+        const token = raw.trim().toLowerCase();
+        if (token.length < 3)
+            continue;
+        if (CALLSITE_STOPWORDS.has(token))
+            continue;
+        frequency.set(token, (frequency.get(token) ?? 0) + 1);
+    }
+    return frequency;
+}
+function recoverUnresolvedExportsWithSignals(input) {
+    if (input.unresolvedExports.length === 0)
+        return [];
+    if (input.declarationStatsRows.length === 0)
+        return [];
+    const callsiteFrequency = buildCallsiteFrequencyMap(input.sourceChunk);
+    const existingConfidence = new Map();
+    for (const row of input.existingRows) {
+        existingConfidence.set(`${row.name}|${row.kind}`, row.confidence);
+    }
+    const usedSourceSymbols = new Set();
+    const recoveredRows = [];
+    for (const unresolved of input.unresolvedExports) {
+        const exportName = sanitizeExportIdentifierName(unresolved.exportName);
+        if (exportName === "symbol_export")
+            continue;
+        const exportTokens = extractRecoveryTokens(`${exportName} ${unresolved.sourceSymbol}`);
+        let best;
+        for (const stat of input.declarationStatsRows) {
+            if (usedSourceSymbols.has(stat.name))
+                continue;
+            if (stat.statementLength <= 0)
+                continue;
+            if (stat.statementLength > 5200)
+                continue;
+            if (stat.generatedSignal > 0.72)
+                continue;
+            const kindPenalty = stat.kind === unresolved.kind
+                ? 0
+                : stat.kind === "variable" && (unresolved.kind === "function" || unresolved.kind === "class")
+                    ? 1
+                    : 2;
+            if (kindPenalty >= 2)
+                continue;
+            const declarationTokens = extractRecoveryTokens(stat.name);
+            const tokenOverlap = computeTokenOverlapScore(exportTokens, declarationTokens);
+            const callsiteCount = callsiteFrequency.get(stat.name.toLowerCase()) ?? 0;
+            const callsiteBoost = Math.min(2.2, callsiteCount * 0.4);
+            const lineDistanceNormalized = unresolved.sourceLine > 0 ? Math.min(1, Math.abs(stat.line - unresolved.sourceLine) / 1400) : 0.45;
+            const lengthPenalty = Math.min(1.2, stat.statementLength / 9000);
+            const score = tokenOverlap * 2.2 +
+                callsiteBoost +
+                (1 - stat.generatedSignal) * 1.3 +
+                (1 - lineDistanceNormalized) * 0.7 -
+                kindPenalty * 1.1 -
+                lengthPenalty;
+            if (!best || score > best.score) {
+                best = { stat, score };
+            }
+        }
+        if (!best || best.score < 1.15)
+            continue;
+        usedSourceSymbols.add(best.stat.name);
+        recoveredRows.push({
+            name: exportName,
+            sourceSymbol: best.stat.name,
+            kind: unresolved.kind,
+            sourceLine: unresolved.sourceLine > 0 ? unresolved.sourceLine : best.stat.line,
+            confidence: Math.max(0.67, existingConfidence.get(`${exportName}|${unresolved.kind}`) ?? input.moduleConfidence),
+            declarationLength: best.stat.statementLength,
+            hasDeclaration: true,
+            nameQuality: scoreExportNameQuality(exportName),
+            generatedSignal: best.stat.generatedSignal,
+        });
+    }
+    return recoveredRows;
 }
 function collectOutputPreview(stdout, stderr, maxLines) {
     const joined = `${stdout}\n${stderr}`
@@ -262,30 +996,46 @@ function buildWebStormTestProject(input) {
     (0, exec_1.ensureDir)(path.join(srcRoot, "main"));
     (0, exec_1.ensureDir)(path.join(srcRoot, "renderer"));
     (0, exec_1.ensureDir)(path.join(srcRoot, "services"));
+    const chunkArtifactsRoot = (0, exec_1.ensureDir)(path.join(srcRoot, "chunks"));
     (0, exec_1.ensureDir)(path.join(projectRoot, "src-tauri-adapter"));
     const mappingRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "mapping"));
-    const rawChunksRoot = (0, exec_1.ensureDir)(path.join(mappingRoot, "raw-chunks"));
     const metaRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "meta"));
     const toolsRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "tools"));
     const chunkArtifactBySourceFile = new Map();
     const chunkSourceBySourceFile = new Map();
     let chunkFiles = 0;
-    for (const file of input.jsFiles) {
-        if (!input.shouldIncludeChunk(file.relPath))
-            continue;
-        const sourcePath = path.join(input.decompiledDir, file.relPath);
-        if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile())
-            continue;
-        const chunkArtifactPath = toChunkArtifactPath(file.relPath);
-        const destinationPath = path.join(rawChunksRoot, chunkArtifactPath);
+    const ensureChunkArtifactForSourceFile = (sourceFileInput) => {
+        const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(sourceFileInput);
+        if (sourceFile.length === 0) {
+            throw new Error("Missing source file for reconstructed module chunk artifact.");
+        }
+        const cachedArtifact = chunkArtifactBySourceFile.get(sourceFile);
+        const cachedSource = chunkSourceBySourceFile.get(sourceFile);
+        if (cachedArtifact && cachedSource) {
+            return {
+                chunkArtifactPath: cachedArtifact,
+                sourceChunk: cachedSource,
+            };
+        }
+        const sourcePath = path.join(input.decompiledDir, sourceFile);
+        if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+            throw new Error(`Mapped source chunk file does not exist: ${sourcePath}`);
+        }
+        const chunkArtifactPath = toChunkArtifactPath(sourceFile);
+        const destinationPath = path.join(chunkArtifactsRoot, chunkArtifactPath);
         (0, exec_1.ensureDir)(path.dirname(destinationPath));
         const source = normalizeSourceForPrint(readUtf8(sourcePath));
         const normalizedSource = source.endsWith("\n") ? source : `${source}\n`;
         fs.writeFileSync(destinationPath, normalizedSource, "utf8");
-        chunkArtifactBySourceFile.set(file.relPath, toPosixPath(path.posix.join("mapping", "raw-chunks", chunkArtifactPath)));
-        chunkSourceBySourceFile.set(file.relPath, normalizedSource);
+        const artifactPath = toPosixPath(path.posix.join("src", "chunks", chunkArtifactPath));
+        chunkArtifactBySourceFile.set(sourceFile, artifactPath);
+        chunkSourceBySourceFile.set(sourceFile, normalizedSource);
         chunkFiles += 1;
-    }
+        return {
+            chunkArtifactPath: artifactPath,
+            sourceChunk: normalizedSource,
+        };
+    };
     const byTargetPath = new Map();
     const upsertTarget = (inputRow) => {
         const targetPath = (0, deobfuscation_report_1.toProjectRelativeTargetPath)(inputRow.targetPath);
@@ -317,7 +1067,15 @@ function buildWebStormTestProject(input) {
             row.rationale.add(normalized);
         }
         if (inputRow.kind !== "file") {
-            const exportName = toSafeExportIdentifier(inputRow.symbol.trim().length > 0 ? inputRow.symbol : inputRow.sourceSymbol);
+            const preferredSymbol = inputRow.symbol.trim().length > 0 ? inputRow.symbol : inputRow.sourceSymbol;
+            let exportName = sanitizeExportIdentifierName(preferredSymbol);
+            if (exportName === "symbol_export" && inputRow.sourceSymbol.trim().length > 0) {
+                exportName = sanitizeExportIdentifierName(inputRow.sourceSymbol);
+            }
+            if (exportName === "symbol_export") {
+                byTargetPath.set(targetPath, row);
+                return;
+            }
             const currentExport = row.exportsByName.get(exportName);
             if (!currentExport || inputRow.confidence > currentExport.confidence) {
                 row.exportsByName.set(exportName, {
@@ -358,73 +1116,184 @@ function buildWebStormTestProject(input) {
     }
     let reconstructedFiles = 0;
     const reconstructedMapRows = [];
+    const lifterDiagnosticsRows = [];
     const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
+    const emittedModulePaths = [];
     for (const row of sortedTargets) {
-        let chunkArtifactPath = chunkArtifactBySourceFile.get(row.sourceFile);
-        let sourceChunk = chunkSourceBySourceFile.get(row.sourceFile);
-        if (!chunkArtifactPath) {
-            const sourcePath = path.join(input.decompiledDir, row.sourceFile);
-            if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile())
-                continue;
-            const normalized = normalizeSourceForPrint(readUtf8(sourcePath));
-            const fallbackArtifactRel = toChunkArtifactPath(row.sourceFile);
-            const fallbackDestination = path.join(rawChunksRoot, fallbackArtifactRel);
-            (0, exec_1.ensureDir)(path.dirname(fallbackDestination));
-            const normalizedSource = normalized.endsWith("\n") ? normalized : `${normalized}\n`;
-            fs.writeFileSync(fallbackDestination, normalizedSource, "utf8");
-            chunkArtifactPath = toPosixPath(path.posix.join("mapping", "raw-chunks", fallbackArtifactRel));
-            chunkArtifactBySourceFile.set(row.sourceFile, chunkArtifactPath);
-            chunkSourceBySourceFile.set(row.sourceFile, normalizedSource);
-            sourceChunk = normalizedSource;
-        }
-        if (!sourceChunk) {
-            throw new Error(`Missing source chunk text for reconstructed module: ${row.sourceFile}`);
+        const ensuredArtifact = ensureChunkArtifactForSourceFile(row.sourceFile);
+        const chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
+        const sourceChunk = ensuredArtifact.sourceChunk;
+        const declarationStatsRows = (0, symbol_lifter_1.inspectLiftSourceDeclarations)({
+            sourceFilePath: row.sourceFile,
+            sourceText: sourceChunk,
+        });
+        const declarationStatsByName = new Map();
+        for (const stat of declarationStatsRows) {
+            const bucket = declarationStatsByName.get(stat.name) ?? [];
+            bucket.push(stat);
+            declarationStatsByName.set(stat.name, bucket);
         }
         const emittedPath = normalizeTargetModulePath(row.targetPath);
-        const exportRows = Array.from(row.exportsByName.entries())
-            .map(([name, value]) => ({ name, ...value }))
+        const candidateExportRows = Array.from(row.exportsByName.entries())
+            .map(([name, value]) => {
+            const sanitizedName = sanitizeExportIdentifierName(name);
+            if (sanitizedName === "symbol_export") {
+                return undefined;
+            }
+            const stat = pickDeclarationStatForExport(declarationStatsByName.get(value.sourceSymbol) ?? [], value.kind, value.sourceLine);
+            return {
+                name: sanitizedName,
+                ...value,
+                declarationLength: stat?.statementLength ?? 0,
+                hasDeclaration: !!stat,
+                nameQuality: scoreExportNameQuality(sanitizedName),
+                generatedSignal: stat?.generatedSignal ?? 0,
+            };
+        })
+            .filter((row) => !!row)
             .sort((a, b) => {
             if (a.confidence !== b.confidence)
                 return b.confidence - a.confidence;
+            if (a.generatedSignal !== b.generatedSignal)
+                return a.generatedSignal - b.generatedSignal;
+            if (a.nameQuality !== b.nameQuality)
+                return b.nameQuality - a.nameQuality;
+            if (a.declarationLength !== b.declarationLength)
+                return a.declarationLength - b.declarationLength;
             if (a.kind !== b.kind)
                 return a.kind.localeCompare(b.kind);
             return a.name.localeCompare(b.name);
         });
-        const headerLines = [
-            "/*",
-            "  Generated by reverse/deobfuscation pipeline for WebStorm exploration.",
-            "  Lift mode: ast-symbol-lifter (function/class/variable declarations + dependency closure).",
-            `  Source chunk artifact: ${chunkArtifactPath}`,
-            `  Source chunk: ${row.sourceFile}`,
-            `  Confidence: ${row.confidence}`,
-            `  Suggested symbols: ${formatPreviewList(Array.from(row.symbols).sort((a, b) => a.localeCompare(b)), 18)}`,
-            `  References: ${formatPreviewList(Array.from(row.references).sort((a, b) => a.localeCompare(b)), 12)}`,
-            "*/",
-            "",
-            "// @ts-nocheck",
-            "",
-        ];
-        const lifted = (0, symbol_lifter_1.liftModuleSource)({
+        const selectedExports = selectPrimaryExports({
+            rows: candidateExportRows,
+            moduleConfidence: row.confidence,
+        });
+        const initialExportRows = selectedExports.selected;
+        const statementBudget = determineAdaptiveStatementBudget({
+            sourceFile: row.sourceFile,
+            candidateExports: candidateExportRows.length,
+            selectedExports: initialExportRows.length,
+        });
+        const maxPrimaryStatementLength = determineMaxPrimaryStatementLength({
+            candidateExports: candidateExportRows.length,
+            statementBudget,
+        });
+        const maxDependencyStatementLength = determineMaxDependencyStatementLength({
+            candidateExports: candidateExportRows.length,
+            statementBudget,
+        });
+        let exportRows = initialExportRows;
+        let droppedExportsByBudget = 0;
+        const allowClosestFallback = candidateExportRows.length <= 180 &&
+            !/\/(?:index-|chunk-)/i.test(row.sourceFile.toLowerCase()) &&
+            !row.sourceFile.toLowerCase().includes(".vite/build/worker");
+        const liftWithBudget = (rows, primaryStatementLengthLimit) => (0, symbol_lifter_1.liftModuleSource)({
             sourceFilePath: row.sourceFile,
             sourceText: sourceChunk,
-            exports: exportRows.map((item) => ({
+            exports: rows.map((item) => ({
                 exportName: item.name,
                 sourceSymbol: item.sourceSymbol,
                 kind: item.kind,
                 sourceLine: item.sourceLine,
             })),
-            maxDependencyStatements: 6000,
+            maxDependencyStatements: statementBudget,
+            maxDependencyStatementLength,
+            maxPrimaryStatementLength: primaryStatementLengthLimit,
+            allowClosestFallback,
         });
-        const unresolvedRequired = lifted.unresolvedExports.filter((item) => item.kind === "class" || item.kind === "function");
-        if (unresolvedRequired.length > 0) {
-            for (const unresolved of unresolvedRequired) {
-                row.rationale.add(`lifter-unresolved: ${unresolved.kind}:${unresolved.sourceSymbol}->${unresolved.exportName}@${unresolved.sourceLine}`);
+        let lifted = liftWithBudget(exportRows, maxPrimaryStatementLength);
+        if (lifted.liftedExports.length === 0 && exportRows.length > 0) {
+            lifted = liftWithBudget(exportRows, 0);
+        }
+        while (lifted.dependencyTrimmed && exportRows.length > 8) {
+            const nextLength = exportRows.length > 12 ? exportRows.length - 4 : exportRows.length - 2;
+            if (nextLength < 8 || nextLength >= exportRows.length)
+                break;
+            exportRows = exportRows.slice(0, nextLength);
+            droppedExportsByBudget = initialExportRows.length - exportRows.length;
+            lifted = liftWithBudget(exportRows, maxPrimaryStatementLength);
+            if (lifted.liftedExports.length === 0 && exportRows.length > 0) {
+                lifted = liftWithBudget(exportRows, 0);
             }
         }
-        const moduleSource = `${headerLines.join("\n")}${lifted.moduleBody}`;
+        let targetedRecoveredExports = 0;
+        const unresolvedBeforeRecovery = lifted.unresolvedExports.filter((item) => item.kind === "class" || item.kind === "function");
+        if (unresolvedBeforeRecovery.length > 0) {
+            const recoveredRows = recoverUnresolvedExportsWithSignals({
+                unresolvedExports: unresolvedBeforeRecovery,
+                declarationStatsRows,
+                sourceChunk,
+                moduleConfidence: row.confidence,
+                existingRows: exportRows,
+            });
+            if (recoveredRows.length > 0) {
+                const liftedKeys = new Set(lifted.liftedExports.map((item) => `${item.exportName}|${item.kind}`));
+                const mergedRows = new Map();
+                for (const item of exportRows) {
+                    if (!liftedKeys.has(`${item.name}|${item.kind}`))
+                        continue;
+                    mergedRows.set(`${item.name}|${item.kind}`, item);
+                }
+                for (const item of recoveredRows) {
+                    mergedRows.set(`${item.name}|${item.kind}`, item);
+                }
+                const recoveryExportRows = Array.from(mergedRows.values());
+                let recoveredLift = liftWithBudget(recoveryExportRows, maxPrimaryStatementLength);
+                if (recoveredLift.liftedExports.length === 0 && recoveryExportRows.length > 0) {
+                    recoveredLift = liftWithBudget(recoveryExportRows, 0);
+                }
+                if (recoveredLift.liftedExports.length > lifted.liftedExports.length) {
+                    exportRows = recoveryExportRows;
+                    droppedExportsByBudget = Math.max(0, initialExportRows.length - exportRows.length);
+                    lifted = recoveredLift;
+                    targetedRecoveredExports = recoveredRows.length;
+                    row.rationale.add(`targeted-recovery: ownership-callsites recovered=${targetedRecoveredExports}`);
+                }
+            }
+        }
+        const unresolvedRequired = lifted.unresolvedExports.filter((item) => item.kind === "class" || item.kind === "function");
+        for (const unresolved of unresolvedRequired) {
+            row.rationale.add(`lifter-unresolved: ${unresolved.kind}:${unresolved.sourceSymbol}->${unresolved.exportName}@${unresolved.sourceLine}`);
+        }
+        const shouldUseTsNoCheck = true;
+        const isUnresolvedModule = lifted.liftedExports.length === 0 && exportRows.length > 0;
+        const useChunkBridgeMode = isUnresolvedModule && exportRows.every((item) => isSafeImportIdentifier(item.sourceSymbol));
+        const usePlaceholderMode = isUnresolvedModule && !useChunkBridgeMode;
+        const moduleBody = useChunkBridgeMode
+            ? buildChunkBridgeModuleBody({
+                exports: exportRows,
+                sourceFile: row.sourceFile,
+                emittedPath,
+                chunkArtifactPath,
+            })
+            : usePlaceholderMode
+                ? buildPlaceholderModuleBody({
+                    exports: exportRows,
+                    sourceFile: row.sourceFile,
+                })
+                : lifted.moduleBody;
+        if (useChunkBridgeMode) {
+            row.rationale.add("targeted-recovery: chunk-bridge-fallback-enabled");
+        }
+        const headerLines = [
+            "/**",
+            " * Generated by reverse/deobfuscation pipeline.",
+            " * Lift mode: ast-symbol-lifter.",
+            ` * Source chunk: ${row.sourceFile}`,
+            ` * Chunk artifact: ${chunkArtifactPath}`,
+            ` * Confidence: ${row.confidence}`,
+            ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${selectedExports.dropped.length + droppedExportsByBudget}`,
+            ` * Chunk bridge mode: ${useChunkBridgeMode ? "enabled" : "disabled"}`,
+            ` * Placeholder mode: ${usePlaceholderMode ? "enabled" : "disabled"}`,
+            " */",
+            "",
+            ...(shouldUseTsNoCheck ? ["// @ts-nocheck", ""] : []),
+        ];
+        const moduleSource = `${headerLines.join("\n")}${moduleBody}`;
         const destinationPath = path.join(projectRoot, emittedPath);
         (0, exec_1.ensureDir)(path.dirname(destinationPath));
         fs.writeFileSync(destinationPath, moduleSource, "utf8");
+        emittedModulePaths.push(emittedPath);
         reconstructedFiles += 1;
         reconstructedMapRows.push({
             targetPath: row.targetPath,
@@ -433,24 +1302,56 @@ function buildWebStormTestProject(input) {
             chunkArtifactPath,
             confidence: row.confidence,
             symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
-            exports: exportRows.filter((item) => lifted.liftedExports.some((liftedExport) => liftedExport.exportName === item.name &&
-                liftedExport.sourceSymbol === item.sourceSymbol &&
-                liftedExport.kind === item.kind)),
+            exports: usePlaceholderMode || useChunkBridgeMode
+                ? exportRows
+                : exportRows.filter((item) => lifted.liftedExports.some((liftedExport) => liftedExport.exportName === item.name &&
+                    liftedExport.kind === item.kind)),
             references: Array.from(row.references).sort((a, b) => a.localeCompare(b)),
             rationale: Array.from(row.rationale).sort((a, b) => a.localeCompare(b)),
         });
+        lifterDiagnosticsRows.push({
+            emittedPath,
+            sourceFile: row.sourceFile,
+            sourceChunkArtifactPath: chunkArtifactPath,
+            candidateExports: candidateExportRows.length,
+            selectedExports: exportRows.length,
+            droppedExports: selectedExports.dropped.length,
+            droppedExportsByBudget,
+            statementBudget: lifted.dependencyBudget,
+            maxPrimaryStatementLength,
+            maxDependencyStatementLength,
+            dependencyTrimmed: lifted.dependencyTrimmed,
+            skippedDependencies: lifted.skippedDependencies,
+            skippedOversizedDependencies: lifted.skippedOversizedDependencies,
+            liftedExports: lifted.liftedExports.length,
+            unresolvedExports: lifted.unresolvedExports.length,
+            unresolvedRequiredExports: unresolvedRequired.length,
+            includedStatements: lifted.includedStatements,
+            renameCandidates: lifted.renameCandidates,
+            renamedDeclarations: lifted.renamedDeclarations,
+            skippedRenames: lifted.skippedRenames,
+            rewrittenReferenceSymbols: lifted.rewrittenReferenceSymbols,
+            rewrittenReferenceIdentifiers: lifted.rewrittenReferenceIdentifiers,
+            usedTsNoCheck: shouldUseTsNoCheck,
+            placeholderMode: usePlaceholderMode,
+            chunkBridgeMode: useChunkBridgeMode,
+            targetedRecoveredExports,
+            recoveryModeUsed: targetedRecoveredExports > 0,
+        });
     }
+    const generatedBarrelIndexes = buildLayerBarrelIndexes(projectRoot, emittedModulePaths);
     const chunkArtifactRows = Array.from(chunkArtifactBySourceFile.entries())
         .map(([sourceFile, artifactPath]) => ({ sourceFile, artifactPath }))
         .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
     const mappingArtifacts = [
         "mapping/chunk-artifacts.json",
-        "mapping/raw-chunks/",
+        "src/chunks/",
         "mapping/deobfuscation-table.json",
         "mapping/deobfuscation-table.md",
         "mapping/deobfuscation-table.csv",
         "mapping/rename-plan.md",
         "mapping/reconstructed-map.json",
+        "mapping/lifter-diagnostics.json",
         "mapping/component-boundaries.json",
         "mapping/session-flow.json",
         "mapping/session-flow.md",
@@ -460,6 +1361,7 @@ function buildWebStormTestProject(input) {
         "mapping/reference-model.json",
         "mapping/reference-signals.json",
         "mapping/reference-symbols.json",
+        ...generatedBarrelIndexes,
     ];
     writeJson(path.join(mappingRoot, "chunk-artifacts.json"), chunkArtifactRows);
     writeJson(path.join(mappingRoot, "deobfuscation-table.json"), input.deobfuscationTable);
@@ -467,6 +1369,7 @@ function buildWebStormTestProject(input) {
     fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.csv"), input.deobfuscationCsv, "utf8");
     fs.writeFileSync(path.join(mappingRoot, "rename-plan.md"), input.renamePlanMarkdown, "utf8");
     writeJson(path.join(mappingRoot, "reconstructed-map.json"), reconstructedMapRows);
+    writeJson(path.join(mappingRoot, "lifter-diagnostics.json"), lifterDiagnosticsRows);
     writeJson(path.join(mappingRoot, "component-boundaries.json"), input.componentBoundaries);
     writeJson(path.join(mappingRoot, "session-flow.json"), input.sessionFlow);
     fs.writeFileSync(path.join(mappingRoot, "session-flow.md"), input.sessionFlowMarkdown, "utf8");
@@ -564,8 +1467,9 @@ function buildWebStormTestProject(input) {
         "",
         "## Structure",
         "- `src/main/`, `src/renderer/`, `src/services/` TS-first reconstructed modules with lifted symbol declarations.",
+        "- `src/**/index.ts` layer barrel files for fast navigation and clean entry points.",
         "- `src-tauri-adapter/` bridge modules for tauri/daemon-related targets.",
-        "- `mapping/raw-chunks/` one raw source artifact per original chunk (`.js`) for traceability.",
+        "- `src/chunks/` one raw source artifact per mapped chunk (`.js`) for traceability.",
         "- `mapping/` generated maps and flow reports.",
         "- `meta/` source package metadata and generation info.",
         "",
