@@ -8,16 +8,15 @@ import type { DeobfuscationTableReport } from "./match-v2";
 import {
   inspectLiftDeclarationGraph,
   inspectLiftSourceDeclarations,
-  liftModuleSource,
   type LiftDeclarationGraphNode,
   type LiftDeclarationStat,
   type LiftedExportKind,
 } from "./symbol-lifter";
 import { buildSemanticIrFromDeobfuscationTable, type SemanticIrModule } from "./semantic-ir";
 import { resolveSemanticOwnership } from "./ownership-resolver";
-import { buildModuleSynthesisContract } from "./module-templates";
+import { buildModuleSynthesisContract, type ModuleArchetype } from "./module-templates";
 import { applyArchetypeAndCluster } from "./declaration-clustering";
-import { postLiftBeautifyModuleSource } from "./post-lift-beautify";
+import { emitArchetypeModule } from "./archetype-emitter";
 
 export interface WebStormTestProjectReport {
   rootPath: string;
@@ -126,6 +125,16 @@ function collectBarrelRootsForDirectory(inputDir: string): string[] {
   return roots.filter((root) => directory.startsWith(`${root}/`));
 }
 
+function toBarrelNamespaceName(input: string): string {
+  const tokens = splitIdentifierTokens(input)
+    .map((token) => token.toLowerCase())
+    .filter((token) => token.length > 0 && !isNoisyIdentifierToken(token));
+  const raw = buildIdentifierFromTokens(tokens.length > 0 ? tokens : [input], false);
+  const sanitized = toSafeExportIdentifier(raw.length > 0 ? raw : input);
+  if (sanitized === "symbol_export") return "moduleNs";
+  return sanitized;
+}
+
 function buildLayerBarrelIndexes(projectRoot: string, emittedModulePaths: string[]): string[] {
   const modulePaths = emittedModulePaths
     .map((item) => toPosixPath(item).replace(/^\.?\//, ""))
@@ -168,11 +177,25 @@ function buildLayerBarrelIndexes(projectRoot: string, emittedModulePaths: string
       .sort((a, b) => a.localeCompare(b));
 
     const lines: string[] = [];
+    const usedAliases = new Set<string>();
+    const nextAlias = (seed: string): string => {
+      const baseAlias = toBarrelNamespaceName(seed);
+      let alias = baseAlias;
+      let suffix = 2;
+      while (usedAliases.has(alias)) {
+        alias = `${baseAlias}${suffix}`;
+        suffix += 1;
+      }
+      usedAliases.add(alias);
+      return alias;
+    };
     for (const fileName of files) {
-      lines.push(`export * from "${toModuleSpecifier(directory, path.posix.join(directory, `${fileName}.ts`))}";`);
+      const alias = nextAlias(fileName);
+      lines.push(`export * as ${alias} from "${toModuleSpecifier(directory, path.posix.join(directory, `${fileName}.ts`))}";`);
     }
     for (const childDirectory of childDirectories) {
-      lines.push(`export * from "${toModuleSpecifier(directory, path.posix.join(childDirectory, "index.ts"))}";`);
+      const alias = nextAlias(path.posix.basename(childDirectory));
+      lines.push(`export * as ${alias} from "${toModuleSpecifier(directory, path.posix.join(childDirectory, "index.ts"))}";`);
     }
     if (lines.length === 0) continue;
 
@@ -823,6 +846,8 @@ function isContextualRenameCandidate(input: {
   const { row, emittedPath, moduleTokens, profile } = input;
   const normalized = row.name.toLowerCase();
   if (normalized.includes("getobjectready")) return true;
+  if (/^[A-Za-z_$]{1,2}$/.test(row.name)) return true;
+  if (/^[a-z]{2,3}$/.test(row.name)) return true;
   if (/var[a-z0-9]{2,}/.test(normalized)) return true;
   if (/(?:renderer|assets|services|main|tauri)\d+$/.test(normalized)) return true;
   if (UTILITY_WRAPPER_NAME_PATTERN.test(normalized)) return true;
@@ -969,6 +994,162 @@ function applyTargetedExportRenames(rows: RankedExportRow[], emittedPath: string
   }
 
   return nextRows;
+}
+
+function buildArchetypeSubject(emittedPath: string): { camel: string; pascal: string } {
+  const moduleStem = path.posix.basename(toPosixPath(emittedPath), path.posix.extname(toPosixPath(emittedPath)));
+  const moduleTokens = collectModuleContextTokens(emittedPath);
+  const stemTokens = splitIdentifierTokens(moduleStem).map((token) => token.toLowerCase());
+  const dropped = new Set<string>([
+    "use",
+    "hook",
+    "hooks",
+    "transport",
+    "ipc",
+    "event",
+    "events",
+    "service",
+    "services",
+    "main",
+    "renderer",
+    "tauri",
+    "adapter",
+  ]);
+  const preferredTokens = [...moduleTokens, ...stemTokens].filter(
+    (token, index, list) =>
+      token.length >= 3 &&
+      !dropped.has(token) &&
+      !isNoisyIdentifierToken(token) &&
+      list.indexOf(token) === index,
+  );
+  const subjectTokens = preferredTokens.length > 0 ? preferredTokens : ["domain", "runtime"];
+  const camel = sanitizeExportIdentifierName(buildIdentifierFromTokens(subjectTokens, false) || "domainRuntime");
+  const pascal = sanitizeExportIdentifierName(buildIdentifierFromTokens(subjectTokens, true) || "DomainRuntime");
+  return {
+    camel: camel === "symbol_export" ? "domainRuntime" : camel,
+    pascal: pascal === "symbol_export" ? "DomainRuntime" : pascal,
+  };
+}
+
+function isWeakHookTransportName(input: {
+  row: RankedExportRow;
+  emittedPath: string;
+  archetype: ModuleArchetype;
+}): boolean {
+  const normalized = input.row.name.toLowerCase();
+  if (/(eventsinline|getobjectready|inline(server|client)?|runtimeuse|useevent|getownpropertynames)/.test(normalized)) return true;
+  if (/var[a-z0-9]{2,}/.test(normalized)) return true;
+  if (/[a-z]{2,}\d{2,}$/i.test(input.row.name)) return true;
+  const quality = scoreContextualExportNameQuality(input.row.name, input.emittedPath);
+  if (quality < 0.84) return true;
+
+  if (input.archetype === "hook") {
+    if (input.row.kind === "function" && !/^use[A-Z]/.test(input.row.name)) return true;
+    if (input.row.kind === "variable" && /(inline|event|events|server|client)/.test(normalized)) return true;
+  }
+  if (input.archetype === "transport") {
+    if (input.row.kind === "function" && !/(transport|ipc|dispatch|connection|stream|subscribe|publish)/.test(normalized)) return true;
+    if (input.row.kind === "class" && !/(Transport|Runtime|Bridge|Client)$/.test(input.row.name)) return true;
+  }
+  return false;
+}
+
+function proposeHookTransportName(input: {
+  row: RankedExportRow;
+  archetype: ModuleArchetype;
+  subject: { camel: string; pascal: string };
+  indexByKind: Map<LiftedExportKind, number>;
+}): string {
+  const normalized = input.row.name.toLowerCase();
+  const kindIndex = input.indexByKind.get(input.row.kind) ?? 0;
+  input.indexByKind.set(input.row.kind, kindIndex + 1);
+
+  if (input.archetype === "hook") {
+    if (input.row.kind === "function") {
+      if (kindIndex === 0) return sanitizeExportIdentifierName(`use${input.subject.pascal}`);
+      if (/(connect|connection|listener|live)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}Connection`);
+      if (/(cache|registry|map|store)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}Registry`);
+      if (/(state|value|current|ref)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}State`);
+      return sanitizeExportIdentifierName(`${input.subject.camel}Signal`);
+    }
+    if (input.row.kind === "class") {
+      return sanitizeExportIdentifierName(`${input.subject.pascal}HookRuntime`);
+    }
+    if (/(connect|connection|listener|online|offline)/.test(normalized)) {
+      return sanitizeExportIdentifierName(`${input.subject.camel}ConnectionState`);
+    }
+    if (/(cache|registry|map|store)/.test(normalized)) {
+      return sanitizeExportIdentifierName(`${input.subject.camel}Registry`);
+    }
+    if (/(state|value|current|ref)/.test(normalized)) {
+      return sanitizeExportIdentifierName(`${input.subject.camel}State`);
+    }
+    return sanitizeExportIdentifierName(`${input.subject.camel}Signal`);
+  }
+
+  if (input.row.kind === "function") {
+    if (kindIndex === 0) return sanitizeExportIdentifierName(`${input.subject.camel}Transport`);
+    if (/(send|emit|publish|dispatch)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}Dispatch`);
+    if (/(listen|subscribe|receive|stream)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}Subscription`);
+    if (/(connect|connection|online|offline)/.test(normalized)) return sanitizeExportIdentifierName(`${input.subject.camel}Connection`);
+    return sanitizeExportIdentifierName(`${input.subject.camel}TransportRuntime`);
+  }
+  if (input.row.kind === "class") {
+    return sanitizeExportIdentifierName(`${input.subject.pascal}TransportRuntime`);
+  }
+  if (/(queue|flush|batch|timeout|interval|scheduler)/.test(normalized)) {
+    return sanitizeExportIdentifierName(`${input.subject.camel}Scheduler`);
+  }
+  if (/(buffer|delta|packet)/.test(normalized)) {
+    return sanitizeExportIdentifierName(`${input.subject.camel}Buffers`);
+  }
+  if (/(connect|connection|online|offline|listener)/.test(normalized)) {
+    return sanitizeExportIdentifierName(`${input.subject.camel}ConnectionState`);
+  }
+  if (/(cache|registry|map|store)/.test(normalized)) {
+    return sanitizeExportIdentifierName(`${input.subject.camel}Registry`);
+  }
+  return sanitizeExportIdentifierName(`${input.subject.camel}TransportState`);
+}
+
+function applyHookTransportQualityPass(input: {
+  rows: RankedExportRow[];
+  emittedPath: string;
+  archetype: ModuleArchetype;
+}): { rows: RankedExportRow[]; renamed: number } {
+  if (input.rows.length === 0) return { rows: [], renamed: 0 };
+  if (input.archetype !== "hook" && input.archetype !== "transport") {
+    return { rows: [...input.rows], renamed: 0 };
+  }
+  const subject = buildArchetypeSubject(input.emittedPath);
+  const usedNames = new Set(input.rows.map((row) => row.name));
+  const indexByKind = new Map<LiftedExportKind, number>();
+  let renamed = 0;
+
+  const nextRows = input.rows.map((row) => ({ ...row }));
+  for (const row of nextRows) {
+    if (!isWeakHookTransportName({ row, emittedPath: input.emittedPath, archetype: input.archetype })) continue;
+    const proposed = proposeHookTransportName({
+      row,
+      archetype: input.archetype,
+      subject,
+      indexByKind,
+    });
+    if (proposed === "symbol_export" || proposed.length < 3) continue;
+    let nextName = proposed;
+    let dedupe = 2;
+    while (usedNames.has(nextName) && nextName !== row.name && dedupe < 80) {
+      nextName = `${proposed}${dedupe}`;
+      dedupe += 1;
+    }
+    if (nextName === row.name || usedNames.has(nextName)) continue;
+    usedNames.delete(row.name);
+    row.name = nextName;
+    row.nameQuality = scoreContextualExportNameQuality(nextName, input.emittedPath);
+    usedNames.add(row.name);
+    renamed += 1;
+  }
+  return { rows: nextRows, renamed };
 }
 
 function normalizeExportNameRoot(input: string): string {
@@ -1389,136 +1570,6 @@ function selectPrimaryExports(input: {
   return { selected, dropped };
 }
 
-function inferRecoveryExportKind(emittedPath: string): LiftedExportKind {
-  const normalized = toPosixPath(emittedPath).toLowerCase();
-  if (normalized.includes("/hooks/")) return "function";
-  if (normalized.includes("transport")) return "class";
-  if (normalized.includes("/components/")) return "function";
-  return "function";
-}
-
-function appendUniqueExportName(target: string[], used: Set<string>, value: string): void {
-  const sanitized = sanitizeExportIdentifierName(value);
-  if (sanitized === "symbol_export") return;
-  if (used.has(sanitized)) return;
-  used.add(sanitized);
-  target.push(sanitized);
-}
-
-function buildStructuredRecoveryNames(input: {
-  emittedPath: string;
-  kind: LiftedExportKind;
-  moduleBaseName: string;
-  maxExports: number;
-}): string[] {
-  const moduleTokens = collectModuleContextTokens(input.emittedPath);
-  const profile = buildModuleRenameProfile({
-    emittedPath: input.emittedPath,
-    moduleBaseName: input.moduleBaseName,
-    moduleTokens,
-  });
-  const used = new Set<string>();
-  const names: string[] = [];
-  const maxNames = Math.max(1, input.maxExports);
-  const canonicalName = getProfileCanonicalName(profile, input.kind);
-  appendUniqueExportName(names, used, canonicalName);
-
-  if (input.kind === "function") {
-    if (profile.kind === "hook") {
-      appendUniqueExportName(names, used, `${profile.subjectCamel}State`);
-      appendUniqueExportName(names, used, `${profile.subjectCamel}Signal`);
-      appendUniqueExportName(names, used, `${profile.subjectCamel}Registry`);
-      appendUniqueExportName(names, used, `${profile.subjectCamel}Connection`);
-    } else if (profile.kind === "transport") {
-      const transportCamel = profile.subjectCamel.endsWith("Transport") ? profile.subjectCamel : `${profile.subjectCamel}Transport`;
-      const transportStem = transportCamel.replace(/Transport$/, "");
-      appendUniqueExportName(names, used, transportCamel);
-      appendUniqueExportName(names, used, `${transportStem}ConnectionState`);
-      appendUniqueExportName(names, used, `${transportStem}Registry`);
-      appendUniqueExportName(names, used, `${transportStem}Scheduler`);
-    } else {
-      appendUniqueExportName(names, used, input.moduleBaseName);
-      appendUniqueExportName(names, used, `${input.moduleBaseName}Runtime`);
-      appendUniqueExportName(names, used, `${input.moduleBaseName}Factory`);
-      appendUniqueExportName(names, used, `${input.moduleBaseName}Handler`);
-    }
-  }
-  if (input.kind === "class") {
-    appendUniqueExportName(names, used, `${profile.subjectPascal}Runtime`);
-    appendUniqueExportName(names, used, `${profile.subjectPascal}Model`);
-    appendUniqueExportName(names, used, `${profile.subjectPascal}Adapter`);
-  }
-  if (input.kind === "variable") {
-    appendUniqueExportName(names, used, `${profile.subjectCamel}State`);
-    appendUniqueExportName(names, used, `${profile.subjectCamel}Registry`);
-    appendUniqueExportName(names, used, `${profile.subjectCamel}Config`);
-  }
-
-  let fillIndex = 0;
-  while (names.length < maxNames && fillIndex < maxNames * 5) {
-    const generated = buildContextualSecondaryName({
-      moduleBaseName: input.moduleBaseName,
-      moduleTokens: profile.subjectTokens,
-      kind: input.kind,
-      index: fillIndex,
-    });
-    appendUniqueExportName(names, used, generated);
-    fillIndex += 1;
-  }
-  return names.slice(0, maxNames);
-}
-
-function buildSemanticRecoveryExportRows(input: {
-  emittedPath: string;
-  symbols: string[];
-  moduleConfidence: number;
-  maxExports: number;
-}): RankedExportRow[] {
-  const emittedModuleBaseNameRaw = toRecoveryModuleBaseName(
-    path.posix.basename(toPosixPath(input.emittedPath), path.posix.extname(toPosixPath(input.emittedPath))),
-  );
-  const kind = inferRecoveryExportKind(input.emittedPath);
-  const emittedModuleBaseName = emittedModuleBaseNameRaw === "symbol_export" ? "moduleRuntime" : emittedModuleBaseNameRaw;
-  const structuredNames = buildStructuredRecoveryNames({
-    emittedPath: input.emittedPath,
-    kind,
-    moduleBaseName: emittedModuleBaseName,
-    maxExports: Math.max(1, input.maxExports),
-  });
-  const sourceSymbolCandidates = input.symbols
-    .map((item) => sanitizeExportIdentifierName(item))
-    .filter((item, index, arr) => item !== "symbol_export" && arr.indexOf(item) === index)
-    .map((name) => ({
-      name,
-      quality: scoreContextualExportNameQuality(name, input.emittedPath),
-      alignment: scoreModulePathAlignment(name, input.emittedPath),
-    }))
-    .filter((item) => item.quality >= 0.82 && item.alignment >= 0.45)
-    .sort((a, b) => {
-      const qualityDelta = b.quality - a.quality;
-      if (qualityDelta !== 0) return qualityDelta;
-      const alignmentDelta = b.alignment - a.alignment;
-      if (alignmentDelta !== 0) return alignmentDelta;
-      return a.name.localeCompare(b.name);
-    })
-    .map((item) => item.name);
-  const combinedNames = Array.from(new Set([...structuredNames, ...sourceSymbolCandidates])).slice(
-    0,
-    Math.max(1, input.maxExports),
-  );
-  return combinedNames.map((name, index) => ({
-    name,
-    sourceSymbol: `semanticIrSymbol${index + 1}`,
-    kind,
-    sourceLine: 0,
-    confidence: Math.max(0.72, input.moduleConfidence),
-    declarationLength: 0,
-    hasDeclaration: false,
-    nameQuality: scoreContextualExportNameQuality(name, input.emittedPath),
-    generatedSignal: 0,
-  }));
-}
-
 function isSafeImportIdentifier(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
@@ -1923,6 +1974,11 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     selectedExports: number;
     droppedExports: number;
     droppedExportsByBudget: number;
+    droppedExportsByTemplateCap: number;
+    hookTransportRenamed: number;
+    templateAddedRequiredKinds: number;
+    templateImportCount: number;
+    importContractViolated: boolean;
     statementBudget: number;
     maxPrimaryStatementLength: number;
     maxDependencyStatementLength: number;
@@ -2097,7 +2153,6 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     const ensuredArtifact = ensureChunkArtifactForSourceFile(activeSourceFile);
     const chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
     const sourceChunk = ensuredArtifact.sourceChunk;
-    const declarationStatsByName = activeSourceContext.declarationStatsByName;
 
     const alignedCandidateRowsRaw = applyModuleAlignmentSignals(candidateExportRows, emittedPath);
     const synthesisContract = buildSynthesisContract(alignedCandidateRowsRaw.length);
@@ -2112,69 +2167,56 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       rows: alignedCandidateRows,
       moduleConfidence: row.confidence,
     });
-    let initialExportRows = applyTargetedExportRenames(selectedExports.selected, emittedPath).slice(
+    const renamedRows = applyTargetedExportRenames(selectedExports.selected, emittedPath).slice(
       0,
       synthesisContract.maxSelectedExports,
     );
-    let droppedExportsByBudget = 0;
-    if (initialExportRows.length === 0) {
-      initialExportRows = buildSemanticRecoveryExportRows({
-        emittedPath,
-        symbols: Array.from(row.symbols),
-        moduleConfidence: row.confidence,
-        maxExports: Math.min(4, Math.max(1, synthesisContract.maxSelectedExports)),
-      }).slice(0, synthesisContract.maxSelectedExports);
-    }
-    const statementBudget = synthesisContract.statementBudget;
-    const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
-    const maxDependencyStatementLength = synthesisContract.maxDependencyStatementLength;
-    const exportRows = initialExportRows;
-    const lifted = liftModuleSource({
+    const hookTransportPass = applyHookTransportQualityPass({
+      rows: renamedRows,
+      emittedPath,
+      archetype: synthesisContract.kind,
+    });
+    const templateEmission = emitArchetypeModule({
       sourceFilePath: activeSourceFile,
       sourceText: sourceChunk,
-      exports: exportRows.map((item) => ({
-        exportName: item.name,
-        sourceSymbol: item.sourceSymbol,
-        kind: item.kind,
-        sourceLine: item.sourceLine,
-      })),
-      maxDependencyStatements: statementBudget,
-      maxDependencyStatementLength,
-      maxPrimaryStatementLength,
-      allowClosestFallback: synthesisContract.allowClosestFallback,
-      allowParserRegistryUnpack: false,
+      emittedPath,
+      contract: synthesisContract,
+      selectedRows: hookTransportPass.rows,
+      candidateRows: alignedCandidateRows,
     });
+    const exportRows = templateEmission.exportRows;
+    const lifted = templateEmission.lifted;
     const parserRegistryUnpackUsed = false;
     const targetedRecoveredExports = 0;
-    const unresolvedRequired = lifted.unresolvedExports.filter((item) => item.kind === "class" || item.kind === "function");
+    const unresolvedRequired = templateEmission.unresolvedRequired;
     for (const unresolved of unresolvedRequired) {
       row.rationale.add(
         `lifter-unresolved: ${unresolved.kind}:${unresolved.sourceSymbol}->${unresolved.exportName}@${unresolved.sourceLine}`,
       );
     }
-    const strictLiftViolation = (lifted.liftedExports.length === 0 && exportRows.length > 0) || unresolvedRequired.length > 0;
-    if (strictLiftViolation) {
-      const unresolvedPreview = unresolvedRequired
-        .slice(0, 4)
-        .map((item) => `${item.kind}:${item.sourceSymbol}->${item.exportName}@${item.sourceLine}`)
-        .join(", ");
-      throw new Error(
-        `Strict AST lift failed for ${emittedPath} from ${activeSourceFile}. selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolvedRequired=${unresolvedRequired.length}${unresolvedPreview.length > 0 ? ` [${unresolvedPreview}]` : ""}`,
+    if (templateEmission.diagnostics.importContractViolated) {
+      row.rationale.add(
+        `template-import-contract: violated archetype=${templateEmission.diagnostics.archetype} importCount=${templateEmission.diagnostics.importCount}`,
       );
     }
+    const droppedExportsByBudget = templateEmission.diagnostics.droppedByTemplateBudget;
+    const droppedExportsByTemplateCap = templateEmission.diagnostics.droppedByTemplateCap;
+    const totalDroppedExports = selectedExports.dropped.length + droppedExportsByBudget + droppedExportsByTemplateCap;
+    const statementBudget = synthesisContract.statementBudget;
+    const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
+    const maxDependencyStatementLength = synthesisContract.maxDependencyStatementLength;
     const shouldUseTsNoCheck = true;
-    const moduleBody = postLiftBeautifyModuleSource({
-      moduleBody: lifted.moduleBody,
-      exportedNames: exportRows.map((item) => item.name),
-    });
+    const moduleBody = templateEmission.moduleBody;
     const headerLines = [
       "/**",
       " * Generated by reverse/deobfuscation pipeline.",
       " * Lift mode: ast-symbol-lifter.",
+      ` * Template archetype: ${templateEmission.diagnostics.archetype}`,
       ` * Source chunk: ${activeSourceFile}`,
       ` * Chunk artifact: ${chunkArtifactPath}`,
       ` * Confidence: ${row.confidence}`,
-      ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${selectedExports.dropped.length + droppedExportsByBudget}`,
+      ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${totalDroppedExports}`,
+      ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}`,
       ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
       " * Chunk bridge mode: disabled",
       " * Controlled recovery mode: disabled",
@@ -2217,6 +2259,11 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       selectedExports: exportRows.length,
       droppedExports: selectedExports.dropped.length,
       droppedExportsByBudget,
+      droppedExportsByTemplateCap,
+      hookTransportRenamed: hookTransportPass.renamed,
+      templateAddedRequiredKinds: templateEmission.diagnostics.addedRequiredKinds.length,
+      templateImportCount: templateEmission.diagnostics.importCount,
+      importContractViolated: templateEmission.diagnostics.importContractViolated,
       statementBudget: lifted.dependencyBudget,
       maxPrimaryStatementLength,
       maxDependencyStatementLength,
