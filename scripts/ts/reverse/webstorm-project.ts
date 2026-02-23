@@ -343,6 +343,16 @@ type RankedExportRow = {
   generatedSignal: number;
 };
 
+interface TargetSymbolEntry {
+  targetPath: string;
+  sourceFile: string;
+  exportName: string;
+  sourceSymbol: string;
+  kind: LiftedExportKind;
+  sourceLine: number;
+  confidence: number;
+}
+
 function getExportKindPriority(kind: LiftedExportKind): number {
   if (kind === "class") return 400;
   if (kind === "function") return 300;
@@ -463,6 +473,76 @@ function pickDeclarationStatForExport(
     }
   }
   return best;
+}
+
+function buildTargetSymbolEntriesIndex(report: DeobfuscationTableReport): Map<string, TargetSymbolEntry[]> {
+  const index = new Map<string, TargetSymbolEntry[]>();
+  for (const entry of report.entries) {
+    if (entry.kind === "file") continue;
+    const sourceFile = normalizeDeobfSourceFile(entry.sourceFile);
+    if (sourceFile.trim().length === 0) continue;
+    const targetPath = toProjectRelativeTargetPath(entry.targetProjectPath);
+    const exportName = sanitizeExportIdentifierName(entry.deobfuscated);
+    if (exportName === "symbol_export") continue;
+    if (!isSafeImportIdentifier(entry.obfuscated)) continue;
+    const kind = entry.kind;
+    const row: TargetSymbolEntry = {
+      targetPath,
+      sourceFile,
+      exportName,
+      sourceSymbol: entry.obfuscated,
+      kind,
+      sourceLine: parseSourceLineHint(entry.sourceFile),
+      confidence: entry.confidence,
+    };
+    const bucket = index.get(targetPath) ?? [];
+    bucket.push(row);
+    index.set(targetPath, bucket);
+  }
+  return index;
+}
+
+function buildRankedExportRowsFromTargetEntries(input: {
+  entries: TargetSymbolEntry[];
+  sourceFile: string;
+  declarationStatsByName: Map<string, LiftDeclarationStat[]>;
+}): RankedExportRow[] {
+  const byExportName = new Map<string, TargetSymbolEntry>();
+  for (const entry of input.entries) {
+    if (entry.sourceFile !== input.sourceFile) continue;
+    const current = byExportName.get(entry.exportName);
+    if (!current || entry.confidence > current.confidence) {
+      byExportName.set(entry.exportName, entry);
+    }
+  }
+
+  return Array.from(byExportName.values())
+    .map((entry) => {
+      const stat = pickDeclarationStatForExport(
+        input.declarationStatsByName.get(entry.sourceSymbol) ?? [],
+        entry.kind,
+        entry.sourceLine,
+      );
+      return {
+        name: entry.exportName,
+        sourceSymbol: entry.sourceSymbol,
+        kind: entry.kind,
+        sourceLine: entry.sourceLine,
+        confidence: entry.confidence,
+        declarationLength: stat?.statementLength ?? 0,
+        hasDeclaration: !!stat,
+        nameQuality: scoreExportNameQuality(entry.exportName),
+        generatedSignal: stat?.generatedSignal ?? 0,
+      };
+    })
+    .sort((a, b) => {
+      if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+      if (a.generatedSignal !== b.generatedSignal) return a.generatedSignal - b.generatedSignal;
+      if (a.nameQuality !== b.nameQuality) return b.nameQuality - a.nameQuality;
+      if (a.declarationLength !== b.declarationLength) return a.declarationLength - b.declarationLength;
+      if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+      return a.name.localeCompare(b.name);
+    });
 }
 
 function selectPrimaryExports(input: {
@@ -1160,6 +1240,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     >;
   };
   const byTargetPath = new Map<string, ReconstructedTargetRow>();
+  const targetSymbolEntriesByPath = buildTargetSymbolEntriesIndex(input.deobfuscationTable);
 
   const upsertTarget = (inputRow: {
     targetPath: string;
@@ -1292,14 +1373,15 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
   const emittedModulePaths: string[] = [];
   for (const row of sortedTargets) {
-    const ensuredArtifact = ensureChunkArtifactForSourceFile(row.sourceFile);
-    const chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
-    const sourceChunk = ensuredArtifact.sourceChunk;
-    const declarationStatsRows = inspectLiftSourceDeclarations({
-      sourceFilePath: row.sourceFile,
+    let activeSourceFile = row.sourceFile;
+    const ensuredArtifact = ensureChunkArtifactForSourceFile(activeSourceFile);
+    let chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
+    let sourceChunk = ensuredArtifact.sourceChunk;
+    let declarationStatsRows = inspectLiftSourceDeclarations({
+      sourceFilePath: activeSourceFile,
       sourceText: sourceChunk,
     });
-    const declarationStatsByName = new Map<string, LiftDeclarationStat[]>();
+    let declarationStatsByName = new Map<string, LiftDeclarationStat[]>();
     for (const stat of declarationStatsRows) {
       const bucket = declarationStatsByName.get(stat.name) ?? [];
       bucket.push(stat);
@@ -1307,7 +1389,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     }
 
     const emittedPath = normalizeTargetModulePath(row.targetPath);
-    const candidateExportRows = Array.from(row.exportsByName.entries())
+    const fallbackCandidateRows = Array.from(row.exportsByName.entries())
       .map(([name, value]) => {
         const sanitizedName = sanitizeExportIdentifierName(name);
         if (sanitizedName === "symbol_export") {
@@ -1336,6 +1418,12 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
         if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
         return a.name.localeCompare(b.name);
       });
+    const indexedCandidateRows = buildRankedExportRowsFromTargetEntries({
+      entries: targetSymbolEntriesByPath.get(row.targetPath) ?? [],
+      sourceFile: activeSourceFile,
+      declarationStatsByName,
+    });
+    const candidateExportRows = indexedCandidateRows.length > 0 ? indexedCandidateRows : fallbackCandidateRows;
     const selectedExports = selectPrimaryExports({
       rows: candidateExportRows,
       moduleConfidence: row.confidence,
