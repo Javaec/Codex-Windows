@@ -91,6 +91,20 @@ function scoreGeneratedSignal(statementText) {
         score += 0.25;
     return Math.max(0, Math.min(1, score));
 }
+function isGeneratedParserRegistryStatement(statementText) {
+    if (statementText.length < 1200)
+        return false;
+    const normalized = statementText.toLowerCase();
+    const hasGrammarSignals = normalized.includes("symbols_:") ||
+        normalized.includes("terminals_:") ||
+        normalized.includes("productions_:") ||
+        normalized.includes("performaction");
+    const hasRegistrySignals = normalized.includes("rules: [") ||
+        normalized.includes("conditions: {") ||
+        normalized.includes("parser") ||
+        normalized.includes("registry");
+    return hasGrammarSignals || (hasRegistrySignals && normalized.includes("function"));
+}
 function collectBindingIdentifiers(name, out) {
     if (ts.isIdentifier(name)) {
         out.add(name.text);
@@ -553,10 +567,16 @@ function liftModuleSource(input) {
             continue;
         }
         const primaryStatement = statements[best.statementIndex];
+        const allowParserRegistryUnpack = input.allowParserRegistryUnpack === true;
+        const parserRegistryPrimary = !!primaryStatement &&
+            primaryStatement.generatedSignal >= 0.72 &&
+            primaryStatement.text.length > 1200 &&
+            isGeneratedParserRegistryStatement(primaryStatement.text);
         if (best.kind === "variable" &&
             primaryStatement &&
             primaryStatement.generatedSignal >= 0.72 &&
-            primaryStatement.text.length > 1200) {
+            primaryStatement.text.length > 1200 &&
+            !(allowParserRegistryUnpack && parserRegistryPrimary)) {
             unresolvedExports.push(spec);
             continue;
         }
@@ -564,7 +584,8 @@ function liftModuleSource(input) {
         if (maxPrimaryStatementLength > 0 &&
             primaryStatement &&
             primaryStatement.text.length > maxPrimaryStatementLength &&
-            best.kind === "variable") {
+            best.kind === "variable" &&
+            !(allowParserRegistryUnpack && parserRegistryPrimary)) {
             unresolvedExports.push(spec);
             continue;
         }

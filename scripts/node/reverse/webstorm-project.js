@@ -309,6 +309,116 @@ function getExportKindPriority(kind) {
         return 300;
     return 100;
 }
+const GLOBAL_BUILTIN_SYMBOLS = new Set([
+    "array",
+    "asyncfunction",
+    "bigint",
+    "boolean",
+    "date",
+    "error",
+    "event",
+    "function",
+    "map",
+    "math",
+    "mutationobserver",
+    "number",
+    "object",
+    "promise",
+    "regexp",
+    "set",
+    "string",
+    "symbol",
+    "typeerror",
+    "worker",
+    "weakmap",
+    "weakset",
+]);
+function isGlobalBuiltinSymbol(value) {
+    return GLOBAL_BUILTIN_SYMBOLS.has(value.trim().toLowerCase());
+}
+function isParserRegistryChunkSource(sourceChunk) {
+    if (sourceChunk.length < 1200)
+        return false;
+    const normalized = sourceChunk.toLowerCase();
+    return (normalized.includes("symbols_:") ||
+        normalized.includes("terminals_:") ||
+        normalized.includes("productions_:") ||
+        normalized.includes("performaction") ||
+        normalized.includes("rules: [") ||
+        normalized.includes("conditions: {"));
+}
+function isParserRegistryDeclaration(stat, sourceChunk) {
+    if (stat.generatedSignal < 0.75)
+        return false;
+    if (stat.statementLength < 4200)
+        return false;
+    return isParserRegistryChunkSource(sourceChunk);
+}
+function filterOwnedExportRows(rows) {
+    const deduped = new Map();
+    for (const row of rows) {
+        if (!row.hasDeclaration)
+            continue;
+        if (isGlobalBuiltinSymbol(row.sourceSymbol))
+            continue;
+        const key = `${row.sourceSymbol}|${row.kind}`;
+        const current = deduped.get(key);
+        if (!current || computeSelectionScore(row) > computeSelectionScore(current)) {
+            deduped.set(key, row);
+        }
+    }
+    return Array.from(deduped.values()).sort((a, b) => {
+        const scoreDelta = computeSelectionScore(b) - computeSelectionScore(a);
+        if (scoreDelta !== 0)
+            return scoreDelta;
+        if (a.confidence !== b.confidence)
+            return b.confidence - a.confidence;
+        if (a.nameQuality !== b.nameQuality)
+            return b.nameQuality - a.nameQuality;
+        if (a.generatedSignal !== b.generatedSignal)
+            return a.generatedSignal - b.generatedSignal;
+        if (a.declarationLength !== b.declarationLength)
+            return a.declarationLength - b.declarationLength;
+        return a.name.localeCompare(b.name);
+    });
+}
+function groupTargetEntriesBySourceFile(entries) {
+    const grouped = new Map();
+    for (const entry of entries) {
+        const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(entry.sourceFile);
+        if (sourceFile.length === 0)
+            continue;
+        const bucket = grouped.get(sourceFile) ?? [];
+        bucket.push(entry);
+        grouped.set(sourceFile, bucket);
+    }
+    return grouped;
+}
+function rankSourceFileCandidates(entriesBySourceFile, preferredSourceFile) {
+    const preferred = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(preferredSourceFile);
+    return Array.from(entriesBySourceFile.entries())
+        .map(([sourceFile, entries]) => {
+        let maxConfidence = 0;
+        let callableCount = 0;
+        const uniqueSymbols = new Set();
+        for (const entry of entries) {
+            if (entry.confidence > maxConfidence)
+                maxConfidence = entry.confidence;
+            if (entry.kind === "class" || entry.kind === "function")
+                callableCount += 1;
+            uniqueSymbols.add(entry.sourceSymbol);
+        }
+        const preferredBoost = sourceFile === preferred ? 18 : 0;
+        const score = preferredBoost + maxConfidence * 100 + callableCount * 3 + Math.min(16, uniqueSymbols.size);
+        return { sourceFile, score };
+    })
+        .sort((a, b) => {
+        if (a.score !== b.score)
+            return b.score - a.score;
+        return a.sourceFile.localeCompare(b.sourceFile);
+    })
+        .map((row) => row.sourceFile);
+}
 function isNoisyGeneratedExportName(input) {
     if (/(renderer\d+$|main\d+$|services\d+$|tauri\d+$|var[a-z0-9_]+$|assets\d+$|src\d+$)/i.test(input)) {
         return true;
@@ -1073,37 +1183,76 @@ function buildWebStormTestProject(input) {
     const chunkArtifactBySourceFile = new Map();
     const chunkSourceBySourceFile = new Map();
     let chunkFiles = 0;
+    const readSourceChunkForSourceFile = (sourceFileInput) => {
+        const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(sourceFileInput);
+        if (sourceFile.length === 0) {
+            throw new Error("Missing source file for source chunk read.");
+        }
+        const cachedSource = chunkSourceBySourceFile.get(sourceFile);
+        if (cachedSource)
+            return cachedSource;
+        const sourcePath = path.join(input.decompiledDir, sourceFile);
+        if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+            throw new Error(`Mapped source chunk file does not exist: ${sourcePath}`);
+        }
+        const source = normalizeSourceForPrint(readUtf8(sourcePath));
+        const normalizedSource = source.endsWith("\n") ? source : `${source}\n`;
+        chunkSourceBySourceFile.set(sourceFile, normalizedSource);
+        return normalizedSource;
+    };
     const ensureChunkArtifactForSourceFile = (sourceFileInput) => {
         const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(sourceFileInput);
         if (sourceFile.length === 0) {
             throw new Error("Missing source file for reconstructed module chunk artifact.");
         }
         const cachedArtifact = chunkArtifactBySourceFile.get(sourceFile);
-        const cachedSource = chunkSourceBySourceFile.get(sourceFile);
-        if (cachedArtifact && cachedSource) {
+        const sourceChunk = readSourceChunkForSourceFile(sourceFile);
+        if (cachedArtifact) {
             return {
                 chunkArtifactPath: cachedArtifact,
-                sourceChunk: cachedSource,
+                sourceChunk,
             };
-        }
-        const sourcePath = path.join(input.decompiledDir, sourceFile);
-        if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
-            throw new Error(`Mapped source chunk file does not exist: ${sourcePath}`);
         }
         const chunkArtifactPath = toChunkArtifactPath(sourceFile);
         const destinationPath = path.join(chunkArtifactsRoot, chunkArtifactPath);
         (0, exec_1.ensureDir)(path.dirname(destinationPath));
-        const source = normalizeSourceForPrint(readUtf8(sourcePath));
-        const normalizedSource = source.endsWith("\n") ? source : `${source}\n`;
-        fs.writeFileSync(destinationPath, normalizedSource, "utf8");
+        fs.writeFileSync(destinationPath, sourceChunk, "utf8");
         const artifactPath = toPosixPath(path.posix.join("src", "chunks", chunkArtifactPath));
         chunkArtifactBySourceFile.set(sourceFile, artifactPath);
-        chunkSourceBySourceFile.set(sourceFile, normalizedSource);
         chunkFiles += 1;
         return {
             chunkArtifactPath: artifactPath,
-            sourceChunk: normalizedSource,
+            sourceChunk,
         };
+    };
+    const sourceLiftContextCache = new Map();
+    const getSourceLiftContext = (sourceFileInput) => {
+        const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(sourceFileInput);
+        if (sourceFile.length === 0) {
+            throw new Error("Missing source file for lift context.");
+        }
+        const cached = sourceLiftContextCache.get(sourceFile);
+        if (cached)
+            return cached;
+        const sourceChunk = readSourceChunkForSourceFile(sourceFile);
+        const declarationStatsRows = (0, symbol_lifter_1.inspectLiftSourceDeclarations)({
+            sourceFilePath: sourceFile,
+            sourceText: sourceChunk,
+        });
+        const declarationStatsByName = new Map();
+        for (const stat of declarationStatsRows) {
+            const bucket = declarationStatsByName.get(stat.name) ?? [];
+            bucket.push(stat);
+            declarationStatsByName.set(stat.name, bucket);
+        }
+        const context = {
+            sourceFile,
+            sourceChunk,
+            declarationStatsRows,
+            declarationStatsByName,
+        };
+        sourceLiftContextCache.set(sourceFile, context);
+        return context;
     };
     const byTargetPath = new Map();
     const targetSymbolEntriesByPath = buildTargetSymbolEntriesIndex(input.deobfuscationTable);
@@ -1190,22 +1339,12 @@ function buildWebStormTestProject(input) {
     const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
     const emittedModulePaths = [];
     for (const row of sortedTargets) {
-        let activeSourceFile = row.sourceFile;
-        const ensuredArtifact = ensureChunkArtifactForSourceFile(activeSourceFile);
-        let chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
-        let sourceChunk = ensuredArtifact.sourceChunk;
-        let declarationStatsRows = (0, symbol_lifter_1.inspectLiftSourceDeclarations)({
-            sourceFilePath: activeSourceFile,
-            sourceText: sourceChunk,
-        });
-        let declarationStatsByName = new Map();
-        for (const stat of declarationStatsRows) {
-            const bucket = declarationStatsByName.get(stat.name) ?? [];
-            bucket.push(stat);
-            declarationStatsByName.set(stat.name, bucket);
-        }
+        let activeSourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(row.sourceFile);
         const emittedPath = normalizeTargetModulePath(row.targetPath);
-        const fallbackCandidateRows = Array.from(row.exportsByName.entries())
+        const targetEntries = targetSymbolEntriesByPath.get(row.targetPath) ?? [];
+        const targetEntriesBySourceFile = groupTargetEntriesBySourceFile(targetEntries);
+        const sourceCandidateOrder = rankSourceFileCandidates(targetEntriesBySourceFile, activeSourceFile).slice(0, 10);
+        const buildFallbackCandidateRows = (declarationStatsByName) => Array.from(row.exportsByName.entries())
             .map(([name, value]) => {
             const sanitizedName = sanitizeExportIdentifierName(name);
             if (sanitizedName === "symbol_export") {
@@ -1221,7 +1360,7 @@ function buildWebStormTestProject(input) {
                 generatedSignal: stat?.generatedSignal ?? 0,
             };
         })
-            .filter((row) => !!row)
+            .filter((item) => !!item)
             .sort((a, b) => {
             if (a.confidence !== b.confidence)
                 return b.confidence - a.confidence;
@@ -1235,19 +1374,79 @@ function buildWebStormTestProject(input) {
                 return a.kind.localeCompare(b.kind);
             return a.name.localeCompare(b.name);
         });
-        const indexedCandidateRows = buildRankedExportRowsFromTargetEntries({
-            entries: targetSymbolEntriesByPath.get(row.targetPath) ?? [],
-            sourceFile: activeSourceFile,
-            declarationStatsByName,
-        });
-        const candidateExportRows = indexedCandidateRows.length > 0 ? indexedCandidateRows : fallbackCandidateRows;
+        const buildCandidateRowsForSource = (sourceFile) => {
+            const sourceContext = getSourceLiftContext(sourceFile);
+            const indexedCandidateRows = buildRankedExportRowsFromTargetEntries({
+                entries: targetEntriesBySourceFile.get(sourceFile) ?? [],
+                sourceFile,
+                declarationStatsByName: sourceContext.declarationStatsByName,
+            });
+            const ownedIndexedRows = filterOwnedExportRows(indexedCandidateRows);
+            if (ownedIndexedRows.length > 0) {
+                return ownedIndexedRows;
+            }
+            if (sourceFile !== activeSourceFile) {
+                return indexedCandidateRows;
+            }
+            const fallbackRows = buildFallbackCandidateRows(sourceContext.declarationStatsByName);
+            const ownedFallbackRows = filterOwnedExportRows(fallbackRows);
+            if (ownedFallbackRows.length > 0) {
+                return ownedFallbackRows;
+            }
+            return indexedCandidateRows.length > 0 ? indexedCandidateRows : fallbackRows;
+        };
+        let sourceSwitchUsed = false;
+        let activeSourceContext = getSourceLiftContext(activeSourceFile);
+        let candidateExportRows = buildCandidateRowsForSource(activeSourceFile);
+        const activeOwnedRows = filterOwnedExportRows(candidateExportRows);
+        if (activeOwnedRows.length === 0) {
+            let bestAlternative;
+            for (const candidateSourceFile of sourceCandidateOrder) {
+                if (candidateSourceFile === activeSourceFile)
+                    continue;
+                const candidateRows = buildCandidateRowsForSource(candidateSourceFile);
+                const ownedCandidateRows = filterOwnedExportRows(candidateRows);
+                if (ownedCandidateRows.length === 0)
+                    continue;
+                const callableCount = ownedCandidateRows.filter((item) => item.kind === "class" || item.kind === "function").length;
+                const score = ownedCandidateRows.length * 12 +
+                    callableCount * 20 +
+                    (ownedCandidateRows[0]?.confidence ?? 0) * 100 +
+                    (ownedCandidateRows[0]?.nameQuality ?? 0) * 40;
+                if (!bestAlternative || score > bestAlternative.score) {
+                    bestAlternative = {
+                        sourceFile: candidateSourceFile,
+                        rows: ownedCandidateRows,
+                        score,
+                    };
+                }
+            }
+            if (bestAlternative) {
+                sourceSwitchUsed = true;
+                const previousSourceFile = activeSourceFile;
+                activeSourceFile = bestAlternative.sourceFile;
+                activeSourceContext = getSourceLiftContext(activeSourceFile);
+                candidateExportRows = bestAlternative.rows;
+                row.rationale.add(`source-switch: ${previousSourceFile} -> ${activeSourceFile}`);
+            }
+        }
+        const ensuredArtifact = ensureChunkArtifactForSourceFile(activeSourceFile);
+        let chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
+        let sourceChunk = ensuredArtifact.sourceChunk;
+        let declarationStatsRows = activeSourceContext.declarationStatsRows;
+        let declarationStatsByName = activeSourceContext.declarationStatsByName;
+        if (candidateExportRows.length === 0) {
+            const fallbackRows = buildFallbackCandidateRows(declarationStatsByName);
+            const ownedFallbackRows = filterOwnedExportRows(fallbackRows);
+            candidateExportRows = ownedFallbackRows.length > 0 ? ownedFallbackRows : fallbackRows;
+        }
         const selectedExports = selectPrimaryExports({
             rows: candidateExportRows,
             moduleConfidence: row.confidence,
         });
         const initialExportRows = selectedExports.selected;
         const statementBudget = determineAdaptiveStatementBudget({
-            sourceFile: row.sourceFile,
+            sourceFile: activeSourceFile,
             candidateExports: candidateExportRows.length,
             selectedExports: initialExportRows.length,
         });
@@ -1262,10 +1461,10 @@ function buildWebStormTestProject(input) {
         let exportRows = initialExportRows;
         let droppedExportsByBudget = 0;
         const allowClosestFallback = candidateExportRows.length <= 180 &&
-            !/\/(?:index-|chunk-)/i.test(row.sourceFile.toLowerCase()) &&
-            !row.sourceFile.toLowerCase().includes(".vite/build/worker");
-        const liftWithBudget = (rows, primaryStatementLengthLimit) => (0, symbol_lifter_1.liftModuleSource)({
-            sourceFilePath: row.sourceFile,
+            !/\/(?:index-|chunk-)/i.test(activeSourceFile.toLowerCase()) &&
+            !activeSourceFile.toLowerCase().includes(".vite/build/worker");
+        const liftWithBudget = (rows, primaryStatementLengthLimit, allowParserRegistryUnpack = false) => (0, symbol_lifter_1.liftModuleSource)({
+            sourceFilePath: activeSourceFile,
             sourceText: sourceChunk,
             exports: rows.map((item) => ({
                 exportName: item.name,
@@ -1277,6 +1476,7 @@ function buildWebStormTestProject(input) {
             maxDependencyStatementLength,
             maxPrimaryStatementLength: primaryStatementLengthLimit,
             allowClosestFallback,
+            allowParserRegistryUnpack,
         });
         let lifted = liftWithBudget(exportRows, maxPrimaryStatementLength);
         if (lifted.liftedExports.length === 0 && exportRows.length > 0) {
@@ -1291,6 +1491,21 @@ function buildWebStormTestProject(input) {
             lifted = liftWithBudget(exportRows, maxPrimaryStatementLength);
             if (lifted.liftedExports.length === 0 && exportRows.length > 0) {
                 lifted = liftWithBudget(exportRows, 0);
+            }
+        }
+        let parserRegistryUnpackUsed = false;
+        const parserRegistryEligible = lifted.liftedExports.length === 0 &&
+            exportRows.length > 0 &&
+            exportRows.some((item) => {
+                const stat = pickDeclarationStatForExport(declarationStatsByName.get(item.sourceSymbol) ?? [], item.kind, item.sourceLine);
+                return !!stat && isParserRegistryDeclaration(stat, sourceChunk);
+            });
+        if (parserRegistryEligible) {
+            const unpackedLift = liftWithBudget(exportRows, 0, true);
+            if (unpackedLift.liftedExports.length > lifted.liftedExports.length) {
+                parserRegistryUnpackUsed = true;
+                lifted = unpackedLift;
+                row.rationale.add("parser-registry-unpack: enabled");
             }
         }
         let targetedRecoveredExports = 0;
@@ -1339,14 +1554,14 @@ function buildWebStormTestProject(input) {
         const moduleBody = useChunkBridgeMode
             ? buildChunkBridgeModuleBody({
                 exports: exportRows,
-                sourceFile: row.sourceFile,
+                sourceFile: activeSourceFile,
                 emittedPath,
                 chunkArtifactPath,
             })
             : usePlaceholderMode
                 ? buildPlaceholderModuleBody({
                     exports: exportRows,
-                    sourceFile: row.sourceFile,
+                    sourceFile: activeSourceFile,
                 })
                 : lifted.moduleBody;
         if (useChunkBridgeMode) {
@@ -1356,10 +1571,11 @@ function buildWebStormTestProject(input) {
             "/**",
             " * Generated by reverse/deobfuscation pipeline.",
             " * Lift mode: ast-symbol-lifter.",
-            ` * Source chunk: ${row.sourceFile}`,
+            ` * Source chunk: ${activeSourceFile}`,
             ` * Chunk artifact: ${chunkArtifactPath}`,
             ` * Confidence: ${row.confidence}`,
             ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${selectedExports.dropped.length + droppedExportsByBudget}`,
+            ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
             ` * Chunk bridge mode: ${useChunkBridgeMode ? "enabled" : "disabled"}`,
             ` * Placeholder mode: ${usePlaceholderMode ? "enabled" : "disabled"}`,
             " */",
@@ -1375,7 +1591,7 @@ function buildWebStormTestProject(input) {
         reconstructedMapRows.push({
             targetPath: row.targetPath,
             emittedPath,
-            sourceFile: row.sourceFile,
+            sourceFile: activeSourceFile,
             chunkArtifactPath,
             confidence: row.confidence,
             symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
@@ -1388,7 +1604,7 @@ function buildWebStormTestProject(input) {
         });
         lifterDiagnosticsRows.push({
             emittedPath,
-            sourceFile: row.sourceFile,
+            sourceFile: activeSourceFile,
             sourceChunkArtifactPath: chunkArtifactPath,
             candidateExports: candidateExportRows.length,
             selectedExports: exportRows.length,
@@ -1414,6 +1630,8 @@ function buildWebStormTestProject(input) {
             chunkBridgeMode: useChunkBridgeMode,
             targetedRecoveredExports,
             recoveryModeUsed: targetedRecoveredExports > 0,
+            parserRegistryUnpackUsed,
+            sourceSwitchUsed,
         });
     }
     const generatedBarrelIndexes = buildLayerBarrelIndexes(projectRoot, emittedModulePaths);

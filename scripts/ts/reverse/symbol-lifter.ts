@@ -17,6 +17,7 @@ export interface LiftedModuleSourceInput {
   maxDependencyStatementLength: number;
   maxPrimaryStatementLength: number;
   allowClosestFallback?: boolean;
+  allowParserRegistryUnpack?: boolean;
 }
 
 export interface LiftedModuleSourceResult {
@@ -118,6 +119,22 @@ function scoreGeneratedSignal(statementText: string): number {
   if (statementText.length > 4500) score += 0.35;
   if (statementText.length > 8000) score += 0.25;
   return Math.max(0, Math.min(1, score));
+}
+
+function isGeneratedParserRegistryStatement(statementText: string): boolean {
+  if (statementText.length < 1200) return false;
+  const normalized = statementText.toLowerCase();
+  const hasGrammarSignals =
+    normalized.includes("symbols_:") ||
+    normalized.includes("terminals_:") ||
+    normalized.includes("productions_:") ||
+    normalized.includes("performaction");
+  const hasRegistrySignals =
+    normalized.includes("rules: [") ||
+    normalized.includes("conditions: {") ||
+    normalized.includes("parser") ||
+    normalized.includes("registry");
+  return hasGrammarSignals || (hasRegistrySignals && normalized.includes("function"));
 }
 
 function collectBindingIdentifiers(name: ts.BindingName, out: Set<string>): void {
@@ -619,11 +636,18 @@ export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSo
       continue;
     }
     const primaryStatement = statements[best.statementIndex];
+    const allowParserRegistryUnpack = input.allowParserRegistryUnpack === true;
+    const parserRegistryPrimary =
+      !!primaryStatement &&
+      primaryStatement.generatedSignal >= 0.72 &&
+      primaryStatement.text.length > 1200 &&
+      isGeneratedParserRegistryStatement(primaryStatement.text);
     if (
       best.kind === "variable" &&
       primaryStatement &&
       primaryStatement.generatedSignal >= 0.72 &&
-      primaryStatement.text.length > 1200
+      primaryStatement.text.length > 1200 &&
+      !(allowParserRegistryUnpack && parserRegistryPrimary)
     ) {
       unresolvedExports.push(spec);
       continue;
@@ -633,7 +657,8 @@ export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSo
       maxPrimaryStatementLength > 0 &&
       primaryStatement &&
       primaryStatement.text.length > maxPrimaryStatementLength &&
-      best.kind === "variable"
+      best.kind === "variable" &&
+      !(allowParserRegistryUnpack && parserRegistryPrimary)
     ) {
       unresolvedExports.push(spec);
       continue;
