@@ -17,6 +17,7 @@ import { resolveSemanticOwnership } from "./ownership-resolver";
 import { buildModuleSynthesisContract, type ModuleArchetype } from "./module-templates";
 import { applyArchetypeAndCluster } from "./declaration-clustering";
 import { emitArchetypeModule } from "./archetype-emitter";
+import { renderChunkTsWrapperSource, rewriteChunkImportsToTsBridge, type ChunkTsBridgeRow } from "./chunk-ts-bridge";
 
 export interface WebStormTestProjectReport {
   rootPath: string;
@@ -116,70 +117,6 @@ function toModuleSpecifier(fromDirectory: string, targetFilePath: string): strin
   const relative = path.posix.relative(from, target);
   const normalized = relative.startsWith(".") ? relative : `./${relative}`;
   return normalized;
-}
-
-function toRelativePathSpecifier(fromDirectory: string, targetFilePath: string): string {
-  const from = toPosixPath(fromDirectory).replace(/^\.?\//, "");
-  const target = toPosixPath(targetFilePath).replace(/^\.?\//, "");
-  const relative = path.posix.relative(from, target);
-  return relative.startsWith(".") ? relative : `./${relative}`;
-}
-
-function resolveChunkArtifactImportSpecifier(input: {
-  specifier: string;
-  sourceFile: string;
-  emittedPath: string;
-}): string | undefined {
-  if (!/^(?:\.{1,2})\//.test(input.specifier)) return undefined;
-  if (!/\.(?:mjs|cjs|js)$/i.test(input.specifier)) return undefined;
-  const sourceDir = path.posix.dirname(toPosixPath(input.sourceFile).replace(/^\.?\//, ""));
-  const resolvedSource = path.posix.normalize(path.posix.join(sourceDir, input.specifier));
-  if (resolvedSource.startsWith("../")) return undefined;
-  const chunkArtifact = toPosixPath(path.posix.join("src", "chunks", toChunkArtifactPath(resolvedSource)));
-  const emittedDirectory = path.posix.dirname(toPosixPath(input.emittedPath).replace(/^\.?\//, ""));
-  return toRelativePathSpecifier(emittedDirectory, chunkArtifact);
-}
-
-function rewriteChunkLocalImportSpecifiers(input: {
-  moduleBody: string;
-  sourceFile: string;
-  emittedPath: string;
-}): { moduleBody: string; rewrites: number } {
-  let rewrites = 0;
-  const rewriteSpecifier = (raw: string): string => {
-    const next = resolveChunkArtifactImportSpecifier({
-      specifier: raw,
-      sourceFile: input.sourceFile,
-      emittedPath: input.emittedPath,
-    });
-    if (!next || next === raw) return raw;
-    rewrites += 1;
-    return next;
-  };
-
-  const rewriteLine = (line: string): string => {
-    let nextLine = line;
-    nextLine = nextLine.replace(/from\s+(['"])([^'"]+)\1/g, (_match, quote: string, specifier: string) => {
-      const rewritten = rewriteSpecifier(specifier);
-      return `from ${quote}${rewritten}${quote}`;
-    });
-    nextLine = nextLine.replace(/\bimport\s+(['"])([^'"]+)\1/g, (_match, quote: string, specifier: string) => {
-      const rewritten = rewriteSpecifier(specifier);
-      return `import ${quote}${rewritten}${quote}`;
-    });
-    nextLine = nextLine.replace(/\brequire\(\s*(['"])([^'"]+)\1\s*\)/g, (_match, quote: string, specifier: string) => {
-      const rewritten = rewriteSpecifier(specifier);
-      return `require(${quote}${rewritten}${quote})`;
-    });
-    return nextLine;
-  };
-
-  const lines = input.moduleBody.split("\n");
-  const rewrittenLines = lines.map((line) => rewriteLine(line));
-  return {
-    moduleBody: rewrittenLines.join("\n"),
-    rewrites,
-  };
 }
 
 function collectBarrelRootsForDirectory(inputDir: string): string[] {
@@ -1942,6 +1879,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
 
   const chunkArtifactBySourceFile = new Map<string, string>();
   const chunkSourceBySourceFile = new Map<string, string>();
+  const chunkTsBridgeByWrapperPath = new Map<string, ChunkTsBridgeRow>();
   let chunkFiles = 0;
   const readSourceChunkForSourceFile = (sourceFileInput: string): string => {
     const sourceFile = normalizeDeobfSourceFile(sourceFileInput);
@@ -2365,11 +2303,29 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
     const maxDependencyStatementLength = synthesisContract.maxDependencyStatementLength;
     const shouldUseTsNoCheck = true;
-    const rewrittenImports = rewriteChunkLocalImportSpecifiers({
+    const rewrittenImports = rewriteChunkImportsToTsBridge({
       moduleBody: templateEmission.moduleBody,
       sourceFile: activeSourceFile,
       emittedPath,
     });
+    for (const bridge of rewrittenImports.bridges) {
+      const ensuredBridgeArtifact = ensureChunkArtifactForSourceFile(bridge.sourceFile);
+      if (toPosixPath(ensuredBridgeArtifact.chunkArtifactPath) !== toPosixPath(bridge.chunkArtifactPath)) {
+        throw new Error(
+          `Chunk TS bridge artifact mismatch for ${bridge.sourceFile}: ${ensuredBridgeArtifact.chunkArtifactPath} vs ${bridge.chunkArtifactPath}`,
+        );
+      }
+      const currentBridge = chunkTsBridgeByWrapperPath.get(bridge.chunkTsWrapperPath);
+      if (!currentBridge) {
+        chunkTsBridgeByWrapperPath.set(bridge.chunkTsWrapperPath, bridge);
+        continue;
+      }
+      if (currentBridge.chunkArtifactPath !== bridge.chunkArtifactPath) {
+        throw new Error(
+          `Chunk TS bridge collision for ${bridge.chunkTsWrapperPath}: ${currentBridge.chunkArtifactPath} vs ${bridge.chunkArtifactPath}`,
+        );
+      }
+    }
     const moduleBody = rewrittenImports.moduleBody;
     if (rewrittenImports.rewrites > 0) {
       row.rationale.add(`chunk-import-rewrite: ${rewrittenImports.rewrites}`);
@@ -2462,10 +2418,20 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const chunkArtifactRows = Array.from(chunkArtifactBySourceFile.entries())
     .map(([sourceFile, artifactPath]) => ({ sourceFile, artifactPath }))
     .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
+  const chunkTsBridgeRows = Array.from(chunkTsBridgeByWrapperPath.values()).sort((a, b) =>
+    a.chunkTsWrapperPath.localeCompare(b.chunkTsWrapperPath),
+  );
+  for (const row of chunkTsBridgeRows) {
+    const destinationPath = path.join(projectRoot, ...toPosixPath(row.chunkTsWrapperPath).split("/"));
+    ensureDir(path.dirname(destinationPath));
+    fs.writeFileSync(destinationPath, renderChunkTsWrapperSource(row), "utf8");
+  }
 
   const mappingArtifacts = [
     "mapping/chunk-artifacts.json",
+    "mapping/chunk-ts-bridges.json",
     "src/chunks/",
+    "src/chunks-ts/",
     "mapping/deobfuscation-table.json",
     "mapping/deobfuscation-table.md",
     "mapping/deobfuscation-table.csv",
@@ -2487,6 +2453,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   ];
 
   writeJson(path.join(mappingRoot, "chunk-artifacts.json"), chunkArtifactRows);
+  writeJson(path.join(mappingRoot, "chunk-ts-bridges.json"), chunkTsBridgeRows);
   writeJson(path.join(mappingRoot, "deobfuscation-table.json"), input.deobfuscationTable);
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.md"), input.deobfuscationMarkdown, "utf8");
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.csv"), input.deobfuscationCsv, "utf8");
@@ -2605,6 +2572,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     "- `src/**/index.ts` layer barrel files for fast navigation and clean entry points.",
     "- `src-tauri-adapter/` bridge modules for tauri/daemon-related targets.",
     "- `src/chunks/` one raw source artifact per mapped chunk (`.js`) for traceability.",
+    "- `src/chunks-ts/` TS bridge modules that expose chunk artifacts without direct `.js` imports in feature layers.",
     "- `mapping/` generated maps and flow reports.",
     "- `meta/` source package metadata and generation info.",
     "",

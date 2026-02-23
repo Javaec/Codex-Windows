@@ -71,10 +71,14 @@ function normalizeAppHistoryKey(appDir) {
 }
 function loadProjectMappingRows(projectRoot) {
     const chunkArtifactsPath = path.join(projectRoot, "mapping", "chunk-artifacts.json");
+    const chunkTsBridgesPath = path.join(projectRoot, "mapping", "chunk-ts-bridges.json");
     const reconstructedMapPath = path.join(projectRoot, "mapping", "reconstructed-map.json");
     const lifterDiagnosticsPath = path.join(projectRoot, "mapping", "lifter-diagnostics.json");
     if (!fs.existsSync(chunkArtifactsPath)) {
         throw new Error(`Missing chunk artifact map: ${toPosixPath(chunkArtifactsPath)}`);
+    }
+    if (!fs.existsSync(chunkTsBridgesPath)) {
+        throw new Error(`Missing chunk TS bridge map: ${toPosixPath(chunkTsBridgesPath)}`);
     }
     if (!fs.existsSync(reconstructedMapPath)) {
         throw new Error(`Missing reconstructed map: ${toPosixPath(reconstructedMapPath)}`);
@@ -84,6 +88,7 @@ function loadProjectMappingRows(projectRoot) {
     }
     return {
         chunkArtifacts: readJson(chunkArtifactsPath),
+        chunkTsBridges: readJson(chunkTsBridgesPath),
         reconstructed: readJson(reconstructedMapPath),
         lifterDiagnostics: readJson(lifterDiagnosticsPath),
     };
@@ -123,7 +128,7 @@ function countNoisySymbolNames(report) {
         return false;
     }).length;
 }
-function validateChunkArtifacts(projectRoot, chunkArtifacts, reconstructed) {
+function validateChunkArtifacts(projectRoot, chunkArtifacts, chunkTsBridges, reconstructed) {
     const failures = [];
     const genericNoisePaths = [];
     const sourceSet = new Set();
@@ -141,6 +146,28 @@ function validateChunkArtifacts(projectRoot, chunkArtifacts, reconstructed) {
     const artifactBySource = new Map();
     for (const row of chunkArtifacts)
         artifactBySource.set(row.sourceFile, row.artifactPath);
+    const artifactPathSet = new Set(chunkArtifacts.map((row) => toPosixPath(row.artifactPath)));
+    const bridgeWrapperSet = new Set();
+    for (const bridge of chunkTsBridges) {
+        const wrapperPath = toPosixPath(bridge.chunkTsWrapperPath);
+        if (bridgeWrapperSet.has(wrapperPath)) {
+            failures.push(`chunk-ts-bridges contains duplicate wrapper path: ${wrapperPath}`);
+            continue;
+        }
+        bridgeWrapperSet.add(wrapperPath);
+        if (!artifactPathSet.has(toPosixPath(bridge.chunkArtifactPath))) {
+            failures.push(`chunk-ts-bridge references unknown chunk artifact: ${bridge.chunkArtifactPath}`);
+        }
+        const wrapperAbsPath = path.join(projectRoot, ...wrapperPath.split("/"));
+        if (!fs.existsSync(wrapperAbsPath) || !fs.statSync(wrapperAbsPath).isFile()) {
+            failures.push(`missing chunk-ts wrapper file: ${toPosixPath(wrapperAbsPath)}`);
+            continue;
+        }
+        const wrapperSource = readUtf8(wrapperAbsPath);
+        if (!/\bexport\s+\*\s+from\s+["'][^"']+["']/.test(wrapperSource)) {
+            failures.push(`chunk-ts wrapper missing re-export: ${wrapperPath}`);
+        }
+    }
     for (const row of reconstructed) {
         if (!hasAllowedTargetPrefix(row.emittedPath)) {
             failures.push(`reconstructed target outside TS-first layers: ${row.emittedPath}`);
@@ -161,6 +188,12 @@ function validateChunkArtifacts(projectRoot, chunkArtifacts, reconstructed) {
             continue;
         }
         const source = readUtf8(emittedAbsPath);
+        if (/\bfrom\s+["'][^"']+\.js["']/.test(source) || /\brequire\(\s*["'][^"']+\.js["']\s*\)/.test(source)) {
+            failures.push(`reconstructed module still has direct .js import: ${row.emittedPath}`);
+        }
+        if (/\bfrom\s+["'][^"']*\/chunks\/[^"']*["']/.test(source) || /\brequire\(\s*["'][^"']*\/chunks\/[^"']*["']\s*\)/.test(source)) {
+            failures.push(`reconstructed module still imports raw chunk artifacts directly: ${row.emittedPath}`);
+        }
         if (source.includes("import * as chunkModule from")) {
             failures.push(`reconstructed module still uses wrapper chunk import: ${row.emittedPath}`);
         }
@@ -221,7 +254,7 @@ function enforceQualityGates(input) {
     if (placeholderModules > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax) {
         failures.push(`placeholder modules above gate ceiling: ${placeholderModules} (expected <= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax})`);
     }
-    const artifactValidation = validateChunkArtifacts(input.projectRoot, mappingRows.chunkArtifacts, mappingRows.reconstructed);
+    const artifactValidation = validateChunkArtifacts(input.projectRoot, mappingRows.chunkArtifacts, mappingRows.chunkTsBridges, mappingRows.reconstructed);
     failures.push(...artifactValidation.failures);
     if (artifactValidation.genericNoisePaths.length > 0) {
         failures.push(`generic-path noise detected in reconstructed outputs: ${artifactValidation.genericNoisePaths.join(", ")}`);
