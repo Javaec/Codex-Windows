@@ -1377,7 +1377,8 @@ function collapseBestSymbolEntries(entries: DeobfuscationTableEntry[]): Deobfusc
   const bestByKey = new Map<string, DeobfuscationTableEntry>();
   for (const entry of entries) {
     if (entry.kind === "file") continue;
-    const key = `${entry.kind}|${getEntrySourceFile(entry.sourceFile)}|${entry.obfuscated}`;
+    const sourceKey = entry.kind === "variable" ? entry.sourceFile : getEntrySourceFile(entry.sourceFile);
+    const key = `${entry.kind}|${sourceKey}|${entry.obfuscated}`;
     const current = bestByKey.get(key);
     if (!current) {
       bestByKey.set(key, entry);
@@ -3229,7 +3230,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
         relPath,
         source,
         mode: "broad",
-      }).slice(0, 18);
+      }).slice(0, 24);
       obfuscatedVariableCandidates += variableCandidates.length;
       if (variableCandidates.length === 0) continue;
 
@@ -3249,8 +3250,6 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
           }
         }
         if (!best) continue;
-        if (best.score < 0.9) continue;
-        if (best.hits.length < 1 && signalStrength < 6) continue;
 
         variableRows.push({
           candidate,
@@ -3271,10 +3270,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       return a.candidate.name.localeCompare(b.candidate.name);
     });
 
-    const targetMappedVariables = Math.min(
-      obfuscatedVariableCandidates,
-      Math.max(80, Math.floor(obfuscatedVariableCandidates * 0.74)),
-    );
+    const targetMappedVariables = obfuscatedVariableCandidates;
     const mappedVariableKeys = new Set<string>();
     const usedDeobfNames = new Set(entries.filter((entry) => entry.kind !== "file").map((entry) => entry.deobfuscated));
     const perFileVariableCount = new Map<string, number>();
@@ -3284,22 +3280,23 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       if (mappedVariablesCounter >= targetMappedVariables) break;
       const sourceFile = row.candidate.sourceFile;
       const sourceCounter = perFileVariableCount.get(sourceFile) ?? 0;
-      if (sourceCounter >= 52) continue;
+      if (sourceCounter >= 120) continue;
 
-      const variableKey = `variable|${sourceFile}|${row.candidate.name}`;
+      const variableKey = `variable|${sourceFile}|${row.candidate.name}|${row.candidate.line}`;
       if (mappedVariableKeys.has(variableKey)) continue;
 
-      let deobfuscated = buildVariableName({
+      const baseDeobfuscated = buildVariableName({
         candidate: row.candidate,
         signal: row.signal,
         referenceFile: row.profile.file,
         referenceHits: row.hits,
       });
+      let deobfuscated = baseDeobfuscated;
       let suffixIndex = 2;
       while (usedDeobfNames.has(deobfuscated) && suffixIndex < 1000) {
         const layer = inferReferenceLayer(row.profile.file);
         const suffix = toPascalCaseIdentifier(layer === "unknown" ? "domain" : layer);
-        deobfuscated = `${deobfuscated}${suffix}${suffixIndex}`;
+        deobfuscated = `${baseDeobfuscated}${suffix}${suffixIndex}`;
         suffixIndex += 1;
       }
 
