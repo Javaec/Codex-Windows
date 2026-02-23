@@ -2,7 +2,7 @@
 
 ## Snapshot
 - Date (UTC): 2026-02-23
-- Latest validated run: `C:\Codex-Windows\work\reverse\latest` (`run-20260223-115657Z`)
+- Latest validated run: `C:\Codex-Windows\work\reverse\latest` (`run-20260223-123314Z`)
 - Latest fixed regression suite root: `C:\Codex-Windows\work\reverse\regression-latest`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
@@ -95,7 +95,7 @@
     - `eslint` (`errors=0`, `warnings=0`)
   - artifact integrity checks pass.
 
-## Latest Metrics (`run-20260223-115657Z`)
+## Latest Metrics (`run-20260223-123314Z`)
 
 ### Gate Metrics
 - `passed = true`
@@ -115,7 +115,7 @@
 - `rows = 41`
 - `chunkBridgeMode = 0`
 - `placeholderMode = 0`
-- `sourceSwitchUsed = 19`
+- `sourceSwitchUsed = 23`
 - `recoveryModeUsed = 1`
 - `parserRegistryUnpackUsed = 0`
 
@@ -159,6 +159,7 @@
 - Recent validated improvements:
   - removed noisy reconstructed names (`eventGetObjectReadyUse*`, `eventsMathMaxUse`, `expRegRegexpUse`)
   - preserved canonical hook-style exports in target modules (`useAppServerEvents`)
+  - hook/transport quality-pass: replaced weak export names with readable domain names (for example `appServerEventsState`, `AcpChatTransport`, `IpcChatTransportRuntime`)
 
 ## Recent Commits
 - `6a2ff55` `✨ Strengthen symbol-target indexing and recovery heuristics`

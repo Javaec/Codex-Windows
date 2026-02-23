@@ -480,6 +480,9 @@ const MODULE_CONTEXT_STOPWORDS = new Set([
     "shared",
     "core",
 ]);
+const LOW_SIGNAL_BUILTIN_NAME_TOKENS = new Set(["math", "regexp", "array", "string", "number", "error"]);
+const UTILITY_WRAPPER_NAME_PATTERN = /(hasownproperty|getprototypeof|defineproperty|prototype|getownpropertynames)/;
+const HOOK_SIGNAL_NAME_PATTERN = /(inline|stream|signal|subject|getownpropertynames)/;
 function collectModuleContextTokens(emittedPath) {
     const normalized = toPosixPath(emittedPath).replace(/^\.?\//, "").replace(/\.[^.]+$/i, "");
     const parts = normalized.split("/");
@@ -553,11 +556,11 @@ function scoreContextualExportNameQuality(name, emittedPath) {
     if (moduleTokens.length > 0 && alignmentScore < 0.2) {
         score -= 0.12;
     }
-    const hasLowSignalGenericTokens = tokens.some((token) => token === "math" || token === "regexp" || token === "array" || token === "string" || token === "number" || token === "error");
+    const hasLowSignalGenericTokens = tokens.some((token) => LOW_SIGNAL_BUILTIN_NAME_TOKENS.has(token));
     if (hasLowSignalGenericTokens && alignmentScore < 0.5) {
         score -= 0.14;
     }
-    const hasUtilityPrototypeTokens = tokens.some((token) => token === "hasownproperty" || token === "prototype" || token === "getprototypeof" || token === "defineproperty");
+    const hasUtilityPrototypeTokens = tokens.some((token) => UTILITY_WRAPPER_NAME_PATTERN.test(token));
     if (hasUtilityPrototypeTokens && moduleTokens.length > 0 && alignmentScore < 0.65) {
         score -= 0.28;
     }
@@ -591,8 +594,128 @@ function applyModuleAlignmentSignals(rows, emittedPath) {
         return a.name.localeCompare(b.name);
     });
 }
+const TRANSPORT_PROFILE_DROPPED_TOKENS = new Set(["agent", "agents"]);
+function buildModuleRenameProfile(input) {
+    const normalizedPath = toPosixPath(input.emittedPath).toLowerCase();
+    const baseTokens = splitIdentifierTokens(input.moduleBaseName)
+        .map((token) => token.toLowerCase())
+        .filter((token) => token.length > 0 && !isNoisyIdentifierToken(token));
+    const contextTokens = (input.moduleTokens.length > 0 ? input.moduleTokens : baseTokens).filter((token) => token.length > 0);
+    const looksLikeHook = normalizedPath.includes("/hooks/") || /^use[A-Z]/.test(input.moduleBaseName);
+    const looksLikeTransport = normalizedPath.includes("transport") || contextTokens.includes("transport") || baseTokens.includes("transport");
+    const kind = looksLikeHook ? "hook" : looksLikeTransport ? "transport" : "generic";
+    let subjectTokens = contextTokens.length > 0 ? [...contextTokens] : [...baseTokens];
+    if (kind === "hook" && subjectTokens.length > 1) {
+        subjectTokens = subjectTokens.filter((token) => token !== "use");
+    }
+    if (kind === "transport") {
+        subjectTokens = subjectTokens.filter((token) => !TRANSPORT_PROFILE_DROPPED_TOKENS.has(token));
+    }
+    if (kind === "transport" && !subjectTokens.includes("transport")) {
+        subjectTokens.push("transport");
+    }
+    if (subjectTokens.length === 0) {
+        subjectTokens = ["module", "runtime"];
+    }
+    const subjectCamel = sanitizeExportIdentifierName(buildIdentifierFromTokens(subjectTokens, false) || "moduleRuntime");
+    const subjectPascal = sanitizeExportIdentifierName(buildIdentifierFromTokens(subjectTokens, true) || "ModuleRuntime");
+    return {
+        kind,
+        moduleBaseName: input.moduleBaseName,
+        moduleTokens: contextTokens,
+        subjectTokens,
+        subjectCamel,
+        subjectPascal,
+    };
+}
+function hasProfileSubjectToken(name, profile) {
+    if (profile.kind === "generic")
+        return false;
+    const nameTokens = splitIdentifierTokens(name).map((token) => token.toLowerCase());
+    const subjectTokenSet = new Set(profile.subjectTokens.filter((token) => token.length >= 3));
+    if (subjectTokenSet.size === 0)
+        return false;
+    return nameTokens.some((token) => subjectTokenSet.has(token));
+}
+function getProfileCanonicalName(profile, kind) {
+    if (profile.kind === "hook") {
+        if (kind === "function") {
+            if (/^use[A-Z]/.test(profile.moduleBaseName))
+                return profile.moduleBaseName;
+            return sanitizeExportIdentifierName(`use${profile.subjectPascal}`);
+        }
+        if (kind === "class") {
+            return sanitizeExportIdentifierName(`${profile.subjectPascal}Runtime`);
+        }
+        return sanitizeExportIdentifierName(`${profile.subjectCamel}State`);
+    }
+    if (profile.kind === "transport") {
+        const transportCamel = profile.subjectCamel.endsWith("Transport") ? profile.subjectCamel : `${profile.subjectCamel}Transport`;
+        const transportPascal = profile.subjectPascal.endsWith("Transport") ? profile.subjectPascal : `${profile.subjectPascal}Transport`;
+        if (kind === "function")
+            return sanitizeExportIdentifierName(transportCamel);
+        if (kind === "class")
+            return sanitizeExportIdentifierName(`${transportPascal}Runtime`);
+        return sanitizeExportIdentifierName(`${transportCamel}Runtime`);
+    }
+    if (kind === "class") {
+        return sanitizeExportIdentifierName(buildIdentifierFromTokens(splitIdentifierTokens(profile.moduleBaseName), true));
+    }
+    return profile.moduleBaseName;
+}
+function buildProfiledSecondaryName(input) {
+    const { row, profile } = input;
+    const normalized = row.name.toLowerCase();
+    if (profile.kind === "hook") {
+        if (row.kind === "function") {
+            return getProfileCanonicalName(profile, "function");
+        }
+        if (UTILITY_WRAPPER_NAME_PATTERN.test(normalized)) {
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}OwnProperty`);
+        }
+        if (/(inline|signal|observable|subject|stream|event|events)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}Signal`);
+        }
+        if (/(connect|connection|live)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}Connection`);
+        }
+        if (/(map|registry|cache)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}Registry`);
+        }
+        if (/(value|state|current|ref)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}State`);
+        }
+        if (row.kind === "class") {
+            return sanitizeExportIdentifierName(`${profile.subjectPascal}Runtime`);
+        }
+        return sanitizeExportIdentifierName(`${profile.subjectCamel}Runtime`);
+    }
+    if (profile.kind === "transport") {
+        const transportCamel = profile.subjectCamel.endsWith("Transport") ? profile.subjectCamel : `${profile.subjectCamel}Transport`;
+        const transportPascal = profile.subjectPascal.endsWith("Transport") ? profile.subjectPascal : `${profile.subjectPascal}Transport`;
+        const transportStemCamel = transportCamel.replace(/Transport$/, "");
+        if (row.kind === "function")
+            return sanitizeExportIdentifierName(transportCamel);
+        if (row.kind === "class")
+            return sanitizeExportIdentifierName(transportPascal);
+        if (/(buffer|delta|queue)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${transportStemCamel}Buffers`);
+        }
+        if (/(flush|timeout|interval|scheduler|batch)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${transportStemCamel}Scheduler`);
+        }
+        if (/(online|offline|listener|connection|network)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${transportStemCamel}ConnectionState`);
+        }
+        if (/(map|registry|cache)/.test(normalized)) {
+            return sanitizeExportIdentifierName(`${transportStemCamel}Registry`);
+        }
+        return sanitizeExportIdentifierName(`${transportStemCamel}Runtime`);
+    }
+    return undefined;
+}
 function isContextualRenameCandidate(input) {
-    const { row, emittedPath, moduleTokens } = input;
+    const { row, emittedPath, moduleTokens, profile } = input;
     const normalized = row.name.toLowerCase();
     if (normalized.includes("getobjectready"))
         return true;
@@ -600,8 +723,20 @@ function isContextualRenameCandidate(input) {
         return true;
     if (/(?:renderer|assets|services|main|tauri)\d+$/.test(normalized))
         return true;
-    if (/(hasownproperty|getprototypeof|defineproperty|prototype)/.test(normalized))
+    if (UTILITY_WRAPPER_NAME_PATTERN.test(normalized))
         return true;
+    if (profile.kind === "hook" && row.kind === "function" && !/^use[A-Z]/.test(row.name))
+        return true;
+    if (profile.kind === "transport" && row.kind === "function" && !normalized.includes("transport"))
+        return true;
+    if (profile.kind === "transport" && row.kind === "class" && !/Transport(?:Runtime)?$/.test(row.name))
+        return true;
+    if (profile.kind === "hook" && row.kind === "variable" && HOOK_SIGNAL_NAME_PATTERN.test(normalized)) {
+        return true;
+    }
+    if ((profile.kind === "hook" || profile.kind === "transport") && row.kind !== "function" && !hasProfileSubjectToken(row.name, profile)) {
+        return true;
+    }
     if (row.kind === "variable" && /Use$/.test(row.name) && !/^use[A-Z]/.test(row.name))
         return true;
     const alignmentScore = scoreModulePathAlignment(row.name, emittedPath);
@@ -644,40 +779,52 @@ function applyTargetedExportRenames(rows, emittedPath) {
     const moduleStemRaw = path.posix.basename(toPosixPath(emittedPath), path.posix.extname(toPosixPath(emittedPath)));
     const moduleBaseName = sanitizeExportIdentifierName(moduleStemRaw);
     const moduleTokens = collectModuleContextTokens(emittedPath);
-    const moduleLooksLikeHook = /^use[A-Z]/.test(moduleBaseName);
+    const profile = buildModuleRenameProfile({
+        emittedPath,
+        moduleBaseName: moduleBaseName === "symbol_export" ? "moduleRuntime" : moduleBaseName,
+        moduleTokens,
+    });
     const usedNames = new Set(rows.map((row) => row.name));
     const nextRows = rows.map((row) => ({ ...row }));
-    const callableIndexes = nextRows
+    const rankedRows = nextRows
         .map((row, index) => ({ row, index }))
-        .filter((item) => item.row.kind === "function" || item.row.kind === "class")
         .sort((a, b) => {
         const scoreDelta = computeSelectionScore(b.row) - computeSelectionScore(a.row);
         if (scoreDelta !== 0)
             return scoreDelta;
         return a.index - b.index;
     });
-    const canonicalNameValid = moduleBaseName !== "symbol_export" && moduleBaseName.length >= 3;
-    const canonicalCandidates = callableIndexes.length > 0
-        ? callableIndexes
-        : moduleLooksLikeHook
-            ? nextRows
-                .map((row, index) => ({ row, index }))
-                .filter((item) => item.row.kind === "function" || item.row.kind === "variable")
-                .sort((a, b) => {
-                const scoreDelta = computeSelectionScore(b.row) - computeSelectionScore(a.row);
-                if (scoreDelta !== 0)
-                    return scoreDelta;
-                return a.index - b.index;
-            })
-            : [];
-    if (canonicalNameValid && canonicalCandidates.length > 0) {
-        const primary = canonicalCandidates[0];
-        if (primary && primary.row.name !== moduleBaseName && !usedNames.has(moduleBaseName)) {
-            usedNames.delete(primary.row.name);
-            primary.row.name = moduleBaseName;
-            primary.row.nameQuality = scoreExportNameQuality(moduleBaseName);
-            usedNames.add(primary.row.name);
+    const assignCanonicalName = (kind, allowVariableFallback = false) => {
+        const canonicalName = getProfileCanonicalName(profile, kind);
+        if (canonicalName === "symbol_export" || canonicalName.length < 3)
+            return;
+        if (usedNames.has(canonicalName))
+            return;
+        let candidate = rankedRows.find((item) => item.row.kind === kind);
+        if (!candidate && allowVariableFallback) {
+            candidate =
+                rankedRows.find((item) => item.row.kind === "variable" && /^use[A-Z]/.test(item.row.name)) ??
+                    rankedRows.find((item) => item.row.kind === "variable" &&
+                        hasProfileSubjectToken(item.row.name, profile) &&
+                        !UTILITY_WRAPPER_NAME_PATTERN.test(item.row.name.toLowerCase())) ??
+                    rankedRows.find((item) => item.row.kind === "variable");
         }
+        if (kind === "variable") {
+            candidate =
+                rankedRows.find((item) => item.row.kind === "variable" && !/^use[A-Z]/.test(item.row.name)) ??
+                    rankedRows.find((item) => item.row.kind === "variable");
+        }
+        if (!candidate || candidate.row.name === canonicalName)
+            return;
+        usedNames.delete(candidate.row.name);
+        candidate.row.name = canonicalName;
+        candidate.row.nameQuality = scoreContextualExportNameQuality(canonicalName, emittedPath);
+        usedNames.add(candidate.row.name);
+    };
+    assignCanonicalName("function", profile.kind === "hook");
+    assignCanonicalName("class");
+    if (profile.kind === "hook") {
+        assignCanonicalName("variable");
     }
     let renameOrdinal = 0;
     for (const row of nextRows) {
@@ -685,15 +832,22 @@ function applyTargetedExportRenames(rows, emittedPath) {
             row,
             emittedPath,
             moduleTokens,
+            profile,
         })) {
             continue;
         }
-        const nextCandidateName = buildContextualSecondaryName({
-            moduleBaseName: moduleBaseName === "symbol_export" ? "moduleRuntime" : moduleBaseName,
-            moduleTokens,
-            kind: row.kind,
+        const profiledName = buildProfiledSecondaryName({
+            row,
+            profile,
             index: renameOrdinal,
         });
+        const nextCandidateName = profiledName ??
+            buildContextualSecondaryName({
+                moduleBaseName: moduleBaseName === "symbol_export" ? "moduleRuntime" : moduleBaseName,
+                moduleTokens,
+                kind: row.kind,
+                index: renameOrdinal,
+            });
         renameOrdinal += 1;
         let nextName = nextCandidateName;
         let dedupeIndex = 2;
@@ -705,7 +859,7 @@ function applyTargetedExportRenames(rows, emittedPath) {
             continue;
         usedNames.delete(row.name);
         row.name = nextName;
-        row.nameQuality = scoreExportNameQuality(nextName);
+        row.nameQuality = scoreContextualExportNameQuality(nextName, emittedPath);
         usedNames.add(row.name);
     }
     return nextRows;

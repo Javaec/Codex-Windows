@@ -10,6 +10,7 @@ Current milestone (2026-02-23):
 - Ownership-based source switching is enabled to avoid parser-heavy chunk selection when cleaner ownership candidates exist.
 - Quality gates remain strict and green (`mappedFiles=6`, project checks clean).
 - Contextual rename + ownership rerank now suppress common noisy AST-lift names in generated modules while preserving canonical hook exports.
+- Hook/transport focused rename-pass now produces cleaner domain exports (`useAppServerEvents`, `AcpChatTransport`, `IpcChatTransportRuntime`, etc.).
 
 ## Pipeline modules
 

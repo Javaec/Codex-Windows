@@ -28,7 +28,7 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 
 ### Latest Stable Validation
 - Latest reverse run: `C:\Codex-Windows\work\reverse\latest`
-- Latest archived run id: `run-20260223-115657Z`
+- Latest archived run id: `run-20260223-123314Z`
 - Quality gates report: `C:\Codex-Windows\work\reverse\latest\report\quality-gates.json`
 - Project diagnostics: `C:\Codex-Windows\work\reverse\latest\project\mapping\lifter-diagnostics.json`
 
@@ -53,7 +53,7 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
   - ownership-aware source switching selects better source chunks when available.
   - parser/registry unpack is available in symbol lifter and can be enabled per module when required.
 - Current diagnostics snapshot:
-  - source switches used in `19` reconstructed modules
+  - source switches used in `23` reconstructed modules
   - targeted unresolved recovery used in `1` module
   - parser unpack currently `0` after quality rerank (cleaner alternative sources won)
 
@@ -86,6 +86,7 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
   - `eventGetObjectReadyUse*` removed
   - `eventsMathMaxUse` / `expRegRegexpUse` removed
   - hook modules now preserve canonical `use*` export names (example: `useAppServerEvents`)
+  - transport modules now emit readable class/runtime names (examples: `AcpChatTransport`, `IpcChatTransportRuntime`)
 
 ## Next Steps
 - Finish contextual export naming pass for AST-lift modules to reduce synthetic names and align closer to CodexMonitor style.
