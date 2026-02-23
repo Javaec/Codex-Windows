@@ -202,11 +202,19 @@ function validateChunkArtifacts(
       continue;
     }
     const source = readUtf8(emittedAbsPath);
-    if (!source.includes("import * as chunkModule from")) {
-      failures.push(`reconstructed module is not a wrapper import: ${row.emittedPath}`);
+    if (source.includes("import * as chunkModule from")) {
+      failures.push(`reconstructed module still uses wrapper chunk import: ${row.emittedPath}`);
     }
-    if (!source.includes("export default chunk;")) {
-      failures.push(`reconstructed module is missing wrapper default export: ${row.emittedPath}`);
+    if (source.includes("pickChunkSymbol(")) {
+      failures.push(`reconstructed module still uses pickChunkSymbol wrapper: ${row.emittedPath}`);
+    }
+    if (source.includes("export default chunk;")) {
+      failures.push(`reconstructed module still exports default chunk wrapper: ${row.emittedPath}`);
+    }
+    const hasNamedOrDefaultExport =
+      /\bexport\s+\{/.test(source) || /\bexport\s+(?:\*|default|const|let|var|function|class)\b/.test(source);
+    if (!hasNamedOrDefaultExport) {
+      failures.push(`reconstructed module is missing exports: ${row.emittedPath}`);
     }
   }
 

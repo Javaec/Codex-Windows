@@ -39,6 +39,7 @@ const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
 const exec_1 = require("../lib/exec");
 const deobfuscation_report_1 = require("./deobfuscation-report");
+const symbol_lifter_1 = require("./symbol-lifter");
 function toPosixPath(input) {
     return input.replace(/\\/g, "/");
 }
@@ -55,6 +56,15 @@ function normalizeSourceForPrint(text) {
         .replace(/\n\/\/# sourceMappingURL=.*$/gm, "")
         .replace(/\n\/\*# sourceMappingURL=.*\*\/$/gm, "");
 }
+function parseSourceLineHint(value) {
+    const match = value.match(/:(\d+)$/);
+    if (!match)
+        return 0;
+    const parsed = Number(match[1]);
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return 0;
+    return Math.floor(parsed);
+}
 function toChunkArtifactPath(sourceFile) {
     const normalized = toPosixPath(sourceFile).replace(/^\.?\//, "");
     return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
@@ -62,14 +72,6 @@ function toChunkArtifactPath(sourceFile) {
 function normalizeTargetModulePath(targetPath) {
     const normalized = toPosixPath(targetPath).replace(/^\.?\//, "");
     return normalized.replace(/\.(?:tsx?|jsx|mjs|cjs|js)$/i, ".ts");
-}
-function toRelativeImportPath(fromFilePath, toFilePath) {
-    const fromDir = path.posix.dirname(fromFilePath);
-    const withoutExt = toFilePath.replace(/\.(?:ts|js|mjs|cjs)$/i, "");
-    let relative = path.posix.relative(fromDir, withoutExt);
-    if (!relative.startsWith("."))
-        relative = `./${relative}`;
-    return relative;
 }
 function toSafeExportIdentifier(input) {
     const normalized = input.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^\d+/, "").replace(/^_+/, "");
@@ -250,15 +252,16 @@ function buildWebStormTestProject(input) {
     (0, exec_1.removePath)(projectRoot);
     (0, exec_1.ensureDir)(projectRoot);
     const srcRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "src"));
-    const chunksRoot = (0, exec_1.ensureDir)(path.join(srcRoot, "chunks"));
     (0, exec_1.ensureDir)(path.join(srcRoot, "main"));
     (0, exec_1.ensureDir)(path.join(srcRoot, "renderer"));
     (0, exec_1.ensureDir)(path.join(srcRoot, "services"));
     (0, exec_1.ensureDir)(path.join(projectRoot, "src-tauri-adapter"));
     const mappingRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "mapping"));
+    const rawChunksRoot = (0, exec_1.ensureDir)(path.join(mappingRoot, "raw-chunks"));
     const metaRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "meta"));
     const toolsRoot = (0, exec_1.ensureDir)(path.join(projectRoot, "tools"));
     const chunkArtifactBySourceFile = new Map();
+    const chunkSourceBySourceFile = new Map();
     let chunkFiles = 0;
     for (const file of input.jsFiles) {
         if (!input.shouldIncludeChunk(file.relPath))
@@ -267,12 +270,13 @@ function buildWebStormTestProject(input) {
         if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile())
             continue;
         const chunkArtifactPath = toChunkArtifactPath(file.relPath);
-        const destinationPath = path.join(chunksRoot, chunkArtifactPath);
+        const destinationPath = path.join(rawChunksRoot, chunkArtifactPath);
         (0, exec_1.ensureDir)(path.dirname(destinationPath));
         const source = normalizeSourceForPrint(readUtf8(sourcePath));
         const normalizedSource = source.endsWith("\n") ? source : `${source}\n`;
-        fs.writeFileSync(destinationPath, `${normalizedSource}\nexport {};\n`, "utf8");
-        chunkArtifactBySourceFile.set(file.relPath, toPosixPath(path.posix.join("src", "chunks", chunkArtifactPath)));
+        fs.writeFileSync(destinationPath, normalizedSource, "utf8");
+        chunkArtifactBySourceFile.set(file.relPath, toPosixPath(path.posix.join("mapping", "raw-chunks", chunkArtifactPath)));
+        chunkSourceBySourceFile.set(file.relPath, normalizedSource);
         chunkFiles += 1;
     }
     const byTargetPath = new Map();
@@ -312,6 +316,7 @@ function buildWebStormTestProject(input) {
                 row.exportsByName.set(exportName, {
                     sourceSymbol: inputRow.sourceSymbol,
                     kind: inputRow.kind,
+                    sourceLine: inputRow.sourceLine,
                     confidence: inputRow.confidence,
                 });
             }
@@ -328,6 +333,7 @@ function buildWebStormTestProject(input) {
             rationale: plan.rationale,
             sourceSymbol: "",
             kind: "file",
+            sourceLine: 0,
         });
     }
     for (const entry of input.deobfuscationTable.entries) {
@@ -340,6 +346,7 @@ function buildWebStormTestProject(input) {
             rationale: entry.rationale,
             sourceSymbol: entry.obfuscated,
             kind: entry.kind,
+            sourceLine: parseSourceLineHint(entry.sourceFile),
         });
     }
     let reconstructedFiles = 0;
@@ -347,22 +354,26 @@ function buildWebStormTestProject(input) {
     const sortedTargets = Array.from(byTargetPath.values()).sort((a, b) => a.targetPath.localeCompare(b.targetPath));
     for (const row of sortedTargets) {
         let chunkArtifactPath = chunkArtifactBySourceFile.get(row.sourceFile);
+        let sourceChunk = chunkSourceBySourceFile.get(row.sourceFile);
         if (!chunkArtifactPath) {
             const sourcePath = path.join(input.decompiledDir, row.sourceFile);
             if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile())
                 continue;
             const normalized = normalizeSourceForPrint(readUtf8(sourcePath));
             const fallbackArtifactRel = toChunkArtifactPath(row.sourceFile);
-            const fallbackDestination = path.join(chunksRoot, fallbackArtifactRel);
+            const fallbackDestination = path.join(rawChunksRoot, fallbackArtifactRel);
             (0, exec_1.ensureDir)(path.dirname(fallbackDestination));
             const normalizedSource = normalized.endsWith("\n") ? normalized : `${normalized}\n`;
-            fs.writeFileSync(fallbackDestination, `${normalizedSource}\nexport {};\n`, "utf8");
-            chunkArtifactPath = toPosixPath(path.posix.join("src", "chunks", fallbackArtifactRel));
+            fs.writeFileSync(fallbackDestination, normalizedSource, "utf8");
+            chunkArtifactPath = toPosixPath(path.posix.join("mapping", "raw-chunks", fallbackArtifactRel));
             chunkArtifactBySourceFile.set(row.sourceFile, chunkArtifactPath);
+            chunkSourceBySourceFile.set(row.sourceFile, normalizedSource);
+            sourceChunk = normalizedSource;
+        }
+        if (!sourceChunk) {
+            throw new Error(`Missing source chunk text for reconstructed module: ${row.sourceFile}`);
         }
         const emittedPath = normalizeTargetModulePath(row.targetPath);
-        const posixEmittedPath = toPosixPath(emittedPath);
-        const importPath = toRelativeImportPath(posixEmittedPath, chunkArtifactPath);
         const exportRows = Array.from(row.exportsByName.entries())
             .map(([name, value]) => ({ name, ...value }))
             .sort((a, b) => {
@@ -375,6 +386,7 @@ function buildWebStormTestProject(input) {
         const headerLines = [
             "/*",
             "  Generated by reverse/deobfuscation pipeline for WebStorm exploration.",
+            "  Lift mode: ast-symbol-lifter (function/class/variable declarations + dependency closure).",
             `  Source chunk artifact: ${chunkArtifactPath}`,
             `  Source chunk: ${row.sourceFile}`,
             `  Confidence: ${row.confidence}`,
@@ -382,28 +394,30 @@ function buildWebStormTestProject(input) {
             `  References: ${Array.from(row.references).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
             "*/",
             "",
-        ];
-        const moduleLines = [
-            ...headerLines,
-            `import * as chunkModule from ${JSON.stringify(importPath)};`,
-            "",
-            "const chunk = chunkModule;",
+            "// @ts-nocheck",
             "",
         ];
-        if (exportRows.length === 0) {
-            moduleLines.push("export const __chunk = chunk;");
-        }
-        else {
-            moduleLines.push("const pickChunkSymbol = (symbolName) => chunk[symbolName];");
-            moduleLines.push("");
-            for (const exportRow of exportRows) {
-                moduleLines.push(`export const ${exportRow.name} = pickChunkSymbol(${JSON.stringify(exportRow.sourceSymbol)});`);
+        const lifted = (0, symbol_lifter_1.liftModuleSource)({
+            sourceFilePath: row.sourceFile,
+            sourceText: sourceChunk,
+            exports: exportRows.map((item) => ({
+                exportName: item.name,
+                sourceSymbol: item.sourceSymbol,
+                kind: item.kind,
+                sourceLine: item.sourceLine,
+            })),
+            maxDependencyStatements: 6000,
+        });
+        const unresolvedRequired = lifted.unresolvedExports.filter((item) => item.kind === "class" || item.kind === "function");
+        if (unresolvedRequired.length > 0) {
+            for (const unresolved of unresolvedRequired) {
+                row.rationale.add(`lifter-unresolved: ${unresolved.kind}:${unresolved.sourceSymbol}->${unresolved.exportName}@${unresolved.sourceLine}`);
             }
         }
-        moduleLines.push("export default chunk;", "");
+        const moduleSource = `${headerLines.join("\n")}${lifted.moduleBody}`;
         const destinationPath = path.join(projectRoot, emittedPath);
         (0, exec_1.ensureDir)(path.dirname(destinationPath));
-        fs.writeFileSync(destinationPath, `${moduleLines.join("\n")}\n`, "utf8");
+        fs.writeFileSync(destinationPath, moduleSource, "utf8");
         reconstructedFiles += 1;
         reconstructedMapRows.push({
             targetPath: row.targetPath,
@@ -412,7 +426,9 @@ function buildWebStormTestProject(input) {
             chunkArtifactPath,
             confidence: row.confidence,
             symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
-            exports: exportRows,
+            exports: exportRows.filter((item) => lifted.liftedExports.some((liftedExport) => liftedExport.exportName === item.name &&
+                liftedExport.sourceSymbol === item.sourceSymbol &&
+                liftedExport.kind === item.kind)),
             references: Array.from(row.references).sort((a, b) => a.localeCompare(b)),
             rationale: Array.from(row.rationale).sort((a, b) => a.localeCompare(b)),
         });
@@ -422,6 +438,7 @@ function buildWebStormTestProject(input) {
         .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
     const mappingArtifacts = [
         "mapping/chunk-artifacts.json",
+        "mapping/raw-chunks/",
         "mapping/deobfuscation-table.json",
         "mapping/deobfuscation-table.md",
         "mapping/deobfuscation-table.csv",
@@ -481,7 +498,6 @@ function buildWebStormTestProject(input) {
             skipLibCheck: true,
             baseUrl: ".",
             paths: {
-                "@chunks/*": ["src/chunks/*"],
                 "@main/*": ["src/main/*"],
                 "@renderer/*": ["src/renderer/*"],
                 "@services/*": ["src/services/*"],
@@ -540,10 +556,10 @@ function buildWebStormTestProject(input) {
         "3. Start from `mapping/rename-plan.md` and `mapping/deobfuscation-table.csv`.",
         "",
         "## Structure",
-        "- `src/chunks/` one source artifact per original chunk (`.ts`).",
-        "- `src/main/`, `src/renderer/`, `src/services/` TS-first reconstructed modules with point symbol exports.",
+        "- `src/main/`, `src/renderer/`, `src/services/` TS-first reconstructed modules with lifted symbol declarations.",
         "- `src-tauri-adapter/` bridge modules for tauri/daemon-related targets.",
-        "- `mapping/` all generated maps and flow reports.",
+        "- `mapping/raw-chunks/` one raw source artifact per original chunk (`.js`) for traceability.",
+        "- `mapping/` generated maps and flow reports.",
         "- `meta/` source package metadata and generation info.",
         "",
         "## Quick Commands",
