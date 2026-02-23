@@ -85,6 +85,61 @@ function toModuleSpecifier(fromDirectory, targetFilePath) {
     const normalized = relative.startsWith(".") ? relative : `./${relative}`;
     return normalized;
 }
+function toRelativePathSpecifier(fromDirectory, targetFilePath) {
+    const from = toPosixPath(fromDirectory).replace(/^\.?\//, "");
+    const target = toPosixPath(targetFilePath).replace(/^\.?\//, "");
+    const relative = path.posix.relative(from, target);
+    return relative.startsWith(".") ? relative : `./${relative}`;
+}
+function resolveChunkArtifactImportSpecifier(input) {
+    if (!/^(?:\.{1,2})\//.test(input.specifier))
+        return undefined;
+    if (!/\.(?:mjs|cjs|js)$/i.test(input.specifier))
+        return undefined;
+    const sourceDir = path.posix.dirname(toPosixPath(input.sourceFile).replace(/^\.?\//, ""));
+    const resolvedSource = path.posix.normalize(path.posix.join(sourceDir, input.specifier));
+    if (resolvedSource.startsWith("../"))
+        return undefined;
+    const chunkArtifact = toPosixPath(path.posix.join("src", "chunks", toChunkArtifactPath(resolvedSource)));
+    const emittedDirectory = path.posix.dirname(toPosixPath(input.emittedPath).replace(/^\.?\//, ""));
+    return toRelativePathSpecifier(emittedDirectory, chunkArtifact);
+}
+function rewriteChunkLocalImportSpecifiers(input) {
+    let rewrites = 0;
+    const rewriteSpecifier = (raw) => {
+        const next = resolveChunkArtifactImportSpecifier({
+            specifier: raw,
+            sourceFile: input.sourceFile,
+            emittedPath: input.emittedPath,
+        });
+        if (!next || next === raw)
+            return raw;
+        rewrites += 1;
+        return next;
+    };
+    const rewriteLine = (line) => {
+        let nextLine = line;
+        nextLine = nextLine.replace(/from\s+(['"])([^'"]+)\1/g, (_match, quote, specifier) => {
+            const rewritten = rewriteSpecifier(specifier);
+            return `from ${quote}${rewritten}${quote}`;
+        });
+        nextLine = nextLine.replace(/\bimport\s+(['"])([^'"]+)\1/g, (_match, quote, specifier) => {
+            const rewritten = rewriteSpecifier(specifier);
+            return `import ${quote}${rewritten}${quote}`;
+        });
+        nextLine = nextLine.replace(/\brequire\(\s*(['"])([^'"]+)\1\s*\)/g, (_match, quote, specifier) => {
+            const rewritten = rewriteSpecifier(specifier);
+            return `require(${quote}${rewritten}${quote})`;
+        });
+        return nextLine;
+    };
+    const lines = input.moduleBody.split("\n");
+    const rewrittenLines = lines.map((line) => rewriteLine(line));
+    return {
+        moduleBody: rewrittenLines.join("\n"),
+        rewrites,
+    };
+}
 function collectBarrelRootsForDirectory(inputDir) {
     const directory = toPosixPath(inputDir).replace(/^\.?\//, "");
     const roots = ["src/main", "src/renderer", "src/services", "src-tauri-adapter"];
@@ -1081,6 +1136,99 @@ function applyHookTransportQualityPass(input) {
     }
     return { rows: nextRows, renamed };
 }
+function isWeakServiceName(input) {
+    const normalized = input.row.name.toLowerCase();
+    if (/^(?:[A-Za-z_$]{1,2}|[a-z]{2,4})$/.test(input.row.name))
+        return true;
+    if (/(getobjectready|eventsinline|runtimeuse|inline(server|client)?|unknown|misc|tmp|temp)/.test(normalized))
+        return true;
+    if (/var[a-z0-9]{2,}/.test(normalized))
+        return true;
+    if (/[a-z]{2,}\d{2,}$/i.test(input.row.name))
+        return true;
+    if (input.row.kind === "function" && /(handler|runtime)$/.test(normalized) && normalized.length < 14)
+        return true;
+    if (input.row.kind === "class" && /(manager|runtime)$/.test(input.row.name) && input.row.name.length < 12)
+        return true;
+    const alignment = scoreModulePathAlignment(input.row.name, input.emittedPath);
+    const quality = scoreContextualExportNameQuality(input.row.name, input.emittedPath);
+    if (alignment < 0.28)
+        return true;
+    if (quality < 0.85)
+        return true;
+    return false;
+}
+function proposeServiceName(input) {
+    const normalized = input.row.name.toLowerCase();
+    const kindIndex = input.indexByKind.get(input.row.kind) ?? 0;
+    input.indexByKind.set(input.row.kind, kindIndex + 1);
+    if (input.row.kind === "class") {
+        if (/(provider|client|adapter)/.test(normalized))
+            return sanitizeExportIdentifierName(`${input.subject.pascal}Provider`);
+        if (/(registry|cache|store|map)/.test(normalized))
+            return sanitizeExportIdentifierName(`${input.subject.pascal}Registry`);
+        return sanitizeExportIdentifierName(`${input.subject.pascal}Service`);
+    }
+    if (input.row.kind === "function") {
+        if (kindIndex === 0)
+            return sanitizeExportIdentifierName(`${input.subject.camel}Service`);
+        if (/(create|build|factory|init|bootstrap)/.test(normalized))
+            return sanitizeExportIdentifierName(`create${input.subject.pascal}Service`);
+        if (/(load|fetch|read|query|list|get)/.test(normalized))
+            return sanitizeExportIdentifierName(`${input.subject.camel}Loader`);
+        if (/(update|write|save|persist|sync)/.test(normalized))
+            return sanitizeExportIdentifierName(`${input.subject.camel}Updater`);
+        if (/(start|stop|run|execute|dispatch|emit)/.test(normalized))
+            return sanitizeExportIdentifierName(`${input.subject.camel}Runner`);
+        return sanitizeExportIdentifierName(`${input.subject.camel}Handler`);
+    }
+    if (/(registry|cache|map|store)/.test(normalized))
+        return sanitizeExportIdentifierName(`${input.subject.camel}Registry`);
+    if (/(config|options|flags|settings)/.test(normalized))
+        return sanitizeExportIdentifierName(`${input.subject.camel}Config`);
+    if (/(state|status|snapshot|session)/.test(normalized))
+        return sanitizeExportIdentifierName(`${input.subject.camel}State`);
+    if (/(queue|batch|scheduler|timer|timeout)/.test(normalized))
+        return sanitizeExportIdentifierName(`${input.subject.camel}Scheduler`);
+    return sanitizeExportIdentifierName(`${input.subject.camel}Runtime`);
+}
+function applyServiceQualityPass(input) {
+    if (input.rows.length === 0)
+        return { rows: [], renamed: 0 };
+    if (input.archetype !== "service") {
+        return { rows: [...input.rows], renamed: 0 };
+    }
+    const subject = buildArchetypeSubject(input.emittedPath);
+    const usedNames = new Set(input.rows.map((row) => row.name));
+    const indexByKind = new Map();
+    let renamed = 0;
+    const nextRows = input.rows.map((row) => ({ ...row }));
+    for (const row of nextRows) {
+        if (!isWeakServiceName({ row, emittedPath: input.emittedPath }))
+            continue;
+        const proposed = proposeServiceName({
+            row,
+            subject,
+            indexByKind,
+        });
+        if (proposed === "symbol_export" || proposed.length < 3)
+            continue;
+        let nextName = proposed;
+        let dedupe = 2;
+        while (usedNames.has(nextName) && nextName !== row.name && dedupe < 80) {
+            nextName = `${proposed}${dedupe}`;
+            dedupe += 1;
+        }
+        if (nextName === row.name || usedNames.has(nextName))
+            continue;
+        usedNames.delete(row.name);
+        row.name = nextName;
+        row.nameQuality = scoreContextualExportNameQuality(nextName, input.emittedPath);
+        usedNames.add(row.name);
+        renamed += 1;
+    }
+    return { rows: nextRows, renamed };
+}
 function normalizeExportNameRoot(input) {
     const sanitized = stripNoisyExportSuffix(input);
     return sanitized.replace(/V\d+$/i, "").replace(/\d+$/i, "").replace(/[_-]+$/, "").toLowerCase();
@@ -1975,12 +2123,17 @@ function buildWebStormTestProject(input) {
             emittedPath,
             archetype: synthesisContract.kind,
         });
+        const servicePass = applyServiceQualityPass({
+            rows: hookTransportPass.rows,
+            emittedPath,
+            archetype: synthesisContract.kind,
+        });
         const templateEmission = (0, archetype_emitter_1.emitArchetypeModule)({
             sourceFilePath: activeSourceFile,
             sourceText: sourceChunk,
             emittedPath,
             contract: synthesisContract,
-            selectedRows: hookTransportPass.rows,
+            selectedRows: servicePass.rows,
             candidateRows: alignedCandidateRows,
         });
         const exportRows = templateEmission.exportRows;
@@ -2001,7 +2154,15 @@ function buildWebStormTestProject(input) {
         const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
         const maxDependencyStatementLength = synthesisContract.maxDependencyStatementLength;
         const shouldUseTsNoCheck = true;
-        const moduleBody = templateEmission.moduleBody;
+        const rewrittenImports = rewriteChunkLocalImportSpecifiers({
+            moduleBody: templateEmission.moduleBody,
+            sourceFile: activeSourceFile,
+            emittedPath,
+        });
+        const moduleBody = rewrittenImports.moduleBody;
+        if (rewrittenImports.rewrites > 0) {
+            row.rationale.add(`chunk-import-rewrite: ${rewrittenImports.rewrites}`);
+        }
         const headerLines = [
             "/**",
             " * Generated by reverse/deobfuscation pipeline.",
@@ -2011,7 +2172,7 @@ function buildWebStormTestProject(input) {
             ` * Chunk artifact: ${chunkArtifactPath}`,
             ` * Confidence: ${row.confidence}`,
             ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${totalDroppedExports}`,
-            ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}`,
+            ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, importSpecifierRewrites=${rewrittenImports.rewrites}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}`,
             ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
             " * Chunk bridge mode: disabled",
             " * Controlled recovery mode: disabled",
@@ -2049,9 +2210,11 @@ function buildWebStormTestProject(input) {
             droppedExportsByBudget,
             droppedExportsByTemplateCap,
             hookTransportRenamed: hookTransportPass.renamed,
+            serviceRenamed: servicePass.renamed,
             templateAddedRequiredKinds: templateEmission.diagnostics.addedRequiredKinds.length,
             templateImportCount: templateEmission.diagnostics.importCount,
             importContractViolated: templateEmission.diagnostics.importContractViolated,
+            importSpecifierRewrites: rewrittenImports.rewrites,
             statementBudget: lifted.dependencyBudget,
             maxPrimaryStatementLength,
             maxDependencyStatementLength,
