@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inspectLiftSourceDeclarations = inspectLiftSourceDeclarations;
+exports.inspectLiftDeclarationGraph = inspectLiftDeclarationGraph;
 exports.liftModuleSource = liftModuleSource;
 const ts = __importStar(require("typescript"));
 const GLOBAL_REFERENCE_EXCLUDES = new Set([
@@ -581,6 +582,26 @@ function inspectLiftSourceDeclarations(input) {
             line: declaration.line,
             statementLength: statement?.text.length ?? 0,
             generatedSignal: statement?.generatedSignal ?? 0,
+        });
+    }
+    return rows;
+}
+function inspectLiftDeclarationGraph(input) {
+    const sourceFile = parseLiftSourceFile(input.sourceFilePath, input.sourceText);
+    const { statements, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
+    const rows = [];
+    for (const declaration of declarations) {
+        const statement = statements[declaration.statementIndex];
+        const references = Array.from(statement?.references ?? [])
+            .filter((reference) => reference !== declaration.name)
+            .sort((a, b) => a.localeCompare(b));
+        rows.push({
+            name: declaration.name,
+            kind: declaration.kind,
+            line: declaration.line,
+            statementLength: statement?.text.length ?? 0,
+            generatedSignal: statement?.generatedSignal ?? 0,
+            references,
         });
     }
     return rows;

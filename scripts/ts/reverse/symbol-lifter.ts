@@ -44,6 +44,15 @@ export interface LiftDeclarationStat {
   generatedSignal: number;
 }
 
+export interface LiftDeclarationGraphNode {
+  name: string;
+  kind: LiftedExportKind;
+  line: number;
+  statementLength: number;
+  generatedSignal: number;
+  references: string[];
+}
+
 interface TopLevelDeclarationRecord {
   name: string;
   kind: LiftedExportKind;
@@ -645,6 +654,30 @@ export function inspectLiftSourceDeclarations(input: {
       line: declaration.line,
       statementLength: statement?.text.length ?? 0,
       generatedSignal: statement?.generatedSignal ?? 0,
+    });
+  }
+  return rows;
+}
+
+export function inspectLiftDeclarationGraph(input: {
+  sourceFilePath: string;
+  sourceText: string;
+}): LiftDeclarationGraphNode[] {
+  const sourceFile = parseLiftSourceFile(input.sourceFilePath, input.sourceText);
+  const { statements, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
+  const rows: LiftDeclarationGraphNode[] = [];
+  for (const declaration of declarations) {
+    const statement = statements[declaration.statementIndex];
+    const references = Array.from(statement?.references ?? [])
+      .filter((reference) => reference !== declaration.name)
+      .sort((a, b) => a.localeCompare(b));
+    rows.push({
+      name: declaration.name,
+      kind: declaration.kind,
+      line: declaration.line,
+      statementLength: statement?.text.length ?? 0,
+      generatedSignal: statement?.generatedSignal ?? 0,
+      references,
     });
   }
   return rows;

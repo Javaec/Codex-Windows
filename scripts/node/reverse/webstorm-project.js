@@ -43,6 +43,7 @@ const symbol_lifter_1 = require("./symbol-lifter");
 const semantic_ir_1 = require("./semantic-ir");
 const ownership_resolver_1 = require("./ownership-resolver");
 const module_templates_1 = require("./module-templates");
+const declaration_clustering_1 = require("./declaration-clustering");
 const post_lift_beautify_1 = require("./post-lift-beautify");
 function toPosixPath(input) {
     return input.replace(/\\/g, "/");
@@ -1435,54 +1436,6 @@ function buildSemanticRecoveryExportRows(input) {
         generatedSignal: 0,
     }));
 }
-function buildPlaceholderModuleBody(input) {
-    const seen = new Set();
-    const rows = input.exports
-        .filter((row) => {
-        if (seen.has(row.name))
-            return false;
-        seen.add(row.name);
-        return true;
-    })
-        .sort((a, b) => {
-        const kindDelta = getExportKindPriority(b.kind) - getExportKindPriority(a.kind);
-        if (kindDelta !== 0)
-            return kindDelta;
-        if (a.confidence !== b.confidence)
-            return b.confidence - a.confidence;
-        return a.name.localeCompare(b.name);
-    })
-        .slice(0, 12);
-    const lines = [
-        "// Placeholder API generated because AST lift could not resolve safe declarations.",
-        `// Source: ${input.sourceFile}`,
-        "",
-    ];
-    for (const row of rows) {
-        const message = `Unresolved placeholder: ${row.name} (${input.sourceFile})`;
-        if (row.kind === "class") {
-            lines.push(`export class ${row.name} {`);
-            lines.push("  constructor(..._args) {");
-            lines.push(`    throw new Error(${JSON.stringify(message)});`);
-            lines.push("  }");
-            lines.push("}");
-            lines.push("");
-            continue;
-        }
-        if (row.kind === "function") {
-            lines.push(`export function ${row.name}(..._args) {`);
-            lines.push(`  throw new Error(${JSON.stringify(message)});`);
-            lines.push("}");
-            lines.push("");
-            continue;
-        }
-        lines.push(`export const ${row.name} = undefined;`);
-    }
-    if (rows.length === 0) {
-        lines.push("export {};");
-    }
-    return `${lines.join("\n").trimEnd()}\n`;
-}
 function isSafeImportIdentifier(value) {
     return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
@@ -1732,11 +1685,22 @@ function buildWebStormTestProject(input) {
             bucket.push(stat);
             declarationStatsByName.set(stat.name, bucket);
         }
+        const declarationGraphRows = (0, symbol_lifter_1.inspectLiftDeclarationGraph)({
+            sourceFilePath: sourceFile,
+            sourceText: sourceChunk,
+        });
+        const declarationGraphByName = new Map();
+        for (const node of declarationGraphRows) {
+            const bucket = declarationGraphByName.get(node.name) ?? [];
+            bucket.push(node);
+            declarationGraphByName.set(node.name, bucket);
+        }
         const context = {
             sourceFile,
             sourceChunk,
             declarationStatsRows,
             declarationStatsByName,
+            declarationGraphByName,
         };
         sourceLiftContextCache.set(sourceFile, context);
         return context;
@@ -1807,6 +1771,20 @@ function buildWebStormTestProject(input) {
     for (const row of sortedTargets) {
         let activeSourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(row.sourceFile);
         const emittedPath = normalizeTargetModulePath(row.targetPath);
+        const semanticModule = semanticModuleByTargetPath.get(row.targetPath);
+        const semanticModuleForContract = semanticModule ?? {
+            modulePath: row.targetPath,
+            ownerLayer: "unknown",
+            sourceFile: activeSourceFile,
+            confidence: row.confidence,
+            symbols: [],
+            references: [],
+            rationale: [],
+        };
+        const buildSynthesisContract = (candidateExports) => (0, module_templates_1.buildModuleSynthesisContract)({
+            module: semanticModuleForContract,
+            candidateExports,
+        });
         const targetEntries = targetSymbolEntriesByPath.get(row.targetPath) ?? [];
         const targetEntriesBySourceFile = groupTargetEntriesBySourceFile(targetEntries);
         const sourceCandidateOrder = rankSourceFileCandidates(targetEntriesBySourceFile, activeSourceFile).slice(0, 10);
@@ -1840,7 +1818,15 @@ function buildWebStormTestProject(input) {
         };
         const evaluateSourceCandidate = (sourceFile, rows) => {
             const sourceContext = getSourceLiftContext(sourceFile);
-            const alignedRows = applyModuleAlignmentSignals(rows, emittedPath);
+            const alignedRowsRaw = applyModuleAlignmentSignals(rows, emittedPath);
+            const synthesisContract = buildSynthesisContract(alignedRowsRaw.length);
+            const clusteredRows = (0, declaration_clustering_1.applyArchetypeAndCluster)({
+                rows: alignedRowsRaw,
+                declarationGraphByName: sourceContext.declarationGraphByName,
+                contract: synthesisContract,
+                emittedPath,
+            });
+            const alignedRows = clusteredRows.length > 0 ? clusteredRows : alignedRowsRaw;
             const callableCount = alignedRows.filter((item) => item.kind === "class" || item.kind === "function").length;
             const alignmentAggregate = alignedRows.reduce((sum, item) => sum + scoreModulePathAlignment(item.name, emittedPath), 0) /
                 Math.max(1, alignedRows.length);
@@ -1909,23 +1895,18 @@ function buildWebStormTestProject(input) {
         const chunkArtifactPath = ensuredArtifact.chunkArtifactPath;
         const sourceChunk = ensuredArtifact.sourceChunk;
         const declarationStatsByName = activeSourceContext.declarationStatsByName;
-        const alignedCandidateRows = applyModuleAlignmentSignals(candidateExportRows, emittedPath);
+        const alignedCandidateRowsRaw = applyModuleAlignmentSignals(candidateExportRows, emittedPath);
+        const synthesisContract = buildSynthesisContract(alignedCandidateRowsRaw.length);
+        const clusteredCandidateRows = (0, declaration_clustering_1.applyArchetypeAndCluster)({
+            rows: alignedCandidateRowsRaw,
+            declarationGraphByName: activeSourceContext.declarationGraphByName,
+            contract: synthesisContract,
+            emittedPath,
+        });
+        const alignedCandidateRows = clusteredCandidateRows.length > 0 ? clusteredCandidateRows : alignedCandidateRowsRaw;
         const selectedExports = selectPrimaryExports({
             rows: alignedCandidateRows,
             moduleConfidence: row.confidence,
-        });
-        const semanticModule = semanticModuleByTargetPath.get(row.targetPath);
-        const synthesisContract = (0, module_templates_1.buildModuleSynthesisContract)({
-            module: semanticModule ?? {
-                modulePath: row.targetPath,
-                ownerLayer: "unknown",
-                sourceFile: activeSourceFile,
-                confidence: row.confidence,
-                symbols: [],
-                references: [],
-                rationale: [],
-            },
-            candidateExports: alignedCandidateRows.length,
         });
         let initialExportRows = applyTargetedExportRenames(selectedExports.selected, emittedPath).slice(0, synthesisContract.maxSelectedExports);
         let droppedExportsByBudget = 0;
@@ -1962,18 +1943,17 @@ function buildWebStormTestProject(input) {
         for (const unresolved of unresolvedRequired) {
             row.rationale.add(`lifter-unresolved: ${unresolved.kind}:${unresolved.sourceSymbol}->${unresolved.exportName}@${unresolved.sourceLine}`);
         }
-        const shouldUseTsNoCheck = true;
-        const controlledRecoveryMode = (lifted.liftedExports.length === 0 || unresolvedRequired.length > 0) && exportRows.length > 0;
-        if (controlledRecoveryMode) {
-            row.rationale.add("controlled-recovery: unresolved lift fallback");
+        const strictLiftViolation = (lifted.liftedExports.length === 0 && exportRows.length > 0) || unresolvedRequired.length > 0;
+        if (strictLiftViolation) {
+            const unresolvedPreview = unresolvedRequired
+                .slice(0, 4)
+                .map((item) => `${item.kind}:${item.sourceSymbol}->${item.exportName}@${item.sourceLine}`)
+                .join(", ");
+            throw new Error(`Strict AST lift failed for ${emittedPath} from ${activeSourceFile}. selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolvedRequired=${unresolvedRequired.length}${unresolvedPreview.length > 0 ? ` [${unresolvedPreview}]` : ""}`);
         }
+        const shouldUseTsNoCheck = true;
         const moduleBody = (0, post_lift_beautify_1.postLiftBeautifyModuleSource)({
-            moduleBody: controlledRecoveryMode
-                ? buildPlaceholderModuleBody({
-                    exports: exportRows,
-                    sourceFile: activeSourceFile,
-                })
-                : lifted.moduleBody,
+            moduleBody: lifted.moduleBody,
             exportedNames: exportRows.map((item) => item.name),
         });
         const headerLines = [
@@ -1986,7 +1966,7 @@ function buildWebStormTestProject(input) {
             ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${selectedExports.dropped.length + droppedExportsByBudget}`,
             ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
             " * Chunk bridge mode: disabled",
-            ` * Controlled recovery mode: ${controlledRecoveryMode ? "enabled" : "disabled"}`,
+            " * Controlled recovery mode: disabled",
             " */",
             "",
             ...(shouldUseTsNoCheck ? ["// @ts-nocheck", ""] : []),
@@ -2004,10 +1984,8 @@ function buildWebStormTestProject(input) {
             chunkArtifactPath,
             confidence: row.confidence,
             symbols: Array.from(row.symbols).sort((a, b) => a.localeCompare(b)),
-            exports: controlledRecoveryMode
-                ? exportRows
-                : exportRows.filter((item) => lifted.liftedExports.some((liftedExport) => liftedExport.exportName === item.name &&
-                    liftedExport.kind === item.kind)),
+            exports: exportRows.filter((item) => lifted.liftedExports.some((liftedExport) => liftedExport.exportName === item.name &&
+                liftedExport.kind === item.kind)),
             references: Array.from(row.references).sort((a, b) => a.localeCompare(b)),
             rationale: Array.from(row.rationale).sort((a, b) => a.localeCompare(b)),
         });
@@ -2015,6 +1993,8 @@ function buildWebStormTestProject(input) {
             emittedPath,
             sourceFile: activeSourceFile,
             sourceChunkArtifactPath: chunkArtifactPath,
+            moduleArchetype: synthesisContract.kind,
+            candidateExportsRaw: alignedCandidateRowsRaw.length,
             candidateExports: alignedCandidateRows.length,
             selectedExports: exportRows.length,
             droppedExports: selectedExports.dropped.length,
@@ -2035,10 +2015,10 @@ function buildWebStormTestProject(input) {
             rewrittenReferenceSymbols: lifted.rewrittenReferenceSymbols,
             rewrittenReferenceIdentifiers: lifted.rewrittenReferenceIdentifiers,
             usedTsNoCheck: shouldUseTsNoCheck,
-            placeholderMode: controlledRecoveryMode,
+            placeholderMode: false,
             chunkBridgeMode: false,
             targetedRecoveredExports,
-            recoveryModeUsed: controlledRecoveryMode,
+            recoveryModeUsed: false,
             parserRegistryUnpackUsed,
             sourceSwitchUsed,
         });
