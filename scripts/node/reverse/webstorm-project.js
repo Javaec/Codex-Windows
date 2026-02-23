@@ -1395,33 +1395,57 @@ function buildWebStormTestProject(input) {
             }
             return indexedCandidateRows.length > 0 ? indexedCandidateRows : fallbackRows;
         };
+        const evaluateSourceCandidate = (sourceFile, rows) => {
+            const sourceContext = getSourceLiftContext(sourceFile);
+            const callableCount = rows.filter((item) => item.kind === "class" || item.kind === "function").length;
+            let parserRegistryRows = 0;
+            for (const item of rows) {
+                const stat = pickDeclarationStatForExport(sourceContext.declarationStatsByName.get(item.sourceSymbol) ?? [], item.kind, item.sourceLine);
+                if (!stat)
+                    continue;
+                if (isParserRegistryDeclaration(stat, sourceContext.sourceChunk)) {
+                    parserRegistryRows += 1;
+                }
+            }
+            const parserPenalty = parserRegistryRows > 0 ? (parserRegistryRows / rows.length) * 28 : 0;
+            const score = rows.length * 12 +
+                callableCount * 20 +
+                (rows[0]?.confidence ?? 0) * 100 +
+                (rows[0]?.nameQuality ?? 0) * 40 -
+                parserPenalty;
+            return { score, parserRegistryRows };
+        };
         let sourceSwitchUsed = false;
         let activeSourceContext = getSourceLiftContext(activeSourceFile);
         let candidateExportRows = buildCandidateRowsForSource(activeSourceFile);
         const activeOwnedRows = filterOwnedExportRows(candidateExportRows);
-        if (activeOwnedRows.length === 0) {
-            let bestAlternative;
-            for (const candidateSourceFile of sourceCandidateOrder) {
-                if (candidateSourceFile === activeSourceFile)
-                    continue;
-                const candidateRows = buildCandidateRowsForSource(candidateSourceFile);
-                const ownedCandidateRows = filterOwnedExportRows(candidateRows);
-                if (ownedCandidateRows.length === 0)
-                    continue;
-                const callableCount = ownedCandidateRows.filter((item) => item.kind === "class" || item.kind === "function").length;
-                const score = ownedCandidateRows.length * 12 +
-                    callableCount * 20 +
-                    (ownedCandidateRows[0]?.confidence ?? 0) * 100 +
-                    (ownedCandidateRows[0]?.nameQuality ?? 0) * 40;
-                if (!bestAlternative || score > bestAlternative.score) {
-                    bestAlternative = {
-                        sourceFile: candidateSourceFile,
-                        rows: ownedCandidateRows,
-                        score,
-                    };
-                }
+        const activeEvaluation = activeOwnedRows.length > 0
+            ? evaluateSourceCandidate(activeSourceFile, activeOwnedRows)
+            : { score: Number.NEGATIVE_INFINITY, parserRegistryRows: 0 };
+        let bestAlternative;
+        for (const candidateSourceFile of sourceCandidateOrder) {
+            if (candidateSourceFile === activeSourceFile)
+                continue;
+            const candidateRows = buildCandidateRowsForSource(candidateSourceFile);
+            const ownedCandidateRows = filterOwnedExportRows(candidateRows);
+            if (ownedCandidateRows.length === 0)
+                continue;
+            const candidateEvaluation = evaluateSourceCandidate(candidateSourceFile, ownedCandidateRows);
+            if (!bestAlternative || candidateEvaluation.score > bestAlternative.score) {
+                bestAlternative = {
+                    sourceFile: candidateSourceFile,
+                    rows: ownedCandidateRows,
+                    score: candidateEvaluation.score,
+                    parserRegistryRows: candidateEvaluation.parserRegistryRows,
+                };
             }
-            if (bestAlternative) {
+        }
+        if (bestAlternative) {
+            const activeParserHeavy = activeEvaluation.parserRegistryRows > 0;
+            const shouldSwitch = activeOwnedRows.length === 0 ||
+                bestAlternative.score > activeEvaluation.score + 18 ||
+                (activeParserHeavy && bestAlternative.score >= activeEvaluation.score);
+            if (shouldSwitch) {
                 sourceSwitchUsed = true;
                 const previousSourceFile = activeSourceFile;
                 activeSourceFile = bestAlternative.sourceFile;
