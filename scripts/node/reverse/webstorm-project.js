@@ -306,6 +306,17 @@ function sanitizeExportIdentifierName(input) {
         return preferred;
     return toSafeExportIdentifier(input);
 }
+function toRecoveryModuleBaseName(input) {
+    const tokens = splitIdentifierTokens(input)
+        .map((token) => token.toLowerCase())
+        .filter((token) => token.length >= 2 && !isNoisyIdentifierToken(token));
+    if (tokens.length === 0)
+        return "moduleRuntime";
+    if (tokens[0] === "use" && tokens.length > 1) {
+        return sanitizeExportIdentifierName(`use${buildIdentifierFromTokens(tokens.slice(1), true)}`);
+    }
+    return sanitizeExportIdentifierName(buildIdentifierFromTokens(tokens, false));
+}
 function getExportKindPriority(kind) {
     if (kind === "class")
         return 400;
@@ -672,7 +683,23 @@ function buildProfiledSecondaryName(input) {
     const normalized = row.name.toLowerCase();
     if (profile.kind === "hook") {
         if (row.kind === "function") {
-            return getProfileCanonicalName(profile, "function");
+            if (/(value|state|current|ref)/.test(normalized)) {
+                return sanitizeExportIdentifierName(`${profile.subjectCamel}State`);
+            }
+            if (/(inline|signal|observable|subject|stream|event|events|registry|cache|map)/.test(normalized)) {
+                return sanitizeExportIdentifierName(`${profile.subjectCamel}Signal`);
+            }
+            if (/(connect|connection|live)/.test(normalized)) {
+                return sanitizeExportIdentifierName(`${profile.subjectCamel}Connection`);
+            }
+            if (/^use[A-Z]/.test(row.name)) {
+                return getProfileCanonicalName(profile, "function");
+            }
+            if (input.index === 0)
+                return getProfileCanonicalName(profile, "function");
+            const suffixes = ["State", "Signal", "Registry", "Connection", "Runtime"];
+            const suffix = suffixes[(input.index - 1) % suffixes.length] ?? "Runtime";
+            return sanitizeExportIdentifierName(`${profile.subjectCamel}${suffix}`);
         }
         if (UTILITY_WRAPPER_NAME_PATTERN.test(normalized)) {
             return sanitizeExportIdentifierName(`${profile.subjectCamel}OwnProperty`);
@@ -698,8 +725,13 @@ function buildProfiledSecondaryName(input) {
         const transportCamel = profile.subjectCamel.endsWith("Transport") ? profile.subjectCamel : `${profile.subjectCamel}Transport`;
         const transportPascal = profile.subjectPascal.endsWith("Transport") ? profile.subjectPascal : `${profile.subjectPascal}Transport`;
         const transportStemCamel = transportCamel.replace(/Transport$/, "");
-        if (row.kind === "function")
-            return sanitizeExportIdentifierName(transportCamel);
+        if (row.kind === "function") {
+            if (input.index === 0)
+                return sanitizeExportIdentifierName(transportCamel);
+            const suffixes = ["ConnectionState", "Registry", "Scheduler", "Runtime"];
+            const suffix = suffixes[(input.index - 1) % suffixes.length] ?? "Runtime";
+            return sanitizeExportIdentifierName(`${transportStemCamel}${suffix}`);
+        }
         if (row.kind === "class")
             return sanitizeExportIdentifierName(transportPascal);
         if (/(buffer|delta|queue)/.test(normalized)) {
@@ -781,7 +813,7 @@ function applyTargetedExportRenames(rows, emittedPath) {
     if (rows.length === 0)
         return rows;
     const moduleStemRaw = path.posix.basename(toPosixPath(emittedPath), path.posix.extname(toPosixPath(emittedPath)));
-    const moduleBaseName = sanitizeExportIdentifierName(moduleStemRaw);
+    const moduleBaseName = toRecoveryModuleBaseName(moduleStemRaw);
     const moduleTokens = collectModuleContextTokens(emittedPath);
     const profile = buildModuleRenameProfile({
         emittedPath,
@@ -1174,14 +1206,103 @@ function inferRecoveryExportKind(emittedPath) {
         return "function";
     return "function";
 }
+function appendUniqueExportName(target, used, value) {
+    const sanitized = sanitizeExportIdentifierName(value);
+    if (sanitized === "symbol_export")
+        return;
+    if (used.has(sanitized))
+        return;
+    used.add(sanitized);
+    target.push(sanitized);
+}
+function buildStructuredRecoveryNames(input) {
+    const moduleTokens = collectModuleContextTokens(input.emittedPath);
+    const profile = buildModuleRenameProfile({
+        emittedPath: input.emittedPath,
+        moduleBaseName: input.moduleBaseName,
+        moduleTokens,
+    });
+    const used = new Set();
+    const names = [];
+    const maxNames = Math.max(1, input.maxExports);
+    const canonicalName = getProfileCanonicalName(profile, input.kind);
+    appendUniqueExportName(names, used, canonicalName);
+    if (input.kind === "function") {
+        if (profile.kind === "hook") {
+            appendUniqueExportName(names, used, `${profile.subjectCamel}State`);
+            appendUniqueExportName(names, used, `${profile.subjectCamel}Signal`);
+            appendUniqueExportName(names, used, `${profile.subjectCamel}Registry`);
+            appendUniqueExportName(names, used, `${profile.subjectCamel}Connection`);
+        }
+        else if (profile.kind === "transport") {
+            const transportCamel = profile.subjectCamel.endsWith("Transport") ? profile.subjectCamel : `${profile.subjectCamel}Transport`;
+            const transportStem = transportCamel.replace(/Transport$/, "");
+            appendUniqueExportName(names, used, transportCamel);
+            appendUniqueExportName(names, used, `${transportStem}ConnectionState`);
+            appendUniqueExportName(names, used, `${transportStem}Registry`);
+            appendUniqueExportName(names, used, `${transportStem}Scheduler`);
+        }
+        else {
+            appendUniqueExportName(names, used, input.moduleBaseName);
+            appendUniqueExportName(names, used, `${input.moduleBaseName}Runtime`);
+            appendUniqueExportName(names, used, `${input.moduleBaseName}Factory`);
+            appendUniqueExportName(names, used, `${input.moduleBaseName}Handler`);
+        }
+    }
+    if (input.kind === "class") {
+        appendUniqueExportName(names, used, `${profile.subjectPascal}Runtime`);
+        appendUniqueExportName(names, used, `${profile.subjectPascal}Model`);
+        appendUniqueExportName(names, used, `${profile.subjectPascal}Adapter`);
+    }
+    if (input.kind === "variable") {
+        appendUniqueExportName(names, used, `${profile.subjectCamel}State`);
+        appendUniqueExportName(names, used, `${profile.subjectCamel}Registry`);
+        appendUniqueExportName(names, used, `${profile.subjectCamel}Config`);
+    }
+    let fillIndex = 0;
+    while (names.length < maxNames && fillIndex < maxNames * 5) {
+        const generated = buildContextualSecondaryName({
+            moduleBaseName: input.moduleBaseName,
+            moduleTokens: profile.subjectTokens,
+            kind: input.kind,
+            index: fillIndex,
+        });
+        appendUniqueExportName(names, used, generated);
+        fillIndex += 1;
+    }
+    return names.slice(0, maxNames);
+}
 function buildSemanticRecoveryExportRows(input) {
-    const emittedModuleBaseName = sanitizeExportIdentifierName(path.posix.basename(toPosixPath(input.emittedPath), path.posix.extname(toPosixPath(input.emittedPath))));
-    const preferredNames = [emittedModuleBaseName, ...input.symbols]
-        .map((item) => sanitizeExportIdentifierName(item))
-        .filter((item, index, arr) => item !== "symbol_export" && arr.indexOf(item) === index);
-    const fallbackNames = preferredNames.length > 0 ? preferredNames : ["moduleRuntime"];
+    const emittedModuleBaseNameRaw = toRecoveryModuleBaseName(path.posix.basename(toPosixPath(input.emittedPath), path.posix.extname(toPosixPath(input.emittedPath))));
     const kind = inferRecoveryExportKind(input.emittedPath);
-    return fallbackNames.slice(0, Math.max(1, input.maxExports)).map((name, index) => ({
+    const emittedModuleBaseName = emittedModuleBaseNameRaw === "symbol_export" ? "moduleRuntime" : emittedModuleBaseNameRaw;
+    const structuredNames = buildStructuredRecoveryNames({
+        emittedPath: input.emittedPath,
+        kind,
+        moduleBaseName: emittedModuleBaseName,
+        maxExports: Math.max(1, input.maxExports),
+    });
+    const sourceSymbolCandidates = input.symbols
+        .map((item) => sanitizeExportIdentifierName(item))
+        .filter((item, index, arr) => item !== "symbol_export" && arr.indexOf(item) === index)
+        .map((name) => ({
+        name,
+        quality: scoreContextualExportNameQuality(name, input.emittedPath),
+        alignment: scoreModulePathAlignment(name, input.emittedPath),
+    }))
+        .filter((item) => item.quality >= 0.82 && item.alignment >= 0.45)
+        .sort((a, b) => {
+        const qualityDelta = b.quality - a.quality;
+        if (qualityDelta !== 0)
+            return qualityDelta;
+        const alignmentDelta = b.alignment - a.alignment;
+        if (alignmentDelta !== 0)
+            return alignmentDelta;
+        return a.name.localeCompare(b.name);
+    })
+        .map((item) => item.name);
+    const combinedNames = Array.from(new Set([...structuredNames, ...sourceSymbolCandidates])).slice(0, Math.max(1, input.maxExports));
+    return combinedNames.map((name, index) => ({
         name,
         sourceSymbol: `semanticIrSymbol${index + 1}`,
         kind,
@@ -1189,7 +1310,7 @@ function buildSemanticRecoveryExportRows(input) {
         confidence: Math.max(0.72, input.moduleConfidence),
         declarationLength: 0,
         hasDeclaration: false,
-        nameQuality: scoreExportNameQuality(name),
+        nameQuality: scoreContextualExportNameQuality(name, input.emittedPath),
         generatedSignal: 0,
     }));
 }
@@ -1677,8 +1798,8 @@ function buildWebStormTestProject(input) {
                 emittedPath,
                 symbols: Array.from(row.symbols),
                 moduleConfidence: row.confidence,
-                maxExports: Math.max(1, synthesisContract.maxSelectedExports),
-            });
+                maxExports: Math.min(4, Math.max(1, synthesisContract.maxSelectedExports)),
+            }).slice(0, synthesisContract.maxSelectedExports);
         }
         const statementBudget = synthesisContract.statementBudget;
         const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
