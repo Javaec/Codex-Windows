@@ -5,6 +5,12 @@ By default every run loads `reference/analysis/1code-codexmonitor-architecture-m
 
 Progress snapshot: see `scripts/reverse/PROGRESS.md`.
 
+Current milestone (2026-02-23):
+- AST reconstruction runs with `chunkBridgeMode=0` and `placeholderMode=0` in latest validated run.
+- Ownership-based source switching is enabled to avoid parser-heavy chunk selection when cleaner ownership candidates exist.
+- Quality gates remain strict and green (`mappedFiles=6`, project checks clean).
+- Contextual rename + ownership rerank now suppress common noisy AST-lift names in generated modules while preserving canonical hook exports.
+
 ## Pipeline modules
 
 - `scripts/ts/reverse/reference-model.ts` unified reference source-of-truth (architecture map + symbol maps + extracted path map).

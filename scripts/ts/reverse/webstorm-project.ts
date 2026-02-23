@@ -497,6 +497,268 @@ function scoreExportNameQuality(input: string): number {
   return clamp01(score);
 }
 
+const MODULE_CONTEXT_STOPWORDS = new Set<string>([
+  "src",
+  "main",
+  "renderer",
+  "services",
+  "feature",
+  "features",
+  "lib",
+  "utils",
+  "hooks",
+  "components",
+  "component",
+  "adapter",
+  "providers",
+  "provider",
+  "pages",
+  "page",
+  "module",
+  "index",
+  "common",
+  "shared",
+  "core",
+]);
+
+function collectModuleContextTokens(emittedPath: string): string[] {
+  const normalized = toPosixPath(emittedPath).replace(/^\.?\//, "").replace(/\.[^.]+$/i, "");
+  const parts = normalized.split("/");
+  const windowedParts = parts.slice(Math.max(0, parts.length - 4));
+  const tokens: string[] = [];
+  for (const part of windowedParts) {
+    for (const token of splitIdentifierTokens(part)) {
+      const normalizedToken = token.toLowerCase();
+      if (normalizedToken.length < 3) continue;
+      if (MODULE_CONTEXT_STOPWORDS.has(normalizedToken)) continue;
+      if (isNoisyIdentifierToken(normalizedToken)) continue;
+      tokens.push(normalizedToken);
+    }
+  }
+  return Array.from(new Set(tokens));
+}
+
+function scoreModulePathAlignment(name: string, emittedPath: string): number {
+  const moduleTokens = collectModuleContextTokens(emittedPath);
+  if (moduleTokens.length === 0) return 0;
+  const moduleSet = new Set(moduleTokens);
+  const nameTokens = splitIdentifierTokens(name)
+    .map((token) => token.toLowerCase())
+    .filter((token) => token.length >= 3 && !isNoisyIdentifierToken(token));
+  if (nameTokens.length === 0) return 0;
+
+  let directHits = 0;
+  let partialHits = 0;
+  for (const token of nameTokens) {
+    if (moduleSet.has(token)) {
+      directHits += 1;
+      continue;
+    }
+    const hasPartial = moduleTokens.some((moduleToken) => moduleToken.startsWith(token) || token.startsWith(moduleToken));
+    if (hasPartial) partialHits += 1;
+  }
+
+  const moduleStem = path.posix.basename(toPosixPath(emittedPath), path.posix.extname(toPosixPath(emittedPath))).toLowerCase();
+  const exactStemBonus = moduleStem === name.toLowerCase() ? 1.8 : 0;
+  return directHits + partialHits * 0.35 + exactStemBonus;
+}
+
+function scoreContextualExportNameQuality(name: string, emittedPath: string): number {
+  const tokens = splitIdentifierTokens(name)
+    .map((token) => token.toLowerCase())
+    .filter((token) => token.length >= 2);
+  let score = scoreExportNameQuality(name);
+  if (tokens.length === 0) return score;
+
+  const startsWithHookPrefix = /^use[A-Z]/.test(name);
+  if (/Use$/.test(name) && !startsWithHookPrefix) {
+    score -= 0.22;
+  }
+
+  const builtinTokenCount = tokens.filter((token) => isGlobalBuiltinSymbol(token)).length;
+  if (builtinTokenCount > 0) {
+    const builtinRatio = builtinTokenCount / tokens.length;
+    if (builtinRatio >= 0.5) score -= 0.32;
+    else if (builtinRatio >= 0.35) score -= 0.22;
+    else score -= 0.1;
+  }
+
+  const alignmentScore = scoreModulePathAlignment(name, emittedPath);
+  const moduleTokens = collectModuleContextTokens(emittedPath);
+  if (moduleTokens.length > 0 && alignmentScore < 0.4) {
+    score -= 0.22;
+  }
+  if (moduleTokens.length > 0 && alignmentScore < 0.2) {
+    score -= 0.12;
+  }
+
+  const hasLowSignalGenericTokens = tokens.some((token) =>
+    token === "math" || token === "regexp" || token === "array" || token === "string" || token === "number" || token === "error",
+  );
+  if (hasLowSignalGenericTokens && alignmentScore < 0.5) {
+    score -= 0.14;
+  }
+  const hasUtilityPrototypeTokens = tokens.some((token) =>
+    token === "hasownproperty" || token === "prototype" || token === "getprototypeof" || token === "defineproperty",
+  );
+  if (hasUtilityPrototypeTokens && moduleTokens.length > 0 && alignmentScore < 0.65) {
+    score -= 0.28;
+  }
+
+  return clamp01(score);
+}
+
+function applyModuleAlignmentSignals(rows: RankedExportRow[], emittedPath: string): RankedExportRow[] {
+  const hasModuleContext = collectModuleContextTokens(emittedPath).length > 0;
+  return rows
+    .map((row) => {
+      const alignmentScore = scoreModulePathAlignment(row.name, emittedPath);
+      const contextualQuality = scoreContextualExportNameQuality(row.name, emittedPath);
+      const qualityBoost = Math.min(0.2, alignmentScore * 0.07);
+      const confidenceBoost = Math.min(0.03, alignmentScore * 0.01);
+      const confidencePenalty = hasModuleContext && alignmentScore < 0.35 ? 0.02 : 0;
+      return {
+        ...row,
+        nameQuality: clamp01(contextualQuality + qualityBoost),
+        confidence: Math.min(0.99, Math.max(0, row.confidence + confidenceBoost - confidencePenalty)),
+      };
+    })
+    .sort((a, b) => {
+      const scoreDelta = computeSelectionScore(b) - computeSelectionScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+      if (a.nameQuality !== b.nameQuality) return b.nameQuality - a.nameQuality;
+      if (a.declarationLength !== b.declarationLength) return a.declarationLength - b.declarationLength;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+function isContextualRenameCandidate(input: {
+  row: RankedExportRow;
+  emittedPath: string;
+  moduleTokens: string[];
+}): boolean {
+  const { row, emittedPath, moduleTokens } = input;
+  const normalized = row.name.toLowerCase();
+  if (normalized.includes("getobjectready")) return true;
+  if (/var[a-z0-9]{2,}/.test(normalized)) return true;
+  if (/(?:renderer|assets|services|main|tauri)\d+$/.test(normalized)) return true;
+  if (/(hasownproperty|getprototypeof|defineproperty|prototype)/.test(normalized)) return true;
+  if (row.kind === "variable" && /Use$/.test(row.name) && !/^use[A-Z]/.test(row.name)) return true;
+  const alignmentScore = scoreModulePathAlignment(row.name, emittedPath);
+  if (moduleTokens.length > 0 && alignmentScore < 0.28) return true;
+  if (scoreContextualExportNameQuality(row.name, emittedPath) <= 0.72) return true;
+  return false;
+}
+
+function buildContextualSecondaryName(input: {
+  moduleBaseName: string;
+  moduleTokens: string[];
+  kind: LiftedExportKind;
+  index: number;
+}): string {
+  const baseTokens = input.moduleTokens.length > 0 ? input.moduleTokens : splitIdentifierTokens(input.moduleBaseName).map((token) => token.toLowerCase());
+  const normalizedBaseTokens =
+    input.kind === "function"
+      ? baseTokens
+      : baseTokens[0] === "use" && baseTokens.length > 1
+        ? baseTokens.slice(1)
+        : baseTokens;
+  const baseIdentifier = buildIdentifierFromTokens(normalizedBaseTokens, input.kind === "class");
+  const stableBase = sanitizeExportIdentifierName(baseIdentifier.length > 0 ? baseIdentifier : input.moduleBaseName);
+  const functionSuffixes = ["Runtime", "Factory", "Loader", "Bridge", "Handler", "Internal"];
+  const classSuffixes = ["Model", "Runtime", "Controller", "Manager", "Adapter", "Node"];
+  const variableSuffixes = ["Value", "Map", "Registry", "Config", "State", "Cache"];
+  const suffixList = input.kind === "function" ? functionSuffixes : input.kind === "class" ? classSuffixes : variableSuffixes;
+  const suffix = suffixList[input.index % suffixList.length] ?? "Value";
+  if (input.kind === "class") {
+    const classBase = buildIdentifierFromTokens(splitIdentifierTokens(stableBase), true);
+    const className = sanitizeExportIdentifierName(`${classBase}${suffix}`);
+    if (className !== "symbol_export") return className;
+    return `DomainRuntime${input.index + 1}`;
+  }
+  const camelBase = buildIdentifierFromTokens(splitIdentifierTokens(stableBase), false);
+  const exportName = sanitizeExportIdentifierName(`${camelBase}${suffix}`);
+  if (exportName !== "symbol_export") return exportName;
+  return `domainRuntime${input.index + 1}`;
+}
+
+function applyTargetedExportRenames(rows: RankedExportRow[], emittedPath: string): RankedExportRow[] {
+  if (rows.length === 0) return rows;
+  const moduleStemRaw = path.posix.basename(toPosixPath(emittedPath), path.posix.extname(toPosixPath(emittedPath)));
+  const moduleBaseName = sanitizeExportIdentifierName(moduleStemRaw);
+  const moduleTokens = collectModuleContextTokens(emittedPath);
+  const moduleLooksLikeHook = /^use[A-Z]/.test(moduleBaseName);
+  const usedNames = new Set(rows.map((row) => row.name));
+  const nextRows = rows.map((row) => ({ ...row }));
+
+  const callableIndexes = nextRows
+    .map((row, index) => ({ row, index }))
+    .filter((item) => item.row.kind === "function" || item.row.kind === "class")
+    .sort((a, b) => {
+      const scoreDelta = computeSelectionScore(b.row) - computeSelectionScore(a.row);
+      if (scoreDelta !== 0) return scoreDelta;
+      return a.index - b.index;
+    });
+
+  const canonicalNameValid = moduleBaseName !== "symbol_export" && moduleBaseName.length >= 3;
+  const canonicalCandidates =
+    callableIndexes.length > 0
+      ? callableIndexes
+      : moduleLooksLikeHook
+        ? nextRows
+            .map((row, index) => ({ row, index }))
+            .filter((item) => item.row.kind === "function" || item.row.kind === "variable")
+            .sort((a, b) => {
+              const scoreDelta = computeSelectionScore(b.row) - computeSelectionScore(a.row);
+              if (scoreDelta !== 0) return scoreDelta;
+              return a.index - b.index;
+            })
+        : [];
+  if (canonicalNameValid && canonicalCandidates.length > 0) {
+    const primary = canonicalCandidates[0];
+    if (primary && primary.row.name !== moduleBaseName && !usedNames.has(moduleBaseName)) {
+      usedNames.delete(primary.row.name);
+      primary.row.name = moduleBaseName;
+      primary.row.nameQuality = scoreExportNameQuality(moduleBaseName);
+      usedNames.add(primary.row.name);
+    }
+  }
+
+  let renameOrdinal = 0;
+  for (const row of nextRows) {
+    if (
+      !isContextualRenameCandidate({
+        row,
+        emittedPath,
+        moduleTokens,
+      })
+    ) {
+      continue;
+    }
+    const nextCandidateName = buildContextualSecondaryName({
+      moduleBaseName: moduleBaseName === "symbol_export" ? "moduleRuntime" : moduleBaseName,
+      moduleTokens,
+      kind: row.kind,
+      index: renameOrdinal,
+    });
+    renameOrdinal += 1;
+    let nextName = nextCandidateName;
+    let dedupeIndex = 2;
+    while (usedNames.has(nextName) && dedupeIndex < 200) {
+      nextName = `${nextCandidateName}${dedupeIndex}`;
+      dedupeIndex += 1;
+    }
+    if (nextName === row.name || usedNames.has(nextName)) continue;
+    usedNames.delete(row.name);
+    row.name = nextName;
+    row.nameQuality = scoreExportNameQuality(nextName);
+    usedNames.add(row.name);
+  }
+
+  return nextRows;
+}
+
 function normalizeExportNameRoot(input: string): string {
   const sanitized = stripNoisyExportSuffix(input);
   return sanitized.replace(/V\d+$/i, "").replace(/\d+$/i, "").replace(/[_-]+$/, "").toLowerCase();
@@ -1589,9 +1851,17 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
 
     const evaluateSourceCandidate = (sourceFile: string, rows: RankedExportRow[]): { score: number; parserRegistryRows: number } => {
       const sourceContext = getSourceLiftContext(sourceFile);
-      const callableCount = rows.filter((item) => item.kind === "class" || item.kind === "function").length;
+      const alignedRows = applyModuleAlignmentSignals(rows, emittedPath);
+      const callableCount = alignedRows.filter((item) => item.kind === "class" || item.kind === "function").length;
+      const alignmentAggregate =
+        alignedRows.reduce((sum, item) => sum + scoreModulePathAlignment(item.name, emittedPath), 0) /
+        Math.max(1, alignedRows.length);
+      const generatedAggregate =
+        alignedRows.reduce((sum, item) => sum + item.generatedSignal, 0) / Math.max(1, alignedRows.length);
+      const oversizedDeclarationRatio =
+        alignedRows.filter((item) => item.declarationLength > 9000).length / Math.max(1, alignedRows.length);
       let parserRegistryRows = 0;
-      for (const item of rows) {
+      for (const item of alignedRows) {
         const stat = pickDeclarationStatForExport(
           sourceContext.declarationStatsByName.get(item.sourceSymbol) ?? [],
           item.kind,
@@ -1603,12 +1873,15 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
         }
       }
       const parserPenalty = parserRegistryRows > 0 ? (parserRegistryRows / rows.length) * 28 : 0;
+      const generatedPenalty = generatedAggregate * 46 + oversizedDeclarationRatio * 28;
       const score =
-        rows.length * 12 +
+        alignedRows.length * 12 +
         callableCount * 20 +
-        (rows[0]?.confidence ?? 0) * 100 +
-        (rows[0]?.nameQuality ?? 0) * 40 -
-        parserPenalty;
+        (alignedRows[0]?.confidence ?? 0) * 100 +
+        (alignedRows[0]?.nameQuality ?? 0) * 40 +
+        alignmentAggregate * 22 -
+        parserPenalty -
+        generatedPenalty;
       return { score, parserRegistryRows };
     };
 
@@ -1670,28 +1943,29 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       candidateExportRows = ownedFallbackRows.length > 0 ? ownedFallbackRows : fallbackRows;
     }
 
+    const alignedCandidateRows = applyModuleAlignmentSignals(candidateExportRows, emittedPath);
     const selectedExports = selectPrimaryExports({
-      rows: candidateExportRows,
+      rows: alignedCandidateRows,
       moduleConfidence: row.confidence,
     });
-    const initialExportRows = selectedExports.selected;
+    const initialExportRows = applyTargetedExportRenames(selectedExports.selected, emittedPath);
     const statementBudget = determineAdaptiveStatementBudget({
       sourceFile: activeSourceFile,
-      candidateExports: candidateExportRows.length,
+      candidateExports: alignedCandidateRows.length,
       selectedExports: initialExportRows.length,
     });
     const maxPrimaryStatementLength = determineMaxPrimaryStatementLength({
-      candidateExports: candidateExportRows.length,
+      candidateExports: alignedCandidateRows.length,
       statementBudget,
     });
     const maxDependencyStatementLength = determineMaxDependencyStatementLength({
-      candidateExports: candidateExportRows.length,
+      candidateExports: alignedCandidateRows.length,
       statementBudget,
     });
     let exportRows = initialExportRows;
     let droppedExportsByBudget = 0;
     const allowClosestFallback =
-      candidateExportRows.length <= 180 &&
+      alignedCandidateRows.length <= 180 &&
       !/\/(?:index-|chunk-)/i.test(activeSourceFile.toLowerCase()) &&
       !activeSourceFile.toLowerCase().includes(".vite/build/worker");
 
@@ -1856,7 +2130,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       emittedPath,
       sourceFile: activeSourceFile,
       sourceChunkArtifactPath: chunkArtifactPath,
-      candidateExports: candidateExportRows.length,
+      candidateExports: alignedCandidateRows.length,
       selectedExports: exportRows.length,
       droppedExports: selectedExports.dropped.length,
       droppedExportsByBudget,

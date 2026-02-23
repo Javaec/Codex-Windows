@@ -1,167 +1,166 @@
 # Reverse/Deobfuscation Progress Notes
 
 ## Snapshot
-- Date (UTC): 2026-02-22
-- Latest validated run: `work/reverse/regression-latest/core-no-binary`
-- Latest regression suite: `work/reverse/regression-latest`
+- Date (UTC): 2026-02-23
+- Latest validated run: `C:\Codex-Windows\work\reverse\latest` (`run-20260223-115657Z`)
+- Latest fixed regression suite root: `C:\Codex-Windows\work\reverse\regression-latest`
 - Pipeline entrypoint: `scripts/ts/reverse.ts`
 
-## Implemented Capabilities
-- Unified reference source-of-truth in `scripts/ts/reverse/reference-model.ts`:
+## Current Pipeline Shape
+
+### Reference and Matching
+- Unified reference source-of-truth: `scripts/ts/reverse/reference-model.ts`
   - reads:
     - `reference/analysis/1code-codexmonitor-architecture-map.md`
     - `reference/analysis/1code-symbol-map.json`
     - `reference/analysis/CodexMonitor-symbol-map.json`
-  - emits unified model in `report/reference-model.json`
-  - includes:
-    - `unified.files` (symbol-map + path-map merged)
-    - `unified.pathMap`
-    - `unified.domainDefinitions` (labels + weights + keywords)
-- `match-v2` stage in `scripts/ts/reverse/match-v2.ts`:
-  - multi-signal file/symbol scoring:
+  - emits:
+    - `report/reference-model.json`
+    - `report/reference-signals.json`
+    - `report/reference-symbols.json`
+- Matching stage: `scripts/ts/reverse/match-v2.ts`
+  - multi-signal scoring:
     - AST
     - IPC/RPC
     - state keys
     - component boundaries
     - route/event flow
     - layer/path-map alignment
-  - ownership-aware symbol scoring:
-    - boundary ownership signal
-    - UI likelihood signal
-  - controlled non-generic symbol recovery pass
-  - regression-calibrated profile sourced from `scripts/ts/reverse/regression-config.ts`
-- `domain-report` + `component-boundaries` extracted from god object:
-  - `scripts/ts/reverse/domain-boundaries.ts`
-- Domain/session/parity orchestration extracted from god object:
-  - `scripts/ts/reverse/domain-flow-parity.ts`
-  - domain definitions are now consumed directly from `reference-model.unified.domainDefinitions`
-  - no local parity keyword/weight adapters in `reverse.ts`
-- IPC stage extracted:
-  - `scripts/ts/reverse/ipc-contract-map.ts`
-- IPC wrapper decode internals extracted:
-  - `scripts/ts/reverse/ipc-wrapper-decode.ts`
-- Runtime probe orchestration extracted from god object:
-  - `scripts/ts/reverse/runtime-probe.ts`
-  - `reverse.ts` now uses module-level runtime probe API + classification helper
-- RPC schema stage extracted:
-  - `scripts/ts/reverse/rpc-schema.ts`
-- Session/graph stage extracted:
-  - `scripts/ts/reverse/session-route-flow.ts`
-- Reference parity stage extracted:
-  - `scripts/ts/reverse/reference-parity.ts`
-  - now accepts `domainDefinitions` directly (label + keywords + parityWeight) from `reference-model`
-- Deobfuscation formatting extracted:
-  - `scripts/ts/reverse/deobfuscation-report.ts`
-- Report writing extracted:
-  - `scripts/ts/reverse/report-writer.ts`
-  - all final report json/markdown/csv/txt writes are delegated from `reverse.ts`
-- Architecture markdown builder extracted:
-  - `scripts/ts/reverse/architecture-report.ts`
-- Summary composition extracted:
-  - `scripts/ts/reverse/summary-composer.ts`
-- Project generator extracted:
-  - `scripts/ts/reverse/webstorm-project.ts`
-- Stable output discipline added:
-  - `scripts/ts/reverse/output-discipline.ts`
-  - reverse runs sync to `work/reverse/latest`
-  - regression suites sync to `work/reverse/regression-latest`
-  - archived runs are rotated via keep-last-N cleanup
+  - ownership-aware scoring:
+    - boundary ownership boost/penalty
+    - UI likelihood alignment
+  - aggressive and completion symbol coverage paths remain bounded by quality gates.
 
-## Hard Quality Gates
-- Gate stage: `scripts/ts/reverse/quality-gates.ts`
-- Output: `report/quality-gates.json`
-- Enforced conditions per run:
-  - `mappedFiles` in `[4..6]`
-  - `mappedSymbols` floor `>= 12`
-  - `mappedSymbols` must not regress against history (`work/reverse-quality-history.json`)
-  - no generic-path noise in reconstructed targets (`types/utils/index/common/shared`)
-  - generated project checks must be clean:
-    - `npm install`
-    - `tsc --noEmit`
-    - `eslint` errors=0 and warnings=0
-  - strict artifact consistency:
-    - one chunk source -> one chunk artifact
-    - wrapper-only reconstructed modules
-    - only TS-first target layers:
-      - `src/main/*`
-      - `src/renderer/*`
-      - `src/services/*`
-      - `src-tauri-adapter/*`
+### Reverse Orchestrator Decomposition
+- Major reverse stages have been extracted from `reverse.ts`:
+  - `domain-boundaries.ts`
+  - `domain-flow-parity.ts`
+  - `ipc-contract-map.ts`
+  - `ipc-wrapper-decode.ts`
+  - `runtime-probe.ts`
+  - `rpc-schema.ts`
+  - `session-route-flow.ts`
+  - `reference-parity.ts`
+  - `deobfuscation-report.ts`
+  - `architecture-report.ts`
+  - `summary-composer.ts`
+  - `report-writer.ts`
+  - `webstorm-project.ts`
+  - `output-discipline.ts`
 
-## Fixed Regression Runs
-- Config: `scripts/ts/reverse/regression-config.ts`
-- Runner: `scripts/ts/reverse-regression.ts`
-- NPM command:
-  - `npm run reverse:regression -- -AppDir C:\Codex-Windows\work\app`
-- Current fixed suite:
-  - `core-no-binary`
-  - `core-no-binary-no-pretty`
-  - `core-no-binary-top120`
-  - `core-runtime-probe-soft`
-- Match-v2 regression calibration variants:
-  - `baseline`
-  - `ownership_boost`
-  - `file_recall_boost`
-- Calibration targets (fixed-suite scoring):
-  - mappedFiles: `5..6`
-  - mappedSymbols: `12..16`
-- Snapshot-version baseline store:
-  - file: `scripts/reverse/regression-baselines.json`
-  - profile key: `name@version` (example: `openai-codex-electron@26.217.1959`)
-
-## Generated Project (IDE-Oriented)
-- Target folder: `project`
-- Reconstruction policy:
-  - one source chunk -> one artifact in `project/src/chunks/*`
-  - reconstructed modules are TS wrappers with point symbol exports
-  - no full-chunk duplication into each reconstructed module
-- Layer layout:
+### Generated Project Policy
+- Generator stage: `scripts/ts/reverse/webstorm-project.ts`
+- TS-first layout is fixed to:
   - `project/src/main/*`
   - `project/src/renderer/*`
   - `project/src/services/*`
   - `project/src-tauri-adapter/*`
+- Artifact model is strict:
+  - one source chunk -> one chunk artifact in `project/src/chunks/*`
+  - source-to-artifact mapping in `project/mapping/chunk-artifacts.json`
+  - reconstructed module map in `project/mapping/reconstructed-map.json`
+  - lift diagnostics in `project/mapping/lifter-diagnostics.json`
 
-## Latest Metrics (`work/reverse/regression-latest/core-no-binary`)
-- Indexed files: 443
-- JS files: 440
-- Routes: 21
-- Methods: 6
-- IPC channels: 9
-- Component boundaries: 27
-- Deobfuscation:
-  - mapped files: 6
-  - mapped symbols: 16
-  - entries: 22
-  - reconstructed targets: 12
-- Reference model:
-  - unified files: 99
-  - path-map entries: 30
-- Quality gates:
-  - pass: true
-  - generic-path noise: 0
-  - install/tsc/eslint: clean
-- Pipeline size:
-  - `scripts/ts/reverse.ts`: 2206 LOC
-  - `scripts/ts/reverse/architecture-report.ts`: 269 LOC
-  - `scripts/ts/reverse/summary-composer.ts`: 230 LOC
-  - `scripts/ts/reverse/ipc-wrapper-decode.ts`: 1184 LOC
-  - `scripts/ts/reverse/domain-flow-parity.ts`: 201 LOC
-  - `scripts/ts/reverse/runtime-probe.ts`: 291 LOC
-  - `scripts/ts/reverse/report-writer.ts`: 97 LOC
+## Major Milestones Reached (2026-02-23)
 
-## Latest Regression Suite (`work/reverse/regression-latest`)
-- Selected variant: `baseline`
-- `core-no-binary`: pass, mappedFiles=6, mappedSymbols=16
-- `core-no-binary-no-pretty`: pass, mappedFiles=6, mappedSymbols=16
-- `core-no-binary-top120`: pass, mappedFiles=6, mappedSymbols=16
-- `core-runtime-probe-soft`: pass, mappedFiles=6, mappedSymbols=16
+### 1) Chunk Bridge Elimination
+- `chunkBridgeMode` reduced to `0`.
+- `placeholderMode` reduced to `0`.
+- AST-lift now resolves all reconstructed modules without bridge placeholders in the latest run.
 
-## Known Gaps / Noise
-- Runtime probe remains environment-dependent and can still produce machine-specific variance.
-- Reference parity is still partial, especially in chat/session coverage depth.
-- Symbol recovery now reaches upper calibration band `16` without generic-path leakage; next gap is lifting symbol semantic precision.
+### 2) Ownership-Based Source Switching
+- Reconstruction no longer hard-binds to initial source chunk only.
+- Source candidates are ranked per target module and switched when ownership quality is higher.
+- Parser-heavy sources are penalized when cleaner ownership candidates exist.
 
-## Next Improvements (Generator-First)
-- Continue slicing `reverse.ts` toward orchestration-only (next candidates: additional extraction/index helpers and binary/rpc utilities).
-- Keep calibrating symbol ownership precision on fixed regression runs while holding mappedSymbols at `16` and avoiding generic leakage.
-- Extend snapshot baseline coverage as new app snapshot versions are added.
+### 3) Parser/Registry Unpack Rule
+- `symbol-lifter.ts` now supports parser/registry unpack override (`allowParserRegistryUnpack`).
+- Rule allows lifting generated parser/registry blocks when needed instead of forced unresolved fallback.
+- In latest run, source reranking avoided parser-heavy routes entirely (`parserRegistryUnpackUsed = 0`), but unpack path is available as controlled fallback.
+
+### 4) Output Noise Reduction
+- Chunk artifact writes are now demand-driven for selected sources only.
+- Artifact count returned to low stable range after source-switch refactor.
+
+## Hard Quality Gates (Current)
+- Gate stage: `scripts/ts/reverse/quality-gates.ts`
+- Output: `report/quality-gates.json`
+- Enforced conditions:
+  - `mappedFiles` in `[4..6]`
+  - `mappedSymbols >= 12` and non-regression against `work/reverse-quality-history.json`
+  - no generic target-path noise (`types/utils/index/common/shared`)
+  - generated project checks pass:
+    - `npm install`
+    - `tsc --noEmit`
+    - `eslint` (`errors=0`, `warnings=0`)
+  - artifact integrity checks pass.
+
+## Latest Metrics (`run-20260223-115657Z`)
+
+### Gate Metrics
+- `passed = true`
+- `mappedFiles = 6`
+- `mappedSymbols = 8382`
+- `lowConfidenceSymbols = 0`
+- `noisySymbolNames = 0`
+- `genericNoisePaths = []`
+- `installSuccess = true`
+- `tscErrors = 0`
+- `eslintErrors = 0`
+- `eslintWarnings = 0`
+- `reconstructedRows = 41`
+- `chunkArtifactRows = 11`
+
+### Lifter Diagnostics Aggregate
+- `rows = 41`
+- `chunkBridgeMode = 0`
+- `placeholderMode = 0`
+- `sourceSwitchUsed = 19`
+- `recoveryModeUsed = 1`
+- `parserRegistryUnpackUsed = 0`
+
+### Active Chunk Artifacts (11)
+- `.vite/build/main-Bs98CzMV.js`
+- `.vite/build/worker.js`
+- `webview/assets/_basePickBy-DkbAhjPl.js`
+- `webview/assets/_baseUniq-Ds3QSdgP.js`
+- `webview/assets/architectureDiagram-VXUJARFQ-msbZ-ZkB.js`
+- `webview/assets/blockDiagram-VD42YOAC-DdBnVuyH.js`
+- `webview/assets/ganttDiagram-LVOFAZNH-DeKyPIdq.js`
+- `webview/assets/index-X7Ur8m0p.js`
+- `webview/assets/treemap-KMMF4GRG-DrZSO-R-.js`
+- `webview/assets/worker-CJ6-3-tZ.js`
+- `webview/assets/xychartDiagram-PRI3JC2R-5nM4tXmC.js`
+
+## Fixed Regression Suite
+- Config: `scripts/ts/reverse/regression-config.ts`
+- Runner: `scripts/ts/reverse-regression.ts`
+- Baselines: `scripts/reverse/regression-baselines.json`
+- Fixed suite:
+  - `core-no-binary`
+  - `core-no-binary-no-pretty`
+  - `core-no-binary-top120`
+  - `core-runtime-probe-soft`
+- Variants:
+  - `baseline`
+  - `ownership_boost`
+  - `file_recall_boost`
+
+## Known Gaps
+- Name semantics in some AST-lifted modules still contain synthetic patterns (especially in non-reference-rich chunks).
+- Runtime probe remains environment-sensitive.
+- Reference parity depth in some chat/session paths remains partial.
+
+## Current Focus
+- Improve semantic quality of reconstructed export names without relaxing gates:
+  - targeted rename pass on noisy AST-lift exports
+  - stronger module-path ownership rerank
+  - keep `chunkBridgeMode = 0` and `placeholderMode = 0`
+- Recent validated improvements:
+  - removed noisy reconstructed names (`eventGetObjectReadyUse*`, `eventsMathMaxUse`, `expRegRegexpUse`)
+  - preserved canonical hook-style exports in target modules (`useAppServerEvents`)
+
+## Recent Commits
+- `6a2ff55` `✨ Strengthen symbol-target indexing and recovery heuristics`
+- `3e4eaf1` `🚀 Eliminate chunk bridges with ownership source switching and parser unpack`
+- `6888d14` `✨ Prefer higher-quality ownership sources over parser-heavy lifts`
