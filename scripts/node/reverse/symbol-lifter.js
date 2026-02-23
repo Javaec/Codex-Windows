@@ -196,7 +196,9 @@ function collectStatementReferences(statement, declaredNames) {
 function collectTopLevelRecords(sourceFile, sourceText) {
     const statements = [];
     const declarationsByName = new Map();
+    const declarations = [];
     const pushDeclaration = (row) => {
+        declarations.push(row);
         const bucket = declarationsByName.get(row.name) ?? [];
         bucket.push(row);
         declarationsByName.set(row.name, bucket);
@@ -242,7 +244,7 @@ function collectTopLevelRecords(sourceFile, sourceText) {
             pushStatementDeclaration(index, declaration.name, declaration.name.text, inferVariableDeclarationKind(declaration));
         }
     });
-    return { statements, declarationsByName };
+    return { statements, declarationsByName, declarations };
 }
 function scoreDeclarationKind(expected, actual) {
     if (expected === actual)
@@ -288,6 +290,24 @@ function pickDependencyDeclaration(records, statementLine) {
     }
     return best;
 }
+function pickFallbackDeclaration(declarations, expectedKind, sourceLine, usedStatementIndexes) {
+    if (declarations.length === 0)
+        return undefined;
+    const lineHint = sourceLine > 0 ? sourceLine : declarations[0]?.line ?? 0;
+    let best;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const row of declarations) {
+        const kindScore = scoreDeclarationKind(expectedKind, row.kind);
+        const lineDistance = Math.abs(row.line - lineHint) * 0.02;
+        const usedPenalty = usedStatementIndexes.has(row.statementIndex) ? 9 : 0;
+        const score = kindScore * 100 + lineDistance + usedPenalty + row.statementIndex * 0.0001;
+        if (score < bestScore) {
+            best = row;
+            bestScore = score;
+        }
+    }
+    return best;
+}
 function liftModuleSource(input) {
     let sourceFile;
     try {
@@ -297,11 +317,12 @@ function liftModuleSource(input) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to parse source chunk for lifting: ${input.sourceFilePath}. ${message}`);
     }
-    const { statements, declarationsByName } = collectTopLevelRecords(sourceFile, input.sourceText);
+    const { statements, declarationsByName, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
     const includeStatementIndexes = new Set();
     const queue = [];
     const liftedExports = [];
     const unresolvedExports = [];
+    const usedPrimaryStatementIndexes = new Set();
     for (const spec of input.exports) {
         const sourceSymbol = spec.sourceSymbol.trim();
         if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(sourceSymbol)) {
@@ -309,18 +330,22 @@ function liftModuleSource(input) {
             continue;
         }
         const records = declarationsByName.get(sourceSymbol) ?? [];
-        const best = pickBestDeclaration(records, spec.kind, spec.sourceLine);
+        let best = pickBestDeclaration(records, spec.kind, spec.sourceLine);
+        if (!best) {
+            best = pickFallbackDeclaration(declarations, spec.kind, spec.sourceLine, usedPrimaryStatementIndexes);
+        }
         if (!best) {
             unresolvedExports.push(spec);
             continue;
         }
+        usedPrimaryStatementIndexes.add(best.statementIndex);
         if (!includeStatementIndexes.has(best.statementIndex)) {
             includeStatementIndexes.add(best.statementIndex);
             queue.push(best.statementIndex);
         }
         liftedExports.push({
             exportName: spec.exportName,
-            sourceSymbol,
+            sourceSymbol: best.name,
             kind: spec.kind,
             sourceLine: spec.sourceLine,
         });

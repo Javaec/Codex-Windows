@@ -180,11 +180,14 @@ function collectStatementReferences(statement: ts.Statement, declaredNames: Set<
 function collectTopLevelRecords(sourceFile: ts.SourceFile, sourceText: string): {
   statements: TopLevelStatementRecord[];
   declarationsByName: Map<string, TopLevelDeclarationRecord[]>;
+  declarations: TopLevelDeclarationRecord[];
 } {
   const statements: TopLevelStatementRecord[] = [];
   const declarationsByName = new Map<string, TopLevelDeclarationRecord[]>();
+  const declarations: TopLevelDeclarationRecord[] = [];
 
   const pushDeclaration = (row: TopLevelDeclarationRecord): void => {
+    declarations.push(row);
     const bucket = declarationsByName.get(row.name) ?? [];
     bucket.push(row);
     declarationsByName.set(row.name, bucket);
@@ -231,7 +234,7 @@ function collectTopLevelRecords(sourceFile: ts.SourceFile, sourceText: string): 
     }
   });
 
-  return { statements, declarationsByName };
+  return { statements, declarationsByName, declarations };
 }
 
 function scoreDeclarationKind(expected: LiftedExportKind, actual: LiftedExportKind): number {
@@ -282,6 +285,29 @@ function pickDependencyDeclaration(
   return best;
 }
 
+function pickFallbackDeclaration(
+  declarations: TopLevelDeclarationRecord[],
+  expectedKind: LiftedExportKind,
+  sourceLine: number,
+  usedStatementIndexes: Set<number>,
+): TopLevelDeclarationRecord | undefined {
+  if (declarations.length === 0) return undefined;
+  const lineHint = sourceLine > 0 ? sourceLine : declarations[0]?.line ?? 0;
+  let best: TopLevelDeclarationRecord | undefined;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const row of declarations) {
+    const kindScore = scoreDeclarationKind(expectedKind, row.kind);
+    const lineDistance = Math.abs(row.line - lineHint) * 0.02;
+    const usedPenalty = usedStatementIndexes.has(row.statementIndex) ? 9 : 0;
+    const score = kindScore * 100 + lineDistance + usedPenalty + row.statementIndex * 0.0001;
+    if (score < bestScore) {
+      best = row;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSourceResult {
   let sourceFile: ts.SourceFile;
   try {
@@ -291,11 +317,12 @@ export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSo
     throw new Error(`Failed to parse source chunk for lifting: ${input.sourceFilePath}. ${message}`);
   }
 
-  const { statements, declarationsByName } = collectTopLevelRecords(sourceFile, input.sourceText);
+  const { statements, declarationsByName, declarations } = collectTopLevelRecords(sourceFile, input.sourceText);
   const includeStatementIndexes = new Set<number>();
   const queue: number[] = [];
   const liftedExports: LiftedExportSpec[] = [];
   const unresolvedExports: LiftedExportSpec[] = [];
+  const usedPrimaryStatementIndexes = new Set<number>();
 
   for (const spec of input.exports) {
     const sourceSymbol = spec.sourceSymbol.trim();
@@ -304,18 +331,22 @@ export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSo
       continue;
     }
     const records = declarationsByName.get(sourceSymbol) ?? [];
-    const best = pickBestDeclaration(records, spec.kind, spec.sourceLine);
+    let best = pickBestDeclaration(records, spec.kind, spec.sourceLine);
+    if (!best) {
+      best = pickFallbackDeclaration(declarations, spec.kind, spec.sourceLine, usedPrimaryStatementIndexes);
+    }
     if (!best) {
       unresolvedExports.push(spec);
       continue;
     }
+    usedPrimaryStatementIndexes.add(best.statementIndex);
     if (!includeStatementIndexes.has(best.statementIndex)) {
       includeStatementIndexes.add(best.statementIndex);
       queue.push(best.statementIndex);
     }
     liftedExports.push({
       exportName: spec.exportName,
-      sourceSymbol,
+      sourceSymbol: best.name,
       kind: spec.kind,
       sourceLine: spec.sourceLine,
     });

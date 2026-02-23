@@ -91,6 +91,13 @@ function parseSourceLineHint(value: string): number {
   return Math.floor(parsed);
 }
 
+function formatPreviewList(values: string[], max: number): string {
+  if (values.length === 0) return "none";
+  const trimmed = values.slice(0, max);
+  const suffix = values.length > max ? ` ... (+${values.length - max} more)` : "";
+  return `${trimmed.join(", ")}${suffix}`;
+}
+
 function toChunkArtifactPath(sourceFile: string): string {
   const normalized = toPosixPath(sourceFile).replace(/^\.?\//, "");
   return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
@@ -487,8 +494,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       `  Source chunk artifact: ${chunkArtifactPath}`,
       `  Source chunk: ${row.sourceFile}`,
       `  Confidence: ${row.confidence}`,
-      `  Suggested symbols: ${Array.from(row.symbols).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
-      `  References: ${Array.from(row.references).sort((a, b) => a.localeCompare(b)).join(", ") || "none"}`,
+      `  Suggested symbols: ${formatPreviewList(Array.from(row.symbols).sort((a, b) => a.localeCompare(b)), 18)}`,
+      `  References: ${formatPreviewList(Array.from(row.references).sort((a, b) => a.localeCompare(b)), 12)}`,
       "*/",
       "",
       "// @ts-nocheck",
