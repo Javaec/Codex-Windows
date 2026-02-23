@@ -3230,7 +3230,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
         relPath,
         source,
         mode: "broad",
-      }).slice(0, 24);
+      }).slice(0, 32);
       obfuscatedVariableCandidates += variableCandidates.length;
       if (variableCandidates.length === 0) continue;
 
