@@ -1512,18 +1512,37 @@ function applySymbolQualityPass(input: {
     const sourceFile = getEntrySourceFile(entry.sourceFile);
     const candidateKey = `${symbolKind}|${sourceFile}|${entry.obfuscated}`;
     const candidateBucket = candidateBuckets.get(candidateKey) ?? [];
-    if (candidateBucket.length === 0) continue;
     const lineHint = getEntrySourceLine(entry.sourceFile);
-    let selectedCandidate = candidateBucket[0]!;
-    if (lineHint > 0 && candidateBucket.length > 1) {
-      let minDistance = Number.POSITIVE_INFINITY;
-      for (const candidate of candidateBucket) {
-        const distance = Math.abs(candidate.line - lineHint);
-        if (distance < minDistance) {
-          minDistance = distance;
-          selectedCandidate = candidate;
+    const isTargetedLowTailEntry =
+      entry.confidence < 0.5 &&
+      entry.rationale.some((item) => item.includes("fallback: mass-fill-non-generic")) &&
+      !isGenericReferenceFilePath(entry.reference.file) &&
+      entry.reference.score >= 6;
+
+    let selectedCandidate: ObfuscatedSymbolCandidate;
+    let syntheticCandidateUsed = false;
+    if (candidateBucket.length > 0) {
+      selectedCandidate = candidateBucket[0]!;
+      if (lineHint > 0 && candidateBucket.length > 1) {
+        let minDistance = Number.POSITIVE_INFINITY;
+        for (const candidate of candidateBucket) {
+          const distance = Math.abs(candidate.line - lineHint);
+          if (distance < minDistance) {
+            minDistance = distance;
+            selectedCandidate = candidate;
+          }
         }
       }
+    } else {
+      if (!isTargetedLowTailEntry) continue;
+      syntheticCandidateUsed = true;
+      selectedCandidate = {
+        kind: symbolKind,
+        name: entry.obfuscated,
+        sourceFile,
+        line: lineHint > 0 ? lineHint : 1,
+        tokens: extractNameTokens(entry.obfuscated),
+      };
     }
 
     const signal = input.fileSignals.get(sourceFile) ?? createEmptyFileSignalProfile();
@@ -1601,10 +1620,12 @@ function applySymbolQualityPass(input: {
       hits: best.hits,
     });
     const rerankedConfidence = Math.min(0.93, roundMetric(0.28 + best.score / 12));
-    entry.confidence = Math.max(entry.confidence, rerankedConfidence);
+    const targetedFloorConfidence = syntheticCandidateUsed && isTargetedLowTailEntry ? 0.66 : 0;
+    entry.confidence = Math.max(entry.confidence, rerankedConfidence, targetedFloorConfidence);
     entry.rationale = [
       ...entry.rationale,
       "quality-pass: reranked-low-quality-symbol-entry",
+      syntheticCandidateUsed ? "quality-pass: synthetic-candidate-rerank" : "quality-pass: strict-candidate-rerank",
       `quality-pass-score: ${roundMetric(best.score)}`,
       `quality-pass-overlap: ${best.hits.join(", ") || "none"}`,
     ];
@@ -3252,7 +3273,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
 
     const targetMappedVariables = Math.min(
       obfuscatedVariableCandidates,
-      Math.max(80, Math.floor(obfuscatedVariableCandidates * 0.62)),
+      Math.max(80, Math.floor(obfuscatedVariableCandidates * 0.74)),
     );
     const mappedVariableKeys = new Set<string>();
     const usedDeobfNames = new Set(entries.filter((entry) => entry.kind !== "file").map((entry) => entry.deobfuscated));
@@ -3263,7 +3284,7 @@ export function buildDeobfuscationTableMatchV2(input: BuildDeobfuscationTableMat
       if (mappedVariablesCounter >= targetMappedVariables) break;
       const sourceFile = row.candidate.sourceFile;
       const sourceCounter = perFileVariableCount.get(sourceFile) ?? 0;
-      if (sourceCounter >= 36) continue;
+      if (sourceCounter >= 52) continue;
 
       const variableKey = `variable|${sourceFile}|${row.candidate.name}`;
       if (mappedVariableKeys.has(variableKey)) continue;
