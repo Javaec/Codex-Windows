@@ -152,6 +152,7 @@ exports.REVERSE_QUALITY_GATE_TARGETS = {
     mappedSymbolsMin: 12,
     lowConfidenceSymbolsMax: 120,
     noisySymbolNamesMax: 40,
+    placeholderModulesMax: 0,
     genericPathNoiseSegments: ["types", "utils", "index", "common", "shared"],
     allowedTargetPrefixes: ["src/main/", "src/renderer/", "src/services/", "src-tauri-adapter/"],
     mappedSymbolsHistoryFile: "work/reverse-quality-history.json",

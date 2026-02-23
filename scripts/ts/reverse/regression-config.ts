@@ -244,6 +244,7 @@ export interface ReverseQualityGateTargets {
   mappedSymbolsMin: number;
   lowConfidenceSymbolsMax: number;
   noisySymbolNamesMax: number;
+  placeholderModulesMax: number;
   genericPathNoiseSegments: string[];
   allowedTargetPrefixes: string[];
   mappedSymbolsHistoryFile: string;
@@ -255,6 +256,7 @@ export const REVERSE_QUALITY_GATE_TARGETS: ReverseQualityGateTargets = {
   mappedSymbolsMin: 12,
   lowConfidenceSymbolsMax: 120,
   noisySymbolNamesMax: 40,
+  placeholderModulesMax: 0,
   genericPathNoiseSegments: ["types", "utils", "index", "common", "shared"],
   allowedTargetPrefixes: ["src/main/", "src/renderer/", "src/services/", "src-tauri-adapter/"],
   mappedSymbolsHistoryFile: "work/reverse-quality-history.json",

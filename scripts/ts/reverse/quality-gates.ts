@@ -16,6 +16,10 @@ interface ReconstructedMapRow {
   chunkArtifactPath: string;
 }
 
+interface LifterDiagnosticsRow {
+  placeholderMode: boolean;
+}
+
 interface MappedSymbolsHistoryRow {
   mappedSymbols: number;
   updatedAtUtc: string;
@@ -45,6 +49,7 @@ export interface QualityGateReport {
     mappedSymbols: number;
     lowConfidenceSymbols: number;
     noisySymbolNames: number;
+    placeholderModules: number;
     previousMappedSymbols: number;
     genericNoisePaths: string[];
     installSuccess: boolean;
@@ -62,6 +67,7 @@ export interface QualityGateReport {
     mappedSymbolsMin: number;
     lowConfidenceSymbolsMax: number;
     noisySymbolNamesMax: number;
+    placeholderModulesMax: number;
     allowedTargetPrefixes: string[];
   };
   failures: string[];
@@ -110,18 +116,24 @@ function normalizeAppHistoryKey(appDir: string): string {
 function loadProjectMappingRows(projectRoot: string): {
   chunkArtifacts: ChunkArtifactRow[];
   reconstructed: ReconstructedMapRow[];
+  lifterDiagnostics: LifterDiagnosticsRow[];
 } {
   const chunkArtifactsPath = path.join(projectRoot, "mapping", "chunk-artifacts.json");
   const reconstructedMapPath = path.join(projectRoot, "mapping", "reconstructed-map.json");
+  const lifterDiagnosticsPath = path.join(projectRoot, "mapping", "lifter-diagnostics.json");
   if (!fs.existsSync(chunkArtifactsPath)) {
     throw new Error(`Missing chunk artifact map: ${toPosixPath(chunkArtifactsPath)}`);
   }
   if (!fs.existsSync(reconstructedMapPath)) {
     throw new Error(`Missing reconstructed map: ${toPosixPath(reconstructedMapPath)}`);
   }
+  if (!fs.existsSync(lifterDiagnosticsPath)) {
+    throw new Error(`Missing lifter diagnostics: ${toPosixPath(lifterDiagnosticsPath)}`);
+  }
   return {
     chunkArtifacts: readJson<ChunkArtifactRow[]>(chunkArtifactsPath),
     reconstructed: readJson<ReconstructedMapRow[]>(reconstructedMapPath),
+    lifterDiagnostics: readJson<LifterDiagnosticsRow[]>(lifterDiagnosticsPath),
   };
 }
 
@@ -274,6 +286,12 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
   }
 
   const mappingRows = loadProjectMappingRows(input.projectRoot);
+  const placeholderModules = mappingRows.lifterDiagnostics.filter((row) => row.placeholderMode).length;
+  if (placeholderModules > REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax) {
+    failures.push(
+      `placeholder modules above gate ceiling: ${placeholderModules} (expected <= ${REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax})`,
+    );
+  }
   const artifactValidation = validateChunkArtifacts(
     input.projectRoot,
     mappingRows.chunkArtifacts,
@@ -295,6 +313,7 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
       mappedSymbols,
       lowConfidenceSymbols,
       noisySymbolNames,
+      placeholderModules,
       previousMappedSymbols,
       genericNoisePaths: artifactValidation.genericNoisePaths,
       installSuccess: input.projectChecks.install.success,
@@ -312,6 +331,7 @@ export function enforceQualityGates(input: QualityGateInput): QualityGateReport 
       mappedSymbolsMin: REVERSE_QUALITY_GATE_TARGETS.mappedSymbolsMin,
       lowConfidenceSymbolsMax: REVERSE_QUALITY_GATE_TARGETS.lowConfidenceSymbolsMax,
       noisySymbolNamesMax: REVERSE_QUALITY_GATE_TARGETS.noisySymbolNamesMax,
+      placeholderModulesMax: REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax,
       allowedTargetPrefixes: [...REVERSE_QUALITY_GATE_TARGETS.allowedTargetPrefixes],
     },
     failures,

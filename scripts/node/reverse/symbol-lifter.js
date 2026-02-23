@@ -179,6 +179,28 @@ function shouldIgnoreIdentifierReference(node) {
 }
 function collectDeclaredNames(statement) {
     const names = new Set();
+    if (ts.isImportDeclaration(statement)) {
+        const clause = statement.importClause;
+        if (clause?.name) {
+            names.add(clause.name.text);
+        }
+        const namedBindings = clause?.namedBindings;
+        if (namedBindings) {
+            if (ts.isNamespaceImport(namedBindings)) {
+                names.add(namedBindings.name.text);
+            }
+            else if (ts.isNamedImports(namedBindings)) {
+                for (const element of namedBindings.elements) {
+                    names.add(element.name.text);
+                }
+            }
+        }
+        return names;
+    }
+    if (ts.isImportEqualsDeclaration(statement)) {
+        names.add(statement.name.text);
+        return names;
+    }
     if (ts.isFunctionDeclaration(statement) && statement.name) {
         names.add(statement.name.text);
         return names;
@@ -263,6 +285,28 @@ function collectTopLevelRecords(sourceFile, sourceText) {
             declaredNames,
             references,
         });
+        if (ts.isImportDeclaration(statement)) {
+            const clause = statement.importClause;
+            if (clause?.name) {
+                pushStatementDeclaration(index, clause.name, clause.name.text, "variable");
+            }
+            const namedBindings = clause?.namedBindings;
+            if (namedBindings) {
+                if (ts.isNamespaceImport(namedBindings)) {
+                    pushStatementDeclaration(index, namedBindings.name, namedBindings.name.text, "variable");
+                }
+                else if (ts.isNamedImports(namedBindings)) {
+                    for (const element of namedBindings.elements) {
+                        pushStatementDeclaration(index, element.name, element.name.text, "variable");
+                    }
+                }
+            }
+            return;
+        }
+        if (ts.isImportEqualsDeclaration(statement)) {
+            pushStatementDeclaration(index, statement.name, statement.name.text, "variable");
+            return;
+        }
         if (ts.isFunctionDeclaration(statement) && statement.name) {
             pushStatementDeclaration(index, statement.name, statement.name.text, "function");
             return;
@@ -563,6 +607,11 @@ function liftModuleSource(input) {
             best = pickFallbackDeclaration(declarations, spec.kind, spec.sourceLine, usedPrimaryStatementIndexes);
         }
         if (!best) {
+            unresolvedExports.push(spec);
+            continue;
+        }
+        const primaryStatementNode = sourceFile.statements[best.statementIndex];
+        if (primaryStatementNode && (ts.isImportDeclaration(primaryStatementNode) || ts.isImportEqualsDeclaration(primaryStatementNode))) {
             unresolvedExports.push(spec);
             continue;
         }

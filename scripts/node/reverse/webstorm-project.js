@@ -982,36 +982,6 @@ function pickDeclarationStatForExport(rows, expectedKind, sourceLine) {
     }
     return best;
 }
-function buildTargetSymbolEntriesIndex(report) {
-    const index = new Map();
-    for (const entry of report.entries) {
-        if (entry.kind === "file")
-            continue;
-        const sourceFile = (0, deobfuscation_report_1.normalizeDeobfSourceFile)(entry.sourceFile);
-        if (sourceFile.trim().length === 0)
-            continue;
-        const targetPath = (0, deobfuscation_report_1.toProjectRelativeTargetPath)(entry.targetProjectPath);
-        const exportName = sanitizeExportIdentifierName(entry.deobfuscated);
-        if (exportName === "symbol_export")
-            continue;
-        if (!isSafeImportIdentifier(entry.obfuscated))
-            continue;
-        const kind = entry.kind;
-        const row = {
-            targetPath,
-            sourceFile,
-            exportName,
-            sourceSymbol: entry.obfuscated,
-            kind,
-            sourceLine: parseSourceLineHint(entry.sourceFile),
-            confidence: entry.confidence,
-        };
-        const bucket = index.get(targetPath) ?? [];
-        bucket.push(row);
-        index.set(targetPath, bucket);
-    }
-    return index;
-}
 function buildTargetSymbolEntriesIndexFromSemanticModules(modules) {
     const index = new Map();
     for (const module of modules) {
@@ -1051,16 +1021,20 @@ function buildRankedExportRowsFromTargetEntries(input) {
     return Array.from(byExportName.values())
         .map((entry) => {
         const stat = pickDeclarationStatForExport(input.declarationStatsByName.get(entry.sourceSymbol) ?? [], entry.kind, entry.sourceLine);
+        const importLikeMismatch = !!stat &&
+            stat.kind === "variable" &&
+            (entry.kind === "function" || entry.kind === "class");
+        const effectiveStat = importLikeMismatch ? undefined : stat;
         return {
             name: entry.exportName,
             sourceSymbol: entry.sourceSymbol,
             kind: entry.kind,
             sourceLine: entry.sourceLine,
             confidence: entry.confidence,
-            declarationLength: stat?.statementLength ?? 0,
-            hasDeclaration: !!stat,
+            declarationLength: effectiveStat?.statementLength ?? 0,
+            hasDeclaration: !!effectiveStat,
             nameQuality: scoreExportNameQuality(entry.exportName),
-            generatedSignal: stat?.generatedSignal ?? 0,
+            generatedSignal: effectiveStat?.generatedSignal ?? 0,
         };
     })
         .sort((a, b) => {
@@ -1074,6 +1048,153 @@ function buildRankedExportRowsFromTargetEntries(input) {
             return a.declarationLength - b.declarationLength;
         if (a.kind !== b.kind)
             return a.kind.localeCompare(b.kind);
+        return a.name.localeCompare(b.name);
+    });
+}
+function parseSourceExportAliases(sourceChunk) {
+    const rows = [];
+    const seen = new Set();
+    const exportBlockPattern = /export\s*\{([\s\S]*?)\}\s*;/g;
+    let match;
+    while ((match = exportBlockPattern.exec(sourceChunk)) !== null) {
+        const rawBody = (match[1] ?? "").trim();
+        if (rawBody.length === 0)
+            continue;
+        const parts = rawBody
+            .split(",")
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0);
+        for (const part of parts) {
+            const aliasMatch = part.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/);
+            if (aliasMatch) {
+                const sourceSymbol = aliasMatch[1];
+                const exportedName = aliasMatch[2];
+                const key = `${sourceSymbol}->${exportedName}`;
+                if (seen.has(key))
+                    continue;
+                seen.add(key);
+                rows.push({ sourceSymbol, exportedName });
+                continue;
+            }
+            const directMatch = part.match(/^([A-Za-z_$][A-Za-z0-9_$]*)$/);
+            if (!directMatch)
+                continue;
+            const sourceSymbol = directMatch[1];
+            const key = `${sourceSymbol}->${sourceSymbol}`;
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            rows.push({ sourceSymbol, exportedName: sourceSymbol });
+        }
+    }
+    return rows;
+}
+function pickBestDeclarationStat(rows) {
+    if (rows.length === 0)
+        return undefined;
+    const sorted = [...rows].sort((a, b) => {
+        if (a.generatedSignal !== b.generatedSignal)
+            return a.generatedSignal - b.generatedSignal;
+        if (a.statementLength !== b.statementLength)
+            return a.statementLength - b.statementLength;
+        return a.line - b.line;
+    });
+    return sorted[0];
+}
+function buildRankedExportRowsFromSourceAliases(input) {
+    const aliases = parseSourceExportAliases(input.sourceChunk);
+    if (aliases.length === 0)
+        return [];
+    const rows = [];
+    const bySourceSymbol = new Set();
+    for (const alias of aliases) {
+        if (bySourceSymbol.has(alias.sourceSymbol))
+            continue;
+        const declarationRows = input.declarationStatsByName.get(alias.sourceSymbol) ?? [];
+        const stat = pickBestDeclarationStat(declarationRows);
+        if (!stat)
+            continue;
+        if (stat.kind === "variable")
+            continue;
+        if (stat.generatedSignal >= 0.72 && stat.statementLength > 2400)
+            continue;
+        const exportName = sanitizeExportIdentifierName(alias.exportedName);
+        if (exportName === "symbol_export")
+            continue;
+        rows.push({
+            name: exportName,
+            sourceSymbol: alias.sourceSymbol,
+            kind: stat.kind,
+            sourceLine: stat.line,
+            confidence: Math.max(0.66, input.confidence - 0.04),
+            declarationLength: stat.statementLength,
+            hasDeclaration: true,
+            nameQuality: scoreExportNameQuality(exportName),
+            generatedSignal: stat.generatedSignal,
+        });
+        bySourceSymbol.add(alias.sourceSymbol);
+    }
+    return rows.sort((a, b) => {
+        if (a.generatedSignal !== b.generatedSignal)
+            return a.generatedSignal - b.generatedSignal;
+        if (a.declarationLength !== b.declarationLength)
+            return a.declarationLength - b.declarationLength;
+        if (a.nameQuality !== b.nameQuality)
+            return b.nameQuality - a.nameQuality;
+        if (a.kind !== b.kind)
+            return a.kind.localeCompare(b.kind);
+        return a.name.localeCompare(b.name);
+    });
+}
+function buildRankedExportRowsFromTopDeclarations(input) {
+    const bySymbol = new Map();
+    for (const row of input.declarationStatsRows) {
+        if (row.kind === "variable")
+            continue;
+        if (!isSafeImportIdentifier(row.name))
+            continue;
+        if (row.generatedSignal >= 0.72)
+            continue;
+        if (row.statementLength <= 0 || row.statementLength > 6200)
+            continue;
+        const current = bySymbol.get(row.name);
+        if (!current) {
+            bySymbol.set(row.name, row);
+            continue;
+        }
+        if (row.generatedSignal < current.generatedSignal) {
+            bySymbol.set(row.name, row);
+            continue;
+        }
+        if (row.generatedSignal === current.generatedSignal && row.statementLength < current.statementLength) {
+            bySymbol.set(row.name, row);
+        }
+    }
+    return Array.from(bySymbol.entries())
+        .map(([sourceSymbol, stat]) => {
+        const exportName = sanitizeExportIdentifierName(sourceSymbol);
+        if (exportName === "symbol_export")
+            return undefined;
+        return {
+            name: exportName,
+            sourceSymbol,
+            kind: stat.kind,
+            sourceLine: stat.line,
+            confidence: Math.max(0.62, input.confidence - 0.1),
+            declarationLength: stat.statementLength,
+            hasDeclaration: true,
+            nameQuality: scoreExportNameQuality(exportName),
+            generatedSignal: stat.generatedSignal,
+        };
+    })
+        .filter((row) => !!row)
+        .sort((a, b) => {
+        if (a.generatedSignal !== b.generatedSignal)
+            return a.generatedSignal - b.generatedSignal;
+        if (a.declarationLength !== b.declarationLength)
+            return a.declarationLength - b.declarationLength;
+        if (a.confidence !== b.confidence)
+            return b.confidence - a.confidence;
         return a.name.localeCompare(b.name);
     });
 }
@@ -1699,6 +1820,21 @@ function buildWebStormTestProject(input) {
             const ownedIndexedRows = filterOwnedExportRows(indexedCandidateRows);
             if (ownedIndexedRows.length > 0) {
                 return ownedIndexedRows;
+            }
+            const aliasRows = buildRankedExportRowsFromSourceAliases({
+                sourceChunk: sourceContext.sourceChunk,
+                declarationStatsByName: sourceContext.declarationStatsByName,
+                confidence: row.confidence,
+            });
+            if (aliasRows.length > 0) {
+                return aliasRows;
+            }
+            const topDeclarationRows = buildRankedExportRowsFromTopDeclarations({
+                declarationStatsRows: sourceContext.declarationStatsRows,
+                confidence: row.confidence,
+            });
+            if (topDeclarationRows.length > 0) {
+                return topDeclarationRows;
             }
             return indexedCandidateRows;
         };
