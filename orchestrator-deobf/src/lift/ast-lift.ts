@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as ts from "typescript";
 import { ArchetypeId } from "../contracts";
 import { ChunkArtifactModel, ChunkArtifactRecord } from "../ir/chunk-artifact-model";
+import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
 
 export interface LiftedSymbolBinding {
@@ -21,6 +22,7 @@ export interface LiftedChunkArtifact {
   symbolBindings: LiftedSymbolBinding[];
   importShapingCount: number;
   prunedDeclarationCount: number;
+  liftedDeclarationCount: number;
 }
 
 export interface AstLiftResult {
@@ -47,6 +49,11 @@ interface BeautifyResult {
   prunedDeclarationCount: number;
 }
 
+interface LiftedStatementSelection {
+  statements: ts.Statement[];
+  availableIdentifiers: Set<string>;
+}
+
 interface ExportCandidate {
   referenceName: string;
   exportName: string;
@@ -61,6 +68,7 @@ const DEFAULT_LIFT_OPTIONS: AstLiftOptions = {
 };
 
 const GENERIC_IMPORT_TOKENS = new Set<string>(["index", "chunk", "main", "entry", "assets", "webview", "src"]);
+const LIFTED_SYMBOL_MIN_QUALITY = 0.74;
 
 const RESERVED_WORDS = new Set<string>([
   "await",
@@ -166,6 +174,55 @@ function sanitizeIdentifier(input: string, fallback: string): string {
   }
 
   return cleaned;
+}
+
+function chunkTopicLabel(chunkId: string): string {
+  const normalized = chunkId.replace(/^chunk-/, "");
+  const tokens = normalized
+    .split("-")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^[a-f0-9]{7,}$/i.test(token))
+    .filter((token) => !/^\d+$/.test(token))
+    .slice(0, 2);
+  if (tokens.length === 0) {
+    return "chunk";
+  }
+  return tokens
+    .map((token, index) => {
+      if (index === 0) {
+        return token.charAt(0).toLowerCase() + token.slice(1);
+      }
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join("");
+}
+
+function shouldKeepLiftedSymbolName(symbolName: string): boolean {
+  if (isGenericName(symbolName)) {
+    return false;
+  }
+  if (scoreNameQuality(symbolName) < LIFTED_SYMBOL_MIN_QUALITY) {
+    return false;
+  }
+  if (/^[a-z]{3,4}\d*$/i.test(symbolName)) {
+    return false;
+  }
+  return true;
+}
+
+function buildLiftedSymbolBaseName(chunkId: string, symbol: OwnershipRecord, sourceIdentifier: string, ordinal: number): string {
+  if (shouldKeepLiftedSymbolName(symbol.symbolName)) {
+    return sanitizeIdentifier(symbol.symbolName, "liftedSymbol");
+  }
+
+  const sourceQuality = scoreNameQuality(sourceIdentifier);
+  if (!isGenericName(sourceIdentifier) && sourceQuality >= LIFTED_SYMBOL_MIN_QUALITY && !isObfuscatedIdentifier(sourceIdentifier)) {
+    return sanitizeIdentifier(`${sourceIdentifier}Lifted`, "liftedSymbol");
+  }
+
+  const chunkTopic = chunkTopicLabel(chunkId);
+  return sanitizeIdentifier(`${symbol.archetype}${chunkTopic}Symbol${ordinal}`, "liftedSymbol");
 }
 
 function makeUniqueName(base: string, usedNames: Set<string>): string {
@@ -643,6 +700,148 @@ function applyBeautifyPipeline(sourceFile: ts.SourceFile): BeautifyResult {
   };
 }
 
+function buildDeclarationStatementIndex(sourceFile: ts.SourceFile): Map<string, ts.Statement> {
+  const index = new Map<string, ts.Statement>();
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      if (statement.name) {
+        index.set(statement.name.text, statement);
+      }
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name)) {
+        index.set(declaration.name.text, statement);
+      }
+    }
+  }
+  return index;
+}
+
+function isSafeTopLevelDeclaration(statement: ts.Statement): boolean {
+  if (ts.isFunctionDeclaration(statement)) {
+    return true;
+  }
+  if (ts.isClassDeclaration(statement)) {
+    return false;
+  }
+  if (!ts.isVariableStatement(statement)) {
+    return false;
+  }
+  for (const declaration of statement.declarationList.declarations) {
+    const initializer = declaration.initializer;
+    if (!initializer) {
+      continue;
+    }
+    const isFunctionInitializer = ts.isFunctionExpression(initializer) || ts.isArrowFunction(initializer);
+    if (!isFunctionInitializer) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function collectIdentifierReferences(statement: ts.Statement): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+      names.add(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(statement, visit);
+  return names;
+}
+
+function keepImportDeclaration(importDeclaration: ts.ImportDeclaration, referencedNames: Set<string>): boolean {
+  const clause = importDeclaration.importClause;
+  if (!clause) {
+    return false;
+  }
+  if (clause.name && referencedNames.has(clause.name.text)) {
+    return true;
+  }
+  const bindings = clause.namedBindings;
+  if (!bindings) {
+    return false;
+  }
+  if (ts.isNamespaceImport(bindings)) {
+    return referencedNames.has(bindings.name.text);
+  }
+  for (const element of bindings.elements) {
+    if (referencedNames.has(element.name.text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function selectLiftedStatements(sourceFile: ts.SourceFile, targetIdentifiers: string[]): LiftedStatementSelection {
+  const declarationIndex = buildDeclarationStatementIndex(sourceFile);
+  const selectedStatements = new Set<ts.Statement>();
+  const availableIdentifiers = new Set<string>();
+  const queue: string[] = [...new Set(targetIdentifiers)].sort((left, right) => left.localeCompare(right));
+
+  while (queue.length > 0) {
+    const identifier = queue.shift();
+    if (!identifier) {
+      continue;
+    }
+    const declaration = declarationIndex.get(identifier);
+    if (!declaration) {
+      continue;
+    }
+    if (!isSafeTopLevelDeclaration(declaration)) {
+      continue;
+    }
+    if (selectedStatements.has(declaration)) {
+      continue;
+    }
+
+    selectedStatements.add(declaration);
+    for (const declaredName of collectDeclaredNamesFromNode(declaration)) {
+      availableIdentifiers.add(declaredName);
+    }
+
+    const references = collectIdentifierReferences(declaration);
+    for (const referenceName of references) {
+      if (declarationIndex.has(referenceName)) {
+        queue.push(referenceName);
+      }
+    }
+  }
+
+  const referencedNames = new Set<string>();
+  for (const statement of selectedStatements) {
+    const refs = collectIdentifierReferences(statement);
+    for (const refName of refs) {
+      referencedNames.add(refName);
+    }
+  }
+
+  const imports = sourceFile.statements.filter((statement): statement is ts.ImportDeclaration => ts.isImportDeclaration(statement));
+  const keptImports = imports
+    .filter((statement) => keepImportDeclaration(statement, referencedNames))
+    .sort((left, right) => {
+      const leftSpecifier = left.moduleSpecifier;
+      const rightSpecifier = right.moduleSpecifier;
+      if (!ts.isStringLiteral(leftSpecifier) || !ts.isStringLiteral(rightSpecifier)) {
+        return 0;
+      }
+      return leftSpecifier.text.localeCompare(rightSpecifier.text);
+    });
+
+  const declarationStatements = sourceFile.statements.filter((statement) => selectedStatements.has(statement));
+  const statements: ts.Statement[] = [...keptImports, ...declarationStatements];
+  return {
+    statements,
+    availableIdentifiers,
+  };
+}
+
 function collectExportCandidates(sourceFile: ts.SourceFile): ExportCandidate[] {
   const candidates: ExportCandidate[] = [];
   const seen = new Set<string>();
@@ -746,7 +945,11 @@ function bindChunkSymbols(
   const usedCandidates = new Set<number>();
   const bindings: LiftedSymbolBinding[] = [];
 
-  for (const symbol of sortedSymbols) {
+  for (let symbolIndex = 0; symbolIndex < sortedSymbols.length; symbolIndex += 1) {
+    const symbol = sortedSymbols[symbolIndex];
+    if (!symbol) {
+      continue;
+    }
     let bestIndex = -1;
     let bestScore = -1;
 
@@ -782,9 +985,7 @@ function bindChunkSymbols(
 
     usedCandidates.add(bestIndex);
 
-    const preferredBase = isObfuscatedIdentifier(symbol.symbolName)
-      ? sanitizeIdentifier(`${winner.referenceName}Symbol`, "liftedSymbol")
-      : sanitizeIdentifier(symbol.symbolName, "liftedSymbol");
+    const preferredBase = buildLiftedSymbolBaseName(chunkId, symbol, winner.referenceName, symbolIndex + 1);
     const exportName = makeUniqueName(preferredBase, usedExportNames);
 
     bindings.push({
@@ -979,46 +1180,56 @@ async function liftChunkToTypescript(
   const exportCandidates = collectExportCandidates(beautify.sourceFile);
   const symbolBindings = bindChunkSymbols(chunk.chunkId, symbols, exportCandidates);
 
-  const uniqueSourceIdentifiers = [...new Set(symbolBindings.map((binding) => binding.sourceIdentifier))].sort((left, right) =>
-    left.localeCompare(right),
+  const uniqueSourceIdentifiers = [...new Set(symbolBindings.map((binding) => binding.sourceIdentifier))]
+    .filter((identifier) => identifier.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  const liftedSelection = selectLiftedStatements(beautify.sourceFile, uniqueSourceIdentifiers);
+  const liftedSourceFile = ts.factory.updateSourceFile(beautify.sourceFile, liftedSelection.statements);
+  const liftedDeclarationCount = liftedSelection.statements.reduce(
+    (count, statement) => count + (ts.isImportDeclaration(statement) ? 0 : 1),
+    0,
   );
-  const usedBackingNames = new Set<string>();
-  const backingBySourceIdentifier = new Map<string, string>();
-  for (const identifier of uniqueSourceIdentifiers) {
-    const backingName = makeUniqueName(sanitizeIdentifier(`lifted ${identifier}`, "liftedSource"), usedBackingNames);
-    backingBySourceIdentifier.set(identifier, backingName);
-  }
+  const existingExports = collectExportedNames(liftedSourceFile);
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const liftedDeclarationsText = liftedSelection.statements.length > 0 ? printer.printFile(liftedSourceFile).trim() : "";
 
-  const sourceDeclarationLines = uniqueSourceIdentifiers.map((identifier) => {
-    const backingName = backingBySourceIdentifier.get(identifier);
-    if (!backingName) {
-      throw new Error(`liftChunkToTypescript: missing backing name for ${identifier}`);
-    }
-    return `const ${backingName}: unknown = Object.freeze({ lifted: true, chunkId: ${JSON.stringify(chunk.chunkId)}, sourceIdentifier: ${JSON.stringify(identifier)} });`;
-  });
+  const fallbackNames = new Set<string>();
   const aliasLines = symbolBindings
     .sort((left, right) => left.exportName.localeCompare(right.exportName))
-    .map((binding) => {
-      const backingName = backingBySourceIdentifier.get(binding.sourceIdentifier);
-      if (!backingName) {
-        throw new Error(`liftChunkToTypescript: missing source binding for ${binding.sourceIdentifier}`);
+    .flatMap((binding) => {
+      if (liftedSelection.availableIdentifiers.has(binding.sourceIdentifier)) {
+        if (binding.exportName === binding.sourceIdentifier) {
+          if (existingExports.has(binding.sourceIdentifier)) {
+            return [];
+          }
+          return [`export { ${binding.sourceIdentifier} };`];
+        }
+        return [`export { ${binding.sourceIdentifier} as ${binding.exportName} };`];
       }
-      return `export const ${binding.exportName} = ${backingName};`;
+
+      const fallbackName = makeUniqueName(
+        sanitizeIdentifier(`lifted fallback ${binding.exportName}`, "liftedFallback"),
+        fallbackNames,
+      );
+      return [
+        `const ${fallbackName}: unknown = Object.freeze({ lifted: true, chunkId: ${JSON.stringify(chunk.chunkId)}, sourceIdentifier: ${JSON.stringify(binding.sourceIdentifier)} });`,
+        `export const ${binding.exportName} = ${fallbackName};`,
+      ];
     });
   const metadataLines = [
     `export const liftedSourcePath = ${JSON.stringify(chunk.sourceFilePath.split(path.sep).join("/"))};`,
     `export const liftedImportShapingCount = ${importShaping.shapedCount};`,
     `export const liftedPrunedDeclarationCount = ${beautify.prunedDeclarationCount};`,
+    `export const liftedDeclarationCount = ${liftedDeclarationCount};`,
   ];
 
   const lines = [
     "// @ts-nocheck",
     `// Lifted from ${chunk.sourceFilePath.split(path.sep).join("/")}`,
     "",
+    ...(liftedDeclarationsText.length > 0 ? [liftedDeclarationsText, ""] : []),
     ...metadataLines,
     "",
-    ...sourceDeclarationLines,
-    ...(sourceDeclarationLines.length > 0 ? [""] : []),
     ...aliasLines,
     "",
   ];
@@ -1030,6 +1241,7 @@ async function liftChunkToTypescript(
     symbolBindings,
     importShapingCount: importShaping.shapedCount,
     prunedDeclarationCount: beautify.prunedDeclarationCount,
+    liftedDeclarationCount,
   };
 }
 

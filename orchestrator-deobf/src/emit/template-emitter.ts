@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { ArchetypeId, LayerId } from "../contracts";
 import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
-import { scoreNameQuality } from "../ir/name-quality";
+import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { buildAstLiftResult, LiftedSymbolBinding } from "../lift/ast-lift";
 import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
 
@@ -32,6 +32,7 @@ interface ModuleQualityEntry {
   symbolCount: number;
   averageConfidence: number;
   averageNameQuality: number;
+  liftedCoverage: number;
   rerendered: boolean;
 }
 
@@ -48,6 +49,7 @@ const ARCHETYPE_LAYER_COMPATIBILITY: Record<ArchetypeId, LayerId[]> = {
 const FILE_QUALITY_WORST_PERCENT = 0.08;
 const FILE_QUALITY_MIN_RERENDER_COUNT = 1;
 const FILE_QUALITY_TARGET_BUDGET_FACTOR = 0.6;
+const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const RESERVED_IDENTIFIERS = new Set<string>([
   "await",
   "break",
@@ -119,6 +121,20 @@ function sanitizeIdentifier(value: string): string {
   return normalized;
 }
 
+function toPascalCase(value: string): string {
+  const normalized = value
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 0)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+    .join("");
+  if (normalized.length === 0) {
+    return "Domain";
+  }
+  return normalized;
+}
+
 function sanitizeSegment(candidate: string, fallback: string): string {
   const normalized = candidate
     .toLowerCase()
@@ -182,6 +198,58 @@ function fallbackTopicByArchetype(archetype: ArchetypeId): string {
     return "transport-bridge";
   }
   return "state-store";
+}
+
+function topicSegmentFromFilePath(filePath: string, archetype: ArchetypeId): string {
+  const baseName = path.basename(filePath, ".ts");
+  const prefix = `${archetype}-`;
+  let candidate = baseName.startsWith(prefix) ? baseName.slice(prefix.length) : baseName;
+  candidate = candidate.replace(/-g\d{3}-part-\d{3}(?:-quality-\d{2})?$/, "");
+  candidate = candidate.replace(/-quality-\d{2}$/, "");
+  const topic = sanitizeSegment(candidate, fallbackTopicByArchetype(archetype));
+  if (topic === "domain") {
+    return fallbackTopicByArchetype(archetype);
+  }
+  return topic;
+}
+
+function shouldKeepSymbolName(symbolName: string): boolean {
+  if (isGenericName(symbolName)) {
+    return false;
+  }
+  const quality = scoreNameQuality(symbolName);
+  if (quality < SYMBOL_EXPORT_MIN_QUALITY) {
+    return false;
+  }
+  if (/^[a-z]{3,4}\d*$/i.test(symbolName)) {
+    return false;
+  }
+  return true;
+}
+
+function nextUniqueName(baseName: string, usedNames: Map<string, number>): string {
+  const seen = usedNames.get(baseName) ?? 0;
+  usedNames.set(baseName, seen + 1);
+  return seen === 0 ? baseName : `${baseName}${seen + 1}`;
+}
+
+function buildDomainExportName(
+  symbol: OwnershipRecord,
+  plan: ModulePlan,
+  topic: string,
+  ordinal: number,
+  usedNames: Map<string, number>,
+): string {
+  if (shouldKeepSymbolName(symbol.symbolName)) {
+    return nextUniqueName(sanitizeIdentifier(symbol.symbolName), usedNames);
+  }
+
+  const topicPart = toPascalCase(topic);
+  const layerPart = toPascalCase(plan.layer);
+  const archetypePart = toPascalCase(plan.archetype);
+  const domainPart = toPascalCase(symbol.domainKind);
+  const base = sanitizeIdentifier(`${topicPart}${domainPart}${layerPart}${archetypePart}${ordinal}`);
+  return nextUniqueName(base, usedNames);
 }
 
 function pickAnchorSymbol(symbols: OwnershipRecord[]): OwnershipRecord {
@@ -280,11 +348,13 @@ function average(numbers: number[]): number {
   return total / numbers.length;
 }
 
-function computeModuleQuality(plan: ModulePlan): ModuleQualityEntry {
+function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, LiftedSymbolBinding>): ModuleQualityEntry {
   const symbolCount = plan.symbols.length;
   const averageConfidence = average(plan.symbols.map((symbol) => symbol.confidence));
   const averageNameQuality = average(plan.symbols.map((symbol) => scoreNameQuality(symbol.symbolName)));
-  const score = clamp(averageConfidence * 0.52 + averageNameQuality * 0.48);
+  const liftedSymbolCount = plan.symbols.reduce((count, symbol) => count + (bindingByKey.has(symbol.symbolKey) ? 1 : 0), 0);
+  const liftedCoverage = symbolCount > 0 ? liftedSymbolCount / symbolCount : 0;
+  const score = clamp(averageConfidence * 0.43 + averageNameQuality * 0.35 + liftedCoverage * 0.22);
   return {
     moduleId: plan.moduleId,
     filePath: plan.filePath,
@@ -292,6 +362,7 @@ function computeModuleQuality(plan: ModulePlan): ModuleQualityEntry {
     symbolCount,
     averageConfidence: clamp(averageConfidence),
     averageNameQuality: clamp(averageNameQuality),
+    liftedCoverage: clamp(liftedCoverage),
     rerendered: false,
   };
 }
@@ -389,6 +460,7 @@ function splitPlanForQuality(plan: ModulePlan, statementBudget: number): ModuleP
 
 function applyFileQualityRerender(
   modulePlans: ModulePlan[],
+  bindingByKey: Map<string, LiftedSymbolBinding>,
   statementBudget: number,
 ): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
   if (modulePlans.length === 0) {
@@ -399,7 +471,7 @@ function applyFileQualityRerender(
     };
   }
 
-  const initialQuality = modulePlans.map((plan) => computeModuleQuality(plan));
+  const initialQuality = modulePlans.map((plan) => computeModuleQuality(plan, bindingByKey));
   const rerenderTarget = Math.max(
     FILE_QUALITY_MIN_RERENDER_COUNT,
     Math.ceil(modulePlans.length * FILE_QUALITY_WORST_PERCENT),
@@ -439,7 +511,7 @@ function applyFileQualityRerender(
 
   rerenderedPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
   const qualityEntries = rerenderedPlans.map((plan) => {
-    const entry = computeModuleQuality(plan);
+    const entry = computeModuleQuality(plan, bindingByKey);
     return {
       ...entry,
       rerendered: plan.moduleId.includes(":quality-"),
@@ -525,22 +597,25 @@ function buildEslintConfig(): string {
     '      "@typescript-eslint": tsPlugin,',
     "    },",
     "    rules: {",
+    '      "no-undef": "off",',
     '      "no-unused-vars": "off",',
       '      "@typescript-eslint/no-unused-vars": "off"',
     "    },",
     "  },",
     "  {",
     '    files: ["**/*.ts"],',
+    '    ignores: ["src/chunks-ts/**/*.ts"],',
     "    languageOptions: {",
-    "      parser: tsParser,",
-    '      sourceType: "module",',
-    '      ecmaVersion: "latest",',
+      "      parser: tsParser,",
+      '      sourceType: "module",',
+      '      ecmaVersion: "latest",',
     "    },",
     "    plugins: {",
     '      "@typescript-eslint": tsPlugin,',
     "    },",
     "    rules: {",
-    '      "no-unused-vars": "off",',
+    '      "no-undef": "off",',
+      '      "no-unused-vars": "off",',
       '      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],',
     "    },",
     "  },",
@@ -821,17 +896,19 @@ function buildModuleContent(
   const usedNames = new Map<string, number>();
   const exportedNames: string[] = [];
   const resolvedSymbolNames: string[] = [];
+  const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
 
-  for (const symbol of symbols) {
+  for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
+    const symbol = symbols[symbolIndex];
+    if (!symbol) {
+      continue;
+    }
     const chunkId = symbolToChunk.get(symbol.symbolKey);
     if (!chunkId) {
       throw new Error(`Missing chunk mapping for symbol ${symbol.symbolKey}`);
     }
 
-    const baseName = sanitizeIdentifier(symbol.symbolName);
-    const seen = usedNames.get(baseName) ?? 0;
-    usedNames.set(baseName, seen + 1);
-    const exportName = seen === 0 ? baseName : `${baseName}${seen + 1}`;
+    const exportName = buildDomainExportName(symbol, plan, topic, symbolIndex + 1, usedNames);
     const resolvedName = `${exportName}Symbol`;
 
     const liftBinding = bindingByKey.get(symbol.symbolKey);
@@ -987,7 +1064,7 @@ export async function emitTemplateProject(
 
   const symbolToChunk = modelBySymbol(chunkArtifacts);
   const rawModulePlans = buildModulePlans(ownershipModel, statementBudget);
-  const qualityPass = applyFileQualityRerender(rawModulePlans, statementBudget);
+  const qualityPass = applyFileQualityRerender(rawModulePlans, astLift.symbolBindingByKey, statementBudget);
   const modulePlans = qualityPass.modulePlans;
 
   for (const plan of modulePlans) {
