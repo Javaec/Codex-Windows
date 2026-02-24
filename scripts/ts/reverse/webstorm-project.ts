@@ -17,7 +17,8 @@ import { resolveSemanticOwnership } from "./ownership-resolver";
 import { buildModuleSynthesisContract, type ModuleArchetype } from "./module-templates";
 import { applyArchetypeAndCluster } from "./declaration-clustering";
 import { emitArchetypeModule } from "./archetype-emitter";
-import { renderChunkTsWrapperSource, rewriteChunkImportsToTsBridge, type ChunkTsBridgeRow } from "./chunk-ts-bridge";
+import { renderChunkTsModuleSource, rewriteChunkImportsToTsBridge, type ChunkTsBridgeRow } from "./chunk-ts-bridge";
+import { shapeImportAliasesIterative } from "./import-alias-shaper";
 
 export interface WebStormTestProjectReport {
   rootPath: string;
@@ -40,6 +41,23 @@ export interface WebStormTestProjectReport {
       errors: number;
       warnings: number;
       outputPreview: string[];
+    };
+    build: {
+      attempted: boolean;
+      success: boolean;
+      exitCode: number;
+      errors: number;
+      warnings: number;
+      outputPreview: string[];
+    };
+    dev: {
+      attempted: boolean;
+      success: boolean;
+      exitCode: number;
+      errors: number;
+      warnings: number;
+      outputPreview: string[];
+      skippedReason: string;
     };
     eslint: {
       attempted: boolean;
@@ -524,6 +542,25 @@ function isNoisyGeneratedExportName(input: string): boolean {
   const tail = tokens[tokens.length - 1] ?? "";
   if (isNoisyIdentifierToken(tail)) return true;
   return /[A-Za-z]{2,}\d{2,}$/i.test(input);
+}
+
+function isGenericImportAliasHintName(input: string): boolean {
+  const normalized = input.trim();
+  if (normalized.length < 5) return true;
+  const lower = normalized.toLowerCase();
+  if (/^(?:get|set|use|handle|run|create|update|load|fetch|process)[A-Z][A-Za-z0-9]*(?:Tool|Data|Value|Object|Item|Status|Result|State)\d*$/i.test(normalized)) {
+    return true;
+  }
+  if (/^(?:get|set|use|run|do|make|build|create|update|load|fetch|handle|process|resolve|compute|parse|format|map)[a-z0-9]*$/.test(lower)) {
+    const tokens = splitIdentifierTokens(normalized);
+    if (tokens.length <= 2 && normalized.length <= 18) return true;
+  }
+  if (/(?:tool|value|data|item|object|entry|result|state|handler|runtime|service)\d*$/i.test(normalized)) {
+    const tokens = splitIdentifierTokens(normalized);
+    if (tokens.length <= 2) return true;
+  }
+  if (/\d{2,}$/.test(normalized)) return true;
+  return false;
 }
 
 function clamp01(value: number): number {
@@ -1241,6 +1278,81 @@ function applyServiceQualityPass(input: {
   return { rows: nextRows, renamed };
 }
 
+function countRowNameChanges(previousRows: RankedExportRow[], nextRows: RankedExportRow[]): number {
+  if (previousRows.length === 0 || nextRows.length === 0) return 0;
+  const previousBySourceSymbol = new Map<string, string>();
+  for (const row of previousRows) {
+    previousBySourceSymbol.set(row.sourceSymbol, row.name);
+  }
+  let changed = 0;
+  for (const row of nextRows) {
+    const previousName = previousBySourceSymbol.get(row.sourceSymbol);
+    if (!previousName) continue;
+    if (previousName !== row.name) changed += 1;
+  }
+  return changed;
+}
+
+function runIterativeExportQualityPass(input: {
+  rows: RankedExportRow[];
+  emittedPath: string;
+  archetype: ModuleArchetype;
+  iterations?: number;
+}): {
+  rows: RankedExportRow[];
+  targetedRenamed: number;
+  hookTransportRenamed: number;
+  serviceRenamed: number;
+  passes: number;
+} {
+  if (input.rows.length === 0) {
+    return {
+      rows: [],
+      targetedRenamed: 0,
+      hookTransportRenamed: 0,
+      serviceRenamed: 0,
+      passes: 0,
+    };
+  }
+  const maxIterations = Math.max(1, Math.min(8, Math.floor(input.iterations ?? 3)));
+  let rows = input.rows.map((row) => ({ ...row }));
+  let targetedRenamed = 0;
+  let hookTransportRenamed = 0;
+  let serviceRenamed = 0;
+  let passes = 0;
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const targetedRows = applyTargetedExportRenames(rows, input.emittedPath);
+    const hookTransportPass = applyHookTransportQualityPass({
+      rows: targetedRows,
+      emittedPath: input.emittedPath,
+      archetype: input.archetype,
+    });
+    const servicePass = applyServiceQualityPass({
+      rows: hookTransportPass.rows,
+      emittedPath: input.emittedPath,
+      archetype: input.archetype,
+    });
+
+    const nextRows = servicePass.rows;
+    const iterationChanges = countRowNameChanges(rows, nextRows);
+    targetedRenamed += countRowNameChanges(rows, targetedRows);
+    hookTransportRenamed += hookTransportPass.renamed;
+    serviceRenamed += servicePass.renamed;
+    if (iterationChanges <= 0) break;
+    rows = nextRows;
+    passes += 1;
+  }
+
+  return {
+    rows,
+    targetedRenamed,
+    hookTransportRenamed,
+    serviceRenamed,
+    passes,
+  };
+}
+
 function normalizeExportNameRoot(input: string): string {
   const sanitized = stripNoisyExportSuffix(input);
   return sanitized.replace(/V\d+$/i, "").replace(/\d+$/i, "").replace(/[_-]+$/, "").toLowerCase();
@@ -1761,6 +1873,23 @@ function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectRepo
       warnings: 0,
       outputPreview: [],
     },
+    build: {
+      attempted: false,
+      success: false,
+      exitCode: -1,
+      errors: 0,
+      warnings: 0,
+      outputPreview: [],
+    },
+    dev: {
+      attempted: false,
+      success: false,
+      exitCode: -1,
+      errors: 0,
+      warnings: 0,
+      outputPreview: [],
+      skippedReason: "",
+    },
     eslint: {
       attempted: false,
       success: false,
@@ -1773,6 +1902,7 @@ function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectRepo
   };
 
   if (!installSuccess) {
+    checks.dev.skippedReason = "npm install failed";
     checks.eslint.skippedReason = "npm install failed";
     return checks;
   }
@@ -1805,6 +1935,55 @@ function runGeneratedProjectChecks(projectRoot: string): WebStormTestProjectRepo
     warnings: 0,
     outputPreview: tscPreview,
   };
+
+  const buildResult =
+    tscBin.length > 0
+      ? runNodeScriptSync({
+          scriptPath: tscBin,
+          args: ["-p", "tsconfig.build.json", "--pretty", "false"],
+          cwd: projectRoot,
+          timeoutMs: 300000,
+        })
+      : runShellCommandSync({
+          command: "npm exec --yes --package typescript tsc -p tsconfig.build.json --pretty false",
+          cwd: projectRoot,
+          timeoutMs: 300000,
+        });
+  const buildStdout = asText(buildResult.stdout);
+  const buildStderr = asText(buildResult.stderr);
+  const buildPreview = collectOutputPreview(buildStdout, buildStderr, 40);
+  const buildErrors = countMatchesInText(`${buildStdout}\n${buildStderr}`, /error\s+TS\d+/i);
+  checks.build = {
+    attempted: true,
+    success: buildResult.status === 0 && buildErrors === 0,
+    exitCode: buildResult.status ?? -1,
+    errors: buildErrors,
+    warnings: 0,
+    outputPreview: buildPreview,
+  };
+
+  if (!checks.build.success) {
+    checks.dev.skippedReason = "build failed";
+  } else {
+    const devResult = runShellCommandSync({
+      command: "node --import tsx ./tools/dev-run.mjs",
+      cwd: projectRoot,
+      timeoutMs: 300000,
+    });
+    const devStdout = asText(devResult.stdout);
+    const devStderr = asText(devResult.stderr);
+    const devPreview = collectOutputPreview(devStdout, devStderr, 60);
+    const devErrors = countMatchesInText(`${devStdout}\n${devStderr}`, /^\[fail\]/im);
+    checks.dev = {
+      attempted: true,
+      success: devResult.status === 0 && devErrors === 0,
+      exitCode: devResult.status ?? -1,
+      errors: devErrors,
+      warnings: countMatchesInText(`${devStdout}\n${devStderr}`, /\bwarn(?:ing)?\b/i),
+      outputPreview: devPreview,
+      skippedReason: "",
+    };
+  }
 
   const projectEslintBin = path.join(projectRoot, "node_modules", "eslint", "bin", "eslint.js");
   const repoEslintBin = path.join(REPO_ROOT, "node_modules", "eslint", "bin", "eslint.js");
@@ -1879,8 +2058,20 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
 
   const chunkArtifactBySourceFile = new Map<string, string>();
   const chunkSourceBySourceFile = new Map<string, string>();
-  const chunkTsBridgeByWrapperPath = new Map<string, ChunkTsBridgeRow>();
+  const sourceFileExistsCache = new Map<string, boolean>();
+  const chunkTsModuleByPath = new Map<string, ChunkTsBridgeRow>();
+  const chunkTsModulePendingQueue: ChunkTsBridgeRow[] = [];
   let chunkFiles = 0;
+  const hasSourceChunkForSourceFile = (sourceFileInput: string): boolean => {
+    const sourceFile = normalizeDeobfSourceFile(sourceFileInput);
+    if (sourceFile.length === 0) return false;
+    const cached = sourceFileExistsCache.get(sourceFile);
+    if (cached !== undefined) return cached;
+    const sourcePath = path.join(input.decompiledDir, sourceFile);
+    const exists = fs.existsSync(sourcePath) && fs.statSync(sourcePath).isFile();
+    sourceFileExistsCache.set(sourceFile, exists);
+    return exists;
+  };
   const readSourceChunkForSourceFile = (sourceFileInput: string): string => {
     const sourceFile = normalizeDeobfSourceFile(sourceFileInput);
     if (sourceFile.length === 0) {
@@ -1889,7 +2080,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     const cachedSource = chunkSourceBySourceFile.get(sourceFile);
     if (cachedSource) return cachedSource;
     const sourcePath = path.join(input.decompiledDir, sourceFile);
-    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+    if (!hasSourceChunkForSourceFile(sourceFile)) {
       throw new Error(`Mapped source chunk file does not exist: ${sourcePath}`);
     }
     const source = normalizeSourceForPrint(readUtf8(sourcePath));
@@ -1922,6 +2113,38 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       chunkArtifactPath: artifactPath,
       sourceChunk,
     };
+  };
+
+  const registerChunkTsModule = (bridgeInput: ChunkTsBridgeRow): void => {
+    const sourceFile = normalizeDeobfSourceFile(bridgeInput.sourceFile);
+    if (sourceFile.length === 0) {
+      throw new Error("Missing source file for chunk-ts module.");
+    }
+    const ensured = ensureChunkArtifactForSourceFile(sourceFile);
+    if (toPosixPath(bridgeInput.chunkArtifactPath) !== toPosixPath(ensured.chunkArtifactPath)) {
+      throw new Error(
+        `Chunk TS module artifact mismatch for ${sourceFile}: ${bridgeInput.chunkArtifactPath} vs ${ensured.chunkArtifactPath}`,
+      );
+    }
+
+    const normalizedModulePath = toPosixPath(bridgeInput.chunkTsModulePath).replace(/^\.?\//, "");
+    const row: ChunkTsBridgeRow = {
+      sourceFile,
+      chunkArtifactPath: ensured.chunkArtifactPath,
+      chunkTsModulePath: normalizedModulePath,
+    };
+
+    const current = chunkTsModuleByPath.get(row.chunkTsModulePath);
+    if (!current) {
+      chunkTsModuleByPath.set(row.chunkTsModulePath, row);
+      chunkTsModulePendingQueue.push(row);
+      return;
+    }
+    if (current.chunkArtifactPath !== row.chunkArtifactPath || current.sourceFile !== row.sourceFile) {
+      throw new Error(
+        `Chunk TS module collision for ${row.chunkTsModulePath}: ${current.sourceFile}/${current.chunkArtifactPath} vs ${row.sourceFile}/${row.chunkArtifactPath}`,
+      );
+    }
   };
 
   type SourceLiftContext = {
@@ -1993,6 +2216,29 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const ownershipResolution = resolveSemanticOwnership(semanticIrModel);
   const semanticModules = ownershipResolution.model.modules;
   const targetSymbolEntriesByPath = buildTargetSymbolEntriesIndexFromSemanticModules(semanticModules);
+  const importAliasHintBySourceAndSymbol = new Map<string, { name: string; score: number }>();
+  for (const entry of input.deobfuscationTable.entries) {
+    if (entry.kind === "file") continue;
+    if (entry.confidence < 0.9) continue;
+    const sourceFile = normalizeDeobfSourceFile(entry.sourceFile);
+    if (sourceFile.length === 0) continue;
+    const normalizedName = sanitizeExportIdentifierName(entry.deobfuscated);
+    if (normalizedName === "symbol_export") continue;
+    if (normalizedName.length < 3) continue;
+    if (isNoisyGeneratedExportName(normalizedName)) continue;
+    if (isGenericImportAliasHintName(normalizedName)) continue;
+    const key = `${sourceFile}|${entry.obfuscated}`;
+    const score = entry.confidence * 2 + scoreContextualExportNameQuality(normalizedName, entry.targetProjectPath);
+    const current = importAliasHintBySourceAndSymbol.get(key);
+    if (!current || score > current.score) {
+      importAliasHintBySourceAndSymbol.set(key, { name: normalizedName, score });
+    }
+  }
+  const resolveImportAliasHint = (importedSourceFile: string, importedSymbol: string): string | undefined => {
+    const sourceFile = normalizeDeobfSourceFile(importedSourceFile);
+    if (sourceFile.length === 0) return undefined;
+    return importAliasHintBySourceAndSymbol.get(`${sourceFile}|${importedSymbol}`)?.name;
+  };
   const byTargetPath = new Map<string, ReconstructedTargetRow>();
 
   for (const module of semanticModules) {
@@ -2065,12 +2311,17 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     droppedExports: number;
     droppedExportsByBudget: number;
     droppedExportsByTemplateCap: number;
+    targetedRenamed: number;
     hookTransportRenamed: number;
     serviceRenamed: number;
+    exportQualityPasses: number;
     templateAddedRequiredKinds: number;
     templateImportCount: number;
     importContractViolated: boolean;
     importSpecifierRewrites: number;
+    importAliasRenamed: number;
+    importAliasPasses: number;
+    importSpecifiersPruned: number;
     statementBudget: number;
     maxPrimaryStatementLength: number;
     maxDependencyStatementLength: number;
@@ -2259,26 +2510,19 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       rows: alignedCandidateRows,
       moduleConfidence: row.confidence,
     });
-    const renamedRows = applyTargetedExportRenames(selectedExports.selected, emittedPath).slice(
-      0,
-      synthesisContract.maxSelectedExports,
-    );
-    const hookTransportPass = applyHookTransportQualityPass({
-      rows: renamedRows,
+    const exportQualityPass = runIterativeExportQualityPass({
+      rows: selectedExports.selected,
       emittedPath,
       archetype: synthesisContract.kind,
+      iterations: 3,
     });
-    const servicePass = applyServiceQualityPass({
-      rows: hookTransportPass.rows,
-      emittedPath,
-      archetype: synthesisContract.kind,
-    });
+    const qualityRows = exportQualityPass.rows.slice(0, synthesisContract.maxSelectedExports);
     const templateEmission = emitArchetypeModule({
       sourceFilePath: activeSourceFile,
       sourceText: sourceChunk,
       emittedPath,
       contract: synthesisContract,
-      selectedRows: servicePass.rows,
+      selectedRows: qualityRows,
       candidateRows: alignedCandidateRows,
     });
     const exportRows = templateEmission.exportRows;
@@ -2303,30 +2547,36 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     const maxPrimaryStatementLength = synthesisContract.maxPrimaryStatementLength;
     const maxDependencyStatementLength = synthesisContract.maxDependencyStatementLength;
     const shouldUseTsNoCheck = true;
-    const rewrittenImports = rewriteChunkImportsToTsBridge({
+    const importAliasShapedModule = shapeImportAliasesIterative({
       moduleBody: templateEmission.moduleBody,
       sourceFile: activeSourceFile,
+      resolveAliasName: ({ importedSourceFile, importedSymbol }) =>
+        resolveImportAliasHint(importedSourceFile, importedSymbol),
+      iterations: 3,
+    });
+    const rewrittenImports = rewriteChunkImportsToTsBridge({
+      moduleBody: importAliasShapedModule.moduleBody,
+      sourceFile: activeSourceFile,
       emittedPath,
+      isBridgeSourceFile: hasSourceChunkForSourceFile,
     });
     for (const bridge of rewrittenImports.bridges) {
-      const ensuredBridgeArtifact = ensureChunkArtifactForSourceFile(bridge.sourceFile);
-      if (toPosixPath(ensuredBridgeArtifact.chunkArtifactPath) !== toPosixPath(bridge.chunkArtifactPath)) {
-        throw new Error(
-          `Chunk TS bridge artifact mismatch for ${bridge.sourceFile}: ${ensuredBridgeArtifact.chunkArtifactPath} vs ${bridge.chunkArtifactPath}`,
-        );
-      }
-      const currentBridge = chunkTsBridgeByWrapperPath.get(bridge.chunkTsWrapperPath);
-      if (!currentBridge) {
-        chunkTsBridgeByWrapperPath.set(bridge.chunkTsWrapperPath, bridge);
-        continue;
-      }
-      if (currentBridge.chunkArtifactPath !== bridge.chunkArtifactPath) {
-        throw new Error(
-          `Chunk TS bridge collision for ${bridge.chunkTsWrapperPath}: ${currentBridge.chunkArtifactPath} vs ${bridge.chunkArtifactPath}`,
-        );
-      }
+      registerChunkTsModule(bridge);
     }
     const moduleBody = rewrittenImports.moduleBody;
+    if (exportQualityPass.passes > 0) {
+      row.rationale.add(
+        `export-quality-pass: passes=${exportQualityPass.passes}, targeted=${exportQualityPass.targetedRenamed}, hookTransport=${exportQualityPass.hookTransportRenamed}, service=${exportQualityPass.serviceRenamed}`,
+      );
+    }
+    if (importAliasShapedModule.renamedAliases > 0) {
+      row.rationale.add(
+        `import-alias-shape: renamed=${importAliasShapedModule.renamedAliases}, passes=${importAliasShapedModule.passes}`,
+      );
+    }
+    if (importAliasShapedModule.prunedImportSpecifiers > 0) {
+      row.rationale.add(`import-prune: ${importAliasShapedModule.prunedImportSpecifiers}`);
+    }
     if (rewrittenImports.rewrites > 0) {
       row.rationale.add(`chunk-import-rewrite: ${rewrittenImports.rewrites}`);
     }
@@ -2341,7 +2591,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${totalDroppedExports}`,
       ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, importSpecifierRewrites=${rewrittenImports.rewrites}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}`,
       ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
-      " * Chunk bridge mode: disabled",
+      " * Chunk TS module mode: enabled",
       " * Controlled recovery mode: disabled",
       " */",
       "",
@@ -2383,12 +2633,17 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       droppedExports: selectedExports.dropped.length,
       droppedExportsByBudget,
       droppedExportsByTemplateCap,
-      hookTransportRenamed: hookTransportPass.renamed,
-      serviceRenamed: servicePass.renamed,
+      targetedRenamed: exportQualityPass.targetedRenamed,
+      hookTransportRenamed: exportQualityPass.hookTransportRenamed,
+      serviceRenamed: exportQualityPass.serviceRenamed,
+      exportQualityPasses: exportQualityPass.passes,
       templateAddedRequiredKinds: templateEmission.diagnostics.addedRequiredKinds.length,
       templateImportCount: templateEmission.diagnostics.importCount,
       importContractViolated: templateEmission.diagnostics.importContractViolated,
       importSpecifierRewrites: rewrittenImports.rewrites,
+      importAliasRenamed: importAliasShapedModule.renamedAliases,
+      importAliasPasses: importAliasShapedModule.passes,
+      importSpecifiersPruned: importAliasShapedModule.prunedImportSpecifiers,
       statementBudget: lifted.dependencyBudget,
       maxPrimaryStatementLength,
       maxDependencyStatementLength,
@@ -2415,21 +2670,41 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   }
 
   const generatedBarrelIndexes = buildLayerBarrelIndexes(projectRoot, emittedModulePaths);
+  while (chunkTsModulePendingQueue.length > 0) {
+    const currentModule = chunkTsModulePendingQueue.shift();
+    if (!currentModule) break;
+    const sourceChunk = readSourceChunkForSourceFile(currentModule.sourceFile);
+    const rewrittenChunkImports = rewriteChunkImportsToTsBridge({
+      moduleBody: sourceChunk,
+      sourceFile: currentModule.sourceFile,
+      emittedPath: currentModule.chunkTsModulePath,
+      isBridgeSourceFile: hasSourceChunkForSourceFile,
+    });
+    for (const dependency of rewrittenChunkImports.bridges) {
+      registerChunkTsModule(dependency);
+    }
+    const destinationPath = path.join(projectRoot, ...toPosixPath(currentModule.chunkTsModulePath).split("/"));
+    ensureDir(path.dirname(destinationPath));
+    fs.writeFileSync(
+      destinationPath,
+      renderChunkTsModuleSource({
+        bridge: currentModule,
+        moduleBody: rewrittenChunkImports.moduleBody,
+        rewrittenImports: rewrittenChunkImports.rewrites,
+      }),
+      "utf8",
+    );
+  }
+  const chunkTsModuleRows = Array.from(chunkTsModuleByPath.values()).sort((a, b) =>
+    a.chunkTsModulePath.localeCompare(b.chunkTsModulePath),
+  );
   const chunkArtifactRows = Array.from(chunkArtifactBySourceFile.entries())
     .map(([sourceFile, artifactPath]) => ({ sourceFile, artifactPath }))
     .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
-  const chunkTsBridgeRows = Array.from(chunkTsBridgeByWrapperPath.values()).sort((a, b) =>
-    a.chunkTsWrapperPath.localeCompare(b.chunkTsWrapperPath),
-  );
-  for (const row of chunkTsBridgeRows) {
-    const destinationPath = path.join(projectRoot, ...toPosixPath(row.chunkTsWrapperPath).split("/"));
-    ensureDir(path.dirname(destinationPath));
-    fs.writeFileSync(destinationPath, renderChunkTsWrapperSource(row), "utf8");
-  }
 
   const mappingArtifacts = [
     "mapping/chunk-artifacts.json",
-    "mapping/chunk-ts-bridges.json",
+    "mapping/chunk-ts-modules.json",
     "src/chunks/",
     "src/chunks-ts/",
     "mapping/deobfuscation-table.json",
@@ -2453,7 +2728,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   ];
 
   writeJson(path.join(mappingRoot, "chunk-artifacts.json"), chunkArtifactRows);
-  writeJson(path.join(mappingRoot, "chunk-ts-bridges.json"), chunkTsBridgeRows);
+  writeJson(path.join(mappingRoot, "chunk-ts-modules.json"), chunkTsModuleRows);
   writeJson(path.join(mappingRoot, "deobfuscation-table.json"), input.deobfuscationTable);
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.md"), input.deobfuscationMarkdown, "utf8");
   fs.writeFileSync(path.join(mappingRoot, "deobfuscation-table.csv"), input.deobfuscationCsv, "utf8");
@@ -2479,12 +2754,16 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     description: "Generated reverse/deobfuscation workspace for WebStorm inspection.",
     type: "module",
     scripts: {
+      build: "tsc -p tsconfig.build.json --pretty false",
+      dev: "npm run build && node --import tsx ./tools/dev-run.mjs",
       typecheck: "tsc -p tsconfig.json --noEmit",
       lint: "eslint src/**/*.{js,mjs,cjs,ts,tsx} src-tauri-adapter/**/*.{js,mjs,cjs,ts,tsx} --format json",
       stats: "node ./tools/print-stats.mjs",
     },
     dependencies: {
       eslint: "^9.20.0",
+      jsdom: "^26.1.0",
+      tsx: "^4.20.6",
       typescript: "^5.9.2",
     },
   };
@@ -2512,6 +2791,19 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   };
   writeJson(path.join(projectRoot, "tsconfig.json"), tsconfigJson);
   writeJson(path.join(projectRoot, "jsconfig.json"), tsconfigJson);
+
+  const tsconfigBuildJson = {
+    extends: "./tsconfig.json",
+    compilerOptions: {
+      noEmit: false,
+      outDir: "dist",
+      declaration: false,
+      sourceMap: false,
+    },
+    include: ["src/**/*", "src-tauri-adapter/**/*"],
+    exclude: ["dist", "node_modules", "mapping", "meta", "tools"],
+  };
+  writeJson(path.join(projectRoot, "tsconfig.build.json"), tsconfigBuildJson);
 
   const eslintConfig = [
     "module.exports = [",
@@ -2557,6 +2849,149 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   ].join("\n");
   fs.writeFileSync(path.join(toolsRoot, "print-stats.mjs"), statsScript, "utf8");
 
+  const devRunScript = [
+    "import { JSDOM } from 'jsdom';",
+    "import { createRequire } from 'node:module';",
+    "",
+    "const realRequire = createRequire(import.meta.url);",
+    "",
+    "function createDeepNoopProxy() {",
+    "  let proxy;",
+    "  proxy = new Proxy(function () {}, {",
+    "    get(_target, prop) {",
+    "      if (prop === 'then') return undefined;",
+    "      if (prop === Symbol.toPrimitive) return () => '';",
+    "      if (prop === 'toString') return () => '';",
+    "      if (prop === 'toJSON') return () => ({});",
+    "      return proxy;",
+    "    },",
+    "    apply() {",
+    "      return undefined;",
+    "    },",
+    "    construct() {",
+    "      return proxy;",
+    "    },",
+    "    set() {",
+    "      return true;",
+    "    },",
+    "    has() {",
+    "      return true;",
+    "    },",
+    "  });",
+    "  return proxy;",
+    "}",
+    "",
+    "const electronStub = createDeepNoopProxy();",
+    "globalThis.require = (id) => (id === 'electron' ? electronStub : realRequire(id));",
+    "",
+    "const dom = new JSDOM('<!doctype html><html><head></head><body><div id=\"root\"></div></body></html>', {",
+    "  url: 'http://localhost/',",
+    "  pretendToBeVisual: true,",
+    "});",
+    "const { window } = dom;",
+    "",
+    "window.electronBridge = {",
+    "  sendMessageFromView: () => {},",
+    "  dispatchMessageFromView: () => {},",
+    "  sendWorkerMessageFromView: async () => {},",
+    "  subscribeToWorkerMessages: () => {},",
+    "};",
+    "",
+    "if (window.HTMLCanvasElement) {",
+    "  window.HTMLCanvasElement.prototype.getContext = () => ({",
+    "    fillRect: () => {},",
+    "    clearRect: () => {},",
+    "    getImageData: () => ({ data: [] }),",
+    "    putImageData: () => {},",
+    "    createImageData: () => [],",
+    "    setTransform: () => {},",
+    "    drawImage: () => {},",
+    "    save: () => {},",
+    "    fillText: () => {},",
+    "    restore: () => {},",
+    "    beginPath: () => {},",
+    "    moveTo: () => {},",
+    "    lineTo: () => {},",
+    "    closePath: () => {},",
+    "    stroke: () => {},",
+    "    translate: () => {},",
+    "    scale: () => {},",
+    "    rotate: () => {},",
+    "    arc: () => {},",
+    "    fill: () => {},",
+    "    measureText: () => ({ width: 0 }),",
+    "    transform: () => {},",
+    "    rect: () => {},",
+    "    clip: () => {},",
+    "  });",
+    "}",
+    "",
+    "Object.assign(globalThis, {",
+    "  window,",
+    "  document: window.document,",
+    "  self: window,",
+    "  HTMLElement: window.HTMLElement,",
+    "  Element: window.Element,",
+    "  Node: window.Node,",
+    "  MutationObserver: window.MutationObserver,",
+    "  CustomEvent: window.CustomEvent,",
+    "  DOMParser: window.DOMParser,",
+    "  localStorage: window.localStorage,",
+    "  sessionStorage: window.sessionStorage,",
+    "  customElements: window.customElements,",
+    "  ResizeObserver: window.ResizeObserver ?? class { observe() {} unobserve() {} disconnect() {} },",
+    "  DOMMatrix: window.DOMMatrix ?? class {},",
+    "});",
+    "Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });",
+    "",
+    "if (!globalThis.fetch) {",
+    "  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' });",
+    "}",
+    "if (!globalThis.requestAnimationFrame) {",
+    "  globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16);",
+    "  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);",
+    "}",
+    "",
+    "const modules = [",
+    "  '../dist/src/main/index.js',",
+    "  '../dist/src/services/index.js',",
+    "  '../dist/src-tauri-adapter/index.js',",
+    "  '../dist/src/renderer/index.js',",
+    "];",
+    "",
+    "async function importWithTimeout(spec, timeoutMs) {",
+    "  let timer;",
+    "  try {",
+    "    return await Promise.race([",
+    "      import(spec),",
+    "      new Promise((_, reject) => {",
+    "        timer = setTimeout(() => reject(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);",
+    "      }),",
+    "    ]);",
+    "  } finally {",
+    "    if (timer) clearTimeout(timer);",
+    "  }",
+    "}",
+    "",
+    "let hasFailures = false;",
+    "for (const spec of modules) {",
+    "  const startedAt = Date.now();",
+    "  process.stdout.write(`[start] ${spec}\\n`);",
+    "  try {",
+    "    await importWithTimeout(spec, 90000);",
+    "    process.stdout.write(`[ok] ${spec} (${Date.now() - startedAt}ms)\\n`);",
+    "  } catch (error) {",
+    "    const details = error instanceof Error ? error.stack ?? error.message : String(error);",
+    "    process.stderr.write(`[fail] ${spec}: ${details}\\n`);",
+    "    hasFailures = true;",
+    "  }",
+    "}",
+    "",
+    "process.exit(hasFailures ? 1 : 0);",
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(toolsRoot, "dev-run.mjs"), devRunScript, "utf8");
+
   const readme = [
     "# Project",
     "",
@@ -2572,12 +3007,14 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     "- `src/**/index.ts` layer barrel files for fast navigation and clean entry points.",
     "- `src-tauri-adapter/` bridge modules for tauri/daemon-related targets.",
     "- `src/chunks/` one raw source artifact per mapped chunk (`.js`) for traceability.",
-    "- `src/chunks-ts/` TS bridge modules that expose chunk artifacts without direct `.js` imports in feature layers.",
+    "- `src/chunks-ts/` TS modules lifted from decompiled chunk source with rewritten local chunk dependencies.",
     "- `mapping/` generated maps and flow reports.",
     "- `meta/` source package metadata and generation info.",
     "",
     "## Quick Commands",
     "- `npm install`",
+    "- `npm run build`",
+    "- `npm run dev`",
     "- `npm run lint`",
     "- `npm run stats`",
     "- `npm run typecheck`",

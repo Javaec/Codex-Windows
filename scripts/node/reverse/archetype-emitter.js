@@ -221,6 +221,7 @@ function emitArchetypeModule(input) {
     const moduleBody = (0, post_lift_beautify_1.postLiftBeautifyModuleSource)({
         moduleBody: lifted.moduleBody,
         exportedNames: exportRows.map((item) => item.name),
+        emittedPath: input.emittedPath,
     });
     const importCount = countStaticImports(moduleBody);
     const importContractViolated = evaluateTemplateImportContract({

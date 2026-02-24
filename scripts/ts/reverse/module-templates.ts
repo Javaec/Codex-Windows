@@ -28,17 +28,18 @@ function inferTemplateKind(modulePath: string, layer: SemanticLayer): ModuleArch
 }
 
 function baseBudgetByArchetype(archetype: ModuleArchetype): number {
-  if (archetype === "hook") return 420;
-  if (archetype === "ui") return 460;
-  if (archetype === "store") return 500;
-  if (archetype === "transport") return 540;
-  return 520;
+  if (archetype === "hook") return 900;
+  if (archetype === "ui") return 1200;
+  if (archetype === "store") return 1400;
+  if (archetype === "transport") return 1800;
+  return 2200;
 }
 
 function budgetAdjustmentBySymbolCount(symbolCount: number): number {
-  if (symbolCount >= 24) return 180;
-  if (symbolCount >= 12) return 120;
-  if (symbolCount >= 6) return 70;
+  if (symbolCount >= 48) return 1800;
+  if (symbolCount >= 24) return 1200;
+  if (symbolCount >= 12) return 700;
+  if (symbolCount >= 6) return 320;
   return 0;
 }
 
@@ -49,12 +50,12 @@ export function buildModuleSynthesisContract(input: {
   const kind = inferTemplateKind(input.module.modulePath, input.module.ownerLayer);
   const symbolCount = input.module.symbols.length;
   const baseBudget = baseBudgetByArchetype(kind);
-  const budget = Math.min(900, Math.max(260, baseBudget + budgetAdjustmentBySymbolCount(symbolCount)));
+  const budget = Math.min(5200, Math.max(640, baseBudget + budgetAdjustmentBySymbolCount(symbolCount)));
   const denseCandidates = input.candidateExports >= 700;
   const maxPrimaryStatementLength =
-    denseCandidates ? 3600 : kind === "hook" ? 4200 : kind === "transport" ? 5600 : 5200;
+    denseCandidates ? 52000 : kind === "hook" ? 42000 : kind === "transport" ? 68000 : 56000;
   const maxDependencyStatementLength =
-    denseCandidates ? 5200 : kind === "transport" ? 7600 : 6200;
+    denseCandidates ? 120000 : kind === "transport" ? 180000 : 150000;
   const maxSelectedExports = kind === "hook" ? 6 : kind === "ui" ? 8 : kind === "transport" ? 8 : 10;
   const requiredSymbolKinds =
     kind === "hook"

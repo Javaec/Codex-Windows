@@ -1,5 +1,7 @@
 import * as ts from "typescript";
 
+import { isSafeIdentifierName } from "./identifier-utils";
+
 export type LiftedExportKind = "class" | "function" | "variable";
 
 export interface LiftedExportSpec {
@@ -422,10 +424,6 @@ function pickFallbackDeclaration(
   return best;
 }
 
-function isSafeIdentifierName(value: string): boolean {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
-}
-
 function countIncludedReferences(statements: TopLevelStatementRecord[], includedStatementIndexes: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
   for (const row of statements) {
@@ -787,17 +785,6 @@ export function liftModuleSource(input: LiftedModuleSourceInput): LiftedModuleSo
       if (!dependency) continue;
       if (includeStatementIndexes.has(dependency.statementIndex)) continue;
       const dependencyStatement = statements[dependency.statementIndex];
-      if (
-        dependency.kind === "variable" &&
-        dependencyStatement &&
-        dependencyStatement.generatedSignal >= 0.82 &&
-        dependencyStatement.text.length > 1600
-      ) {
-        dependencyTrimmed = true;
-        skippedDependencies += 1;
-        skippedOversizedDependencies += 1;
-        continue;
-      }
       if (
         maxDependencyStatementLength > 0 &&
         dependencyStatement &&

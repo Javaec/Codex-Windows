@@ -3,7 +3,7 @@ import * as path from "node:path";
 export interface ChunkTsBridgeRow {
   sourceFile: string;
   chunkArtifactPath: string;
-  chunkTsWrapperPath: string;
+  chunkTsModulePath: string;
 }
 
 export interface RewriteChunkImportsResult {
@@ -21,7 +21,7 @@ function toChunkArtifactPath(sourceFile: string): string {
   return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
 }
 
-function toChunkTsWrapperPathFromSourceFile(sourceFile: string): string {
+function toChunkTsModulePathFromSourceFile(sourceFile: string): string {
   const artifactPath = toChunkArtifactPath(sourceFile).replace(/\.js$/i, ".ts");
   return toPosixPath(path.posix.join("src", "chunks-ts", artifactPath));
 }
@@ -29,13 +29,6 @@ function toChunkTsWrapperPathFromSourceFile(sourceFile: string): string {
 function toModuleSpecifier(fromDirectory: string, targetFilePath: string): string {
   const from = toPosixPath(fromDirectory).replace(/^\.?\//, "");
   const target = toPosixPath(targetFilePath).replace(/^\.?\//, "").replace(/\.ts$/i, "");
-  const relative = path.posix.relative(from, target);
-  return relative.startsWith(".") ? relative : `./${relative}`;
-}
-
-function toRelativePathSpecifier(fromDirectory: string, targetFilePath: string): string {
-  const from = toPosixPath(fromDirectory).replace(/^\.?\//, "");
-  const target = toPosixPath(targetFilePath).replace(/^\.?\//, "");
   const relative = path.posix.relative(from, target);
   return relative.startsWith(".") ? relative : `./${relative}`;
 }
@@ -55,15 +48,15 @@ function resolveChunkTsBridge(input: {
   if (resolvedSource.startsWith("../")) return undefined;
 
   const chunkArtifactPath = toPosixPath(path.posix.join("src", "chunks", toChunkArtifactPath(resolvedSource)));
-  const chunkTsWrapperPath = toChunkTsWrapperPathFromSourceFile(resolvedSource);
+  const chunkTsModulePath = toChunkTsModulePathFromSourceFile(resolvedSource);
   const emittedDirectory = path.posix.dirname(toPosixPath(input.emittedPath).replace(/^\.?\//, ""));
-  const nextSpecifier = toModuleSpecifier(emittedDirectory, chunkTsWrapperPath);
+  const nextSpecifier = toModuleSpecifier(emittedDirectory, chunkTsModulePath);
   return {
     nextSpecifier,
     bridge: {
       sourceFile: resolvedSource,
       chunkArtifactPath,
-      chunkTsWrapperPath,
+      chunkTsModulePath,
     },
   };
 }
@@ -72,9 +65,10 @@ export function rewriteChunkImportsToTsBridge(input: {
   moduleBody: string;
   sourceFile: string;
   emittedPath: string;
+  isBridgeSourceFile?: (sourceFile: string) => boolean;
 }): RewriteChunkImportsResult {
   let rewrites = 0;
-  const bridgesByWrapperPath = new Map<string, ChunkTsBridgeRow>();
+  const bridgesByModulePath = new Map<string, ChunkTsBridgeRow>();
 
   const rewriteSpecifier = (raw: string): string => {
     const resolved = resolveChunkTsBridge({
@@ -82,14 +76,24 @@ export function rewriteChunkImportsToTsBridge(input: {
       sourceFile: input.sourceFile,
       emittedPath: input.emittedPath,
     });
-    if (!resolved || resolved.nextSpecifier === raw) return raw;
+    if (!resolved) return raw;
+
+    if (input.isBridgeSourceFile && !input.isBridgeSourceFile(resolved.bridge.sourceFile)) {
+      const stripped = raw.replace(/\.(?:mjs|cjs|js)$/i, "");
+      if (stripped !== raw) {
+        rewrites += 1;
+      }
+      return stripped;
+    }
+
+    if (resolved.nextSpecifier === raw) return raw;
     rewrites += 1;
-    const current = bridgesByWrapperPath.get(resolved.bridge.chunkTsWrapperPath);
+    const current = bridgesByModulePath.get(resolved.bridge.chunkTsModulePath);
     if (!current) {
-      bridgesByWrapperPath.set(resolved.bridge.chunkTsWrapperPath, resolved.bridge);
+      bridgesByModulePath.set(resolved.bridge.chunkTsModulePath, resolved.bridge);
     } else if (current.chunkArtifactPath !== resolved.bridge.chunkArtifactPath) {
       throw new Error(
-        `Chunk TS bridge collision: wrapper=${resolved.bridge.chunkTsWrapperPath} artifacts=${current.chunkArtifactPath} vs ${resolved.bridge.chunkArtifactPath}`,
+        `Chunk TS module collision: path=${resolved.bridge.chunkTsModulePath} artifacts=${current.chunkArtifactPath} vs ${resolved.bridge.chunkArtifactPath}`,
       );
     }
     return resolved.nextSpecifier;
@@ -109,12 +113,20 @@ export function rewriteChunkImportsToTsBridge(input: {
       const rewritten = rewriteSpecifier(specifier);
       return `require(${quote}${rewritten}${quote})`;
     });
+    nextLine = nextLine.replace(/\bimport\(\s*(['"])([^'"]+)\1\s*\)/g, (_match, quote: string, specifier: string) => {
+      const rewritten = rewriteSpecifier(specifier);
+      return `import(${quote}${rewritten}${quote})`;
+    });
+    nextLine = nextLine.replace(/(['"])(\.{1,2}\/[^'"]+\.(?:mjs|cjs|js))\1/g, (_match, quote: string, specifier: string) => {
+      const rewritten = rewriteSpecifier(specifier);
+      return `${quote}${rewritten}${quote}`;
+    });
     return nextLine;
   };
 
   const rewrittenLines = input.moduleBody.split("\n").map((line) => rewriteLine(line));
-  const bridges = Array.from(bridgesByWrapperPath.values()).sort((a, b) =>
-    a.chunkTsWrapperPath.localeCompare(b.chunkTsWrapperPath),
+  const bridges = Array.from(bridgesByModulePath.values()).sort((a, b) =>
+    a.chunkTsModulePath.localeCompare(b.chunkTsModulePath),
   );
   return {
     moduleBody: rewrittenLines.join("\n"),
@@ -123,18 +135,24 @@ export function rewriteChunkImportsToTsBridge(input: {
   };
 }
 
-export function renderChunkTsWrapperSource(input: ChunkTsBridgeRow): string {
-  const wrapperDirectory = path.posix.dirname(toPosixPath(input.chunkTsWrapperPath).replace(/^\.?\//, ""));
-  const importSpecifier = toRelativePathSpecifier(wrapperDirectory, input.chunkArtifactPath);
+export function renderChunkTsModuleSource(input: {
+  bridge: ChunkTsBridgeRow;
+  moduleBody: string;
+  rewrittenImports: number;
+}): string {
+  const trimmedBody = input.moduleBody.trimEnd();
+  const moduleBody = trimmedBody.length > 0 ? `${trimmedBody}\n` : "";
   return [
     "/**",
-    " * Generated TS bridge to raw chunk artifact.",
-    ` * Source chunk artifact: ${input.chunkArtifactPath}`,
+    " * Generated TS chunk module from decompiled source.",
+    ` * Source chunk: ${input.bridge.sourceFile}`,
+    ` * Chunk artifact: ${input.bridge.chunkArtifactPath}`,
+    ` * Import rewrites: ${input.rewrittenImports}`,
     " */",
     "",
-    `import * as chunkModule from "${importSpecifier}";`,
-    `export * from "${importSpecifier}";`,
-    "export default chunkModule;",
+    "// @ts-nocheck",
+    "",
+    moduleBody,
     "",
   ].join("\n");
 }

@@ -287,6 +287,7 @@ export function emitArchetypeModule(input: ArchetypeEmitterInput): ArchetypeEmit
   const moduleBody = postLiftBeautifyModuleSource({
     moduleBody: lifted.moduleBody,
     exportedNames: exportRows.map((item) => item.name),
+    emittedPath: input.emittedPath,
   });
   const importCount = countStaticImports(moduleBody);
   const importContractViolated = evaluateTemplateImportContract({

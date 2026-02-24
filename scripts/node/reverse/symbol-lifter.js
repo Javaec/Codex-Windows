@@ -37,6 +37,7 @@ exports.inspectLiftSourceDeclarations = inspectLiftSourceDeclarations;
 exports.inspectLiftDeclarationGraph = inspectLiftDeclarationGraph;
 exports.liftModuleSource = liftModuleSource;
 const ts = __importStar(require("typescript"));
+const identifier_utils_1 = require("./identifier-utils");
 const GLOBAL_REFERENCE_EXCLUDES = new Set([
     "undefined",
     "nan",
@@ -388,9 +389,6 @@ function pickFallbackDeclaration(declarations, expectedKind, sourceLine, usedSta
     }
     return best;
 }
-function isSafeIdentifierName(value) {
-    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
-}
 function countIncludedReferences(statements, includedStatementIndexes) {
     const counts = new Map();
     for (const row of statements) {
@@ -460,7 +458,7 @@ function buildTopLevelRenamePlan(input) {
             skipped += 1;
             continue;
         }
-        if (!isSafeIdentifierName(candidate.sourceSymbol) || !isSafeIdentifierName(candidate.exportName)) {
+        if (!(0, identifier_utils_1.isSafeIdentifierName)(candidate.sourceSymbol) || !(0, identifier_utils_1.isSafeIdentifierName)(candidate.exportName)) {
             skipped += 1;
             continue;
         }
@@ -707,15 +705,6 @@ function liftModuleSource(input) {
             if (includeStatementIndexes.has(dependency.statementIndex))
                 continue;
             const dependencyStatement = statements[dependency.statementIndex];
-            if (dependency.kind === "variable" &&
-                dependencyStatement &&
-                dependencyStatement.generatedSignal >= 0.82 &&
-                dependencyStatement.text.length > 1600) {
-                dependencyTrimmed = true;
-                skippedDependencies += 1;
-                skippedOversizedDependencies += 1;
-                continue;
-            }
             if (maxDependencyStatementLength > 0 &&
                 dependencyStatement &&
                 dependencyStatement.text.length > maxDependencyStatementLength) {

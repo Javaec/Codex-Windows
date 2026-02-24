@@ -71,14 +71,14 @@ function normalizeAppHistoryKey(appDir) {
 }
 function loadProjectMappingRows(projectRoot) {
     const chunkArtifactsPath = path.join(projectRoot, "mapping", "chunk-artifacts.json");
-    const chunkTsBridgesPath = path.join(projectRoot, "mapping", "chunk-ts-bridges.json");
+    const chunkTsModulesPath = path.join(projectRoot, "mapping", "chunk-ts-modules.json");
     const reconstructedMapPath = path.join(projectRoot, "mapping", "reconstructed-map.json");
     const lifterDiagnosticsPath = path.join(projectRoot, "mapping", "lifter-diagnostics.json");
     if (!fs.existsSync(chunkArtifactsPath)) {
         throw new Error(`Missing chunk artifact map: ${toPosixPath(chunkArtifactsPath)}`);
     }
-    if (!fs.existsSync(chunkTsBridgesPath)) {
-        throw new Error(`Missing chunk TS bridge map: ${toPosixPath(chunkTsBridgesPath)}`);
+    if (!fs.existsSync(chunkTsModulesPath)) {
+        throw new Error(`Missing chunk-ts module map: ${toPosixPath(chunkTsModulesPath)}`);
     }
     if (!fs.existsSync(reconstructedMapPath)) {
         throw new Error(`Missing reconstructed map: ${toPosixPath(reconstructedMapPath)}`);
@@ -88,7 +88,7 @@ function loadProjectMappingRows(projectRoot) {
     }
     return {
         chunkArtifacts: readJson(chunkArtifactsPath),
-        chunkTsBridges: readJson(chunkTsBridgesPath),
+        chunkTsModules: readJson(chunkTsModulesPath),
         reconstructed: readJson(reconstructedMapPath),
         lifterDiagnostics: readJson(lifterDiagnosticsPath),
     };
@@ -128,7 +128,7 @@ function countNoisySymbolNames(report) {
         return false;
     }).length;
 }
-function validateChunkArtifacts(projectRoot, chunkArtifacts, chunkTsBridges, reconstructed) {
+function validateChunkArtifacts(projectRoot, chunkArtifacts, chunkTsModules, reconstructed) {
     const failures = [];
     const genericNoisePaths = [];
     const sourceSet = new Set();
@@ -147,25 +147,31 @@ function validateChunkArtifacts(projectRoot, chunkArtifacts, chunkTsBridges, rec
     for (const row of chunkArtifacts)
         artifactBySource.set(row.sourceFile, row.artifactPath);
     const artifactPathSet = new Set(chunkArtifacts.map((row) => toPosixPath(row.artifactPath)));
-    const bridgeWrapperSet = new Set();
-    for (const bridge of chunkTsBridges) {
-        const wrapperPath = toPosixPath(bridge.chunkTsWrapperPath);
-        if (bridgeWrapperSet.has(wrapperPath)) {
-            failures.push(`chunk-ts-bridges contains duplicate wrapper path: ${wrapperPath}`);
+    const bridgeModuleSet = new Set();
+    for (const bridge of chunkTsModules) {
+        const modulePath = toPosixPath(bridge.chunkTsModulePath);
+        if (bridgeModuleSet.has(modulePath)) {
+            failures.push(`chunk-ts-modules contains duplicate module path: ${modulePath}`);
             continue;
         }
-        bridgeWrapperSet.add(wrapperPath);
+        bridgeModuleSet.add(modulePath);
         if (!artifactPathSet.has(toPosixPath(bridge.chunkArtifactPath))) {
-            failures.push(`chunk-ts-bridge references unknown chunk artifact: ${bridge.chunkArtifactPath}`);
+            failures.push(`chunk-ts module references unknown chunk artifact: ${bridge.chunkArtifactPath}`);
         }
-        const wrapperAbsPath = path.join(projectRoot, ...wrapperPath.split("/"));
-        if (!fs.existsSync(wrapperAbsPath) || !fs.statSync(wrapperAbsPath).isFile()) {
-            failures.push(`missing chunk-ts wrapper file: ${toPosixPath(wrapperAbsPath)}`);
+        const moduleAbsPath = path.join(projectRoot, ...modulePath.split("/"));
+        if (!fs.existsSync(moduleAbsPath) || !fs.statSync(moduleAbsPath).isFile()) {
+            failures.push(`missing chunk-ts module file: ${toPosixPath(moduleAbsPath)}`);
             continue;
         }
-        const wrapperSource = readUtf8(wrapperAbsPath);
-        if (!/\bexport\s+\*\s+from\s+["'][^"']+["']/.test(wrapperSource)) {
-            failures.push(`chunk-ts wrapper missing re-export: ${wrapperPath}`);
+        const moduleSource = readUtf8(moduleAbsPath);
+        if (/\bfrom\s+["'][^"']+\.js["']/.test(moduleSource) || /\brequire\(\s*["'][^"']+\.js["']\s*\)/.test(moduleSource)) {
+            failures.push(`chunk-ts module still imports .js: ${modulePath}`);
+        }
+        if (/["']\.{1,2}\/[^"']+\.js["']/.test(moduleSource)) {
+            failures.push(`chunk-ts module still has relative .js specifier strings: ${modulePath}`);
+        }
+        if (/\bfrom\s+["'][^"']*\/chunks\/[^"']*["']/.test(moduleSource)) {
+            failures.push(`chunk-ts module still imports raw chunk artifact: ${modulePath}`);
         }
     }
     for (const row of reconstructed) {
@@ -239,6 +245,12 @@ function enforceQualityGates(input) {
     if (input.projectChecks.tsc.errors > 0) {
         failures.push(`generated project gate failed: tsc errors=${input.projectChecks.tsc.errors}`);
     }
+    if (input.projectChecks.build.errors > 0) {
+        failures.push(`generated project gate failed: build errors=${input.projectChecks.build.errors}`);
+    }
+    if (input.projectChecks.dev.attempted && input.projectChecks.dev.errors > 0) {
+        failures.push(`generated project gate failed: dev errors=${input.projectChecks.dev.errors}`);
+    }
     if (input.projectChecks.eslint.errors > 0 || input.projectChecks.eslint.warnings > 0) {
         failures.push(`generated project gate failed: eslint errors=${input.projectChecks.eslint.errors}, warnings=${input.projectChecks.eslint.warnings}`);
     }
@@ -254,7 +266,7 @@ function enforceQualityGates(input) {
     if (placeholderModules > regression_config_1.REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax) {
         failures.push(`placeholder modules above gate ceiling: ${placeholderModules} (expected <= ${regression_config_1.REVERSE_QUALITY_GATE_TARGETS.placeholderModulesMax})`);
     }
-    const artifactValidation = validateChunkArtifacts(input.projectRoot, mappingRows.chunkArtifacts, mappingRows.chunkTsBridges, mappingRows.reconstructed);
+    const artifactValidation = validateChunkArtifacts(input.projectRoot, mappingRows.chunkArtifacts, mappingRows.chunkTsModules, mappingRows.reconstructed);
     failures.push(...artifactValidation.failures);
     if (artifactValidation.genericNoisePaths.length > 0) {
         failures.push(`generic-path noise detected in reconstructed outputs: ${artifactValidation.genericNoisePaths.join(", ")}`);
@@ -273,6 +285,9 @@ function enforceQualityGates(input) {
             genericNoisePaths: artifactValidation.genericNoisePaths,
             installSuccess: input.projectChecks.install.success,
             tscErrors: input.projectChecks.tsc.errors,
+            buildErrors: input.projectChecks.build.errors,
+            devSuccess: input.projectChecks.dev.success,
+            devErrors: input.projectChecks.dev.errors,
             eslintErrors: input.projectChecks.eslint.errors,
             eslintWarnings: input.projectChecks.eslint.warnings,
             chunkArtifactRows: mappingRows.chunkArtifacts.length,

@@ -206,6 +206,35 @@ function shouldSanitizeName(entry) {
         return true;
     return false;
 }
+function scoreDeobfuscatedNameQuality(input) {
+    const name = input.name.trim();
+    if (name.length === 0)
+        return 0;
+    let score = 1;
+    if (!isIdentifierLikeName(name))
+        score -= 0.7;
+    if (name.length < 3)
+        score -= 0.7;
+    else if (name.length < 5)
+        score -= 0.25;
+    if (/\$/.test(name))
+        score -= 0.4;
+    if (/^_+/.test(name))
+        score -= 0.25;
+    if (/(Fn|Class|Var)\d+$/i.test(name))
+        score -= 0.75;
+    if (/^[A-Za-z]{1,3}\d{0,2}$/.test(name))
+        score -= 0.65;
+    if (/\d{2,}$/.test(name))
+        score -= 0.2;
+    if (/(?:legacy|inline|internal)\d+$/i.test(name))
+        score -= 0.35;
+    if (input.kind === "class" && !/^[A-Z]/.test(name))
+        score -= 0.2;
+    if (input.kind === "function" && /^use[A-Z]/.test(name))
+        score += 0.08;
+    return Math.max(0, Math.min(1, score));
+}
 function buildStableCollisionSuffix(value) {
     let hash = 2166136261;
     for (let index = 0; index < value.length; index += 1) {
@@ -359,6 +388,16 @@ function toMemoryEntry(entry, key) {
     };
 }
 function isCandidateBetter(candidate, current) {
+    const candidateQuality = scoreDeobfuscatedNameQuality({
+        name: candidate.deobfuscated,
+        kind: candidate.kind,
+    });
+    const currentQuality = scoreDeobfuscatedNameQuality({
+        name: current.deobfuscated,
+        kind: current.kind,
+    });
+    if (candidateQuality > currentQuality + 0.1)
+        return true;
     if (candidate.confidence > current.confidence + 0.015)
         return true;
     if (candidate.referenceScore > current.referenceScore + 0.25)
@@ -443,10 +482,22 @@ function applyNameMemory(input) {
         const remembered = appMemory[key];
         if (!remembered)
             continue;
+        const rememberedQuality = scoreDeobfuscatedNameQuality({
+            name: remembered.deobfuscated,
+            kind: remembered.kind,
+        });
+        const currentQuality = scoreDeobfuscatedNameQuality({
+            name: entry.deobfuscated,
+            kind: entry.kind,
+        });
+        if (currentQuality >= rememberedQuality + 0.1)
+            continue;
         const memoryWinsByConfidence = remembered.confidence >= entry.confidence + 0.02;
         const memoryWinsByReference = remembered.referenceScore >= entry.reference.score + 0.35 &&
             remembered.confidence >= entry.confidence - 0.03;
-        if (!memoryWinsByConfidence && !memoryWinsByReference)
+        const memoryWinsByQuality = rememberedQuality >= currentQuality + 0.12 &&
+            remembered.confidence >= entry.confidence - 0.04;
+        if (!memoryWinsByConfidence && !memoryWinsByReference && !memoryWinsByQuality)
             continue;
         const previousName = entry.deobfuscated;
         entry.deobfuscated = remembered.deobfuscated;

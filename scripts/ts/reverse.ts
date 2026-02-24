@@ -2003,13 +2003,19 @@ async function runReverse(options: ReverseOptions): Promise<number> {
   });
   writeInfo(`Project root: ${webStormTestProject.rootPath}`);
   writeInfo(
-    `Project checks: install=${webStormTestProject.checks.install.success}, tscErrors=${webStormTestProject.checks.tsc.errors}, eslintErrors=${webStormTestProject.checks.eslint.errors}, eslintWarnings=${webStormTestProject.checks.eslint.warnings}`,
+    `Project checks: install=${webStormTestProject.checks.install.success}, tscErrors=${webStormTestProject.checks.tsc.errors}, buildErrors=${webStormTestProject.checks.build.errors}, devErrors=${webStormTestProject.checks.dev.errors}, eslintErrors=${webStormTestProject.checks.eslint.errors}, eslintWarnings=${webStormTestProject.checks.eslint.warnings}`,
   );
   if (!webStormTestProject.checks.install.success) {
     writeWarn("Project checks: npm install failed.");
   }
   if (webStormTestProject.checks.tsc.errors > 0) {
     writeWarn(`Project checks: TSC errors detected (${webStormTestProject.checks.tsc.errors}).`);
+  }
+  if (webStormTestProject.checks.build.errors > 0) {
+    writeWarn(`Project checks: build errors detected (${webStormTestProject.checks.build.errors}).`);
+  }
+  if (webStormTestProject.checks.dev.errors > 0) {
+    writeWarn(`Project checks: dev runtime errors detected (${webStormTestProject.checks.dev.errors}).`);
   }
   if (webStormTestProject.checks.eslint.errors > 0 || webStormTestProject.checks.eslint.warnings > 0) {
     writeWarn(
