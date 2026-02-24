@@ -78,14 +78,18 @@ function collectStableRunEntries(runsRoot) {
         const absPath = path.join(runsRoot, entry.name);
         const stats = fs.statSync(absPath);
         out.push({
+            runId: entry.name,
             absPath,
             mtimeMs: stats.mtimeMs,
         });
     }
     out.sort((a, b) => {
+        const runIdCmp = b.runId.localeCompare(a.runId);
+        if (runIdCmp !== 0)
+            return runIdCmp;
         if (a.mtimeMs !== b.mtimeMs)
             return b.mtimeMs - a.mtimeMs;
-        return b.absPath.localeCompare(a.absPath);
+        return a.absPath.localeCompare(b.absPath);
     });
     return out;
 }

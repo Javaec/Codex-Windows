@@ -11,6 +11,7 @@ export const DEFAULT_REVERSE_REGRESSION_LATEST_DIR = path.resolve(REPO_ROOT, "wo
 export const DEFAULT_REVERSE_REGRESSION_RUNS_ROOT = path.resolve(REPO_ROOT, "work", "reverse", "regression-runs");
 
 interface StableRunEntry {
+  runId: string;
   absPath: string;
   mtimeMs: number;
 }
@@ -67,13 +68,16 @@ function collectStableRunEntries(runsRoot: string): StableRunEntry[] {
     const absPath = path.join(runsRoot, entry.name);
     const stats = fs.statSync(absPath);
     out.push({
+      runId: entry.name,
       absPath,
       mtimeMs: stats.mtimeMs,
     });
   }
   out.sort((a, b) => {
+    const runIdCmp = b.runId.localeCompare(a.runId);
+    if (runIdCmp !== 0) return runIdCmp;
     if (a.mtimeMs !== b.mtimeMs) return b.mtimeMs - a.mtimeMs;
-    return b.absPath.localeCompare(a.absPath);
+    return a.absPath.localeCompare(b.absPath);
   });
   return out;
 }

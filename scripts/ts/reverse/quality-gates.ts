@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 
 import type { DeobfuscationTableReport } from "./match-v2";
 import type { WebStormTestProjectReport } from "./webstorm-project";
@@ -8,6 +9,8 @@ import { REVERSE_QUALITY_GATE_TARGETS } from "./regression-config";
 interface ChunkArtifactRow {
   sourceFile: string;
   artifactPath: string;
+  bytes?: number;
+  sha256?: string;
 }
 
 interface ChunkTsBridgeRow {
@@ -93,6 +96,10 @@ function readUtf8(filePath: string): string {
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }
 
 function readJson<T>(filePath: string): T {
@@ -201,6 +208,27 @@ function validateChunkArtifacts(
   for (const row of chunkArtifacts) {
     sourceSet.add(row.sourceFile);
     artifactSet.add(row.artifactPath);
+    const artifactPath = toPosixPath(row.artifactPath).replace(/^\.?\//, "");
+    const artifactAbsPath = path.join(projectRoot, ...artifactPath.split("/"));
+    if (!fs.existsSync(artifactAbsPath) || !fs.statSync(artifactAbsPath).isFile()) {
+      failures.push(`chunk-artifact file is missing: ${artifactPath}`);
+      continue;
+    }
+    const source = readUtf8(artifactAbsPath);
+    const bytes = Buffer.byteLength(source, "utf8");
+    if (typeof row.bytes !== "number" || !Number.isFinite(row.bytes) || row.bytes < 0) {
+      failures.push(`chunk-artifacts row has invalid bytes value: ${row.sourceFile}`);
+    } else if (row.bytes !== bytes) {
+      failures.push(`chunk-artifact bytes mismatch for ${row.sourceFile}: ${row.bytes} != ${bytes}`);
+    }
+    if (typeof row.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(row.sha256)) {
+      failures.push(`chunk-artifacts row has invalid sha256 value: ${row.sourceFile}`);
+    } else {
+      const hash = sha256Hex(source);
+      if (hash.toLowerCase() !== row.sha256.toLowerCase()) {
+        failures.push(`chunk-artifact sha256 mismatch for ${row.sourceFile}`);
+      }
+    }
   }
   if (sourceSet.size !== chunkArtifacts.length) {
     failures.push("chunk-artifacts contains duplicate sourceFile rows");

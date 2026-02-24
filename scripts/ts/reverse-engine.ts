@@ -16,7 +16,7 @@ import {
   DEFAULT_REFERENCE_MAP_PATH,
   splitReferenceToken,
 } from "./reverse/reference-model";
-import { buildDeobfuscationTableMatchV2 } from "./reverse/match-v2";
+import { runMatchV2Stage } from "./reverse/match-v2-stage";
 import {
   formatDeobfuscationTableCsv,
   formatDeobfuscationTableMarkdown,
@@ -33,7 +33,6 @@ import { buildIpcContractMap } from "./reverse/ipc-contract-map";
 import { createIpcWrapperDecodeRuntime } from "./reverse/ipc-wrapper-decode";
 import { enforceQualityGates } from "./reverse/quality-gates";
 import { writeReverseReportArtifacts } from "./reverse/report-writer";
-import { applyNameMemory, persistNameMemory } from "./reverse/name-memory";
 import {
   classifyProbeLine,
   findElectronExecutableCandidates,
@@ -1845,38 +1844,37 @@ export async function runReverseStrictPath(options: ReverseOptions): Promise<num
       isIgnoredIpcChannel,
     },
   });
-  let deobfuscationTable = buildDeobfuscationTableMatchV2({
-    top: options.top,
-    jsFiles,
-    sourceByFile,
-    routeRows,
-    methodRows,
-    messageTypeRows,
-    statusRows,
-    stateKeyRows,
-    ipcRows,
-    componentBoundaries,
-    referenceModel,
-  });
   const appKey = `${packageJson.name || "unknown-app"}@${packageJson.version || "unknown-version"}`;
-  const nameMemoryApplied = applyNameMemory({
+  const matchStage = runMatchV2Stage({
     repoRoot: REPO_ROOT,
     appKey,
-    deobfuscationTable,
+    matchInput: {
+      top: options.top,
+      jsFiles,
+      sourceByFile,
+      routeRows,
+      methodRows,
+      messageTypeRows,
+      statusRows,
+      stateKeyRows,
+      ipcRows,
+      componentBoundaries,
+      referenceModel,
+    },
   });
-  deobfuscationTable = nameMemoryApplied.deobfuscationTable;
+  const deobfuscationTable = matchStage.deobfuscationTable;
+  const ownershipResolution = matchStage.ownershipResolution;
+  writeInfo(`Match-v2 rule order: ${matchStage.executedRules.join(" -> ")}`);
   writeInfo(
-    `Name memory apply: tracked=${nameMemoryApplied.tracked}, applied=${nameMemoryApplied.applied}, renamed=${nameMemoryApplied.renamed}, deduplicated=${nameMemoryApplied.deduplicated}`,
+    `Name memory apply: tracked=${matchStage.nameMemoryApply.tracked}, applied=${matchStage.nameMemoryApply.applied}, renamed=${matchStage.nameMemoryApply.renamed}, deduplicated=${matchStage.nameMemoryApply.deduplicated}`,
   );
-  const nameMemory = persistNameMemory({
-    repoRoot: REPO_ROOT,
-    appKey,
-    deobfuscationTable,
-  });
   writeInfo(
-    `Name memory: tracked=${nameMemory.totalTracked}, added=${nameMemory.added}, updated=${nameMemory.updated}, renamed=${nameMemory.renamed}`,
+    `Name memory: tracked=${matchStage.nameMemoryPersist.totalTracked}, added=${matchStage.nameMemoryPersist.added}, updated=${matchStage.nameMemoryPersist.updated}, renamed=${matchStage.nameMemoryPersist.renamed}`,
   );
-  writeInfo(`Name memory file: ${nameMemory.memoryPath}`);
+  writeInfo(`Name memory file: ${matchStage.nameMemoryPersist.memoryPath}`);
+  writeInfo(
+    `Ownership resolver: conflicts=${ownershipResolution.diagnostics.conflicts}, reassigned=${ownershipResolution.diagnostics.reassignedSymbols}, dropped=${ownershipResolution.diagnostics.droppedSymbols}`,
+  );
   const deobfuscationMarkdown = formatDeobfuscationTableMarkdown(deobfuscationTable);
   const deobfuscationCsv = formatDeobfuscationTableCsv(deobfuscationTable);
   const renamePlanMarkdown = formatRenamePlanMarkdown(deobfuscationTable);
@@ -1999,6 +1997,7 @@ export async function runReverseStrictPath(options: ReverseOptions): Promise<num
     referenceModel,
     referenceSignals: referenceProfile,
     referenceSymbols: referenceSymbolProfile,
+    semanticOwnership: ownershipResolution,
   });
   writeInfo(`Project root: ${webStormTestProject.rootPath}`);
   writeInfo(

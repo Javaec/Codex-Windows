@@ -12,13 +12,15 @@ import {
   type LiftDeclarationStat,
   type LiftedExportKind,
 } from "./symbol-lifter";
-import { buildSemanticIrFromDeobfuscationTable, type SemanticIrModule } from "./semantic-ir";
-import { resolveSemanticOwnership } from "./ownership-resolver";
+import type { SemanticIrModule } from "./semantic-ir";
+import type { OwnershipResolutionResult } from "./ownership-resolver";
 import { buildModuleSynthesisContract, type ModuleArchetype } from "./module-templates";
 import { applyArchetypeAndCluster } from "./declaration-clustering";
 import { emitArchetypeModule } from "./archetype-emitter";
 import { renderChunkTsModuleSource, rewriteChunkImportsToTsBridge, type ChunkTsBridgeRow } from "./chunk-ts-bridge";
 import { shapeImportAliasesIterative } from "./import-alias-shaper";
+import { createChunkArtifactRegistry } from "./chunk-artifact-model";
+import { buildSemanticEmitterModel, resolveSemanticAliasHint } from "./semantic-emitter-model";
 
 export interface WebStormTestProjectReport {
   rootPath: string;
@@ -89,15 +91,33 @@ export interface BuildWebStormTestProjectInput {
   referenceModel: unknown;
   referenceSignals: unknown;
   referenceSymbols: unknown;
+  semanticOwnership: OwnershipResolutionResult;
 }
 
 function toPosixPath(input: string): string {
   return input.replace(/\\/g, "/");
 }
 
+function toStableJsonValue(input: unknown): unknown {
+  if (Array.isArray(input)) {
+    return input.map((item) => toStableJsonValue(item));
+  }
+  if (!input || typeof input !== "object") {
+    return input;
+  }
+  const value = input as Record<string, unknown>;
+  const sortedKeys = Object.keys(value).sort((a, b) => a.localeCompare(b));
+  const normalized: Record<string, unknown> = {};
+  for (const key of sortedKeys) {
+    normalized[key] = toStableJsonValue(value[key]);
+  }
+  return normalized;
+}
+
 function writeJson(filePath: string, data: unknown): void {
   ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  const stable = toStableJsonValue(data);
+  fs.writeFileSync(filePath, `${JSON.stringify(stable, null, 2)}\n`, "utf8");
 }
 
 function readUtf8(filePath: string): string {
@@ -117,11 +137,6 @@ function parseSourceLineHint(value: string): number {
   const parsed = Number(match[1]);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
   return Math.floor(parsed);
-}
-
-function toChunkArtifactPath(sourceFile: string): string {
-  const normalized = toPosixPath(sourceFile).replace(/^\.?\//, "");
-  return normalized.replace(/\.(?:mjs|cjs|js)$/i, ".js");
 }
 
 function normalizeTargetModulePath(targetPath: string): string {
@@ -542,25 +557,6 @@ function isNoisyGeneratedExportName(input: string): boolean {
   const tail = tokens[tokens.length - 1] ?? "";
   if (isNoisyIdentifierToken(tail)) return true;
   return /[A-Za-z]{2,}\d{2,}$/i.test(input);
-}
-
-function isGenericImportAliasHintName(input: string): boolean {
-  const normalized = input.trim();
-  if (normalized.length < 5) return true;
-  const lower = normalized.toLowerCase();
-  if (/^(?:get|set|use|handle|run|create|update|load|fetch|process)[A-Z][A-Za-z0-9]*(?:Tool|Data|Value|Object|Item|Status|Result|State)\d*$/i.test(normalized)) {
-    return true;
-  }
-  if (/^(?:get|set|use|run|do|make|build|create|update|load|fetch|handle|process|resolve|compute|parse|format|map)[a-z0-9]*$/.test(lower)) {
-    const tokens = splitIdentifierTokens(normalized);
-    if (tokens.length <= 2 && normalized.length <= 18) return true;
-  }
-  if (/(?:tool|value|data|item|object|entry|result|state|handler|runtime|service)\d*$/i.test(normalized)) {
-    const tokens = splitIdentifierTokens(normalized);
-    if (tokens.length <= 2) return true;
-  }
-  if (/\d{2,}$/.test(normalized)) return true;
-  return false;
 }
 
 function clamp01(value: number): number {
@@ -2056,12 +2052,14 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const metaRoot = ensureDir(path.join(projectRoot, "meta"));
   const toolsRoot = ensureDir(path.join(projectRoot, "tools"));
 
-  const chunkArtifactBySourceFile = new Map<string, string>();
+  const chunkArtifactRegistry = createChunkArtifactRegistry({
+    chunkArtifactsRoot,
+    artifactRootPrefix: "src/chunks",
+  });
   const chunkSourceBySourceFile = new Map<string, string>();
   const sourceFileExistsCache = new Map<string, boolean>();
   const chunkTsModuleByPath = new Map<string, ChunkTsBridgeRow>();
   const chunkTsModulePendingQueue: ChunkTsBridgeRow[] = [];
-  let chunkFiles = 0;
   const hasSourceChunkForSourceFile = (sourceFileInput: string): boolean => {
     const sourceFile = normalizeDeobfSourceFile(sourceFileInput);
     if (sourceFile.length === 0) return false;
@@ -2094,23 +2092,13 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     if (sourceFile.length === 0) {
       throw new Error("Missing source file for reconstructed module chunk artifact.");
     }
-    const cachedArtifact = chunkArtifactBySourceFile.get(sourceFile);
     const sourceChunk = readSourceChunkForSourceFile(sourceFile);
-    if (cachedArtifact) {
-      return {
-        chunkArtifactPath: cachedArtifact,
-        sourceChunk,
-      };
-    }
-    const chunkArtifactPath = toChunkArtifactPath(sourceFile);
-    const destinationPath = path.join(chunkArtifactsRoot, chunkArtifactPath);
-    ensureDir(path.dirname(destinationPath));
-    fs.writeFileSync(destinationPath, sourceChunk, "utf8");
-    const artifactPath = toPosixPath(path.posix.join("src", "chunks", chunkArtifactPath));
-    chunkArtifactBySourceFile.set(sourceFile, artifactPath);
-    chunkFiles += 1;
+    const artifact = chunkArtifactRegistry.registerSourceChunk({
+      sourceFile,
+      sourceChunk,
+    });
     return {
-      chunkArtifactPath: artifactPath,
+      chunkArtifactPath: artifact.artifactPath,
       sourceChunk,
     };
   };
@@ -2212,39 +2200,26 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
         }
     >;
   };
-  const semanticIrModel = buildSemanticIrFromDeobfuscationTable(input.deobfuscationTable);
-  const ownershipResolution = resolveSemanticOwnership(semanticIrModel);
+  const ownershipResolution = input.semanticOwnership;
+  const semanticEmitterModel = buildSemanticEmitterModel({
+    ownershipResolution,
+  });
   const semanticModules = ownershipResolution.model.modules;
   const targetSymbolEntriesByPath = buildTargetSymbolEntriesIndexFromSemanticModules(semanticModules);
-  const importAliasHintBySourceAndSymbol = new Map<string, { name: string; score: number }>();
-  for (const entry of input.deobfuscationTable.entries) {
-    if (entry.kind === "file") continue;
-    if (entry.confidence < 0.9) continue;
-    const sourceFile = normalizeDeobfSourceFile(entry.sourceFile);
-    if (sourceFile.length === 0) continue;
-    const normalizedName = sanitizeExportIdentifierName(entry.deobfuscated);
-    if (normalizedName === "symbol_export") continue;
-    if (normalizedName.length < 3) continue;
-    if (isNoisyGeneratedExportName(normalizedName)) continue;
-    if (isGenericImportAliasHintName(normalizedName)) continue;
-    const key = `${sourceFile}|${entry.obfuscated}`;
-    const score = entry.confidence * 2 + scoreContextualExportNameQuality(normalizedName, entry.targetProjectPath);
-    const current = importAliasHintBySourceAndSymbol.get(key);
-    if (!current || score > current.score) {
-      importAliasHintBySourceAndSymbol.set(key, { name: normalizedName, score });
-    }
-  }
   const resolveImportAliasHint = (importedSourceFile: string, importedSymbol: string): string | undefined => {
-    const sourceFile = normalizeDeobfSourceFile(importedSourceFile);
-    if (sourceFile.length === 0) return undefined;
-    return importAliasHintBySourceAndSymbol.get(`${sourceFile}|${importedSymbol}`)?.name;
+    return resolveSemanticAliasHint(semanticEmitterModel, {
+      sourceFile: importedSourceFile,
+      sourceSymbol: importedSymbol,
+    });
   };
   const byTargetPath = new Map<string, ReconstructedTargetRow>();
 
-  for (const module of semanticModules) {
+  for (const module of semanticEmitterModel.modules) {
     const sourceFile = normalizeDeobfSourceFile(module.sourceFile);
-    if (sourceFile.length === 0) continue;
-    const targetPath = toProjectRelativeTargetPath(module.modulePath);
+    if (sourceFile.length === 0) {
+      throw new Error(`Semantic emitter model module has empty source file: ${module.targetPath}`);
+    }
+    const targetPath = module.targetPath;
     const row: ReconstructedTargetRow = {
       targetPath,
       sourceFile,
@@ -2265,8 +2240,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       if (normalized.length === 0) continue;
       row.references.add(normalized);
     }
-    for (const symbol of module.symbols) {
-      const exportName = sanitizeExportIdentifierName(symbol.exportedName);
+    for (const symbol of module.exports) {
+      const exportName = sanitizeExportIdentifierName(symbol.name);
       if (exportName === "symbol_export") continue;
       row.symbols.add(exportName);
       if (symbol.reference.trim().length > 0) row.references.add(symbol.reference.trim());
@@ -2323,6 +2298,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     importAliasPasses: number;
     importSpecifiersPruned: number;
     statementBudget: number;
+    statementBudgetViolated: boolean;
     maxPrimaryStatementLength: number;
     maxDependencyStatementLength: number;
     dependencyTrimmed: boolean;
@@ -2589,7 +2565,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       ` * Chunk artifact: ${chunkArtifactPath}`,
       ` * Confidence: ${row.confidence}`,
       ` * Exports: selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolved=${lifted.unresolvedExports.length}, dropped=${totalDroppedExports}`,
-      ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, importSpecifierRewrites=${rewrittenImports.rewrites}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}`,
+      ` * Template contract: requiredKinds=${synthesisContract.requiredSymbolKinds.join("|")}, importCount=${templateEmission.diagnostics.importCount}, importContractViolated=${templateEmission.diagnostics.importContractViolated}, importSpecifierRewrites=${rewrittenImports.rewrites}, exportWeightBudget=${templateEmission.diagnostics.exportWeightBudget}, statementBudget=${templateEmission.diagnostics.statementBudget}, includedStatements=${templateEmission.diagnostics.includedStatements}`,
       ` * Parser/registry unpack: ${parserRegistryUnpackUsed ? "enabled" : "disabled"}`,
       " * Chunk TS module mode: enabled",
       " * Controlled recovery mode: disabled",
@@ -2644,7 +2620,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
       importAliasRenamed: importAliasShapedModule.renamedAliases,
       importAliasPasses: importAliasShapedModule.passes,
       importSpecifiersPruned: importAliasShapedModule.prunedImportSpecifiers,
-      statementBudget: lifted.dependencyBudget,
+      statementBudget: templateEmission.diagnostics.statementBudget,
+      statementBudgetViolated: templateEmission.diagnostics.statementBudgetViolated,
       maxPrimaryStatementLength,
       maxDependencyStatementLength,
       dependencyTrimmed: lifted.dependencyTrimmed,
@@ -2671,6 +2648,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
 
   const generatedBarrelIndexes = buildLayerBarrelIndexes(projectRoot, emittedModulePaths);
   while (chunkTsModulePendingQueue.length > 0) {
+    chunkTsModulePendingQueue.sort((a, b) => a.chunkTsModulePath.localeCompare(b.chunkTsModulePath));
     const currentModule = chunkTsModulePendingQueue.shift();
     if (!currentModule) break;
     const sourceChunk = readSourceChunkForSourceFile(currentModule.sourceFile);
@@ -2698,9 +2676,8 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   const chunkTsModuleRows = Array.from(chunkTsModuleByPath.values()).sort((a, b) =>
     a.chunkTsModulePath.localeCompare(b.chunkTsModulePath),
   );
-  const chunkArtifactRows = Array.from(chunkArtifactBySourceFile.entries())
-    .map(([sourceFile, artifactPath]) => ({ sourceFile, artifactPath }))
-    .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
+  const chunkArtifactRows = chunkArtifactRegistry.getRows();
+  const chunkFiles = chunkArtifactRows.length;
 
   const mappingArtifacts = [
     "mapping/chunk-artifacts.json",
@@ -2722,6 +2699,7 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
     "mapping/reference-model.json",
     "mapping/reference-signals.json",
     "mapping/reference-symbols.json",
+    "mapping/semantic-emitter-model.json",
     "mapping/semantic-ir.json",
     "mapping/ownership-resolution.json",
     ...generatedBarrelIndexes,
@@ -2744,6 +2722,10 @@ export function buildWebStormTestProject(input: BuildWebStormTestProjectInput): 
   writeJson(path.join(mappingRoot, "reference-model.json"), input.referenceModel);
   writeJson(path.join(mappingRoot, "reference-signals.json"), input.referenceSignals);
   writeJson(path.join(mappingRoot, "reference-symbols.json"), input.referenceSymbols);
+  writeJson(path.join(mappingRoot, "semantic-emitter-model.json"), {
+    modules: semanticEmitterModel.modules,
+    aliasHints: semanticEmitterModel.aliasHints,
+  });
   writeJson(path.join(mappingRoot, "semantic-ir.json"), ownershipResolution.model);
   writeJson(path.join(mappingRoot, "ownership-resolution.json"), ownershipResolution.diagnostics);
 

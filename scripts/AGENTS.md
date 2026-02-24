@@ -15,6 +15,12 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 - Do not change existing run/build behavior unless explicitly requested.
 - Keep Node/TypeScript tooling dependency-light.
 - Use explicit hard failures instead of silent fallbacks.
+- For every task, review at least 2 relevant files from reference projects under `reference/decompile/*` before designing or changing implementation.
+
+## Reference-First Workflow
+- Minimum input for any task: 2 closest files from reference projects that solve a similar problem.
+- Use those files to guide architecture decisions, naming, and stage boundaries.
+- If no close reference exists, document that explicitly and proceed with the strictest modular option.
 
 ## Integration Points
 - `scripts/ts/run.ts` -> main pipeline.

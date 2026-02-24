@@ -218,6 +218,10 @@ function emitArchetypeModule(input) {
             .join(", ");
         throw new Error(`Strict AST lift failed for ${input.emittedPath} from ${input.sourceFilePath}. selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolvedRequired=${unresolvedRequired.length}${unresolvedPreview.length > 0 ? ` [${unresolvedPreview}]` : ""}`);
     }
+    const statementBudgetViolated = lifted.includedStatements > input.contract.statementBudget;
+    if (statementBudgetViolated) {
+        throw new Error(`Template statement-budget exceeded for ${input.emittedPath}: included=${lifted.includedStatements}, budget=${input.contract.statementBudget}`);
+    }
     const moduleBody = (0, post_lift_beautify_1.postLiftBeautifyModuleSource)({
         moduleBody: lifted.moduleBody,
         exportedNames: exportRows.map((item) => item.name),
@@ -245,6 +249,9 @@ function emitArchetypeModule(input) {
             exportWeightBudget: templateSelection.exportWeightBudget,
             importCount,
             importContractViolated,
+            statementBudget: input.contract.statementBudget,
+            includedStatements: lifted.includedStatements,
+            statementBudgetViolated,
         },
     };
 }

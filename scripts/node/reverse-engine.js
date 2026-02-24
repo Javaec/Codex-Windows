@@ -42,7 +42,7 @@ const path = __importStar(require("node:path"));
 const ts = __importStar(require("typescript"));
 const exec_1 = require("./lib/exec");
 const reference_model_1 = require("./reverse/reference-model");
-const match_v2_1 = require("./reverse/match-v2");
+const match_v2_stage_1 = require("./reverse/match-v2-stage");
 const deobfuscation_report_1 = require("./reverse/deobfuscation-report");
 const webstorm_project_1 = require("./reverse/webstorm-project");
 const domain_flow_parity_1 = require("./reverse/domain-flow-parity");
@@ -51,7 +51,6 @@ const ipc_contract_map_1 = require("./reverse/ipc-contract-map");
 const ipc_wrapper_decode_1 = require("./reverse/ipc-wrapper-decode");
 const quality_gates_1 = require("./reverse/quality-gates");
 const report_writer_1 = require("./reverse/report-writer");
-const name_memory_1 = require("./reverse/name-memory");
 const runtime_probe_1 = require("./reverse/runtime-probe");
 const architecture_report_1 = require("./reverse/architecture-report");
 const summary_composer_1 = require("./reverse/summary-composer");
@@ -1656,34 +1655,31 @@ async function runReverseStrictPath(options) {
             isIgnoredIpcChannel,
         },
     });
-    let deobfuscationTable = (0, match_v2_1.buildDeobfuscationTableMatchV2)({
-        top: options.top,
-        jsFiles,
-        sourceByFile,
-        routeRows,
-        methodRows,
-        messageTypeRows,
-        statusRows,
-        stateKeyRows,
-        ipcRows,
-        componentBoundaries,
-        referenceModel,
-    });
     const appKey = `${packageJson.name || "unknown-app"}@${packageJson.version || "unknown-version"}`;
-    const nameMemoryApplied = (0, name_memory_1.applyNameMemory)({
+    const matchStage = (0, match_v2_stage_1.runMatchV2Stage)({
         repoRoot: REPO_ROOT,
         appKey,
-        deobfuscationTable,
+        matchInput: {
+            top: options.top,
+            jsFiles,
+            sourceByFile,
+            routeRows,
+            methodRows,
+            messageTypeRows,
+            statusRows,
+            stateKeyRows,
+            ipcRows,
+            componentBoundaries,
+            referenceModel,
+        },
     });
-    deobfuscationTable = nameMemoryApplied.deobfuscationTable;
-    (0, exec_1.writeInfo)(`Name memory apply: tracked=${nameMemoryApplied.tracked}, applied=${nameMemoryApplied.applied}, renamed=${nameMemoryApplied.renamed}, deduplicated=${nameMemoryApplied.deduplicated}`);
-    const nameMemory = (0, name_memory_1.persistNameMemory)({
-        repoRoot: REPO_ROOT,
-        appKey,
-        deobfuscationTable,
-    });
-    (0, exec_1.writeInfo)(`Name memory: tracked=${nameMemory.totalTracked}, added=${nameMemory.added}, updated=${nameMemory.updated}, renamed=${nameMemory.renamed}`);
-    (0, exec_1.writeInfo)(`Name memory file: ${nameMemory.memoryPath}`);
+    const deobfuscationTable = matchStage.deobfuscationTable;
+    const ownershipResolution = matchStage.ownershipResolution;
+    (0, exec_1.writeInfo)(`Match-v2 rule order: ${matchStage.executedRules.join(" -> ")}`);
+    (0, exec_1.writeInfo)(`Name memory apply: tracked=${matchStage.nameMemoryApply.tracked}, applied=${matchStage.nameMemoryApply.applied}, renamed=${matchStage.nameMemoryApply.renamed}, deduplicated=${matchStage.nameMemoryApply.deduplicated}`);
+    (0, exec_1.writeInfo)(`Name memory: tracked=${matchStage.nameMemoryPersist.totalTracked}, added=${matchStage.nameMemoryPersist.added}, updated=${matchStage.nameMemoryPersist.updated}, renamed=${matchStage.nameMemoryPersist.renamed}`);
+    (0, exec_1.writeInfo)(`Name memory file: ${matchStage.nameMemoryPersist.memoryPath}`);
+    (0, exec_1.writeInfo)(`Ownership resolver: conflicts=${ownershipResolution.diagnostics.conflicts}, reassigned=${ownershipResolution.diagnostics.reassignedSymbols}, dropped=${ownershipResolution.diagnostics.droppedSymbols}`);
     const deobfuscationMarkdown = (0, deobfuscation_report_1.formatDeobfuscationTableMarkdown)(deobfuscationTable);
     const deobfuscationCsv = (0, deobfuscation_report_1.formatDeobfuscationTableCsv)(deobfuscationTable);
     const renamePlanMarkdown = (0, deobfuscation_report_1.formatRenamePlanMarkdown)(deobfuscationTable);
@@ -1803,6 +1799,7 @@ async function runReverseStrictPath(options) {
         referenceModel,
         referenceSignals: referenceProfile,
         referenceSymbols: referenceSymbolProfile,
+        semanticOwnership: ownershipResolution,
     });
     (0, exec_1.writeInfo)(`Project root: ${webStormTestProject.rootPath}`);
     (0, exec_1.writeInfo)(`Project checks: install=${webStormTestProject.checks.install.success}, tscErrors=${webStormTestProject.checks.tsc.errors}, buildErrors=${webStormTestProject.checks.build.errors}, devErrors=${webStormTestProject.checks.dev.errors}, eslintErrors=${webStormTestProject.checks.eslint.errors}, eslintWarnings=${webStormTestProject.checks.eslint.warnings}`);

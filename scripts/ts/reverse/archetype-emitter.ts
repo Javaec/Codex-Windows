@@ -33,6 +33,9 @@ export interface ArchetypeEmitterDiagnostics {
   exportWeightBudget: number;
   importCount: number;
   importContractViolated: boolean;
+  statementBudget: number;
+  includedStatements: number;
+  statementBudgetViolated: boolean;
 }
 
 export interface ArchetypeEmitterResult {
@@ -283,6 +286,12 @@ export function emitArchetypeModule(input: ArchetypeEmitterInput): ArchetypeEmit
       `Strict AST lift failed for ${input.emittedPath} from ${input.sourceFilePath}. selected=${exportRows.length}, lifted=${lifted.liftedExports.length}, unresolvedRequired=${unresolvedRequired.length}${unresolvedPreview.length > 0 ? ` [${unresolvedPreview}]` : ""}`,
     );
   }
+  const statementBudgetViolated = lifted.includedStatements > input.contract.statementBudget;
+  if (statementBudgetViolated) {
+    throw new Error(
+      `Template statement-budget exceeded for ${input.emittedPath}: included=${lifted.includedStatements}, budget=${input.contract.statementBudget}`,
+    );
+  }
 
   const moduleBody = postLiftBeautifyModuleSource({
     moduleBody: lifted.moduleBody,
@@ -312,6 +321,9 @@ export function emitArchetypeModule(input: ArchetypeEmitterInput): ArchetypeEmit
       exportWeightBudget: templateSelection.exportWeightBudget,
       importCount,
       importContractViolated,
+      statementBudget: input.contract.statementBudget,
+      includedStatements: lifted.includedStatements,
+      statementBudgetViolated,
     },
   };
 }
