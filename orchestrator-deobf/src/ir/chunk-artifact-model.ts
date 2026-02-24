@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { EvidenceSourceFile } from "../contracts";
-import { OwnershipModel } from "./ownership-model";
+import { OwnershipModel, OwnershipRecord } from "./ownership-model";
 
 export interface ChunkArtifactRecord {
   chunkId: string;
@@ -99,12 +99,44 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length >= 3);
 }
 
-function chunkScoreForSymbol(chunk: ChunkArtifactRecord, symbolName: string, lineageId: string): number {
+function pathAffinityForSymbol(symbol: OwnershipRecord, chunkPathLower: string): number {
+  const inWebviewAssets = chunkPathLower.includes("/webview/assets/");
+  const inViteBuild = chunkPathLower.includes("/.vite/build/");
+  const inNodeModules = chunkPathLower.includes("/node_modules/");
+
+  let affinity = 0;
+  if (symbol.layer === "renderer") {
+    affinity += inWebviewAssets ? 0.75 : 0;
+    affinity += inViteBuild ? 0.12 : 0;
+  } else if (symbol.layer === "main") {
+    affinity += inViteBuild ? 0.72 : 0;
+    affinity += inWebviewAssets ? 0.08 : 0;
+  } else if (symbol.layer === "services") {
+    affinity += inWebviewAssets ? 0.52 : 0;
+    affinity += inViteBuild ? 0.28 : 0;
+  } else {
+    affinity += inViteBuild ? 0.6 : 0;
+  }
+
+  if (symbol.archetype === "ui" || symbol.archetype === "hook") {
+    affinity += inWebviewAssets ? 0.38 : -0.16;
+  }
+  if (symbol.archetype === "transport") {
+    affinity += inViteBuild ? 0.26 : 0;
+  }
+  if (inNodeModules) {
+    affinity -= 0.45;
+  }
+  return affinity;
+}
+
+function chunkScoreForSymbol(chunk: ChunkArtifactRecord, symbol: OwnershipRecord, lineageId: string): number {
   const pathLower = normalizePath(chunk.sourceFilePath).toLowerCase();
-  const symbolTokens = tokenize(symbolName).slice(0, 4);
+  const symbolTokens = tokenize(symbol.symbolName).slice(0, 4);
   const lineageTokens = tokenize(lineageId).slice(0, 4);
 
   let score = (TOOL_PRIORITY[chunk.tool] ?? 40) / 100;
+  score += pathAffinityForSymbol(symbol, pathLower);
   for (const token of symbolTokens) {
     if (pathLower.includes(token)) {
       score += 0.18;
@@ -120,9 +152,7 @@ function chunkScoreForSymbol(chunk: ChunkArtifactRecord, symbolName: string, lin
 
 function pickChunkForSymbol(
   chunks: ChunkArtifactRecord[],
-  symbolKey: string,
-  symbolName: string,
-  lineageId: string,
+  symbol: OwnershipRecord,
 ): ChunkArtifactRecord {
   if (chunks.length === 0) {
     throw new Error("pickChunkForSymbol called with empty chunk set");
@@ -136,8 +166,8 @@ function pickChunkForSymbol(
   }
 
   const ranked = [...chunks].sort((left, right) => {
-    const leftScore = chunkScoreForSymbol(left, symbolName, lineageId);
-    const rightScore = chunkScoreForSymbol(right, symbolName, lineageId);
+    const leftScore = chunkScoreForSymbol(left, symbol, symbol.ownerLineageId);
+    const rightScore = chunkScoreForSymbol(right, symbol, symbol.ownerLineageId);
     if (leftScore !== rightScore) {
       return rightScore - leftScore;
     }
@@ -145,10 +175,10 @@ function pickChunkForSymbol(
   });
 
   const windowSize = Math.min(48, ranked.length);
-  const stableIndex = stableHash(symbolKey) % windowSize;
+  const stableIndex = stableHash(symbol.symbolKey) % windowSize;
   const selected = ranked[stableIndex];
   if (!selected) {
-    throw new Error(`pickChunkForSymbol: failed to select chunk for ${symbolKey}`);
+    throw new Error(`pickChunkForSymbol: failed to select chunk for ${symbol.symbolKey}`);
   }
   return selected;
 }
@@ -204,7 +234,7 @@ export async function buildChunkArtifactModel(
             : lineageChunks && lineageChunks.length > 0
               ? lineageChunks
               : [primaryChunk];
-      const winner = pickChunkForSymbol(candidatePool, symbol.symbolKey, symbol.symbolName, symbol.ownerLineageId);
+      const winner = pickChunkForSymbol(candidatePool, symbol);
       return {
         symbolKey: symbol.symbolKey,
         symbolName: symbol.symbolName,

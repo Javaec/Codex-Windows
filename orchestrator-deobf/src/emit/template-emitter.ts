@@ -135,12 +135,24 @@ function sanitizeSegment(candidate: string, fallback: string): string {
 }
 
 function kebabFromSymbol(symbolName: string): string {
+  const normalizedName = symbolName.trim();
+  const lower = normalizedName.toLowerCase();
+  if (normalizedName.length <= 4 && /^[a-z]+$/i.test(normalizedName)) {
+    return "domain";
+  }
+  if (RESERVED_IDENTIFIERS.has(lower)) {
+    return "domain";
+  }
+  const quality = scoreNameQuality(symbolName);
+  if (quality < 0.68) {
+    return "domain";
+  }
   return sanitizeSegment(
     symbolName
       .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
       .replace(/[^A-Za-z0-9]+/g, "-")
       .toLowerCase(),
-    "domain-symbol",
+    "domain",
   );
 }
 
@@ -150,10 +162,71 @@ function clusterSegment(clusterId: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
-  if (normalized.length < 6) {
+  if (normalized.length < 6 || /\b[0-9a-f]{8,}\b/.test(normalized)) {
     return "cluster";
   }
   return normalized;
+}
+
+function fallbackTopicByArchetype(archetype: ArchetypeId): string {
+  if (archetype === "hook") {
+    return "hooks";
+  }
+  if (archetype === "service") {
+    return "domain-service";
+  }
+  if (archetype === "ui") {
+    return "ui-components";
+  }
+  if (archetype === "transport") {
+    return "transport-bridge";
+  }
+  return "state-store";
+}
+
+function pickAnchorSymbol(symbols: OwnershipRecord[]): OwnershipRecord {
+  if (symbols.length === 0) {
+    throw new Error("pickAnchorSymbol: empty symbol list");
+  }
+  const ranked = [...symbols].sort((left, right) => {
+    const leftScore = scoreNameQuality(left.symbolName) * 0.72 + left.confidence * 0.28;
+    const rightScore = scoreNameQuality(right.symbolName) * 0.72 + right.confidence * 0.28;
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return left.symbolKey.localeCompare(right.symbolKey);
+  });
+  const winner = ranked[0];
+  if (!winner) {
+    throw new Error("pickAnchorSymbol: no winner");
+  }
+  return winner;
+}
+
+function topicSegmentForChunk(archetype: ArchetypeId, symbols: OwnershipRecord[], clusterId: string): string {
+  const ranked = [...symbols].sort((left, right) => {
+    const leftQuality = scoreNameQuality(left.symbolName);
+    const rightQuality = scoreNameQuality(right.symbolName);
+    if (leftQuality !== rightQuality) {
+      return rightQuality - leftQuality;
+    }
+    return left.symbolName.localeCompare(right.symbolName);
+  });
+  for (const symbol of ranked) {
+    if (scoreNameQuality(symbol.symbolName) < 0.68) {
+      continue;
+    }
+    const segment = kebabFromSymbol(symbol.symbolName);
+    if (segment !== "domain") {
+      return segment;
+    }
+  }
+
+  const clusterTopic = clusterSegment(clusterId);
+  if (clusterTopic !== "cluster") {
+    return clusterTopic;
+  }
+  return fallbackTopicByArchetype(archetype);
 }
 
 function splitByBudget<T>(items: T[], budget: number): T[][] {
@@ -251,25 +324,30 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
       const clusterGroups = [...groups.entries()]
         .filter(([key]) => key.startsWith(`${layer}::${archetype}::`))
         .sort(([left], [right]) => left.localeCompare(right));
-      for (const [clusterKey, symbols] of clusterGroups) {
+      for (let clusterIndex = 0; clusterIndex < clusterGroups.length; clusterIndex += 1) {
+        const clusterEntry = clusterGroups[clusterIndex];
+        if (!clusterEntry) {
+          continue;
+        }
+        const [clusterKey, symbols] = clusterEntry;
         const clusterId = clusterKey.split("::")[2] ?? "cluster";
         if (symbols.length === 0) {
           continue;
         }
+        const clusterOrdinal = String(clusterIndex + 1).padStart(3, "0");
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
         const chunks = splitByBudget(byName, statementBudget);
+        const topicSegment = topicSegmentForChunk(archetype, byName, clusterId);
         for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
           const symbolChunk = chunks[partIndex];
           if (!symbolChunk || symbolChunk.length === 0) {
             continue;
           }
-          const first = symbolChunk[0];
-          if (!first) {
-            continue;
-          }
-          const anchorSegment = kebabFromSymbol(first.symbolName);
+          const anchor = pickAnchorSymbol(symbolChunk);
+          const anchorSegment = kebabFromSymbol(anchor.symbolName);
+          const namingSegment = anchorSegment === "domain" ? topicSegment : anchorSegment;
           const moduleFileName = sanitizeSegment(
-            `${archetype}-${clusterSegment(clusterId)}-${anchorSegment}-part-${String(partIndex + 1).padStart(3, "0")}`,
+            `${archetype}-${namingSegment}-g${clusterOrdinal}-part-${String(partIndex + 1).padStart(3, "0")}`,
             `${archetype}-domain-part-${String(partIndex + 1).padStart(3, "0")}`,
           );
           const filePath = `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`;
@@ -277,7 +355,7 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
             layer,
             archetype,
             clusterId,
-            moduleId: `${layer}:${archetype}:${clusterId}:part-${String(partIndex + 1).padStart(3, "0")}`,
+            moduleId: `${layer}:${archetype}:${clusterId}:g${clusterOrdinal}:part-${String(partIndex + 1).padStart(3, "0")}`,
             symbols: symbolChunk,
             filePath,
           });
@@ -408,6 +486,8 @@ function buildGeneratedTsConfig(): string {
     '    "target": "ES2022",',
     '    "module": "ES2022",',
     '    "moduleResolution": "Bundler",',
+    '    "rootDir": ".",',
+    '    "outDir": "dist",',
     '    "strict": true,',
     '    "skipLibCheck": true',
     "  },",
@@ -933,7 +1013,7 @@ export async function emitTemplateProject(
     .filter((relativePath) => relativePath.endsWith(".ts"))
     .filter((relativePath) => relativePath.startsWith("src/") || relativePath.startsWith("src-tauri-adapter/") || relativePath.startsWith("runtime/"))
     .sort((left, right) => left.localeCompare(right))
-    .map((relativePath) => `../${relativePath.replace(/\.ts$/, ".js")}`);
+    .map((relativePath) => `../dist/${relativePath.replace(/\.ts$/, ".js")}`);
 
   const smokeRunnerPath = path.join(outputProjectDirectory, "runtime", "smoke-runner.mjs");
   await writeTextFile(smokeRunnerPath, buildSmokeRunner(smokeModuleTargets));

@@ -348,6 +348,21 @@ function inferSourceKind(filePath: string): "javascript" | "sourcemap" | "text" 
   return "text";
 }
 
+function normalizePath(value: string): string {
+  return value.split(path.sep).join("/");
+}
+
+function shouldUseAsarJavascriptForArtifacts(extractedRootDirectory: string, filePath: string): boolean {
+  const relativePath = normalizePath(path.relative(extractedRootDirectory, filePath)).toLowerCase();
+  if (relativePath.startsWith(".vite/build/")) {
+    return true;
+  }
+  if (relativePath.startsWith("webview/assets/")) {
+    return true;
+  }
+  return false;
+}
+
 async function listWakaruOutputs(outputDirectory: string, outputFiles: string[]): Promise<string[]> {
   const resolved: string[] = [];
   for (const relativeOutput of outputFiles) {
@@ -701,6 +716,9 @@ async function run(): Promise<void> {
 
   const chunkArtifactSources: EvidenceSourceFile[] = [...evidenceSources];
   for (const extractedJsFile of asarOutput.discoveredJsFiles) {
+    if (!shouldUseAsarJavascriptForArtifacts(asarOutput.extractedRootDirectory, extractedJsFile)) {
+      continue;
+    }
     const relativePath = path
       .relative(asarOutput.extractedRootDirectory, extractedJsFile)
       .split(path.sep)

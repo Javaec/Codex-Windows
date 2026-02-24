@@ -45,6 +45,21 @@ function validateGenericPathNoise(files: string[]): string[] {
   return violations;
 }
 
+function validateNoRuntimeJsInSourceTree(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    const lower = relativePath.toLowerCase();
+    const isSourceTree = lower.startsWith("src/") || lower.startsWith("src-tauri-adapter/");
+    if (!isSourceTree) {
+      continue;
+    }
+    if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+      violations.push(`source tree must be TS-only before build: ${relativePath}`);
+    }
+  }
+  return violations;
+}
+
 function validateChunkArtifacts(chunkArtifacts: ChunkArtifactModel): string[] {
   const violations: string[] = [];
   const sourcePaths = new Set<string>();
@@ -79,6 +94,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
 
   violations.push(...validateFileOrdering(emittedFilesIndex.files));
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
+  violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 
   const stableProfileDirectory = path.join(input.stableOutputRoot, input.stableOutputProfile);
