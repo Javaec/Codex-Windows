@@ -1,0 +1,958 @@
+import * as path from "node:path";
+import * as fs from "node:fs/promises";
+import { ArchetypeId, LayerId } from "../contracts";
+import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
+import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
+import { scoreNameQuality } from "../ir/name-quality";
+import { buildAstLiftResult, LiftedSymbolBinding } from "../lift/ast-lift";
+import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
+
+export interface TemplateEmitResult {
+  emittedFiles: string[];
+  emittedModuleCount: number;
+  emittedSymbolCount: number;
+  fileQualityReportPath: string;
+  rerenderedModuleCount: number;
+  hotChunkCount: number;
+}
+
+interface ModulePlan {
+  layer: LayerId;
+  archetype: ArchetypeId;
+  clusterId: string;
+  moduleId: string;
+  symbols: OwnershipRecord[];
+  filePath: string;
+}
+
+interface ModuleQualityEntry {
+  moduleId: string;
+  filePath: string;
+  score: number;
+  symbolCount: number;
+  averageConfidence: number;
+  averageNameQuality: number;
+  rerendered: boolean;
+}
+
+const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
+const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
+const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
+const ARCHETYPE_LAYER_COMPATIBILITY: Record<ArchetypeId, LayerId[]> = {
+  hook: ["renderer"],
+  service: ["services", "main"],
+  ui: ["renderer"],
+  transport: ["main", "tauri", "services"],
+  store: ["services", "renderer"],
+};
+const FILE_QUALITY_WORST_PERCENT = 0.08;
+const FILE_QUALITY_MIN_RERENDER_COUNT = 1;
+const FILE_QUALITY_TARGET_BUDGET_FACTOR = 0.6;
+const RESERVED_IDENTIFIERS = new Set<string>([
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]);
+
+function quote(value: string): string {
+  return JSON.stringify(value);
+}
+
+function sanitizeIdentifier(value: string): string {
+  const cleaned = value
+    .replace(/[^A-Za-z0-9_$]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((segment, index) => {
+      if (segment.length === 0) {
+        return "";
+      }
+      if (index === 0) {
+        return segment.charAt(0).toLowerCase() + segment.slice(1);
+      }
+      return segment.charAt(0).toUpperCase() + segment.slice(1);
+    })
+    .join("");
+  if (cleaned.length === 0) {
+    return "domainSymbol";
+  }
+  const head = cleaned.charAt(0);
+  if (!/[A-Za-z_$]/.test(head)) {
+    return `s${cleaned}`;
+  }
+  const normalized = RESERVED_IDENTIFIERS.has(cleaned) ? `${cleaned}Symbol` : cleaned;
+  return normalized;
+}
+
+function sanitizeSegment(candidate: string, fallback: string): string {
+  const normalized = candidate
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+  if (normalized.length < 3) {
+    return fallback;
+  }
+  if (GENERIC_SEGMENTS.has(normalized)) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function kebabFromSymbol(symbolName: string): string {
+  return sanitizeSegment(
+    symbolName
+      .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .toLowerCase(),
+    "domain-symbol",
+  );
+}
+
+function clusterSegment(clusterId: string): string {
+  const normalized = clusterId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+  if (normalized.length < 6) {
+    return "cluster";
+  }
+  return normalized;
+}
+
+function splitByBudget<T>(items: T[], budget: number): T[][] {
+  if (budget < 1) {
+    throw new Error("statement budget must be >= 1");
+  }
+  const result: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += budget) {
+    result.push(items.slice(offset, offset + budget));
+  }
+  return result;
+}
+
+function layerDirectory(layer: LayerId): string {
+  if (layer === "main") {
+    return "src/main";
+  }
+  if (layer === "renderer") {
+    return "src/renderer";
+  }
+  if (layer === "services") {
+    return "src/services";
+  }
+  return "src-tauri-adapter";
+}
+
+function clamp(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return Number(value.toFixed(4));
+}
+
+function assertHardOwnershipCompatibility(layer: LayerId, archetype: ArchetypeId, symbolKey: string): void {
+  const allowedLayers = ARCHETYPE_LAYER_COMPATIBILITY[archetype];
+  if (!allowedLayers.includes(layer)) {
+    throw new Error(
+      `template-emitter: hard file-ownership gate blocked ${symbolKey} (layer=${layer}, archetype=${archetype}, allowed=${allowedLayers.join(",")})`,
+    );
+  }
+}
+
+function average(numbers: number[]): number {
+  if (numbers.length === 0) {
+    return 0;
+  }
+  const total = numbers.reduce((sum, entry) => sum + entry, 0);
+  return total / numbers.length;
+}
+
+function computeModuleQuality(plan: ModulePlan): ModuleQualityEntry {
+  const symbolCount = plan.symbols.length;
+  const averageConfidence = average(plan.symbols.map((symbol) => symbol.confidence));
+  const averageNameQuality = average(plan.symbols.map((symbol) => scoreNameQuality(symbol.symbolName)));
+  const score = clamp(averageConfidence * 0.52 + averageNameQuality * 0.48);
+  return {
+    moduleId: plan.moduleId,
+    filePath: plan.filePath,
+    score,
+    symbolCount,
+    averageConfidence: clamp(averageConfidence),
+    averageNameQuality: clamp(averageNameQuality),
+    rerendered: false,
+  };
+}
+
+function modelBySymbol(chunkArtifacts: ChunkArtifactModel): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const mapping of chunkArtifacts.symbolMappings) {
+    map.set(mapping.symbolKey, mapping.chunkId);
+  }
+  return map;
+}
+
+function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
+  const groups = new Map<string, OwnershipRecord[]>();
+  const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+  for (const symbol of sortedSymbols) {
+    assertHardOwnershipCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
+    const key = `${symbol.layer}::${symbol.archetype}::${symbol.declarationClusterId}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(symbol);
+      continue;
+    }
+    groups.set(key, [symbol]);
+  }
+
+  const plans: ModulePlan[] = [];
+  for (const layer of LAYER_ORDER) {
+    for (const archetype of ARCHETYPE_ORDER) {
+      const clusterGroups = [...groups.entries()]
+        .filter(([key]) => key.startsWith(`${layer}::${archetype}::`))
+        .sort(([left], [right]) => left.localeCompare(right));
+      for (const [clusterKey, symbols] of clusterGroups) {
+        const clusterId = clusterKey.split("::")[2] ?? "cluster";
+        if (symbols.length === 0) {
+          continue;
+        }
+        const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
+        const chunks = splitByBudget(byName, statementBudget);
+        for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
+          const symbolChunk = chunks[partIndex];
+          if (!symbolChunk || symbolChunk.length === 0) {
+            continue;
+          }
+          const first = symbolChunk[0];
+          if (!first) {
+            continue;
+          }
+          const anchorSegment = kebabFromSymbol(first.symbolName);
+          const moduleFileName = sanitizeSegment(
+            `${archetype}-${clusterSegment(clusterId)}-${anchorSegment}-part-${String(partIndex + 1).padStart(3, "0")}`,
+            `${archetype}-domain-part-${String(partIndex + 1).padStart(3, "0")}`,
+          );
+          const filePath = `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`;
+          plans.push({
+            layer,
+            archetype,
+            clusterId,
+            moduleId: `${layer}:${archetype}:${clusterId}:part-${String(partIndex + 1).padStart(3, "0")}`,
+            symbols: symbolChunk,
+            filePath,
+          });
+        }
+      }
+    }
+  }
+  return plans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+function splitPlanForQuality(plan: ModulePlan, statementBudget: number): ModulePlan[] {
+  const qualityBudget = Math.max(6, Math.floor(statementBudget * FILE_QUALITY_TARGET_BUDGET_FACTOR));
+  let chunks = splitByBudget(plan.symbols, qualityBudget);
+  if (chunks.length === 1 && plan.symbols.length > 1) {
+    const half = Math.ceil(plan.symbols.length / 2);
+    chunks = [plan.symbols.slice(0, half), plan.symbols.slice(half)];
+  }
+
+  return chunks
+    .filter((chunk) => chunk.length > 0)
+    .map((chunk, index) => {
+      const suffix = `quality-${String(index + 1).padStart(2, "0")}`;
+      return {
+        ...plan,
+        moduleId: `${plan.moduleId}:${suffix}`,
+        symbols: chunk,
+        filePath: plan.filePath.replace(/\.ts$/, `-${suffix}.ts`),
+      };
+    });
+}
+
+function applyFileQualityRerender(
+  modulePlans: ModulePlan[],
+  statementBudget: number,
+): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
+  if (modulePlans.length === 0) {
+    return {
+      modulePlans: [],
+      qualityEntries: [],
+      rerenderedModuleCount: 0,
+    };
+  }
+
+  const initialQuality = modulePlans.map((plan) => computeModuleQuality(plan));
+  const rerenderTarget = Math.max(
+    FILE_QUALITY_MIN_RERENDER_COUNT,
+    Math.ceil(modulePlans.length * FILE_QUALITY_WORST_PERCENT),
+  );
+  const rerenderCandidates = [...initialQuality]
+    .filter((entry) => entry.symbolCount > 1)
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+      if (left.symbolCount !== right.symbolCount) {
+        return right.symbolCount - left.symbolCount;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    })
+    .slice(0, rerenderTarget);
+  const rerenderSet = new Set<string>(rerenderCandidates.map((entry) => entry.moduleId));
+
+  const rerenderedPlans: ModulePlan[] = [];
+  let rerenderedModuleCount = 0;
+  for (const plan of modulePlans) {
+    if (!rerenderSet.has(plan.moduleId)) {
+      rerenderedPlans.push(plan);
+      continue;
+    }
+
+    const splitPlans = splitPlanForQuality(plan, statementBudget);
+    if (splitPlans.length <= 1) {
+      rerenderedPlans.push(plan);
+      continue;
+    }
+    rerenderedModuleCount += 1;
+    for (const splitPlan of splitPlans) {
+      rerenderedPlans.push(splitPlan);
+    }
+  }
+
+  rerenderedPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+  const qualityEntries = rerenderedPlans.map((plan) => {
+    const entry = computeModuleQuality(plan);
+    return {
+      ...entry,
+      rerendered: plan.moduleId.includes(":quality-"),
+    };
+  });
+
+  return {
+    modulePlans: rerenderedPlans,
+    qualityEntries,
+    rerenderedModuleCount,
+  };
+}
+
+function buildGeneratedPackageJson(): string {
+  const lines = [
+    "{",
+    '  "name": "generated-codex-project",',
+    '  "private": true,',
+    '  "type": "module",',
+    '  "version": "0.0.1",',
+    '  "scripts": {',
+    '    "typecheck": "tsc --noEmit",',
+    '    "build": "tsc -p tsconfig.json",',
+    '    "lint": "eslint . --ext .ts --max-warnings=0",',
+    '    "dev:smoke": "node ./runtime/smoke-runner.mjs"',
+    "  },",
+    '  "devDependencies": {',
+    '    "typescript": "^5.9.3",',
+    '    "eslint": "^9.39.1",',
+    '    "@eslint/js": "^9.39.1",',
+    '    "@typescript-eslint/parser": "^8.46.2",',
+    '    "@typescript-eslint/eslint-plugin": "^8.46.2"',
+    "  }",
+    "}",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function buildGeneratedTsConfig(): string {
+  return [
+    "{",
+    '  "compilerOptions": {',
+    '    "target": "ES2022",',
+    '    "module": "ES2022",',
+    '    "moduleResolution": "Bundler",',
+    '    "strict": true,',
+    '    "skipLibCheck": true',
+    "  },",
+    '  "include": ["src/**/*.ts", "src-tauri-adapter/**/*.ts", "runtime/**/*.ts"]',
+    "}",
+    "",
+  ].join("\n");
+}
+
+function buildEslintConfig(): string {
+  return [
+    'import js from "@eslint/js";',
+    'import tsParser from "@typescript-eslint/parser";',
+    'import tsPlugin from "@typescript-eslint/eslint-plugin";',
+    "",
+    "export default [",
+    "  js.configs.recommended,",
+    "  {",
+    '    files: ["runtime/**/*.mjs"],',
+    "    languageOptions: {",
+    "      globals: {",
+    '        console: "readonly",',
+    '        URL: "readonly",',
+    "      },",
+    "    },",
+    "  },",
+    "  {",
+    '    files: ["src/chunks-ts/**/*.ts"],',
+    "    languageOptions: {",
+    "      parser: tsParser,",
+    '      sourceType: "module",',
+    '      ecmaVersion: "latest",',
+    "    },",
+    "    plugins: {",
+    '      "@typescript-eslint": tsPlugin,',
+    "    },",
+    "    rules: {",
+    '      "no-unused-vars": "off",',
+      '      "@typescript-eslint/no-unused-vars": "off"',
+    "    },",
+    "  },",
+    "  {",
+    '    files: ["**/*.ts"],',
+    "    languageOptions: {",
+    "      parser: tsParser,",
+    '      sourceType: "module",',
+    '      ecmaVersion: "latest",',
+    "    },",
+    "    plugins: {",
+    '      "@typescript-eslint": tsPlugin,',
+    "    },",
+    "    rules: {",
+    '      "no-unused-vars": "off",',
+      '      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],',
+    "    },",
+    "  },",
+    "];",
+    "",
+  ].join("\n");
+}
+
+function buildRuntimeContent(allChunks: ChunkArtifactModel["chunks"], liftedChunkIds: string[]): string {
+  const liftedImports = liftedChunkIds.map((chunkId) => {
+    const importName = `lifted${sanitizeIdentifier(chunkId)}`;
+    return {
+      importName,
+      line: `import * as ${importName} from "../src/chunks-ts/${chunkId}.js";`,
+      chunkId,
+    };
+  });
+
+  const descriptorRegistry = allChunks.map((chunk) =>
+    [
+      `  ${quote(chunk.chunkId)}: {`,
+      `    chunkId: ${quote(chunk.chunkId)},`,
+      `    sourceFilePath: ${quote(chunk.sourceFilePath.replace(/\\/g, "/"))},`,
+      `    bytes: ${chunk.bytes},`,
+      `    sha256: ${quote(chunk.sha256)},`,
+      `    lineageId: ${quote(chunk.lineageId)},`,
+      `    tool: ${quote(chunk.tool)},`,
+      "  },",
+    ].join("\n"),
+  );
+  const liftedRegistry = liftedImports.map((entry) => `  ${quote(entry.chunkId)}: ${entry.importName} as Record<string, unknown>,`);
+
+  return [
+    ...liftedImports.map((entry) => entry.line),
+    "",
+    "export interface ChunkArtifactDescriptor {",
+    "  chunkId: string;",
+    "  sourceFilePath: string;",
+    "  bytes: number;",
+    "  sha256: string;",
+    "  lineageId: string;",
+    "  tool: string;",
+    "}",
+    "",
+    "export interface SymbolFallbackDescriptor {",
+    "  placeholder: true;",
+    "  chunkId: string;",
+    "  symbolName: string;",
+    "  symbolKey: string;",
+    "}",
+    "",
+    "export interface ResolvedSymbol<T = unknown> extends ChunkArtifactDescriptor {",
+    "  symbolName: string;",
+    "  symbolKey: string;",
+    '  source: "lifted" | "descriptor";',
+    "  value: T | SymbolFallbackDescriptor;",
+    "}",
+    "",
+    "const chunkDescriptorRegistry: Record<string, ChunkArtifactDescriptor> = {",
+    ...descriptorRegistry,
+    "};",
+    "",
+    "const liftedChunkRegistry: Record<string, Record<string, unknown>> = {",
+    ...liftedRegistry,
+    "};",
+    "",
+    "function descriptorFallback(chunkId: string, symbolName: string, symbolKey: string): SymbolFallbackDescriptor {",
+    "  return {",
+    "    placeholder: true,",
+    "    chunkId,",
+    "    symbolName,",
+    "    symbolKey,",
+    "  };",
+    "}",
+    "",
+    "export function resolveSymbol<T = unknown>(chunkId: string, symbolName: string, symbolKey: string): ResolvedSymbol<T> {",
+    "  const descriptor = chunkDescriptorRegistry[chunkId];",
+    "  if (!descriptor) {",
+    "    throw new Error(`Unknown chunk id: ${chunkId}`);",
+    "  }",
+    "",
+    "  const liftedChunk = liftedChunkRegistry[chunkId];",
+    "  if (liftedChunk && symbolName in liftedChunk) {",
+    "    const liftedValue = liftedChunk[symbolName] as T;",
+    "    return {",
+    "      ...descriptor,",
+    "      symbolName,",
+    "      symbolKey,",
+    '      source: "lifted",',
+    "      value: liftedValue,",
+    "    };",
+    "  }",
+    "",
+    "  return {",
+    "    ...descriptor,",
+    "    symbolName,",
+    "    symbolKey,",
+    '    source: "descriptor",',
+    "    value: descriptorFallback(chunkId, symbolName, symbolKey),",
+    "  };",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function contractFactoryName(archetype: ArchetypeId): string {
+  if (archetype === "hook") {
+    return "createHookModuleContract";
+  }
+  if (archetype === "service") {
+    return "createServiceModuleContract";
+  }
+  if (archetype === "ui") {
+    return "createUiModuleContract";
+  }
+  if (archetype === "transport") {
+    return "createTransportModuleContract";
+  }
+  return "createStoreModuleContract";
+}
+
+function buildModuleContractsContent(): string {
+  return [
+    'import type { ResolvedSymbol } from "./chunk-runtime.js";',
+    "",
+    'export type LayerContractId = "main" | "renderer" | "services" | "tauri";',
+    'export type ArchetypeContractId = "hook" | "service" | "ui" | "transport" | "store";',
+    "",
+    "export interface ModuleContractBase {",
+    "  moduleId: string;",
+    "  layer: LayerContractId;",
+    "  archetype: ArchetypeContractId;",
+    "  symbols: Readonly<Record<string, ResolvedSymbol>>;",
+    "}",
+    "",
+    'export interface HookModuleContract extends ModuleContractBase { archetype: "hook"; }',
+    'export interface ServiceModuleContract extends ModuleContractBase { archetype: "service"; }',
+    'export interface UiModuleContract extends ModuleContractBase { archetype: "ui"; }',
+    'export interface TransportModuleContract extends ModuleContractBase { archetype: "transport"; }',
+    'export interface StoreModuleContract extends ModuleContractBase { archetype: "store"; }',
+    "",
+    "export function createHookModuleContract(",
+    "  moduleId: string,",
+    "  layer: LayerContractId,",
+    "  symbols: Record<string, ResolvedSymbol>,",
+    "): HookModuleContract {",
+    '  return { moduleId, layer, archetype: "hook", symbols };',
+    "}",
+    "",
+    "export function createServiceModuleContract(",
+    "  moduleId: string,",
+    "  layer: LayerContractId,",
+    "  symbols: Record<string, ResolvedSymbol>,",
+    "): ServiceModuleContract {",
+    '  return { moduleId, layer, archetype: "service", symbols };',
+    "}",
+    "",
+    "export function createUiModuleContract(",
+    "  moduleId: string,",
+    "  layer: LayerContractId,",
+    "  symbols: Record<string, ResolvedSymbol>,",
+    "): UiModuleContract {",
+    '  return { moduleId, layer, archetype: "ui", symbols };',
+    "}",
+    "",
+    "export function createTransportModuleContract(",
+    "  moduleId: string,",
+    "  layer: LayerContractId,",
+    "  symbols: Record<string, ResolvedSymbol>,",
+    "): TransportModuleContract {",
+    '  return { moduleId, layer, archetype: "transport", symbols };',
+    "}",
+    "",
+    "export function createStoreModuleContract(",
+    "  moduleId: string,",
+    "  layer: LayerContractId,",
+    "  symbols: Record<string, ResolvedSymbol>,",
+    "): StoreModuleContract {",
+    '  return { moduleId, layer, archetype: "store", symbols };',
+    "}",
+    "",
+  ].join("\n");
+}
+
+function buildIpcContractsContent(): string {
+  return [
+    'import type { ResolvedSymbol } from "../../runtime/chunk-runtime.js";',
+    "",
+    "export interface IpcContract<Request = unknown, Response = unknown> {",
+    '  kind: "ipc";',
+    "  channel: string;",
+    "  symbol: ResolvedSymbol;",
+    "  invoke: (payload: Request) => Promise<Response>;",
+    "}",
+    "",
+    "export function defineIpcContract<Request = unknown, Response = unknown>(",
+    "  channel: string,",
+    "  symbol: ResolvedSymbol,",
+    "): IpcContract<Request, Response> {",
+    "  return {",
+    '    kind: "ipc",',
+    "    channel,",
+    "    symbol,",
+    "    invoke: async (_payload: Request) => {",
+    '      throw new Error(`IPC contract ${channel} is unresolved in generated output`);',
+    "    },",
+    "  };",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function buildRpcContractsContent(): string {
+  return [
+    'import type { ResolvedSymbol } from "../../runtime/chunk-runtime.js";',
+    "",
+    "export interface RpcContract<Request = unknown, Response = unknown> {",
+    '  kind: "rpc";',
+    "  method: string;",
+    "  symbol: ResolvedSymbol;",
+    "  execute: (payload: Request) => Promise<Response>;",
+    "}",
+    "",
+    "export function defineRpcContract<Request = unknown, Response = unknown>(",
+    "  method: string,",
+    "  symbol: ResolvedSymbol,",
+    "): RpcContract<Request, Response> {",
+    "  return {",
+    '    kind: "rpc",',
+    "    method,",
+    "    symbol,",
+    "    execute: async (_payload: Request) => {",
+    '      throw new Error(`RPC contract ${method} is unresolved in generated output`);',
+    "    },",
+    "  };",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function buildContractsEntryContent(): string {
+  return [
+    'export { defineIpcContract, type IpcContract } from "./ipc.js";',
+    'export { defineRpcContract, type RpcContract } from "./rpc.js";',
+    "",
+  ].join("\n");
+}
+
+function buildModuleContent(
+  plan: ModulePlan,
+  runtimeImportPath: string,
+  contractsImportPath: string,
+  domainContractsImportPath: string,
+  symbols: OwnershipRecord[],
+  symbolToChunk: Map<string, string>,
+  bindingByKey: Map<string, LiftedSymbolBinding>,
+): string {
+  const lines: string[] = [];
+  const contractFactory = contractFactoryName(plan.archetype);
+  lines.push(`import { resolveSymbol, type ResolvedSymbol } from ${quote(runtimeImportPath)};`);
+  lines.push(`import { ${contractFactory} } from ${quote(contractsImportPath)};`);
+
+  const requiresIpc = plan.archetype === "transport";
+  const requiresRpc = plan.archetype === "service";
+  if (requiresIpc || requiresRpc) {
+    const importNames: string[] = [];
+    if (requiresIpc) {
+      importNames.push("defineIpcContract");
+    }
+    if (requiresRpc) {
+      importNames.push("defineRpcContract");
+    }
+    lines.push(`import { ${importNames.join(", ")} } from ${quote(domainContractsImportPath)};`);
+  }
+
+  lines.push("");
+
+  const usedNames = new Map<string, number>();
+  const exportedNames: string[] = [];
+  const resolvedSymbolNames: string[] = [];
+
+  for (const symbol of symbols) {
+    const chunkId = symbolToChunk.get(symbol.symbolKey);
+    if (!chunkId) {
+      throw new Error(`Missing chunk mapping for symbol ${symbol.symbolKey}`);
+    }
+
+    const baseName = sanitizeIdentifier(symbol.symbolName);
+    const seen = usedNames.get(baseName) ?? 0;
+    usedNames.set(baseName, seen + 1);
+    const exportName = seen === 0 ? baseName : `${baseName}${seen + 1}`;
+    const resolvedName = `${exportName}Symbol`;
+
+    const liftBinding = bindingByKey.get(symbol.symbolKey);
+    const runtimeSymbolName = liftBinding && liftBinding.chunkId === chunkId ? liftBinding.exportName : symbol.symbolName;
+
+    exportedNames.push(exportName);
+    resolvedSymbolNames.push(resolvedName);
+
+    lines.push(
+      `const ${resolvedName}: ResolvedSymbol = resolveSymbol(${quote(chunkId)}, ${quote(runtimeSymbolName)}, ${quote(symbol.symbolKey)});`,
+    );
+    lines.push(`export const ${exportName} = ${resolvedName}.value;`);
+
+    if (requiresIpc) {
+      lines.push(`export const ${exportName}Ipc = defineIpcContract(${quote(exportName)}, ${resolvedName});`);
+    }
+    if (requiresRpc) {
+      lines.push(`export const ${exportName}Rpc = defineRpcContract(${quote(exportName)}, ${resolvedName});`);
+    }
+  }
+
+  lines.push("");
+  lines.push("const moduleSymbols: Record<string, ResolvedSymbol> = {");
+  for (let index = 0; index < exportedNames.length; index += 1) {
+    const exportName = exportedNames[index];
+    const resolvedName = resolvedSymbolNames[index];
+    if (!exportName || !resolvedName) {
+      continue;
+    }
+    lines.push(`  ${exportName}: ${resolvedName},`);
+  }
+  lines.push("};");
+  lines.push("");
+  lines.push(
+    `export const moduleContract = ${contractFactory}(${quote(plan.moduleId)}, ${quote(plan.layer)}, moduleSymbols);`,
+  );
+  lines.push("export default moduleContract;");
+  lines.push("");
+  return lines.join("\n");
+}
+
+function buildSmokeRunner(modulePaths: string[]): string {
+  const imports = modulePaths.map((modulePath) => `  ${quote(modulePath)},`);
+  return [
+    "const modules = [",
+    ...imports,
+    "];",
+    "",
+    "let imported = 0;",
+    "for (const modulePath of modules) {",
+    "  await import(new URL(modulePath, import.meta.url));",
+    "  imported += 1;",
+    "}",
+    'console.log(`[dev-smoke] imported ${imported} modules`);',
+    "",
+  ].join("\n");
+}
+
+function buildFileQualityReport(qualityEntries: ModuleQualityEntry[], rerenderedModuleCount: number): string {
+  const payload = {
+    generatedAtIso: new Date().toISOString(),
+    rerenderedModuleCount,
+    worstPercent: FILE_QUALITY_WORST_PERCENT,
+    files: [...qualityEntries].sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    }),
+  };
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+async function writeTextFile(targetPath: string, content: string): Promise<void> {
+  await ensureDirectory(path.dirname(targetPath));
+  await fs.writeFile(targetPath, content, "utf8");
+}
+
+function toProjectRelative(projectDirectory: string, absolutePath: string): string {
+  return path.relative(projectDirectory, absolutePath).split(path.sep).join("/");
+}
+
+function toJsImportPath(fromFile: string, targetFile: string): string {
+  const relative = path.relative(path.dirname(fromFile), targetFile).replace(/\\/g, "/").replace(/\.ts$/, ".js");
+  return relative.startsWith(".") ? relative : `./${relative}`;
+}
+
+export async function emitTemplateProject(
+  ownershipModel: OwnershipModel,
+  chunkArtifacts: ChunkArtifactModel,
+  outputProjectDirectory: string,
+  statementBudget: number,
+): Promise<TemplateEmitResult> {
+  await ensureCleanDirectory(outputProjectDirectory);
+  const emittedFiles: string[] = [];
+
+  const packageJsonPath = path.join(outputProjectDirectory, "package.json");
+  await writeTextFile(packageJsonPath, buildGeneratedPackageJson());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, packageJsonPath));
+
+  const eslintConfigPath = path.join(outputProjectDirectory, "eslint.config.mjs");
+  await writeTextFile(eslintConfigPath, buildEslintConfig());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, eslintConfigPath));
+
+  const tsconfigPath = path.join(outputProjectDirectory, "tsconfig.json");
+  await writeTextFile(tsconfigPath, buildGeneratedTsConfig());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, tsconfigPath));
+
+  const sortedChunks = [...chunkArtifacts.chunks].sort((left, right) => left.chunkId.localeCompare(right.chunkId));
+  const chunkArtifactManifestPath = path.join(outputProjectDirectory, "artifacts", "chunk-artifacts.json");
+  await writeTextFile(
+    chunkArtifactManifestPath,
+    `${JSON.stringify({ generatedAtIso: new Date().toISOString(), chunks: sortedChunks }, null, 2)}\n`,
+  );
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
+
+  const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
+    hotChunkMax: 24,
+    targetCoverage: 0.95,
+    minHotChunkCount: 10,
+    preferredArchetypes: ["ui", "service", "hook", "transport"],
+    minimumChunkScore: 0,
+  });
+
+  const liftedChunkIds = new Set<string>();
+  for (const liftedChunk of astLift.liftedChunks) {
+    liftedChunkIds.add(liftedChunk.chunkId);
+    const liftedPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${liftedChunk.chunkId}.ts`);
+    await writeTextFile(liftedPath, liftedChunk.content);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, liftedPath));
+  }
+
+  const runtimePath = path.join(outputProjectDirectory, "runtime", "chunk-runtime.ts");
+  const runtimeContent = buildRuntimeContent(sortedChunks, [...liftedChunkIds].sort((left, right) => left.localeCompare(right)));
+  await writeTextFile(runtimePath, runtimeContent);
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, runtimePath));
+
+  const moduleContractsPath = path.join(outputProjectDirectory, "runtime", "module-contracts.ts");
+  await writeTextFile(moduleContractsPath, buildModuleContractsContent());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, moduleContractsPath));
+
+  const ipcContractsPath = path.join(outputProjectDirectory, "src", "contracts", "ipc.ts");
+  await writeTextFile(ipcContractsPath, buildIpcContractsContent());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, ipcContractsPath));
+
+  const rpcContractsPath = path.join(outputProjectDirectory, "src", "contracts", "rpc.ts");
+  await writeTextFile(rpcContractsPath, buildRpcContractsContent());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, rpcContractsPath));
+
+  const contractsEntryPath = path.join(outputProjectDirectory, "src", "contracts", "contracts.ts");
+  await writeTextFile(contractsEntryPath, buildContractsEntryContent());
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, contractsEntryPath));
+
+  const symbolToChunk = modelBySymbol(chunkArtifacts);
+  const rawModulePlans = buildModulePlans(ownershipModel, statementBudget);
+  const qualityPass = applyFileQualityRerender(rawModulePlans, statementBudget);
+  const modulePlans = qualityPass.modulePlans;
+
+  for (const plan of modulePlans) {
+    const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
+    const runtimeImport = toJsImportPath(absoluteFilePath, runtimePath);
+    const moduleContractsImport = toJsImportPath(absoluteFilePath, moduleContractsPath);
+    const domainContractsImport = toJsImportPath(absoluteFilePath, contractsEntryPath);
+
+    const moduleContent = buildModuleContent(
+      plan,
+      runtimeImport,
+      moduleContractsImport,
+      domainContractsImport,
+      plan.symbols,
+      symbolToChunk,
+      astLift.symbolBindingByKey,
+    );
+    await writeTextFile(absoluteFilePath, moduleContent);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
+  }
+
+  const smokeModuleTargets = emittedFiles
+    .filter((relativePath) => relativePath.endsWith(".ts"))
+    .filter((relativePath) => relativePath.startsWith("src/") || relativePath.startsWith("src-tauri-adapter/") || relativePath.startsWith("runtime/"))
+    .sort((left, right) => left.localeCompare(right))
+    .map((relativePath) => `../${relativePath.replace(/\.ts$/, ".js")}`);
+
+  const smokeRunnerPath = path.join(outputProjectDirectory, "runtime", "smoke-runner.mjs");
+  await writeTextFile(smokeRunnerPath, buildSmokeRunner(smokeModuleTargets));
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, smokeRunnerPath));
+
+  const fileQualityReportPath = path.join(outputProjectDirectory, "runtime", "file-quality.json");
+  await writeTextFile(
+    fileQualityReportPath,
+    buildFileQualityReport(qualityPass.qualityEntries, qualityPass.rerenderedModuleCount),
+  );
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, fileQualityReportPath));
+
+  const sortedFiles = [...emittedFiles].sort((left, right) => left.localeCompare(right));
+  return {
+    emittedFiles: sortedFiles,
+    emittedModuleCount: modulePlans.length,
+    emittedSymbolCount: ownershipModel.symbols.length,
+    fileQualityReportPath,
+    rerenderedModuleCount: qualityPass.rerenderedModuleCount,
+    hotChunkCount: astLift.hotChunkIds.length,
+  };
+}

@@ -1,0 +1,8 @@
+{
+  "asar": 0.72,
+  "javascriptDeobfuscator": 0.9,
+  "synchrony": 0.94,
+  "unwebpackSourcemap": 0.96,
+  "wakaru": 1.06,
+  "webcrack": 1
+}

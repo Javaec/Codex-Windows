@@ -1,0 +1,24 @@
+{
+  "name": "orchestrator-deobf",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "description": "Stage-based orchestrator for decompile/deobfuscation toolchain",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "regression:suite": "node dist/regression/run-regression-suite.js",
+    "regression:calibrate": "node dist/regression/auto-calibrate.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.10",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@electron/asar": "^4.0.1",
+    "@wakaru/cli": "^0.0.10",
+    "deobfuscator": "^2.4.5",
+    "js-deobfuscator": "^1.1.7",
+    "webcrack": "^2.15.1"
+  }
+}

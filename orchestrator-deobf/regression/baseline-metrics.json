@@ -1,0 +1,174 @@
+{
+  "aggregate": {
+    "averageScore": 0.9561,
+    "buildHealthAllGreen": true,
+    "devHealthAllGreen": true,
+    "mappedFilesAverage": 47,
+    "mappedSymbolsAverage": 695,
+    "minScore": 0.9561,
+    "nameQualityAverage": 0.7806
+  },
+  "generatedAtIso": "2026-02-24T17:32:08.663Z",
+  "profiles": [
+    {
+      "durationMs": 422688,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\semantic-v2-suite-20260224\\logs\\01-core-no-binary.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 6,
+          "service": 129,
+          "store": 536,
+          "transport": 10,
+          "ui": 14
+        },
+        "buildHealth": true,
+        "devHealth": true,
+        "genericPathNoiseCount": 0,
+        "layerCoverage": {
+          "main": 10,
+          "renderer": 152,
+          "services": 533,
+          "tauri": 0
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 695,
+        "nameQuality": 0.7806
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-01-core-no-binary\\run-metrics.json",
+      "profileId": "core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-01-core-no-binary",
+      "runId": "reg-semantic-v2-suite-20260224-01-core-no-binary",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7806,
+        "total": 0.9561
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-01-core-no-binary\\summary.json"
+    },
+    {
+      "durationMs": 456429,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\semantic-v2-suite-20260224\\logs\\02-core-no-binary-no-pretty.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 6,
+          "service": 129,
+          "store": 536,
+          "transport": 10,
+          "ui": 14
+        },
+        "buildHealth": true,
+        "devHealth": true,
+        "genericPathNoiseCount": 0,
+        "layerCoverage": {
+          "main": 10,
+          "renderer": 152,
+          "services": 533,
+          "tauri": 0
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 695,
+        "nameQuality": 0.7806
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-02-core-no-binary-no-pretty\\run-metrics.json",
+      "profileId": "core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-02-core-no-binary-no-pretty",
+      "runId": "reg-semantic-v2-suite-20260224-02-core-no-binary-no-pretty",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7806,
+        "total": 0.9561
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-02-core-no-binary-no-pretty\\summary.json"
+    },
+    {
+      "durationMs": 445515,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\semantic-v2-suite-20260224\\logs\\03-core-no-binary-top120.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 6,
+          "service": 129,
+          "store": 536,
+          "transport": 10,
+          "ui": 14
+        },
+        "buildHealth": true,
+        "devHealth": true,
+        "genericPathNoiseCount": 0,
+        "layerCoverage": {
+          "main": 10,
+          "renderer": 152,
+          "services": 533,
+          "tauri": 0
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 695,
+        "nameQuality": 0.7806
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-03-core-no-binary-top120\\run-metrics.json",
+      "profileId": "core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-03-core-no-binary-top120",
+      "runId": "reg-semantic-v2-suite-20260224-03-core-no-binary-top120",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7806,
+        "total": 0.9561
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-03-core-no-binary-top120\\summary.json"
+    },
+    {
+      "durationMs": 399136,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\semantic-v2-suite-20260224\\logs\\04-core-runtime-probe-soft.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 6,
+          "service": 129,
+          "store": 536,
+          "transport": 10,
+          "ui": 14
+        },
+        "buildHealth": true,
+        "devHealth": true,
+        "genericPathNoiseCount": 0,
+        "layerCoverage": {
+          "main": 10,
+          "renderer": 152,
+          "services": 533,
+          "tauri": 0
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 695,
+        "nameQuality": 0.7806
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-04-core-runtime-probe-soft\\run-metrics.json",
+      "profileId": "core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-04-core-runtime-probe-soft",
+      "runId": "reg-semantic-v2-suite-20260224-04-core-runtime-probe-soft",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7806,
+        "total": 0.9561
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-semantic-v2-suite-20260224-04-core-runtime-probe-soft\\summary.json"
+    }
+  ],
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "suiteRunId": "semantic-v2-suite-20260224",
+  "suiteVersion": 1,
+  "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
+}

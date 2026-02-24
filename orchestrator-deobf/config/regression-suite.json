@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "core-no-binary",
+      "description": "Core pipeline with strict emitter and no optional deobf accelerators.",
+      "flags": {
+        "enableJavascriptDeobfuscator": false,
+        "enableSynchrony": false,
+        "enableUnwebpackSourcemap": false,
+        "javascriptDeobfuscatorParseAsModule": false,
+        "synchronyRename": false,
+        "synchronyLoose": false,
+        "unwebpackSourcemapMaxMaps": 20,
+        "wakaruConcurrency": 1,
+        "statementBudget": 32
+      }
+    },
+    {
+      "id": "core-no-binary-no-pretty",
+      "description": "Core pipeline with lower statement budget to stress module splitting and quality gates.",
+      "flags": {
+        "enableJavascriptDeobfuscator": false,
+        "enableSynchrony": false,
+        "enableUnwebpackSourcemap": false,
+        "javascriptDeobfuscatorParseAsModule": false,
+        "synchronyRename": false,
+        "synchronyLoose": false,
+        "unwebpackSourcemapMaxMaps": 20,
+        "wakaruConcurrency": 1,
+        "statementBudget": 24
+      }
+    },
+    {
+      "id": "core-no-binary-top120",
+      "description": "Core pipeline with larger statement budget to validate top-heavy symbol ownership behavior.",
+      "flags": {
+        "enableJavascriptDeobfuscator": false,
+        "enableSynchrony": false,
+        "enableUnwebpackSourcemap": false,
+        "javascriptDeobfuscatorParseAsModule": false,
+        "synchronyRename": false,
+        "synchronyLoose": false,
+        "unwebpackSourcemapMaxMaps": 20,
+        "wakaruConcurrency": 1,
+        "statementBudget": 64
+      }
+    },
+    {
+      "id": "core-runtime-probe-soft",
+      "description": "Core pipeline with sourcemap probing enabled and wider statement budget for runtime health checks.",
+      "flags": {
+        "enableJavascriptDeobfuscator": false,
+        "enableSynchrony": false,
+        "enableUnwebpackSourcemap": true,
+        "javascriptDeobfuscatorParseAsModule": false,
+        "synchronyRename": false,
+        "synchronyLoose": false,
+        "unwebpackSourcemapMaxMaps": 40,
+        "wakaruConcurrency": 1,
+        "statementBudget": 56
+      }
+    }
+  ]
+}
