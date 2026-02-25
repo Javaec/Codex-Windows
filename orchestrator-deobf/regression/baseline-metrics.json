@@ -10,12 +10,12 @@
     "nameQualityAverage": 0.7769,
     "variableCoverageAverage": 1
   },
-  "generatedAtIso": "2026-02-25T15:00:51.168Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4cycle-20260225-145625-c02\\merged-evidence.json",
+  "generatedAtIso": "2026-02-25T15:11:57.806Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\mergepromo-20260225-150934-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 32499,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4cycle-20260225-145625-c02\\logs\\01-core-no-binary.log",
+      "durationMs": 39123,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\mergepromo-20260225-150934-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -46,10 +46,10 @@
         "nameQuality": 0.7769,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-01-core-no-binary",
-      "runId": "reg-step4cycle-20260225-145625-c02-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-01-core-no-binary",
+      "runId": "reg-mergepromo-20260225-150934-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -58,11 +58,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-01-core-no-binary\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-01-core-no-binary\\summary.json"
     },
     {
-      "durationMs": 40851,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4cycle-20260225-145625-c02\\logs\\02-core-no-binary-no-pretty.log",
+      "durationMs": 33288,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\mergepromo-20260225-150934-c01\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -93,10 +93,10 @@
         "nameQuality": 0.7769,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-02-core-no-binary-no-pretty",
-      "runId": "reg-step4cycle-20260225-145625-c02-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-mergepromo-20260225-150934-c01-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -105,11 +105,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-02-core-no-binary-no-pretty\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-02-core-no-binary-no-pretty\\summary.json"
     },
     {
-      "durationMs": 32304,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4cycle-20260225-145625-c02\\logs\\03-core-no-binary-top120.log",
+      "durationMs": 38034,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\mergepromo-20260225-150934-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -140,10 +140,10 @@
         "nameQuality": 0.7769,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-03-core-no-binary-top120",
-      "runId": "reg-step4cycle-20260225-145625-c02-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-03-core-no-binary-top120",
+      "runId": "reg-mergepromo-20260225-150934-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -152,11 +152,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-03-core-no-binary-top120\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-03-core-no-binary-top120\\summary.json"
     },
     {
-      "durationMs": 33651,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4cycle-20260225-145625-c02\\logs\\04-core-runtime-probe-soft.log",
+      "durationMs": 32910,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\mergepromo-20260225-150934-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -187,10 +187,10 @@
         "nameQuality": 0.7769,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-04-core-runtime-probe-soft",
-      "runId": "reg-step4cycle-20260225-145625-c02-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-04-core-runtime-probe-soft",
+      "runId": "reg-mergepromo-20260225-150934-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -199,11 +199,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4cycle-20260225-145625-c02-04-core-runtime-probe-soft\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-mergepromo-20260225-150934-c01-04-core-runtime-probe-soft\\summary.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "step4cycle-20260225-145625-c02",
+  "suiteRunId": "mergepromo-20260225-150934-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

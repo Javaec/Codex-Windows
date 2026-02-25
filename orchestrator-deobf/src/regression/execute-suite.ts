@@ -23,7 +23,7 @@ interface RunSummarySnapshot {
   };
 }
 
-interface MergedSymbolEvidence {
+export interface MergedSymbolEvidence {
   symbolKey: string;
   symbolName: string;
   confidence: number;
@@ -34,7 +34,7 @@ interface MergedSymbolEvidence {
   provenance: string[];
 }
 
-interface MergedFileEvidence {
+export interface MergedFileEvidence {
   pathHint: string;
   confidence: number;
   mergedScore: number;
@@ -42,7 +42,7 @@ interface MergedFileEvidence {
   runId: string;
 }
 
-interface MergedEvidenceReport {
+export interface MergedEvidenceReport {
   generatedAtIso: string;
   suiteRunId: string;
   symbolWinnerCount: number;

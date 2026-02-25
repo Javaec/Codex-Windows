@@ -46,6 +46,7 @@ import { SemanticIrModel } from "./ir/semantic-ir";
 import { OwnershipModel } from "./ir/ownership-model";
 import { scoreNameQuality } from "./ir/name-quality";
 import { isArchetypeLayerCompatible } from "./ir/ownership-compatibility";
+import { resolveNamingMemoryProfilePath } from "./naming/profile-store";
 import { resolveToolVersions } from "./adapters/tool-versions";
 import { buildRunMetrics } from "./quality/run-metrics";
 import { runStage } from "./stages/stage-runner";
@@ -414,63 +415,6 @@ function buildCoverageOwnerLineageId(snapshotKey: string): string {
 
 function isCoverageOwnerLineageId(lineageId: string): boolean {
   return lineageId.endsWith(COVERAGE_OWNER_SUFFIX);
-}
-
-async function resolveNamingMemoryProfilePath(
-  projectRoot: string,
-  snapshotKey: string,
-): Promise<{ profilePath: string; legacyPath: string; seededFrom: "existing" | "legacy" | "latest-snapshot" | "empty"; seededFromSnapshotKey: string }> {
-  const legacyPath = path.join(projectRoot, "naming-memory.json");
-  const profilesDirectory = path.join(projectRoot, "naming-memory-store", "snapshots");
-  await ensureDirectory(profilesDirectory);
-  const profilePath = path.join(profilesDirectory, `snapshot-${snapshotKey}.json`);
-  const hasProfile = await fileExists(profilePath);
-  let seededFrom: "existing" | "legacy" | "latest-snapshot" | "empty" = hasProfile ? "existing" : "empty";
-  let seededFromSnapshotKey = snapshotKey;
-  if (!hasProfile) {
-    const hasLegacy = await fileExists(legacyPath);
-    if (hasLegacy) {
-      await fs.copyFile(legacyPath, profilePath);
-      seededFrom = "legacy";
-    } else {
-      const entries = await fs.readdir(profilesDirectory, { withFileTypes: true });
-      const candidates: Array<{ filePath: string; mtimeMs: number }> = [];
-      for (const entry of entries) {
-        if (!entry.isFile()) {
-          continue;
-        }
-        if (!entry.name.startsWith("snapshot-") || !entry.name.endsWith(".json")) {
-          continue;
-        }
-        const candidatePath = path.join(profilesDirectory, entry.name);
-        if (candidatePath === profilePath) {
-          continue;
-        }
-        const stat = await fs.stat(candidatePath);
-        candidates.push({
-          filePath: candidatePath,
-          mtimeMs: stat.mtimeMs,
-        });
-      }
-      candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
-      const latestSnapshotProfile = candidates[0];
-      if (latestSnapshotProfile) {
-        await fs.copyFile(latestSnapshotProfile.filePath, profilePath);
-        seededFrom = "latest-snapshot";
-        const baseName = path.basename(latestSnapshotProfile.filePath, ".json");
-        const seededKey = baseName.replace(/^snapshot-/, "");
-        if (seededKey.length > 0) {
-          seededFromSnapshotKey = seededKey;
-        }
-      }
-    }
-  }
-  return {
-    profilePath,
-    legacyPath,
-    seededFrom,
-    seededFromSnapshotKey,
-  };
 }
 
 function normalizeWeight(token: string, value: unknown): number {

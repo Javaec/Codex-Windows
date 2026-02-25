@@ -1,7 +1,10 @@
 import * as path from "node:path";
 import { cleanupKeepLastN } from "./cleanup";
 import { executeRegressionSuite, RegressionSuiteExecution } from "./execute-suite";
+import { applyMergedEvidencePromotion, ApplyMergedEvidencePromotionResult } from "./merged-evidence-promotion";
 import { loadRegressionSuite } from "./suite-loader";
+import { resolveNamingMemoryProfilePath } from "../naming/profile-store";
+import { hashFileSha256 } from "../utils/hash";
 import { ensureDirectory, writeJsonFile } from "../utils/fs-json";
 
 interface CliOptions {
@@ -15,6 +18,7 @@ interface CliOptions {
   stagnationLimit: number;
   minQualityDelta: number;
   suiteRunPrefix: string;
+  promotionBudgetPerCycle: number;
 }
 
 interface CycleExecutionSummary {
@@ -25,6 +29,10 @@ interface CycleExecutionSummary {
   highConfidenceSymbolsAverage: number;
   mappedSymbolsAverage: number;
   variableCoverageAverage: number;
+  promotionSelectedCount: number;
+  promotionUpdatedCount: number;
+  promotionInsertedCount: number;
+  promotionAverageQuality: number;
   qualityDeltaFromPrevious: number;
   highConfidenceDeltaFromPrevious: number;
   stagnationStrike: number;
@@ -36,10 +44,12 @@ interface CycleReport {
   maxCycles: number;
   stagnationLimit: number;
   minQualityDelta: number;
+  promotionBudgetPerCycle: number;
   completedCycles: number;
   stopReason: string;
   cycles: CycleExecutionSummary[];
   finalBaselinePath: string;
+  namingMemoryProfilePath: string;
 }
 
 function buildRunId(prefix: string): string {
@@ -80,6 +90,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let stagnationLimit = 3;
   let minQualityDelta = 0.02;
   let suiteRunPrefix = "cycle";
+  let promotionBudgetPerCycle = 100;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -174,6 +185,15 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--promotion-budget-per-cycle": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --promotion-budget-per-cycle");
+        }
+        promotionBudgetPerCycle = parseIntegerOption("--promotion-budget-per-cycle", value, 1);
+        index += 1;
+        break;
+      }
       case "--help": {
         const usage = [
           "Usage:",
@@ -189,6 +209,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           "  --stagnation-limit <n>",
           "  --min-quality-delta <float>",
           "  --suite-run-prefix <token>",
+          "  --promotion-budget-per-cycle <n>",
         ].join("\n");
         process.stdout.write(`${usage}\n`);
         process.exit(0);
@@ -214,6 +235,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     stagnationLimit,
     minQualityDelta,
     suiteRunPrefix,
+    promotionBudgetPerCycle,
   };
 }
 
@@ -221,6 +243,7 @@ function summarizeCycle(
   cycleIndex: number,
   suiteRunId: string,
   execution: RegressionSuiteExecution,
+  promotion: ApplyMergedEvidencePromotionResult,
   previous: CycleExecutionSummary | undefined,
   minQualityDelta: number,
   stagnationStrike: number,
@@ -243,6 +266,10 @@ function summarizeCycle(
     highConfidenceSymbolsAverage: execution.aggregate.highConfidenceSymbolsAverage,
     mappedSymbolsAverage: execution.aggregate.mappedSymbolsAverage,
     variableCoverageAverage: execution.aggregate.variableCoverageAverage,
+    promotionSelectedCount: promotion.selectedCount,
+    promotionUpdatedCount: promotion.updatedEntryCount,
+    promotionInsertedCount: promotion.insertedEntryCount,
+    promotionAverageQuality: promotion.averageSelectedQuality,
     qualityDeltaFromPrevious: qualityDelta,
     highConfidenceDeltaFromPrevious: highConfidenceDelta,
     stagnationStrike: strike,
@@ -254,6 +281,9 @@ async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2), projectRoot);
   await ensureDirectory(cli.outputRoot);
   const suite = await loadRegressionSuite(cli.suiteConfigPath);
+  const snapshotDigest = await hashFileSha256(cli.snapshotAsarPath);
+  const snapshotKey = snapshotDigest.sha256.slice(0, 12);
+  const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
 
   const cycleSummaries: CycleExecutionSummary[] = [];
   let previous: CycleExecutionSummary | undefined;
@@ -272,12 +302,20 @@ async function run(): Promise<void> {
       outputProfile: "regression-latest",
       outputDirectory: cli.outputRoot,
     });
+    const promotion = await applyMergedEvidencePromotion({
+      mergedEvidencePath: execution.mergedEvidencePath,
+      namingMemoryPath: namingMemoryProfile.profilePath,
+      legacyNamingMemoryPath: namingMemoryProfile.legacyPath,
+      runId: `${cycleRunId}:merged-evidence-promotion`,
+      promotionBudget: cli.promotionBudgetPerCycle,
+    });
 
     const previousStrike = previous ? previous.stagnationStrike : 0;
     const summary = summarizeCycle(
       cycleIndex,
       cycleRunId,
       execution,
+      promotion,
       previous,
       cli.minQualityDelta,
       previousStrike,
@@ -305,10 +343,12 @@ async function run(): Promise<void> {
     maxCycles: cli.maxCycles,
     stagnationLimit: cli.stagnationLimit,
     minQualityDelta: cli.minQualityDelta,
+    promotionBudgetPerCycle: cli.promotionBudgetPerCycle,
     completedCycles: cycleSummaries.length,
     stopReason,
     cycles: cycleSummaries,
     finalBaselinePath: cli.baselinePath,
+    namingMemoryProfilePath: namingMemoryProfile.profilePath,
   };
 
   const reportPath = path.join(path.dirname(cli.baselinePath), "cycle-report.json");
@@ -321,4 +361,3 @@ run().catch((error: unknown) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 });
-

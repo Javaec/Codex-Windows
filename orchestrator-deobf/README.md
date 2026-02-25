@@ -52,6 +52,7 @@ Stage-based orchestrator for decompile/deobfuscation pipelines.
 - `regression/baseline-metrics.json`: fixed-suite baseline report (4 profiles).
 - `regression/runs/<suiteRunId>/merged-evidence.json`: merged symbol/file winners across suite profiles (confidence/provenance aware).
 - `regression/cycle-report.json`: stop-rule cycle history (`quality delta`, `high-confidence delta`, stagnation strikes).
+- `naming-memory-store/snapshots/snapshot-<sha12>.json`: cycle-level naming memory promoted from `merged-evidence.json` top-N winners.
 
 ## Run
 
@@ -98,6 +99,8 @@ npm run regression:cycles -- --snapshot "C:\Codex-Windows\work\electron\Codex In
 ```
 
 Cycle runner applies stop-rule: when quality gain is below threshold and high-confidence symbols do not grow for N consecutive cycles.
+After each cycle, `merged-evidence.json` is consumed as naming-memory promotion input (`top-N per cycle`).
+Use `--promotion-budget-per-cycle <n>` to control promotion throughput (default `100`).
 
 ## Auto Calibration
 
