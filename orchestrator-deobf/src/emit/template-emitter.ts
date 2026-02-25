@@ -498,6 +498,22 @@ function modelBySymbol(chunkArtifacts: ChunkArtifactModel): Map<string, string> 
   return map;
 }
 
+function buildOwnershipSubset(base: OwnershipModel, symbols: OwnershipRecord[]): OwnershipModel {
+  return {
+    ...base,
+    generatedAtIso: new Date().toISOString(),
+    symbols: [...symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+  };
+}
+
+function topicSegmentForSymbol(symbol: OwnershipRecord): string {
+  const direct = kebabFromSymbol(symbol.symbolName);
+  if (direct !== "domain") {
+    return direct;
+  }
+  return fallbackTopicByArchetype(symbol.archetype);
+}
+
 function toSpeculativeFilePath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   return `coverage/speculative/${normalized}`;
@@ -547,73 +563,55 @@ function partitionModulePlansByLiftBinding(
 }
 
 function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
-  const groups = new Map<string, OwnershipRecord[]>();
-  const usedFilePaths = new Set<string>();
+  const buckets = new Map<string, OwnershipRecord[]>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
     assertHardOwnershipCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
-    const key = `${symbol.layer}::${symbol.archetype}::${symbol.declarationClusterId}`;
-    const existing = groups.get(key);
+    const topic = topicSegmentForSymbol(symbol);
+    const key = `${symbol.layer}::${symbol.archetype}::${topic}`;
+    const existing = buckets.get(key);
     if (existing) {
       existing.push(symbol);
       continue;
     }
-    groups.set(key, [symbol]);
+    buckets.set(key, [symbol]);
   }
 
   const plans: ModulePlan[] = [];
   for (const layer of LAYER_ORDER) {
     for (const archetype of ARCHETYPE_ORDER) {
-      const clusterGroups = [...groups.entries()]
+      const groupedByTopic = [...buckets.entries()]
         .filter(([key]) => key.startsWith(`${layer}::${archetype}::`))
         .sort(([left], [right]) => left.localeCompare(right));
-      for (let clusterIndex = 0; clusterIndex < clusterGroups.length; clusterIndex += 1) {
-        const clusterEntry = clusterGroups[clusterIndex];
-        if (!clusterEntry) {
-          continue;
-        }
-        const [clusterKey, symbols] = clusterEntry;
-        const clusterId = clusterKey.split("::")[2] ?? "cluster";
+      for (const [topicKey, symbols] of groupedByTopic) {
         if (symbols.length === 0) {
           continue;
         }
-        const clusterOrdinal = String(clusterIndex + 1).padStart(3, "0");
+        const topic = topicKey.split("::")[2] ?? fallbackTopicByArchetype(archetype);
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
-        const splitBudget = statementBudgetForArchetype(archetype, statementBudget);
-        const chunks = splitByBudget(byName, splitBudget);
-        const topicSegment = topicSegmentForChunk(archetype, byName, clusterId);
+        const chunkBudget = statementBudgetForArchetype(archetype, statementBudget);
+        const chunks = splitByBudget(byName, chunkBudget);
         for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
-          const symbolChunk = chunks[partIndex];
-          if (!symbolChunk || symbolChunk.length === 0) {
+          const partSymbols = chunks[partIndex];
+          if (!partSymbols || partSymbols.length === 0) {
             continue;
           }
-          const anchor = pickAnchorSymbol(symbolChunk);
-          const anchorSegment = kebabFromSymbol(anchor.symbolName);
-          const namingSegment = anchorSegment === "domain" ? topicSegment : anchorSegment;
-          const fallbackTopic = fallbackTopicByArchetype(archetype);
-          const clusterTopic = clusterSegment(clusterId);
-          const resolvedSegment =
-            namingSegment === fallbackTopic && clusterTopic !== "cluster" ? sanitizeSegment(clusterTopic, namingSegment) : namingSegment;
           const hasMultipleParts = chunks.length > 1;
           const partSuffix = hasMultipleParts ? `-part-${String(partIndex + 1).padStart(3, "0")}` : "";
-          const moduleFileName = sanitizeSegment(
-            `${archetype}-${resolvedSegment}${partSuffix}`,
-            `${archetype}-domain${partSuffix}`,
-          );
-          const tentativePath = `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`;
-          const filePath = ensureUniqueFilePath(tentativePath, usedFilePaths);
+          const moduleFileName = sanitizeSegment(`${archetype}-${topic}${partSuffix}`, `${archetype}-domain${partSuffix}`);
           plans.push({
             layer,
             archetype,
-            clusterId,
-            moduleId: `${layer}:${archetype}:${clusterId}:g${clusterOrdinal}:part-${String(partIndex + 1).padStart(3, "0")}`,
-            symbols: symbolChunk,
-            filePath,
+            clusterId: topic,
+            moduleId: `${layer}:${archetype}:${topic}:part-${String(partIndex + 1).padStart(3, "0")}`,
+            symbols: partSymbols,
+            filePath: `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`,
           });
         }
       }
     }
   }
+
   return plans.sort((left, right) => left.filePath.localeCompare(right.filePath));
 }
 
@@ -644,6 +642,7 @@ function applyFileQualityRerender(
   bindingByKey: Map<string, LiftedSymbolBinding>,
   statementBudget: number,
 ): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
+  void statementBudget;
   if (modulePlans.length === 0) {
     return {
       modulePlans: [],
@@ -652,57 +651,19 @@ function applyFileQualityRerender(
     };
   }
 
-  const initialQuality = modulePlans.map((plan) => computeModuleQuality(plan, bindingByKey));
-  const rerenderTarget = Math.max(
-    FILE_QUALITY_MIN_RERENDER_COUNT,
-    Math.ceil(modulePlans.length * FILE_QUALITY_WORST_PERCENT),
-  );
-  const rerenderCandidates = [...initialQuality]
-    .filter((entry) => entry.symbolCount > 1)
-    .sort((left, right) => {
-      if (left.score !== right.score) {
-        return left.score - right.score;
-      }
-      if (left.symbolCount !== right.symbolCount) {
-        return right.symbolCount - left.symbolCount;
-      }
-      return left.filePath.localeCompare(right.filePath);
-    })
-    .slice(0, rerenderTarget);
-  const rerenderSet = new Set<string>(rerenderCandidates.map((entry) => entry.moduleId));
-
-  const rerenderedPlans: ModulePlan[] = [];
-  let rerenderedModuleCount = 0;
-  for (const plan of modulePlans) {
-    if (!rerenderSet.has(plan.moduleId)) {
-      rerenderedPlans.push(plan);
-      continue;
-    }
-
-    const splitPlans = splitPlanForQuality(plan, statementBudget);
-    if (splitPlans.length <= 1) {
-      rerenderedPlans.push(plan);
-      continue;
-    }
-    rerenderedModuleCount += 1;
-    for (const splitPlan of splitPlans) {
-      rerenderedPlans.push(splitPlan);
-    }
-  }
-
-  rerenderedPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
-  const qualityEntries = rerenderedPlans.map((plan) => {
+  const orderedPlans = [...modulePlans].sort((left, right) => left.filePath.localeCompare(right.filePath));
+  const qualityEntries = orderedPlans.map((plan) => {
     const entry = computeModuleQuality(plan, bindingByKey);
     return {
       ...entry,
-      rerendered: plan.moduleId.includes(":quality-"),
+      rerendered: false,
     };
   });
 
   return {
-    modulePlans: rerenderedPlans,
+    modulePlans: orderedPlans,
     qualityEntries,
-    rerenderedModuleCount,
+    rerenderedModuleCount: 0,
   };
 }
 
@@ -1427,11 +1388,20 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, contractsEntryPath));
 
   const symbolToChunk = modelBySymbol(chunkArtifacts);
-  const rawModulePlans = buildModulePlans(ownershipModel, statementBudget);
-  const planPartition = partitionModulePlansByLiftBinding(rawModulePlans, astLift.symbolBindingByKey);
-  const qualityPass = applyFileQualityRerender(planPartition.qualityPlans, astLift.symbolBindingByKey, statementBudget);
+  const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
+  const speculativeSymbols = ownershipModel.symbols.filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey));
+
+  const qualityOwnership = buildOwnershipSubset(ownershipModel, qualitySymbols);
+  const qualityRawPlans = buildModulePlans(qualityOwnership, Math.max(statementBudget * 2, 48));
+  const qualityPass = applyFileQualityRerender(qualityRawPlans, astLift.symbolBindingByKey, statementBudget);
   const qualityModulePlans = qualityPass.modulePlans;
-  const speculativeModulePlans = planPartition.speculativePlans;
+  const speculativeOwnership = buildOwnershipSubset(ownershipModel, speculativeSymbols);
+  const speculativeRawPlans = buildModulePlans(speculativeOwnership, Math.max(statementBudget * 8, 160));
+  const speculativeModulePlans = speculativeRawPlans.map((plan) => ({
+    ...plan,
+    moduleId: `${plan.moduleId}:speculative`,
+    filePath: toSpeculativeFilePath(plan.filePath),
+  }));
 
   for (const plan of qualityModulePlans) {
     const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
@@ -1486,7 +1456,7 @@ export async function emitTemplateProject(
   return {
     emittedFiles: sortedFiles,
     emittedModuleCount: qualityModulePlans.length + speculativeModulePlans.length,
-    emittedSymbolCount: planPartition.qualitySymbolCount,
+    emittedSymbolCount: qualitySymbols.length,
     fileQualityReportPath,
     rerenderedModuleCount: qualityPass.rerenderedModuleCount,
     hotChunkCount: astLift.hotChunkIds.length,
