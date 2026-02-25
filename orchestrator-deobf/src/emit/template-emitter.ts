@@ -59,20 +59,57 @@ const FILE_QUALITY_MIN_RERENDER_COUNT = 1;
 const FILE_QUALITY_TARGET_BUDGET_FACTOR = 0.6;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
+const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
+  "chunk",
+  "main",
+  "entry",
+  "symbol",
+  "domain",
+  "state",
+  "store",
+  "service",
+  "renderer",
+  "transport",
+  "hook",
+  "ui",
+  "assets",
+  "webview",
+  "src",
+  "part",
+]);
+const TEMPLATE_FALLBACK_NAME_PATTERNS: RegExp[] = [
+  /^stateStore(?:[A-Za-z]+)?\d*$/i,
+  /^domainService\d*$/i,
+  /^uiComponents?\d*$/i,
+  /^transportBridge(?:[A-Za-z]+)?\d*$/i,
+  /^storeState(?:Store)?\d*$/i,
+  /^serviceDomain(?:Service)?\d*$/i,
+];
 const ARCHETYPE_BUDGET_FACTOR: Record<ArchetypeId, number> = {
-  hook: 0.55,
-  service: 0.85,
-  ui: 0.65,
-  transport: 0.6,
-  store: 0.5,
+  hook: 0.7,
+  service: 1.0,
+  ui: 0.8,
+  transport: 0.85,
+  store: 0.9,
 };
 const ARCHETYPE_BUDGET_MIN: Record<ArchetypeId, number> = {
-  hook: 8,
-  service: 12,
-  ui: 10,
-  transport: 8,
-  store: 8,
+  hook: 16,
+  service: 24,
+  ui: 20,
+  transport: 16,
+  store: 24,
 };
+const ARCHETYPE_SYMBOL_BUDGET_FLOOR: Record<ArchetypeId, number> = {
+  hook: 40,
+  service: 160,
+  ui: 64,
+  transport: 72,
+  store: 240,
+};
+const QUALITY_PLAN_BUDGET_MULTIPLIER = 4;
+const QUALITY_PLAN_BUDGET_MIN = 128;
+const SPECULATIVE_PLAN_BUDGET_MULTIPLIER = 10;
+const SPECULATIVE_PLAN_BUDGET_MIN = 256;
 const RESERVED_IDENTIFIERS = new Set<string>([
   "await",
   "break",
@@ -146,6 +183,7 @@ function sanitizeIdentifier(value: string): string {
 
 function toPascalCase(value: string): string {
   const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[^A-Za-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
@@ -204,8 +242,9 @@ function dedupeNameTokens(tokens: string[]): string[] {
 function statementBudgetForArchetype(archetype: ArchetypeId, baseBudget: number): number {
   const factor = ARCHETYPE_BUDGET_FACTOR[archetype];
   const minimum = ARCHETYPE_BUDGET_MIN[archetype];
+  const floor = ARCHETYPE_SYMBOL_BUDGET_FLOOR[archetype];
   const scaled = Math.floor(baseBudget * factor);
-  return Math.max(minimum, scaled);
+  return Math.max(minimum, floor, scaled);
 }
 
 function sanitizeSegment(candidate: string, fallback: string): string {
@@ -289,6 +328,9 @@ function topicSegmentFromFilePath(filePath: string, archetype: ArchetypeId): str
 }
 
 function shouldKeepSymbolName(symbolName: string): boolean {
+  if (isTemplateFallbackName(symbolName)) {
+    return false;
+  }
   if (isGenericName(symbolName)) {
     return false;
   }
@@ -300,6 +342,19 @@ function shouldKeepSymbolName(symbolName: string): boolean {
     return false;
   }
   return true;
+}
+
+function isTemplateFallbackName(symbolName: string): boolean {
+  const normalized = symbolName.trim();
+  if (normalized.length === 0) {
+    return true;
+  }
+  for (const pattern of TEMPLATE_FALLBACK_NAME_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function nextUniqueName(baseName: string, usedNames: Map<string, number>): string {
@@ -319,39 +374,314 @@ function nextUniqueIdentifier(baseName: string, usedNames: Set<string>): string 
   return candidate;
 }
 
+function isNoisyIdentifier(name: string): boolean {
+  if (name.length <= 2) {
+    return true;
+  }
+  if (/^[a-z]{1,2}\d*$/i.test(name)) {
+    return true;
+  }
+  if (/^[A-Z][a-z]$/.test(name)) {
+    return true;
+  }
+  if (/^[_$][A-Za-z0-9_$]*$/.test(name) && name.length <= 4) {
+    return true;
+  }
+  return false;
+}
+
+function chunkTokensFromChunkId(chunkId: string): string[] {
+  const normalized = chunkId.replace(/^chunk-/i, "");
+  const tokens = normalized
+    .split("-")
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^[a-f0-9]{7,}$/i.test(token))
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !GENERIC_SEGMENTS.has(token))
+    .filter((token) => !NOISE_NAME_TOKENS.has(token))
+    .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+  return dedupeNameTokens(tokens).slice(0, 2);
+}
+
+function isTailSaltSegment(segment: string): boolean {
+  if (segment.length <= 2) {
+    return true;
+  }
+  if (/^[a-f0-9]{7,}$/i.test(segment)) {
+    return true;
+  }
+  const hasDigit = /\d/.test(segment);
+  const hasUpper = /[A-Z]/.test(segment);
+  const hasLower = /[a-z]/.test(segment);
+  if (hasDigit) {
+    return true;
+  }
+  if (hasUpper && hasLower) {
+    return true;
+  }
+  return false;
+}
+
+function chunkTokensFromSourcePath(sourceFilePath: string): string[] {
+  const baseName = path.basename(sourceFilePath, path.extname(sourceFilePath));
+  const rawSegments = baseName
+    .split(/[-_]+/g)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  if (rawSegments.length === 0) {
+    return [];
+  }
+
+  let semanticEnd = rawSegments.length;
+  while (semanticEnd > 0) {
+    const tail = rawSegments[semanticEnd - 1];
+    if (!tail) {
+      semanticEnd -= 1;
+      continue;
+    }
+    if (!isTailSaltSegment(tail)) {
+      break;
+    }
+    semanticEnd -= 1;
+  }
+
+  const semanticSegments = rawSegments.slice(0, semanticEnd);
+  const tokens = dedupeNameTokens(
+    semanticSegments
+      .flatMap((segment) => splitNameTokens(segment))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
+  );
+  return tokens.slice(0, 3);
+}
+
+function buildChunkTopicTokensById(chunks: ChunkArtifactModel["chunks"]): Map<string, string[]> {
+  const byId = new Map<string, string[]>();
+  for (const chunk of chunks) {
+    const fromPath = chunkTokensFromSourcePath(chunk.sourceFilePath);
+    if (fromPath.length > 0) {
+      byId.set(chunk.chunkId, fromPath);
+      continue;
+    }
+    byId.set(chunk.chunkId, chunkTokensFromChunkId(chunk.chunkId));
+  }
+  return byId;
+}
+
+function clusterTokensFromDeclaration(clusterId: string): string[] {
+  const normalized = clusterId.replace(/^cluster-/i, "");
+  const rawTokens = normalized
+    .split("-")
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^[a-f0-9]{8,}$/i.test(token))
+    .filter((token) => !GENERIC_SEGMENTS.has(token))
+    .filter((token) => !NOISE_NAME_TOKENS.has(token))
+    .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+  return dedupeNameTokens(rawTokens).slice(0, 2);
+}
+
+function alignTokensToChunkHints(tokens: string[], chunkHints: string[]): string[] {
+  if (tokens.length === 0 || chunkHints.length === 0) {
+    return tokens;
+  }
+  const canonicalHints = chunkHints.map((token) => canonicalToken(token));
+  const aligned: string[] = [];
+  for (const token of tokens) {
+    const normalizedToken = token.toLowerCase().replace(/^(store|service|hook|ui|transport)/i, "");
+    const canonical = canonicalToken(normalizedToken);
+    const directHint = canonicalHints.find((hint) => hint === canonical);
+    if (directHint) {
+      aligned.push(directHint);
+      continue;
+    }
+    const prefixHint = canonicalHints.find((hint) => canonical.startsWith(hint) && canonical.length > hint.length + 1);
+    if (prefixHint) {
+      aligned.push(prefixHint);
+    }
+  }
+  if (aligned.length > 0) {
+    return dedupeNameTokens(aligned);
+  }
+  return tokens;
+}
+
+function bindingSignalTokens(
+  liftBinding: LiftedSymbolBinding | undefined,
+  chunkTopicTokensById: Map<string, string[]>,
+): string[] {
+  if (!liftBinding) {
+    return [];
+  }
+  const chunkHints = chunkTopicTokensById.get(liftBinding.chunkId) ?? chunkTokensFromChunkId(liftBinding.chunkId);
+  const sourceStem = liftBinding.sourceIdentifier.replace(/^(store|service|hook|ui|transport)/i, "");
+  const sourceTokensRaw = !isNoisyIdentifier(sourceStem) && scoreNameQuality(sourceStem) >= 0.56 ? splitNameTokens(sourceStem) : [];
+  const exportStem = liftBinding.exportName
+    .replace(/symbol\d+$/i, "")
+    .replace(/lifted$/i, "")
+    .replace(/^(store|service|hook|ui|transport)/i, "");
+  const exportTokensRaw = splitNameTokens(exportStem);
+  const sourceTokens = alignTokensToChunkHints(sourceTokensRaw, chunkHints);
+  const exportTokens = alignTokensToChunkHints(exportTokensRaw, chunkHints);
+  const chunkTokens = chunkHints;
+  const merged = dedupeNameTokens([...sourceTokens, ...exportTokens, ...chunkTokens]);
+  return merged.filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)).slice(0, 3);
+}
+
+function chunkHintTokens(chunkHint: string): string[] {
+  if (chunkHint.trim().length === 0) {
+    return [];
+  }
+  if (/^\d+$/.test(chunkHint.trim())) {
+    return [];
+  }
+  return splitNameTokens(chunkHint)
+    .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+    .slice(0, 2);
+}
+
+function symbolOrdinalToken(symbolKey: string, ordinal: number): string {
+  const tail = symbolKey.split(":").pop()?.trim() ?? "";
+  if (/^\d+$/.test(tail)) {
+    return `entry${tail}`;
+  }
+  if (/^[a-z][a-z0-9]{2,}$/i.test(tail)) {
+    return tail.toLowerCase();
+  }
+  return `entry${ordinal}`;
+}
+
+function archetypeRoleSuffix(archetype: ArchetypeId): string {
+  if (archetype === "hook") {
+    return "Hook";
+  }
+  if (archetype === "ui") {
+    return "Component";
+  }
+  if (archetype === "transport") {
+    return "Bridge";
+  }
+  if (archetype === "store") {
+    return "State";
+  }
+  return "Service";
+}
+
+function normalizeSemanticToken(token: string, plan: ModulePlan, symbol: OwnershipRecord): string {
+  let normalized = token.toLowerCase().replace(/^\d+/, "");
+  const removablePrefixes = [
+    plan.archetype,
+    plan.layer,
+    symbol.domainKind,
+    "store",
+    "service",
+    "transport",
+    "renderer",
+    "main",
+    "tauri",
+    "hook",
+    "ui",
+    "state",
+    "domain",
+  ];
+  for (const prefix of removablePrefixes) {
+    if (normalized.startsWith(prefix) && normalized.length > prefix.length + 2) {
+      normalized = normalized.slice(prefix.length);
+    }
+  }
+  return normalized;
+}
+
+function buildSignalDrivenBaseName(
+  symbol: OwnershipRecord,
+  plan: ModulePlan,
+  topic: string,
+  ordinal: number,
+  liftBinding: LiftedSymbolBinding | undefined,
+  chunkTopicTokensById: Map<string, string[]>,
+): string {
+  const domainTokens = splitNameTokens(symbol.domainKind);
+  const layerTokens = splitNameTokens(plan.layer);
+  const topicTokens = splitNameTokens(topic);
+  const clusterTokens = clusterTokensFromDeclaration(symbol.declarationClusterId);
+  const bindingTokens = bindingSignalTokens(liftBinding, chunkTopicTokensById);
+  const hintTokens = chunkHintTokens(symbol.chunkHint);
+  const semanticTokens = dedupeNameTokens(
+    [...bindingTokens, ...hintTokens, ...clusterTokens, ...topicTokens, ...domainTokens, ...layerTokens]
+      .map((token) => normalizeSemanticToken(token, plan, symbol))
+      .filter((token) => token.length >= 3)
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+      .filter((token) => !GENERIC_SEGMENTS.has(token)),
+  );
+
+  const qualifierTokens = semanticTokens
+    .filter((token) => token !== plan.archetype && token !== symbol.domainKind && token !== plan.layer)
+    .slice(0, 2);
+  if (qualifierTokens.length === 0) {
+    qualifierTokens.push(symbolOrdinalToken(symbol.symbolKey, ordinal));
+  }
+
+  const roleSuffix = archetypeRoleSuffix(plan.archetype);
+  if (plan.archetype === "hook") {
+    const hookStem = qualifierTokens.map((token) => toPascalCase(token)).join("");
+    const fallbackStem = `Domain${ordinal}`;
+    return sanitizeIdentifier(`use${hookStem.length > 0 ? hookStem : fallbackStem}${roleSuffix}`);
+  }
+
+  const parts = [plan.archetype, ...qualifierTokens, roleSuffix];
+  const stem = parts.map((token) => toPascalCase(token)).join("");
+  const fallbackStem = `${toPascalCase(plan.archetype)}${toPascalCase(roleSuffix)}${ordinal}`;
+  return sanitizeIdentifier(stem.length > 0 ? stem : fallbackStem);
+}
+
+function buildReadableImportAliasBase(exportName: string): string {
+  const pascal = toPascalCase(exportName);
+  const stem = pascal.length > 0 ? pascal : "DomainSymbol";
+  return sanitizeIdentifier(`impl${stem}`);
+}
+
+function buildChunkImportAliasBase(chunkId: string, chunkTopicTokensById: Map<string, string[]>): string {
+  const hintedTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
+  const semanticTokens = dedupeNameTokens(
+    hintedTokens
+      .map((token) => token.trim().toLowerCase())
+      .filter((token) => token.length >= 3)
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
+  ).slice(0, 2);
+
+  if (semanticTokens.length === 0) {
+    const fallbackTokens = dedupeNameTokens(
+      chunkId
+        .replace(/^chunk-/i, "")
+        .split("-")
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token.length >= 3)
+        .filter((token) => !/^[a-f0-9]{7,}$/i.test(token))
+        .filter((token) => !/^\d+$/.test(token))
+        .filter((token) => !GENERIC_SEGMENTS.has(token))
+        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
+    ).slice(0, 2);
+    semanticTokens.push(...fallbackTokens);
+  }
+
+  const stem = semanticTokens.map((token) => toPascalCase(token)).join("");
+  return sanitizeIdentifier(`chunk${stem.length > 0 ? stem : "Source"}`);
+}
+
 function buildDomainExportName(
   symbol: OwnershipRecord,
   plan: ModulePlan,
   topic: string,
   ordinal: number,
   usedNames: Map<string, number>,
+  liftBinding?: LiftedSymbolBinding,
+  chunkTopicTokensById: Map<string, string[]> = new Map<string, string[]>(),
 ): string {
   if (shouldKeepSymbolName(symbol.symbolName)) {
     return nextUniqueName(sanitizeIdentifier(symbol.symbolName), usedNames);
   }
-
-  const topicTokens = splitNameTokens(topic);
-  const domainTokens = splitNameTokens(symbol.domainKind);
-  const layerTokens = splitNameTokens(plan.layer);
-  const archetypeTokens = splitNameTokens(plan.archetype);
-
-  let tokens = dedupeNameTokens([...topicTokens, ...domainTokens]);
-  if (tokens.length < 3) {
-    tokens = dedupeNameTokens([...tokens, ...layerTokens]);
-  }
-  if (tokens.length < 3) {
-    tokens = dedupeNameTokens([...tokens, ...archetypeTokens]);
-  }
-  if (tokens.length === 0) {
-    tokens = ["domain", "symbol"];
-  }
-
-  const stem = tokens
-    .slice(0, 4)
-    .map((token) => toPascalCase(token))
-    .join("");
-  const fallbackStem = `DomainSymbol${ordinal}`;
-  const base = sanitizeIdentifier(stem.length > 0 ? stem : fallbackStem);
+  const base = buildSignalDrivenBaseName(symbol, plan, topic, ordinal, liftBinding, chunkTopicTokensById);
   return nextUniqueName(base, usedNames);
 }
 
@@ -398,6 +728,34 @@ function topicSegmentForChunk(archetype: ArchetypeId, symbols: OwnershipRecord[]
     return clusterTopic;
   }
   return fallbackTopicByArchetype(archetype);
+}
+
+function fallbackFileTopicForArchetype(archetype: ArchetypeId): string {
+  if (archetype === "hook") {
+    return "flow";
+  }
+  if (archetype === "ui") {
+    return "view";
+  }
+  if (archetype === "transport") {
+    return "bridge";
+  }
+  if (archetype === "store") {
+    return "state";
+  }
+  return "domain";
+}
+
+function buildModuleFileName(archetype: ArchetypeId, topic: string, partSuffix: string): string {
+  const topicTokens = topic
+    .split("-")
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0);
+  const filteredTokens = dedupeNameTokens(
+    topicTokens.filter((token) => token !== archetype).filter((token) => !GENERIC_SEGMENTS.has(token)),
+  );
+  const topicStem = filteredTokens.length > 0 ? filteredTokens.join("-") : fallbackFileTopicForArchetype(archetype);
+  return sanitizeSegment(`${archetype}-${topicStem}${partSuffix}`, `${archetype}-${fallbackFileTopicForArchetype(archetype)}${partSuffix}`);
 }
 
 function splitByBudget<T>(items: T[], budget: number): T[][] {
@@ -598,12 +956,13 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
           }
           const hasMultipleParts = chunks.length > 1;
           const partSuffix = hasMultipleParts ? `-part-${String(partIndex + 1).padStart(3, "0")}` : "";
-          const moduleFileName = sanitizeSegment(`${archetype}-${topic}${partSuffix}`, `${archetype}-domain${partSuffix}`);
+          const moduleFileName = buildModuleFileName(archetype, topic, partSuffix);
+          const modulePartId = hasMultipleParts ? `:part-${String(partIndex + 1).padStart(3, "0")}` : "";
           plans.push({
             layer,
             archetype,
             clusterId: topic,
-            moduleId: `${layer}:${archetype}:${topic}:part-${String(partIndex + 1).padStart(3, "0")}`,
+            moduleId: `${layer}:${archetype}:${topic}${modulePartId}`,
             symbols: partSymbols,
             filePath: `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`,
           });
@@ -1012,6 +1371,7 @@ function buildQualityModuleContent(
   outputProjectDirectory: string,
   symbols: OwnershipRecord[],
   bindingByKey: Map<string, LiftedSymbolBinding>,
+  chunkTopicTokensById: Map<string, string[]>,
 ): string {
   if (symbols.length === 0) {
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
@@ -1036,11 +1396,19 @@ function buildQualityModuleContent(
       throw new Error(`buildQualityModuleContent: missing AST-lift binding for ${symbol.symbolKey}`);
     }
 
-    const exportName = buildDomainExportName(symbol, plan, topic, symbolIndex + 1, usedExportNames);
+    const exportName = buildDomainExportName(
+      symbol,
+      plan,
+      topic,
+      symbolIndex + 1,
+      usedExportNames,
+      liftBinding,
+      chunkTopicTokensById,
+    );
     const liftedBindingKey = `${liftBinding.chunkId}::${liftBinding.exportName}`;
     let localName = localNameByLiftedSymbol.get(liftedBindingKey);
     if (!localName) {
-      const localBaseName = sanitizeIdentifier(`${liftBinding.exportName}Lifted`);
+      const localBaseName = buildReadableImportAliasBase(exportName);
       localName = nextUniqueIdentifier(localBaseName, usedLocalNames);
       localNameByLiftedSymbol.set(liftedBindingKey, localName);
       const chunkImports = importMapByChunk.get(liftBinding.chunkId) ?? new Map<string, string>();
@@ -1055,6 +1423,8 @@ function buildQualityModuleContent(
   }
 
   const chunkIds = [...importMapByChunk.keys()].sort((left, right) => left.localeCompare(right));
+  const importAliasByChunk = new Map<string, string>();
+  const usedChunkAliases = new Set<string>();
   for (const chunkId of chunkIds) {
     const chunkImports = importMapByChunk.get(chunkId);
     if (!chunkImports || chunkImports.size === 0) {
@@ -1062,13 +1432,28 @@ function buildQualityModuleContent(
     }
     const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
     const importPath = toJsImportPath(moduleAbsolutePath, chunkModulePath);
-    const importSpecifiers = [...chunkImports.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([sourceExport, localName]) => (sourceExport === localName ? sourceExport : `${sourceExport} as ${localName}`));
-    lines.push(`import { ${importSpecifiers.join(", ")} } from ${quote(importPath)};`);
+    const chunkAliasBase = buildChunkImportAliasBase(chunkId, chunkTopicTokensById);
+    const chunkAlias = nextUniqueIdentifier(chunkAliasBase, usedChunkAliases);
+    importAliasByChunk.set(chunkId, chunkAlias);
+    lines.push(`import * as ${chunkAlias} from ${quote(importPath)};`);
   }
 
   lines.push("");
+  for (const chunkId of chunkIds) {
+    const chunkImports = importMapByChunk.get(chunkId);
+    const chunkAlias = importAliasByChunk.get(chunkId);
+    if (!chunkImports || chunkImports.size === 0 || !chunkAlias) {
+      continue;
+    }
+    const entries = [...chunkImports.entries()].sort(([left], [right]) => left.localeCompare(right));
+    lines.push(`const {`);
+    for (const [sourceExport, localName] of entries) {
+      lines.push(`  ${sourceExport}: ${localName},`);
+    }
+    lines.push(`} = ${chunkAlias};`);
+    lines.push("");
+  }
+
   for (const entry of exportEntries) {
     lines.push(`export const ${entry.exportName} = ${entry.localName};`);
   }
@@ -1091,6 +1476,7 @@ function buildSpeculativeModuleContent(
   symbols: OwnershipRecord[],
   symbolToChunk: Map<string, string>,
   bindingByKey: Map<string, LiftedSymbolBinding>,
+  chunkTopicTokensById: Map<string, string[]>,
 ): string {
   const lines: string[] = [];
   const contractFactory = contractFactoryName(plan.archetype);
@@ -1127,10 +1513,17 @@ function buildSpeculativeModuleContent(
       throw new Error(`Missing chunk mapping for symbol ${symbol.symbolKey}`);
     }
 
-    const exportName = buildDomainExportName(symbol, plan, topic, symbolIndex + 1, usedNames);
-    const resolvedName = `${exportName}Symbol`;
-
     const liftBinding = bindingByKey.get(symbol.symbolKey);
+    const exportName = buildDomainExportName(
+      symbol,
+      plan,
+      topic,
+      symbolIndex + 1,
+      usedNames,
+      liftBinding,
+      chunkTopicTokensById,
+    );
+    const resolvedName = `${exportName}Symbol`;
     const runtimeSymbolName = liftBinding && liftBinding.chunkId === chunkId ? liftBinding.exportName : symbol.symbolName;
 
     exportedNames.push(exportName);
@@ -1388,15 +1781,22 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, contractsEntryPath));
 
   const symbolToChunk = modelBySymbol(chunkArtifacts);
+  const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
   const speculativeSymbols = ownershipModel.symbols.filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey));
 
   const qualityOwnership = buildOwnershipSubset(ownershipModel, qualitySymbols);
-  const qualityRawPlans = buildModulePlans(qualityOwnership, Math.max(statementBudget * 2, 48));
+  const qualityRawPlans = buildModulePlans(
+    qualityOwnership,
+    Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
+  );
   const qualityPass = applyFileQualityRerender(qualityRawPlans, astLift.symbolBindingByKey, statementBudget);
   const qualityModulePlans = qualityPass.modulePlans;
   const speculativeOwnership = buildOwnershipSubset(ownershipModel, speculativeSymbols);
-  const speculativeRawPlans = buildModulePlans(speculativeOwnership, Math.max(statementBudget * 8, 160));
+  const speculativeRawPlans = buildModulePlans(
+    speculativeOwnership,
+    Math.max(statementBudget * SPECULATIVE_PLAN_BUDGET_MULTIPLIER, SPECULATIVE_PLAN_BUDGET_MIN),
+  );
   const speculativeModulePlans = speculativeRawPlans.map((plan) => ({
     ...plan,
     moduleId: `${plan.moduleId}:speculative`,
@@ -1411,6 +1811,7 @@ export async function emitTemplateProject(
       outputProjectDirectory,
       plan.symbols,
       astLift.symbolBindingByKey,
+      chunkTopicTokensById,
     );
     await writeTextFile(absoluteFilePath, moduleContent);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
@@ -1430,6 +1831,7 @@ export async function emitTemplateProject(
       plan.symbols,
       symbolToChunk,
       astLift.symbolBindingByKey,
+      chunkTopicTokensById,
     );
     await writeTextFile(absoluteFilePath, moduleContent);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
