@@ -456,6 +456,8 @@ function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[]
   ];
 }
 
+const COVERAGE_OWNER_LINEAGE_ID = "main-entry-census";
+
 async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2));
   const projectRoot = path.resolve(__dirname, "..");
@@ -547,7 +549,7 @@ async function run(): Promise<void> {
   const monolithCensusInput: MonolithCensusStageInput = {
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputDirectory: path.join(artifactsDirectory, "monolith-census"),
-    lineageId: "main-entry",
+    lineageId: COVERAGE_OWNER_LINEAGE_ID,
   };
   const monolithCensusOutput = await runStage<MonolithCensusStageInput, MonolithCensusStageOutput>(
     monolithCensusStage,
@@ -624,9 +626,9 @@ async function run(): Promise<void> {
     tool: "webcrack",
     stageId: "monolith-census",
     lineageId: monolithCensusOutput.lineageId,
-    filePath: monolithCensusOutput.censusJsPath,
-    sourceKind: "javascript",
-    baseConfidence: 0.24,
+    filePath: monolithCensusOutput.mappingPath,
+    sourceKind: "text",
+    baseConfidence: 0.34,
   });
 
   const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);
@@ -741,6 +743,15 @@ async function run(): Promise<void> {
     },
   );
 
+  const fullOwnershipModel = await readJsonFile<OwnershipModel>(ownershipResolverOutput.outputFilePath);
+  const qualityOwnershipModel: OwnershipModel = {
+    ...fullOwnershipModel,
+    generatedAtIso: new Date().toISOString(),
+    symbols: fullOwnershipModel.symbols.filter((symbol) => symbol.ownerLineageId !== COVERAGE_OWNER_LINEAGE_ID),
+  };
+  const qualityOwnershipModelPath = path.join(artifactsDirectory, "ownership-model.quality.json");
+  await writeJsonFile(qualityOwnershipModelPath, qualityOwnershipModel);
+
   const chunkArtifactSources: EvidenceSourceFile[] = evidenceSources.filter((source) => source.stageId !== "monolith-census");
   for (const extractedJsFile of asarOutput.discoveredJsFiles) {
     if (!shouldUseAsarJavascriptForArtifacts(asarOutput.extractedRootDirectory, extractedJsFile)) {
@@ -762,7 +773,7 @@ async function run(): Promise<void> {
 
   const chunkArtifactModelInput: ChunkArtifactModelStageInput = {
     sourceFiles: chunkArtifactSources,
-    ownershipModelPath: ownershipResolverOutput.outputFilePath,
+    ownershipModelPath: qualityOwnershipModelPath,
     outputFilePath: path.join(artifactsDirectory, "chunk-artifacts.json"),
   };
   const chunkArtifactModelOutput = await runStage<ChunkArtifactModelStageInput, ChunkArtifactModelStageOutput>(
@@ -775,7 +786,7 @@ async function run(): Promise<void> {
   );
 
   const templateEmitterInput: TemplateEmitterStageInput = {
-    ownershipModelPath: ownershipResolverOutput.outputFilePath,
+    ownershipModelPath: qualityOwnershipModelPath,
     chunkArtifactsPath: chunkArtifactModelOutput.outputFilePath,
     outputProjectDirectory: path.join(artifactsDirectory, "project"),
     statementBudget: cli.statementBudget,

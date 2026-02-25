@@ -37,6 +37,25 @@ export interface EvidenceStoreModel {
   stats: EvidenceStats;
 }
 
+interface MonolithCensusSeedEntry {
+  anchor: string;
+  censusName: string;
+}
+
+interface MonolithCensusVariableEntry {
+  variableKey: string;
+  censusName: string;
+}
+
+interface MonolithCensusMappingModel {
+  seedEntries?: MonolithCensusSeedEntry[];
+  variableCoverage?: MonolithCensusVariableEntry[];
+}
+
+const COVERAGE_OWNER_SUFFIX = "-census";
+const COVERAGE_VARIABLE_LIMIT = 3200;
+const COVERAGE_RECORD_BUDGET_FACTOR = 0.5;
+
 const RESERVED_WORDS = new Set<string>([
   "if",
   "for",
@@ -377,6 +396,67 @@ async function readSourceText(filePath: string): Promise<string> {
   return content;
 }
 
+function isCoverageSource(sourceFile: EvidenceSourceFile): boolean {
+  return sourceFile.lineageId.endsWith(COVERAGE_OWNER_SUFFIX) || sourceFile.stageId === "monolith-census";
+}
+
+function pushMonolithCensusMappingHints(
+  source: string,
+  owner: string,
+  baseConfidence: number,
+  provenance: EvidenceProvenance,
+  sink: EvidenceRecord[],
+): void {
+  let parsed: MonolithCensusMappingModel = {};
+  try {
+    parsed = JSON.parse(source) as MonolithCensusMappingModel;
+  } catch {
+    return;
+  }
+
+  const seedEntries = Array.isArray(parsed.seedEntries) ? parsed.seedEntries : [];
+  const variableCoverage = Array.isArray(parsed.variableCoverage) ? parsed.variableCoverage : [];
+
+  const sortedSeeds = [...seedEntries].sort((left, right) => left.anchor.localeCompare(right.anchor));
+  for (const seed of sortedSeeds) {
+    if (typeof seed.anchor !== "string" || seed.anchor.length === 0) {
+      continue;
+    }
+    if (typeof seed.censusName !== "string" || seed.censusName.length === 0) {
+      continue;
+    }
+    sink.push(
+      createRecord(
+        "symbol_hint",
+        owner,
+        seed.anchor,
+        seed.censusName,
+        baseConfidence * 0.98,
+        provenance,
+      ),
+    );
+  }
+
+  const sortedVariables = [...variableCoverage]
+    .filter((entry) => typeof entry.variableKey === "string" && entry.variableKey.length > 0)
+    .filter((entry) => typeof entry.censusName === "string" && entry.censusName.length > 0)
+    .sort((left, right) => left.variableKey.localeCompare(right.variableKey))
+    .slice(0, COVERAGE_VARIABLE_LIMIT);
+
+  for (const variable of sortedVariables) {
+    sink.push(
+      createRecord(
+        "symbol_hint",
+        owner,
+        `coverage:${variable.variableKey}`,
+        variable.censusName,
+        baseConfidence * 0.74,
+        provenance,
+      ),
+    );
+  }
+}
+
 async function extractSourceEvidence(sourceFile: EvidenceSourceFile): Promise<EvidenceRecord[]> {
   const source = await readSourceText(sourceFile.filePath);
   const provenance: EvidenceProvenance = {
@@ -388,6 +468,15 @@ async function extractSourceEvidence(sourceFile: EvidenceSourceFile): Promise<Ev
   const owner = sourceFile.lineageId;
   const sink: EvidenceRecord[] = [];
 
+  const isMonolithCensusMapping =
+    sourceFile.stageId === "monolith-census" &&
+    sourceFile.sourceKind === "text" &&
+    sourceFile.filePath.toLowerCase().endsWith("census-mapping.json");
+  if (isMonolithCensusMapping) {
+    pushMonolithCensusMappingHints(source, owner, sourceFile.baseConfidence, provenance, sink);
+    return sink;
+  }
+
   pushImportHints(source, owner, sourceFile.baseConfidence, provenance, sink);
   pushSymbolHints(source, owner, sourceFile.baseConfidence, provenance, sink);
   pushCallEdges(source, owner, sourceFile.baseConfidence, provenance, sink);
@@ -396,6 +485,29 @@ async function extractSourceEvidence(sourceFile: EvidenceSourceFile): Promise<Ev
     pushSourcemapEvidence(source, owner, sourceFile.baseConfidence, provenance, sink);
   }
   return sink;
+}
+
+async function ingestEvidenceSources(
+  sourceFiles: EvidenceSourceFile[],
+  recordsById: Map<string, EvidenceRecord>,
+  limit: number,
+): Promise<void> {
+  let added = 0;
+  const orderedSourceFiles = [...sourceFiles].sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+  for (const sourceFile of orderedSourceFiles) {
+    const extractedRecords = await extractSourceEvidence(sourceFile);
+    for (const record of extractedRecords) {
+      if (added >= limit) {
+        return;
+      }
+      if (recordsById.has(record.id)) {
+        continue;
+      }
+      recordsById.set(record.id, record);
+      added += 1;
+    }
+  }
 }
 
 function buildStats(records: EvidenceRecord[]): EvidenceStats {
@@ -437,23 +549,22 @@ function buildStats(records: EvidenceRecord[]): EvidenceStats {
 }
 
 export async function buildEvidenceStore(sourceFiles: EvidenceSourceFile[], maxRecords: number): Promise<EvidenceStoreModel> {
-  const recordsById = new Map<string, EvidenceRecord>();
-  const orderedSourceFiles = [...sourceFiles].sort((left, right) => left.filePath.localeCompare(right.filePath));
+  const primarySources = sourceFiles.filter((sourceFile) => !isCoverageSource(sourceFile));
+  const coverageSources = sourceFiles.filter((sourceFile) => isCoverageSource(sourceFile));
 
-  for (const sourceFile of orderedSourceFiles) {
-    const extractedRecords = await extractSourceEvidence(sourceFile);
-    for (const record of extractedRecords) {
-      if (recordsById.size >= maxRecords) {
-        break;
-      }
-      if (recordsById.has(record.id)) {
-        continue;
-      }
-      recordsById.set(record.id, record);
+  const primaryRecordsById = new Map<string, EvidenceRecord>();
+  await ingestEvidenceSources(primarySources, primaryRecordsById, maxRecords);
+
+  const coverageRecordsById = new Map<string, EvidenceRecord>();
+  const coverageBudget = Math.max(1200, Math.floor(maxRecords * COVERAGE_RECORD_BUDGET_FACTOR));
+  await ingestEvidenceSources(coverageSources, coverageRecordsById, coverageBudget);
+
+  const recordsById = new Map<string, EvidenceRecord>(primaryRecordsById);
+  for (const [recordId, record] of coverageRecordsById.entries()) {
+    if (recordsById.has(recordId)) {
+      continue;
     }
-    if (recordsById.size >= maxRecords) {
-      break;
-    }
+    recordsById.set(recordId, record);
   }
 
   const records = [...recordsById.values()].sort((left, right) => left.id.localeCompare(right.id));
