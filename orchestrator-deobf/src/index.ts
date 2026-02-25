@@ -635,6 +635,11 @@ async function run(): Promise<void> {
   const snapshotKey = inputArtifact.sha256.slice(0, 12);
   const coverageLineageId = buildCoverageOwnerLineageId(snapshotKey);
   const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
+  const bootstrapSnapshotMode = namingMemoryProfile.seededFrom !== "existing";
+  const effectiveStageCacheEnabled = bootstrapSnapshotMode ? false : cli.stageCacheEnabled;
+  const effectiveEnableJavascriptDeobfuscator = bootstrapSnapshotMode ? true : cli.enableJavascriptDeobfuscator;
+  const effectiveEnableSynchrony = bootstrapSnapshotMode ? true : cli.enableSynchrony;
+  const effectiveEnableUnwebpackSourcemap = bootstrapSnapshotMode ? true : cli.enableUnwebpackSourcemap;
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
     manifestVersion: 8,
@@ -666,14 +671,15 @@ async function run(): Promise<void> {
       promotionBudget: cli.promotionBudget,
       coverageLineageId,
       namingMemoryProfilePath: namingMemoryProfile.profilePath,
-      enableJavascriptDeobfuscator: cli.enableJavascriptDeobfuscator,
-      enableSynchrony: cli.enableSynchrony,
-      enableUnwebpackSourcemap: cli.enableUnwebpackSourcemap,
-      stageCacheEnabled: cli.stageCacheEnabled,
+      enableJavascriptDeobfuscator: effectiveEnableJavascriptDeobfuscator,
+      enableSynchrony: effectiveEnableSynchrony,
+      enableUnwebpackSourcemap: effectiveEnableUnwebpackSourcemap,
+      stageCacheEnabled: effectiveStageCacheEnabled,
       javascriptDeobfuscatorParseAsModule: cli.javascriptDeobfuscatorParseAsModule,
       synchronyRename: cli.synchronyRename,
       synchronyLoose: cli.synchronyLoose,
       unwebpackSourcemapMaxMaps: cli.unwebpackSourcemapMaxMaps,
+      snapshotBootstrapMode: bootstrapSnapshotMode,
       semanticSweepProfileCount: semanticSweepProfiles.length,
       outputProfile: cli.outputProfile,
       statementBudget: cli.statementBudget,
@@ -712,7 +718,7 @@ async function run(): Promise<void> {
     ],
   };
   const asarOutput = await runStage<AsarExtractStageInput, AsarExtractStageOutput>(asarExtractStage, asarInput, runDirectory, {
-    cacheEnabled: cli.stageCacheEnabled,
+    cacheEnabled: effectiveStageCacheEnabled,
   });
 
   const webcrackInput: WebcrackStageInput = {
@@ -721,7 +727,7 @@ async function run(): Promise<void> {
     forceOverwriteOutputDirectory: cli.forceOverwriteOutputs,
   };
   const webcrackOutput = await runStage<WebcrackStageInput, WebcrackStageOutput>(webcrackStage, webcrackInput, runDirectory, {
-    cacheEnabled: cli.stageCacheEnabled,
+    cacheEnabled: effectiveStageCacheEnabled,
   });
 
   const monolithCensusInput: MonolithCensusStageInput = {
@@ -734,7 +740,7 @@ async function run(): Promise<void> {
     monolithCensusInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -745,11 +751,11 @@ async function run(): Promise<void> {
     concurrency: cli.wakaruConcurrency,
   };
   const wakaruOutput = await runStage<WakaruStageInput, WakaruStageOutput>(wakaruStage, wakaruInput, runDirectory, {
-    cacheEnabled: cli.stageCacheEnabled,
+    cacheEnabled: effectiveStageCacheEnabled,
   });
 
   const javascriptDeobfuscatorInput: JavascriptDeobfuscatorStageInput = {
-    enabled: cli.enableJavascriptDeobfuscator,
+    enabled: effectiveEnableJavascriptDeobfuscator,
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputFilePath: path.join(artifactsDirectory, "javascript-deobfuscator", "entry.deobfuscated.js"),
     parseAsModule: cli.javascriptDeobfuscatorParseAsModule,
@@ -759,23 +765,23 @@ async function run(): Promise<void> {
     javascriptDeobfuscatorInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
   const synchronyInput: SynchronyStageInput = {
-    enabled: cli.enableSynchrony,
+    enabled: effectiveEnableSynchrony,
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputFilePath: path.join(artifactsDirectory, "synchrony", "entry.cleaned.js"),
     rename: cli.synchronyRename,
     loose: cli.synchronyLoose,
   };
   const synchronyOutput = await runStage<SynchronyStageInput, SynchronyStageOutput>(synchronyStage, synchronyInput, runDirectory, {
-    cacheEnabled: cli.stageCacheEnabled,
+    cacheEnabled: effectiveStageCacheEnabled,
   });
 
   const unwebpackSourcemapInput: UnwebpackSourcemapStageInput = {
-    enabled: cli.enableUnwebpackSourcemap,
+    enabled: effectiveEnableUnwebpackSourcemap,
     pythonExecutable: cli.pythonExecutable,
     referenceScriptPath: path.join(projectRoot, "..", "reference", "decompile", "unwebpack-sourcemap", "unwebpack_sourcemap.py"),
     mapFilePaths: asarOutput.discoveredMapFiles,
@@ -787,7 +793,7 @@ async function run(): Promise<void> {
     unwebpackSourcemapInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -903,7 +909,7 @@ async function run(): Promise<void> {
     evidenceStoreInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -914,7 +920,7 @@ async function run(): Promise<void> {
     sweepProfiles: semanticSweepProfiles,
   };
   const semanticIrOutput = await runStage<SemanticIrStageInput, SemanticIrStageOutput>(semanticIrStage, semanticIrInput, runDirectory, {
-    cacheEnabled: cli.stageCacheEnabled,
+    cacheEnabled: effectiveStageCacheEnabled,
   });
 
   const namingMemoryInput: NamingMemoryStageInput = {
@@ -931,7 +937,7 @@ async function run(): Promise<void> {
     namingMemoryInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
   if (namingMemoryProfile.profilePath !== namingMemoryProfile.legacyPath) {
@@ -947,7 +953,7 @@ async function run(): Promise<void> {
     ownershipResolverInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -1007,7 +1013,7 @@ async function run(): Promise<void> {
     chunkArtifactModelInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -1023,7 +1029,7 @@ async function run(): Promise<void> {
     templateEmitterInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -1040,7 +1046,7 @@ async function run(): Promise<void> {
     qualityGatesInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
@@ -1054,12 +1060,13 @@ async function run(): Promise<void> {
     greenGatesInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 
   const namedSemanticIr = await readJsonFile<SemanticIrModel>(namingMemoryOutput.namedSemanticIrPath);
   const runMetrics = buildRunMetrics(
+    monolithCensusOutput,
     namedSemanticIr,
     fullOwnershipModel,
     qualityOwnershipModel,
@@ -1093,7 +1100,7 @@ async function run(): Promise<void> {
     decisionDashboardInput,
     runDirectory,
     {
-      cacheEnabled: cli.stageCacheEnabled,
+      cacheEnabled: effectiveStageCacheEnabled,
     },
   );
 

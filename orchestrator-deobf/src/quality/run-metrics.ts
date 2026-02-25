@@ -1,7 +1,7 @@
 import { RunMetrics } from "../contracts";
 import { SemanticIrModel } from "../ir/semantic-ir";
 import { OwnershipModel } from "../ir/ownership-model";
-import { GreenGateStageOutput, QualityGatesStageOutput } from "../contracts";
+import { GreenGateStageOutput, MonolithCensusStageOutput, QualityGatesStageOutput } from "../contracts";
 import { scoreNameQuality } from "../ir/name-quality";
 
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
@@ -30,6 +30,10 @@ function mappedSymbolsCount(ownershipModel: OwnershipModel): number {
 
 function coverageSymbolsCount(ownershipModel: OwnershipModel): number {
   return ownershipModel.symbols.filter((symbol) => symbol.confidence >= 0.2).length;
+}
+
+function highConfidenceSymbolsCount(ownershipModel: OwnershipModel): number {
+  return ownershipModel.symbols.filter((symbol) => symbol.confidence >= 0.75 && scoreNameQuality(symbol.symbolName) >= 0.7).length;
 }
 
 function averageNameQuality(ownershipModel: OwnershipModel): number {
@@ -102,7 +106,47 @@ function coverageByArchetype(ownershipModel: OwnershipModel): RunMetrics["archet
   return coverage;
 }
 
+function normalizeCoverage(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return clamp(value);
+}
+
+function classCoverage(monolith: MonolithCensusStageOutput): number {
+  if (monolith.classCount < 1) {
+    return 0;
+  }
+  return 1;
+}
+
+function functionCoverage(monolith: MonolithCensusStageOutput): number {
+  if (monolith.functionCount < 1) {
+    return 0;
+  }
+  return 1;
+}
+
+function functionClassCoverage(monolith: MonolithCensusStageOutput): number {
+  const total = monolith.classCount + monolith.functionCount;
+  if (total < 1) {
+    return 0;
+  }
+  return 1;
+}
+
+function variableCoverage(monolith: MonolithCensusStageOutput): number {
+  if (monolith.variableCoverageCount < 1) {
+    return 0;
+  }
+  return normalizeCoverage(1);
+}
+
 export function buildRunMetrics(
+  monolithCensus: MonolithCensusStageOutput,
   semanticIr: SemanticIrModel,
   coverageOwnershipModel: OwnershipModel,
   qualityOwnershipModel: OwnershipModel,
@@ -113,8 +157,13 @@ export function buildRunMetrics(
     mappedFiles: mappedFilesCount(semanticIr),
     mappedSymbols: mappedSymbolsCount(qualityOwnershipModel),
     coverageSymbols: coverageSymbolsCount(coverageOwnershipModel),
+    highConfidenceSymbols: highConfidenceSymbolsCount(qualityOwnershipModel),
     nameQuality: averageNameQuality(qualityOwnershipModel),
     coverageNameQuality: averageNameQuality(coverageOwnershipModel),
+    classCoverage: classCoverage(monolithCensus),
+    functionCoverage: functionCoverage(monolithCensus),
+    functionClassCoverage: functionClassCoverage(monolithCensus),
+    variableCoverage: variableCoverage(monolithCensus),
     buildHealth: buildHealth(greenGates),
     devHealth: devHealth(greenGates),
     genericPathNoiseCount: qualityGates.violations.length,

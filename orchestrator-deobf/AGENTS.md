@@ -23,6 +23,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Snapshot-scoped naming memory lives in `naming-memory-store/snapshots/snapshot-<sha12>.json`.
 - New snapshot bootstraps naming memory from legacy file or latest snapshot profile.
 - Coverage contour stays in artifacts (`pending-lift-symbols.json`) and does not pollute quality TS tree.
+- Regression suite merges evidence at symbol/file level into `merged-evidence.json` to pick best winners across profiles.
+- Iteration stop-rule is automated through `regression:cycles` (`quality delta` + `high-confidence delta` stagnation guard).
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

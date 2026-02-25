@@ -43,7 +43,7 @@ const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
 const MAX_PARTS_PER_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
-const FILE_QUALITY_WORST_PERCENT = 0.08;
+const FILE_QUALITY_WORST_PERCENT = 0.1;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -924,7 +924,6 @@ function applyFileQualityRerender(
   bindingByKey: Map<string, LiftedSymbolBinding>,
   statementBudget: number,
 ): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
-  void statementBudget;
   if (modulePlans.length === 0) {
     return {
       modulePlans: [],
@@ -934,18 +933,82 @@ function applyFileQualityRerender(
   }
 
   const orderedPlans = [...modulePlans].sort((left, right) => left.filePath.localeCompare(right.filePath));
-  const qualityEntries = orderedPlans.map((plan) => {
+  const baselineEntries = orderedPlans.map((plan) => computeModuleQuality(plan, bindingByKey));
+  const worstTargetCount = Math.max(1, Math.ceil(orderedPlans.length * FILE_QUALITY_WORST_PERCENT));
+  const worstCandidates = [...baselineEntries]
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    })
+    .slice(0, worstTargetCount)
+    .filter((entry) => entry.symbolCount >= 8);
+
+  const rerenderedPlanByModuleId = new Map<string, ModulePlan[]>();
+  for (const candidate of worstCandidates) {
+    const plan = orderedPlans.find((entry) => entry.moduleId === candidate.moduleId);
+    if (!plan) {
+      continue;
+    }
+    const baseBudget = statementBudgetForArchetype(plan.archetype, statementBudget);
+    const reducedBudget = Math.max(ARCHETYPE_BUDGET_MIN[plan.archetype], Math.floor(baseBudget * 0.55));
+    const targetPartCount = Math.max(2, Math.ceil(plan.symbols.length / Math.max(1, reducedBudget)));
+    if (targetPartCount <= 1 || plan.symbols.length <= 1) {
+      continue;
+    }
+    const parts = splitBalanced(plan.symbols, Math.min(MAX_PARTS_PER_TOPIC, targetPartCount));
+    if (parts.length <= 1) {
+      continue;
+    }
+    const nextPlans: ModulePlan[] = [];
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      const symbols = parts[partIndex];
+      if (!symbols || symbols.length === 0) {
+        continue;
+      }
+      const partSuffix = `-quality-${String(partIndex + 1).padStart(2, "0")}`;
+      const filePath = plan.filePath.replace(/\.ts$/, `${partSuffix}.ts`);
+      nextPlans.push({
+        layer: plan.layer,
+        archetype: plan.archetype,
+        clusterId: plan.clusterId,
+        moduleId: `${plan.moduleId}:quality-${String(partIndex + 1).padStart(2, "0")}`,
+        symbols,
+        filePath,
+      });
+    }
+    if (nextPlans.length > 1) {
+      rerenderedPlanByModuleId.set(plan.moduleId, nextPlans);
+    }
+  }
+
+  const rerenderedModuleIds = new Set<string>(rerenderedPlanByModuleId.keys());
+  const finalPlans: ModulePlan[] = [];
+  for (const plan of orderedPlans) {
+    const replacement = rerenderedPlanByModuleId.get(plan.moduleId);
+    if (replacement && replacement.length > 0) {
+      finalPlans.push(...replacement);
+      continue;
+    }
+    finalPlans.push(plan);
+  }
+
+  finalPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+  const qualityEntries = finalPlans.map((plan) => {
     const entry = computeModuleQuality(plan, bindingByKey);
+    const originalIdRaw = plan.moduleId.split(":quality-")[0];
+    const originalId = originalIdRaw && originalIdRaw.length > 0 ? originalIdRaw : plan.moduleId;
     return {
       ...entry,
-      rerendered: false,
+      rerendered: rerenderedModuleIds.has(originalId),
     };
   });
 
   return {
-    modulePlans: orderedPlans,
+    modulePlans: finalPlans,
     qualityEntries,
-    rerenderedModuleCount: 0,
+    rerenderedModuleCount: rerenderedModuleIds.size,
   };
 }
 

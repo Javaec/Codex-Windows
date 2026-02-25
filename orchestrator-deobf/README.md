@@ -46,10 +46,12 @@ Stage-based orchestrator for decompile/deobfuscation pipelines.
 
 ## Step 4 artifacts
 
-- `run-metrics.json`: baseline metrics (`mappedFiles`, `mappedSymbols`, `nameQuality`, `buildHealth`, `devHealth`).
+- `run-metrics.json`: baseline metrics (`mappedFiles`, `mappedSymbols`, `highConfidenceSymbols`, `nameQuality`, `variableCoverage`, `buildHealth`, `devHealth`).
 - `green-gates.json` + `green-gates-logs/*`: `npm install`, `typecheck`, `lint`, `build`, `dev:smoke` checks with runtime log analysis.
 - `decision-dashboard.json` and `decision-dashboard.md`: action split into orchestrator changes, external tool patches, and post-rename pass.
 - `regression/baseline-metrics.json`: fixed-suite baseline report (4 profiles).
+- `regression/runs/<suiteRunId>/merged-evidence.json`: merged symbol/file winners across suite profiles (confidence/provenance aware).
+- `regression/cycle-report.json`: stop-rule cycle history (`quality delta`, `high-confidence delta`, stagnation strikes).
 
 ## Run
 
@@ -87,6 +89,15 @@ npm run regression:suite -- --snapshot "C:\Codex-Windows\work\electron\Codex Ins
 ```
 
 The suite is fixed in `config/regression-suite.json` and keeps only last N suite runs.
+
+## Regression Cycles (Stop-Rule)
+
+```powershell
+npm run build
+npm run regression:cycles -- --snapshot "C:\Codex-Windows\work\electron\Codex Installer\Codex.app\Contents\Resources\app.asar"
+```
+
+Cycle runner applies stop-rule: when quality gain is below threshold and high-confidence symbols do not grow for N consecutive cycles.
 
 ## Auto Calibration
 

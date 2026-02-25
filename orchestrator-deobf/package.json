@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "regression:suite": "node dist/regression/run-regression-suite.js",
-    "regression:calibrate": "node dist/regression/auto-calibrate.js"
+    "regression:calibrate": "node dist/regression/auto-calibrate.js",
+    "regression:cycles": "node dist/regression/run-regression-cycles.js"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",

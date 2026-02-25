@@ -65,6 +65,7 @@ export interface RunFlags {
   synchronyRename: boolean;
   synchronyLoose: boolean;
   unwebpackSourcemapMaxMaps: number;
+  snapshotBootstrapMode: boolean;
   semanticSweepProfileCount: number;
   outputProfile: OutputProfile;
   statementBudget: number;
@@ -402,8 +403,13 @@ export interface RunMetrics {
   mappedFiles: number;
   mappedSymbols: number;
   coverageSymbols: number;
+  highConfidenceSymbols: number;
   nameQuality: number;
   coverageNameQuality: number;
+  classCoverage: number;
+  functionCoverage: number;
+  functionClassCoverage: number;
+  variableCoverage: number;
   buildHealth: boolean;
   devHealth: boolean;
   genericPathNoiseCount: number;

@@ -3,6 +3,8 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { RunMetrics, ToolWeights } from "../contracts";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
+import { scoreNameQuality } from "../ir/name-quality";
+import { SemanticIrModel } from "../ir/semantic-ir";
 import { MetricScore, scoreRunMetrics } from "./score";
 import { RegressionProfile, RegressionSuite } from "./suite-model";
 
@@ -11,6 +13,42 @@ interface CommandResult {
   stdout: string;
   stderr: string;
   durationMs: number;
+}
+
+interface RunSummarySnapshot {
+  stageOutputs: {
+    namingMemory: {
+      namedSemanticIrPath: string;
+    };
+  };
+}
+
+interface MergedSymbolEvidence {
+  symbolKey: string;
+  symbolName: string;
+  confidence: number;
+  quality: number;
+  mergedScore: number;
+  profileId: string;
+  runId: string;
+  provenance: string[];
+}
+
+interface MergedFileEvidence {
+  pathHint: string;
+  confidence: number;
+  mergedScore: number;
+  profileId: string;
+  runId: string;
+}
+
+interface MergedEvidenceReport {
+  generatedAtIso: string;
+  suiteRunId: string;
+  symbolWinnerCount: number;
+  fileWinnerCount: number;
+  symbolWinners: MergedSymbolEvidence[];
+  fileWinners: MergedFileEvidence[];
 }
 
 export interface RegressionProfileExecution {
@@ -31,13 +69,16 @@ export interface RegressionSuiteExecution {
   snapshotAsarPath: string;
   weightsConfigPath: string;
   suiteVersion: number;
+  mergedEvidencePath: string;
   profiles: RegressionProfileExecution[];
   aggregate: {
     averageScore: number;
     minScore: number;
     mappedFilesAverage: number;
     mappedSymbolsAverage: number;
+    highConfidenceSymbolsAverage: number;
     nameQualityAverage: number;
+    variableCoverageAverage: number;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
   };
@@ -176,9 +217,118 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     minScore: executions.length === 0 ? 0 : Math.min(...executions.map((entry) => entry.score.total)),
     mappedFilesAverage: average(executions.map((entry) => entry.metrics.mappedFiles)),
     mappedSymbolsAverage: average(executions.map((entry) => entry.metrics.mappedSymbols)),
+    highConfidenceSymbolsAverage: average(executions.map((entry) => entry.metrics.highConfidenceSymbols)),
     nameQualityAverage: average(executions.map((entry) => entry.metrics.nameQuality)),
+    variableCoverageAverage: average(executions.map((entry) => entry.metrics.variableCoverage)),
     buildHealthAllGreen: executions.every((entry) => entry.metrics.buildHealth),
     devHealthAllGreen: executions.every((entry) => entry.metrics.devHealth),
+  };
+}
+
+function mergeSymbolEvidence(
+  existing: MergedSymbolEvidence | undefined,
+  candidate: MergedSymbolEvidence,
+): MergedSymbolEvidence {
+  if (!existing) {
+    return candidate;
+  }
+  if (candidate.mergedScore !== existing.mergedScore) {
+    return candidate.mergedScore > existing.mergedScore ? candidate : existing;
+  }
+  if (candidate.quality !== existing.quality) {
+    return candidate.quality > existing.quality ? candidate : existing;
+  }
+  if (candidate.confidence !== existing.confidence) {
+    return candidate.confidence > existing.confidence ? candidate : existing;
+  }
+  return candidate.symbolName.localeCompare(existing.symbolName) < 0 ? candidate : existing;
+}
+
+function mergeFileEvidence(
+  existing: MergedFileEvidence | undefined,
+  candidate: MergedFileEvidence,
+): MergedFileEvidence {
+  if (!existing) {
+    return candidate;
+  }
+  if (candidate.mergedScore !== existing.mergedScore) {
+    return candidate.mergedScore > existing.mergedScore ? candidate : existing;
+  }
+  if (candidate.confidence !== existing.confidence) {
+    return candidate.confidence > existing.confidence ? candidate : existing;
+  }
+  return candidate.pathHint.localeCompare(existing.pathHint) < 0 ? candidate : existing;
+}
+
+async function buildMergedEvidenceReport(
+  suiteRunId: string,
+  executions: RegressionProfileExecution[],
+): Promise<MergedEvidenceReport> {
+  const symbolByKey = new Map<string, MergedSymbolEvidence>();
+  const fileByPath = new Map<string, MergedFileEvidence>();
+
+  for (const execution of executions) {
+    const summary = await readJsonFile<RunSummarySnapshot>(execution.summaryPath);
+    const semanticIr = await readJsonFile<SemanticIrModel>(summary.stageOutputs.namingMemory.namedSemanticIrPath);
+    const profileScore = execution.score.total;
+
+    for (const symbol of semanticIr.symbols) {
+      const quality = scoreNameQuality(symbol.name);
+      const mergedScore = Number((symbol.confidence * quality * Math.max(0.1, profileScore)).toFixed(4));
+      const candidate: MergedSymbolEvidence = {
+        symbolKey: symbol.symbolKey,
+        symbolName: symbol.name,
+        confidence: Number(symbol.confidence.toFixed(4)),
+        quality: Number(quality.toFixed(4)),
+        mergedScore,
+        profileId: execution.profileId,
+        runId: execution.runId,
+        provenance: [...symbol.provenance].sort((left, right) => left.localeCompare(right)),
+      };
+      symbolByKey.set(symbol.symbolKey, mergeSymbolEvidence(symbolByKey.get(symbol.symbolKey), candidate));
+    }
+
+    for (const fileHint of semanticIr.fileHints) {
+      const mergedScore = Number((fileHint.confidence * Math.max(0.1, profileScore)).toFixed(4));
+      const candidate: MergedFileEvidence = {
+        pathHint: fileHint.pathHint,
+        confidence: Number(fileHint.confidence.toFixed(4)),
+        mergedScore,
+        profileId: execution.profileId,
+        runId: execution.runId,
+      };
+      fileByPath.set(fileHint.pathHint, mergeFileEvidence(fileByPath.get(fileHint.pathHint), candidate));
+    }
+  }
+
+  const symbolWinners = [...symbolByKey.values()]
+    .sort((left, right) => {
+      if (left.mergedScore !== right.mergedScore) {
+        return right.mergedScore - left.mergedScore;
+      }
+      if (left.quality !== right.quality) {
+        return right.quality - left.quality;
+      }
+      return left.symbolKey.localeCompare(right.symbolKey);
+    })
+    .slice(0, 2400);
+
+  const fileWinners = [...fileByPath.values()]
+    .sort((left, right) => {
+      if (left.mergedScore !== right.mergedScore) {
+        return right.mergedScore - left.mergedScore;
+      }
+      return left.pathHint.localeCompare(right.pathHint);
+    })
+    .slice(0, 640);
+
+  return {
+    generatedAtIso: new Date().toISOString(),
+    suiteRunId,
+    symbolWinnerCount: symbolWinners.length,
+    fileWinnerCount: fileWinners.length,
+    symbolWinners,
+    fileWinners,
   };
 }
 
@@ -197,12 +347,17 @@ export async function executeRegressionSuite(options: ExecuteRegressionSuiteOpti
     profileExecutions.push(execution);
   }
 
+  const mergedEvidence = await buildMergedEvidenceReport(options.suiteRunId, profileExecutions);
+  const mergedEvidencePath = path.join(suiteDirectory, "merged-evidence.json");
+  await writeJsonFile(mergedEvidencePath, mergedEvidence);
+
   const report: RegressionSuiteExecution = {
     suiteRunId: options.suiteRunId,
     generatedAtIso: new Date().toISOString(),
     snapshotAsarPath: options.snapshotAsarPath,
     weightsConfigPath: options.weightsConfigPath,
     suiteVersion: options.suite.version,
+    mergedEvidencePath,
     profiles: profileExecutions,
     aggregate: aggregateExecutions(profileExecutions),
   };

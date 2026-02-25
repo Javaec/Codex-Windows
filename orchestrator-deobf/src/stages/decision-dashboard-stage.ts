@@ -35,7 +35,10 @@ function buildMarkdown(payload: DashboardPayload): string {
   lines.push("");
   lines.push(`- mappedFiles: ${payload.metrics.mappedFiles}`);
   lines.push(`- mappedSymbols: ${payload.metrics.mappedSymbols}`);
+  lines.push(`- highConfidenceSymbols: ${payload.metrics.highConfidenceSymbols}`);
   lines.push(`- nameQuality: ${payload.metrics.nameQuality}`);
+  lines.push(`- functionClassCoverage: ${payload.metrics.functionClassCoverage}`);
+  lines.push(`- variableCoverage: ${payload.metrics.variableCoverage}`);
   lines.push(`- buildHealth: ${payload.metrics.buildHealth}`);
   lines.push(`- devHealth: ${payload.metrics.devHealth}`);
   lines.push(`- genericPathNoiseCount: ${payload.metrics.genericPathNoiseCount}`);
@@ -95,6 +98,16 @@ async function executeDecisionDashboard(request: StageExecutionRequest): Promise
     title: "Improve name quality baseline",
     reason: "nameQuality is below target; adjust semantic-ir merge weighting and naming-memory acceptance",
     priority: "high",
+  });
+  pushIf(metrics.highConfidenceSymbols < 14, orchestratorActions, {
+    title: "Increase high-confidence symbols",
+    reason: "highConfidenceSymbols is below target range; tune ownership and naming promotion signal weights",
+    priority: "high",
+  });
+  pushIf(metrics.variableCoverage < 0.5, orchestratorActions, {
+    title: "Increase variable coverage hints",
+    reason: "variable coverage below 50%; improve monolith variable typing and naming promotion",
+    priority: "medium",
   });
   pushIf(!metrics.buildHealth || !metrics.devHealth, orchestratorActions, {
     title: "Fix green gate stability",

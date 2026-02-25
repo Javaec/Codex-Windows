@@ -8,3 +8,4 @@ naming-memory.json
 naming-memory-store/
 regression/runs/
 regression/calibration-runs/
+regression/cycle-report.json
