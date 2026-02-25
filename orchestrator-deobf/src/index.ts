@@ -70,6 +70,7 @@ interface CliOptions {
   seed: number;
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
+  promotionBudget: number;
   enableJavascriptDeobfuscator: boolean;
   enableSynchrony: boolean;
   enableUnwebpackSourcemap: boolean;
@@ -93,6 +94,7 @@ function printUsage(): void {
     "  --run-id <id>",
     "  --seed <n>",
     "  --wakaru-concurrency <n>",
+    "  --promotion-budget <n>",
     "  --enable-javascript-deobfuscator",
     "  --enable-synchrony",
     "  --enable-unwebpack-sourcemap",
@@ -151,6 +153,7 @@ function parseCli(argv: string[]): CliOptions {
   let seed = 424242;
   let forceOverwriteOutputs = true;
   let wakaruConcurrency = 1;
+  let promotionBudget = 50;
   let enableJavascriptDeobfuscator = true;
   let enableSynchrony = true;
   let enableUnwebpackSourcemap = true;
@@ -202,6 +205,18 @@ function parseCli(argv: string[]): CliOptions {
         wakaruConcurrency = parseIntegerOption("--wakaru-concurrency", value);
         if (wakaruConcurrency < 1) {
           throw new Error("--wakaru-concurrency must be >= 1");
+        }
+        index += 1;
+        break;
+      }
+      case "--promotion-budget": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --promotion-budget");
+        }
+        promotionBudget = parseIntegerOption("--promotion-budget", value);
+        if (promotionBudget < 1) {
+          throw new Error("--promotion-budget must be >= 1");
         }
         index += 1;
         break;
@@ -321,6 +336,7 @@ function parseCli(argv: string[]): CliOptions {
     seed,
     forceOverwriteOutputs,
     wakaruConcurrency,
+    promotionBudget,
     enableJavascriptDeobfuscator,
     enableSynchrony,
     enableUnwebpackSourcemap,
@@ -473,7 +489,7 @@ async function run(): Promise<void> {
   const inputArtifact = await hashFileSha256(cli.snapshotAsarPath);
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
-    manifestVersion: 6,
+    manifestVersion: 7,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
@@ -499,6 +515,7 @@ async function run(): Promise<void> {
     flags: {
       forceOverwriteOutputs: cli.forceOverwriteOutputs,
       wakaruConcurrency: cli.wakaruConcurrency,
+      promotionBudget: cli.promotionBudget,
       enableJavascriptDeobfuscator: cli.enableJavascriptDeobfuscator,
       enableSynchrony: cli.enableSynchrony,
       enableUnwebpackSourcemap: cli.enableUnwebpackSourcemap,
@@ -720,6 +737,7 @@ async function run(): Promise<void> {
     namedSemanticIrPath: path.join(artifactsDirectory, "semantic-ir.named.json"),
     runId: cli.runId,
     censusMappingPath: monolithCensusOutput.mappingPath,
+    promotionBudget: cli.promotionBudget,
   };
   const namingMemoryOutput = await runStage<NamingMemoryStageInput, NamingMemoryStageOutput>(
     namingMemoryStage,

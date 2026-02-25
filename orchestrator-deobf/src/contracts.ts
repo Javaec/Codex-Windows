@@ -53,6 +53,7 @@ export interface InputArtifacts {
 export interface RunFlags {
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
+  promotionBudget: number;
   enableJavascriptDeobfuscator: boolean;
   enableSynchrony: boolean;
   enableUnwebpackSourcemap: boolean;
@@ -257,6 +258,7 @@ export interface NamingMemoryStageInput {
   namedSemanticIrPath: string;
   runId: string;
   censusMappingPath: string;
+  promotionBudget: number;
 }
 
 export interface NamingMemoryStageOutput {
@@ -266,6 +268,13 @@ export interface NamingMemoryStageOutput {
   insertedEntryCount: number;
   updatedEntryCount: number;
   keptEntryCount: number;
+  promotionBudget: number;
+  promotionCandidateCount: number;
+  promotionSelectedCount: number;
+  promotionRejectedCount: number;
+  baselineQualityBefore: number;
+  baselineQualityAfter: number;
+  baselineGuardPassed: boolean;
 }
 
 export interface OwnershipResolverStageInput {
