@@ -764,7 +764,7 @@ async function run(): Promise<void> {
     lineageId: monolithCensusOutput.lineageId,
     filePath: monolithCensusOutput.symbolTablePath,
     sourceKind: "text",
-    baseConfidence: 0.46,
+    baseConfidence: 0.98,
   });
   pushEvidenceSource(evidenceSources, {
     tool: "webcrack",
@@ -772,7 +772,7 @@ async function run(): Promise<void> {
     lineageId: monolithCensusOutput.lineageId,
     filePath: monolithCensusOutput.typingHintsPath,
     sourceKind: "text",
-    baseConfidence: 0.33,
+    baseConfidence: 0.92,
   });
 
   const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);

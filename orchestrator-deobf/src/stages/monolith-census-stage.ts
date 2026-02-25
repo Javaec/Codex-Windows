@@ -5,25 +5,16 @@ import { hashFileSha256 } from "../utils/hash";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { PipelineStage, StageExecutionRequest, StageCachePlan } from "./stage-runner";
 
-type CensusSymbolKind = "class" | "function" | "callable-variable";
+type DeclarationSymbolKind = "class" | "function" | "callable-variable";
+type CensusSymbolKind = DeclarationSymbolKind | "variable";
 type TypeHintKind = "boolean" | "array" | "object" | "function" | "unknown";
-type SemanticBucket =
-  | "sum"
-  | "orchestrate"
-  | "parse"
-  | "state"
-  | "event"
-  | "request"
-  | "config"
-  | "view"
-  | "flow"
-  | "domain";
+type SemanticBucket = "sum" | "orchestrate" | "parse" | "state";
 
 interface RenameOccurrence {
   start: number;
   end: number;
   originalName: string;
-  kind: CensusSymbolKind;
+  kind: DeclarationSymbolKind;
 }
 
 interface NamedOccurrence extends RenameOccurrence {
@@ -51,9 +42,16 @@ interface CensusSeedEntry {
 
 interface VariableCoverageEntry {
   variableKey: string;
+  anchor: string;
   originalName: string;
-  censusName: string;
+  pass1Name: string;
+  pass2Name: string;
   inferredType: TypeHintKind;
+  semanticBucket: SemanticBucket;
+  signalScore: number;
+  promoteToQuality: boolean;
+  start: number;
+  end: number;
 }
 
 interface MonolithCensusMapping {
@@ -93,7 +91,7 @@ interface SymbolTableModel {
 interface FunctionTypingHint {
   symbolKey: string;
   name: string;
-  kind: CensusSymbolKind;
+  kind: DeclarationSymbolKind;
   parameterNames: string[];
   parameterCount: number;
   signature: string;
@@ -130,20 +128,13 @@ const VARIABLE_DECLARATION_WITH_INIT_REGEX =
   /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;\n]+))?/g;
 
 const SIGNAL_PATTERNS: SignalPattern[] = [
-  { tag: "ipc", regex: /\b(ipc|invoke|channel|electron)\b/i, weight: 0.2 },
-  { tag: "rpc", regex: /\b(rpc|request|response|transport)\b/i, weight: 0.18 },
-  { tag: "route", regex: /\b(route|router|navigate|path|screen|page)\b/i, weight: 0.17 },
-  { tag: "event", regex: /\b(event|emit|listener|subscribe|dispatch)\b/i, weight: 0.17 },
-  { tag: "state", regex: /\b(state|store|cache|reducer|atom)\b/i, weight: 0.17 },
-  { tag: "async", regex: /\b(async|await|promise|then)\b/i, weight: 0.14 },
-  { tag: "parse", regex: /\b(parse|json|decode|encode|lexer|token|ast)\b/i, weight: 0.16 },
-  { tag: "math", regex: /\b(Math|sum|total|average|calc|compute)\b/i, weight: 0.15 },
-  { tag: "network", regex: /\b(fetch|http|socket|ws|request|client)\b/i, weight: 0.14 },
-  { tag: "config", regex: /\b(config|settings|profile|option|flag)\b/i, weight: 0.13 },
-  { tag: "ui", regex: /\b(jsx|render|component|dialog|panel|view)\b/i, weight: 0.12 },
+  { tag: "parse", regex: /\b(parse|json|decode|encode|lexer|token|ast|schema)\b/i, weight: 0.22 },
+  { tag: "math", regex: /\b(Math|sum|total|average|calc|compute|aggregate)\b/i, weight: 0.2 },
+  { tag: "state", regex: /\b(state|store|cache|reducer|atom|getState|setState)\b/i, weight: 0.2 },
+  { tag: "orchestrate", regex: /\b(ipc|invoke|channel|electron|rpc|route|navigate|event|emit|dispatch|fetch|http|socket|await|promise)\b/i, weight: 0.16 },
 ];
 
-const TAG_PRIORITY = ["ipc", "rpc", "route", "event", "state", "parse", "network", "config", "ui", "async", "math"];
+const TAG_PRIORITY = ["parse", "math", "state", "orchestrate"];
 
 function clamp(value: number): number {
   if (value < 0) {
@@ -310,39 +301,27 @@ function collectSignalTags(snippet: string): { tags: string[]; score: number } {
 }
 
 function bucketFromTags(snippet: string, tags: string[]): SemanticBucket {
-  if (/\b(sum|total|average|compute|calc|Math\.)\b/.test(snippet)) {
-    return "sum";
-  }
   if (/\b(parse|json|decode|encode|lexer|token|ast)\b/i.test(snippet)) {
     return "parse";
+  }
+  if (/\b(sum|total|average|compute|calc|Math\.|aggregate)\b/i.test(snippet)) {
+    return "sum";
   }
   if (/\b(state|store|cache|reducer|atom|getState|setState)\b/i.test(snippet)) {
     return "state";
   }
-  if (/\b(event|emit|dispatch|listener|subscribe)\b/i.test(snippet)) {
-    return "event";
-  }
-  if (/\b(fetch|http|request|response|socket|ws)\b/i.test(snippet)) {
-    return "request";
-  }
-  if (/\b(config|setting|profile|option|flag)\b/i.test(snippet)) {
-    return "config";
-  }
-  if (/\b(view|render|component|dialog|panel|screen)\b/i.test(snippet)) {
-    return "view";
-  }
   const callCount = estimateCallCount(snippet);
-  if (callCount >= 5) {
+  if (callCount >= 4) {
     return "orchestrate";
   }
   const dominantTag = tags[0] ?? "";
-  if (dominantTag === "ipc" || dominantTag === "rpc" || dominantTag === "route") {
+  if (dominantTag === "orchestrate") {
     return "orchestrate";
   }
-  return "flow";
+  return "orchestrate";
 }
 
-function composePass1Name(kind: CensusSymbolKind, classOrdinal: number, functionOrdinal: number): string {
+function composePass1Name(kind: DeclarationSymbolKind, classOrdinal: number, functionOrdinal: number): string {
   if (kind === "class") {
     return `Class${padOrdinal(classOrdinal, 4)}`;
   }
@@ -350,7 +329,7 @@ function composePass1Name(kind: CensusSymbolKind, classOrdinal: number, function
 }
 
 function composePass2Name(
-  kind: CensusSymbolKind,
+  kind: DeclarationSymbolKind,
   bucket: SemanticBucket,
   classOrdinal: number,
   functionOrdinal: number,
@@ -360,7 +339,10 @@ function composePass2Name(
   if (kind === "class") {
     base = `${toPascalCase(bucket)}Class${padOrdinal(classOrdinal, 4)}`;
   } else {
-    base = sanitizeIdentifier(`${bucket}Func${padOrdinal(functionOrdinal, 4)}`, `flowFunc${padOrdinal(functionOrdinal, 4)}`);
+    base = sanitizeIdentifier(
+      `${bucket}Func${padOrdinal(functionOrdinal, 4)}`,
+      `orchestrateFunc${padOrdinal(functionOrdinal, 4)}`,
+    );
   }
   let candidate = base;
   let collision = 2;
@@ -373,8 +355,8 @@ function composePass2Name(
 }
 
 function shouldPromoteToQuality(signalScore: number, semanticBucket: SemanticBucket): boolean {
-  if (semanticBucket === "flow") {
-    return signalScore >= 0.62;
+  if (semanticBucket === "orchestrate") {
+    return signalScore >= 0.58;
   }
   return signalScore >= 0.5;
 }
@@ -411,13 +393,37 @@ function assignNames(source: string, renames: RenameOccurrence[]): NamedOccurren
   return output;
 }
 
-function applyDeclarationRenames(source: string, renames: RenameOccurrence[], getName: (entry: RenameOccurrence) => string): string {
-  const sorted = [...renames].sort((left, right) => right.start - left.start);
+interface SourceReplacement {
+  start: number;
+  end: number;
+  replacement: string;
+}
+
+function applySourceReplacements(source: string, replacements: SourceReplacement[]): string {
+  const sorted = [...replacements].sort((left, right) => right.start - left.start);
   let output = source;
-  for (const rename of sorted) {
-    output = `${output.slice(0, rename.start)}${getName(rename)}${output.slice(rename.end)}`;
+  for (const replacement of sorted) {
+    output = `${output.slice(0, replacement.start)}${replacement.replacement}${output.slice(replacement.end)}`;
   }
   return output;
+}
+
+function buildPassReplacements(
+  namedRenames: NamedOccurrence[],
+  variableCoverage: VariableCoverageEntry[],
+  mode: "pass1" | "pass2",
+): SourceReplacement[] {
+  const declarationReplacements = namedRenames.map((entry) => ({
+    start: entry.start,
+    end: entry.end,
+    replacement: mode === "pass1" ? entry.pass1Name : entry.replacementName,
+  }));
+  const variableReplacements = variableCoverage.map((entry) => ({
+    start: entry.start,
+    end: entry.end,
+    replacement: mode === "pass1" ? entry.pass1Name : entry.pass2Name,
+  }));
+  return [...declarationReplacements, ...variableReplacements];
 }
 
 function parseParameterNames(rawParameters: string): string[] {
@@ -506,8 +512,61 @@ function inferValueType(expression: string): TypeHintKind {
   return "unknown";
 }
 
-function buildSeedEntries(lineageId: string, namedRenames: NamedOccurrence[]): CensusSeedEntry[] {
-  return namedRenames.map((entry, index) => {
+function spansOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+function inferVariableSemanticBucket(
+  variableName: string,
+  expression: string,
+  inferredType: TypeHintKind,
+): { bucket: SemanticBucket; signalScore: number } {
+  const snippet = `${variableName} = ${expression}`;
+  if (/\b(parse|json|decode|encode|lexer|token|ast|schema)\b/i.test(snippet)) {
+    return {
+      bucket: "parse",
+      signalScore: 0.78,
+    };
+  }
+  if (
+    /\b(sum|total|average|calc|compute|aggregate|Math\.)\b/i.test(snippet) ||
+    /[+\-*/%]\s*(?:\d|Number\b|Math\b)/.test(snippet)
+  ) {
+    return {
+      bucket: "sum",
+      signalScore: 0.74,
+    };
+  }
+  if (
+    /\b(state|store|cache|flag|enabled|list|map|set|dict|config|settings)\b/i.test(snippet) ||
+    inferredType === "array" ||
+    inferredType === "object" ||
+    inferredType === "boolean"
+  ) {
+    return {
+      bucket: "state",
+      signalScore: 0.72,
+    };
+  }
+  return {
+    bucket: "orchestrate",
+    signalScore: 0.58,
+  };
+}
+
+function shouldPromoteVariableToQuality(signalScore: number, bucket: SemanticBucket): boolean {
+  if (bucket === "orchestrate") {
+    return false;
+  }
+  return signalScore >= 0.68;
+}
+
+function buildSeedEntries(
+  lineageId: string,
+  namedRenames: NamedOccurrence[],
+  variableCoverage: VariableCoverageEntry[],
+): CensusSeedEntry[] {
+  const declarationEntries = namedRenames.map((entry, index) => {
     const anchor = `symbol:${index}`;
     return {
       symbolKey: `${lineageId}:${anchor}`,
@@ -523,22 +582,71 @@ function buildSeedEntries(lineageId: string, namedRenames: NamedOccurrence[]): C
       promoteToQuality: entry.promoteToQuality,
     };
   });
+  const variableEntries = variableCoverage.map((entry) => ({
+    symbolKey: `${lineageId}:${entry.anchor}`,
+    owner: lineageId,
+    anchor: entry.anchor,
+    kind: "variable" as const,
+    originalName: entry.originalName,
+    censusName: entry.pass2Name,
+    pass1Name: entry.pass1Name,
+    signalTags: [entry.semanticBucket],
+    signalScore: entry.signalScore,
+    semanticBucket: entry.semanticBucket,
+    promoteToQuality: entry.promoteToQuality,
+  }));
+  return [...declarationEntries, ...variableEntries];
 }
 
-function buildVariableCoverage(source: string): VariableCoverageEntry[] {
-  return [...source.matchAll(VARIABLE_DECLARATION_WITH_INIT_REGEX)].map((match, index) => {
+function buildVariableCoverage(source: string, namedRenames: NamedOccurrence[]): VariableCoverageEntry[] {
+  const callableSpans = namedRenames
+    .filter((entry) => entry.kind === "callable-variable")
+    .map((entry) => ({ start: entry.start, end: entry.end }));
+  const output: VariableCoverageEntry[] = [];
+  let ordinal = 0;
+
+  for (const match of source.matchAll(VARIABLE_DECLARATION_WITH_INIT_REGEX)) {
     const originalName = match[1];
     const expression = match[2] ?? "";
-    if (!originalName) {
+    const fullMatch = match[0];
+    const matchIndex = match.index ?? -1;
+    if (!originalName || !fullMatch || matchIndex < 0) {
       throw new Error("buildVariableCoverage: invalid variable match");
     }
-    return {
-      variableKey: `var:${index}`,
+    const declaratorMatch = /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/.exec(fullMatch);
+    if (!declaratorMatch || declaratorMatch[1] !== originalName) {
+      throw new Error("buildVariableCoverage: variable name offset missing");
+    }
+    const localIndex = (declaratorMatch.index ?? 0) + declaratorMatch[0].length - originalName.length;
+    const start = matchIndex + localIndex;
+    const end = start + originalName.length;
+    const overlapsCallable = callableSpans.some((span) => spansOverlap(start, end, span.start, span.end));
+    if (overlapsCallable) {
+      continue;
+    }
+    ordinal += 1;
+    const variableKey = `var:${padOrdinal(ordinal, 6)}`;
+    const inferredType = inferValueType(expression);
+    const semantic = inferVariableSemanticBucket(originalName, expression, inferredType);
+    output.push({
+      variableKey,
+      anchor: `coverage:${variableKey}`,
       originalName,
-      censusName: `Var${padOrdinal(index + 1, 6)}`,
-      inferredType: inferValueType(expression),
-    };
-  });
+      pass1Name: `Var${padOrdinal(ordinal, 6)}`,
+      pass2Name: sanitizeIdentifier(
+        `${semantic.bucket}Var${padOrdinal(ordinal, 6)}`,
+        `stateVar${padOrdinal(ordinal, 6)}`,
+      ),
+      inferredType,
+      semanticBucket: semantic.bucket,
+      signalScore: semantic.signalScore,
+      promoteToQuality: shouldPromoteVariableToQuality(semantic.signalScore, semantic.bucket),
+      start,
+      end,
+    });
+  }
+
+  return output;
 }
 
 function buildSymbolTable(
@@ -546,8 +654,9 @@ function buildSymbolTable(
   unifiedMonolithPath: string,
   lineageId: string,
   namedRenames: NamedOccurrence[],
+  variableCoverage: VariableCoverageEntry[],
 ): SymbolTableModel {
-  const entries: SymbolTableEntry[] = namedRenames.map((entry, index) => ({
+  const declarationEntries: SymbolTableEntry[] = namedRenames.map((entry, index) => ({
     symbolKey: `${lineageId}:symbol:${index}`,
     anchor: `symbol:${index}`,
     kind: entry.kind,
@@ -561,8 +670,23 @@ function buildSymbolTable(
     semanticBucket: entry.semanticBucket,
     promoteToQuality: entry.promoteToQuality,
   }));
+  const variableEntries: SymbolTableEntry[] = variableCoverage.map((entry) => ({
+    symbolKey: `${lineageId}:${entry.anchor}`,
+    anchor: entry.anchor,
+    kind: "variable",
+    originalName: entry.originalName,
+    pass1Name: entry.pass1Name,
+    finalName: entry.pass2Name,
+    start: entry.start,
+    end: entry.end,
+    signalTags: [entry.semanticBucket],
+    signalScore: entry.signalScore,
+    semanticBucket: entry.semanticBucket,
+    promoteToQuality: entry.promoteToQuality,
+  }));
+  const entries = [...declarationEntries, ...variableEntries].sort((left, right) => left.anchor.localeCompare(right.anchor));
   return {
-    version: 1,
+    version: 2,
     generatedAtIso: new Date().toISOString(),
     sourceJsPath,
     unifiedMonolithPath,
@@ -597,7 +721,7 @@ function buildTypingHints(
 
   const variableHints: VariableTypingHint[] = variableCoverage.map((entry) => ({
     variableKey: entry.variableKey,
-    variableName: entry.censusName,
+    variableName: entry.pass2Name,
     inferredType: entry.inferredType,
   }));
 
@@ -619,24 +743,12 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
   const renames = collectRenames(source);
   assertNoOverlaps(renames);
   const namedRenames = assignNames(source, renames);
+  const variableCoverage = buildVariableCoverage(source, namedRenames);
 
-  const pass1Source = applyDeclarationRenames(source, namedRenames, (entry) => {
-    const named = namedRenames.find((candidate) => candidate.start === entry.start && candidate.end === entry.end);
-    if (!named) {
-      throw new Error(`Missing named entry for declaration at ${entry.start}`);
-    }
-    return named.pass1Name;
-  });
-  const pass2Source = applyDeclarationRenames(source, namedRenames, (entry) => {
-    const named = namedRenames.find((candidate) => candidate.start === entry.start && candidate.end === entry.end);
-    if (!named) {
-      throw new Error(`Missing named entry for declaration at ${entry.start}`);
-    }
-    return named.replacementName;
-  });
+  const pass1Source = applySourceReplacements(source, buildPassReplacements(namedRenames, variableCoverage, "pass1"));
+  const pass2Source = applySourceReplacements(source, buildPassReplacements(namedRenames, variableCoverage, "pass2"));
 
-  const seedEntries = buildSeedEntries(input.lineageId, namedRenames);
-  const variableCoverage = buildVariableCoverage(source);
+  const seedEntries = buildSeedEntries(input.lineageId, namedRenames, variableCoverage);
   const qualityPromotionCandidateCount = seedEntries.filter((entry) => entry.promoteToQuality).length;
 
   const unifiedMonolithPath = path.join(input.outputDirectory, "unified-monolith.js");
@@ -647,11 +759,11 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
   const symbolTablePath = path.join(input.outputDirectory, "symbol-table.json");
   const typingHintsPath = path.join(input.outputDirectory, "typing-hints.json");
 
-  const symbolTable = buildSymbolTable(input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames);
+  const symbolTable = buildSymbolTable(input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames, variableCoverage);
   const typingHints = buildTypingHints(source, input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames, variableCoverage);
 
   const mapping: MonolithCensusMapping = {
-    version: 3,
+    version: 4,
     generatedAtIso: new Date().toISOString(),
     sourceJsPath: input.sourceJsPath,
     unifiedMonolithPath,
@@ -661,7 +773,7 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
   };
 
   await ensureDirectory(input.outputDirectory);
-  await fs.writeFile(unifiedMonolithPath, source, "utf8");
+  await fs.writeFile(unifiedMonolithPath, pass2Source, "utf8");
   await fs.writeFile(pass1MonolithPath, pass1Source, "utf8");
   await fs.writeFile(pass2MonolithPath, pass2Source, "utf8");
   await fs.writeFile(censusJsPath, pass2Source, "utf8");
@@ -679,7 +791,7 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
     functionCount: namedRenames.filter((entry) => entry.kind === "function").length,
     callableVariableCount: namedRenames.filter((entry) => entry.kind === "callable-variable").length,
     variableCoverageCount: variableCoverage.length,
-    renamedDeclarationCount: namedRenames.length,
+    renamedDeclarationCount: seedEntries.length,
     qualityPromotionCandidateCount,
     unifiedMonolithPath,
     pass1MonolithPath,
@@ -694,7 +806,7 @@ export const monolithCensusStage: PipelineStage = {
   id: "monolith-census",
   execute: executeMonolithCensus,
   cachePlan: {
-    version: 4,
+    version: 6,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as MonolithCensusStageInput;
       const digest = await hashFileSha256(input.sourceJsPath);

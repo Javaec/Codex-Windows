@@ -70,6 +70,10 @@ function isSyntheticCoverageName(name: string): boolean {
   return false;
 }
 
+function isCoverageSymbolKey(symbolKey: string): boolean {
+  return symbolKey.includes("-census:");
+}
+
 function buildSeededCandidate(
   symbol: SemanticSymbol,
   seedBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
@@ -81,6 +85,15 @@ function buildSeededCandidate(
 
   if (seed.source === "promotion" && isSyntheticCoverageName(seed.name)) {
     return symbol;
+  }
+
+  if (seed.source === "direct" && isCoverageSymbolKey(symbol.symbolKey)) {
+    return {
+      ...symbol,
+      name: seed.name,
+      quality: scoreNameQuality(seed.name),
+      confidence: Math.max(symbol.confidence, seed.confidence),
+    };
   }
 
   const currentQuality = scoreNameQuality(symbol.name);
