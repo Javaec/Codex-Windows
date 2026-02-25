@@ -45,6 +45,7 @@ import {
 import { SemanticIrModel } from "./ir/semantic-ir";
 import { OwnershipModel } from "./ir/ownership-model";
 import { scoreNameQuality } from "./ir/name-quality";
+import { isArchetypeLayerCompatible } from "./ir/ownership-compatibility";
 import { resolveToolVersions } from "./adapters/tool-versions";
 import { buildRunMetrics } from "./quality/run-metrics";
 import { runStage } from "./stages/stage-runner";
@@ -418,16 +419,19 @@ function isCoverageOwnerLineageId(lineageId: string): boolean {
 async function resolveNamingMemoryProfilePath(
   projectRoot: string,
   snapshotKey: string,
-): Promise<{ profilePath: string; legacyPath: string }> {
+): Promise<{ profilePath: string; legacyPath: string; seededFrom: "existing" | "legacy" | "latest-snapshot" | "empty"; seededFromSnapshotKey: string }> {
   const legacyPath = path.join(projectRoot, "naming-memory.json");
   const profilesDirectory = path.join(projectRoot, "naming-memory-store", "snapshots");
   await ensureDirectory(profilesDirectory);
   const profilePath = path.join(profilesDirectory, `snapshot-${snapshotKey}.json`);
   const hasProfile = await fileExists(profilePath);
+  let seededFrom: "existing" | "legacy" | "latest-snapshot" | "empty" = hasProfile ? "existing" : "empty";
+  let seededFromSnapshotKey = snapshotKey;
   if (!hasProfile) {
     const hasLegacy = await fileExists(legacyPath);
     if (hasLegacy) {
       await fs.copyFile(legacyPath, profilePath);
+      seededFrom = "legacy";
     } else {
       const entries = await fs.readdir(profilesDirectory, { withFileTypes: true });
       const candidates: Array<{ filePath: string; mtimeMs: number }> = [];
@@ -452,12 +456,20 @@ async function resolveNamingMemoryProfilePath(
       const latestSnapshotProfile = candidates[0];
       if (latestSnapshotProfile) {
         await fs.copyFile(latestSnapshotProfile.filePath, profilePath);
+        seededFrom = "latest-snapshot";
+        const baseName = path.basename(latestSnapshotProfile.filePath, ".json");
+        const seededKey = baseName.replace(/^snapshot-/, "");
+        if (seededKey.length > 0) {
+          seededFromSnapshotKey = seededKey;
+        }
       }
     }
   }
   return {
     profilePath,
     legacyPath,
+    seededFrom,
+    seededFromSnapshotKey,
   };
 }
 
@@ -683,6 +695,8 @@ async function run(): Promise<void> {
     coverageLineageId,
     namingMemoryProfilePath: namingMemoryProfile.profilePath,
     namingMemoryLegacyPath: namingMemoryProfile.legacyPath,
+    namingMemorySeededFrom: namingMemoryProfile.seededFrom,
+    namingMemorySeededFromSnapshotKey: namingMemoryProfile.seededFromSnapshotKey,
   });
 
   const asarInput: AsarExtractStageInput = {
@@ -938,6 +952,18 @@ async function run(): Promise<void> {
   );
 
   const fullOwnershipModel = await readJsonFile<OwnershipModel>(ownershipResolverOutput.outputFilePath);
+  const incompatibleOwnershipSymbols = fullOwnershipModel.symbols.filter(
+    (symbol) => !isArchetypeLayerCompatible(symbol.layer, symbol.archetype),
+  );
+  if (incompatibleOwnershipSymbols.length > 0) {
+    const preview = incompatibleOwnershipSymbols
+      .slice(0, 12)
+      .map((symbol) => `${symbol.symbolKey}[${symbol.layer}/${symbol.archetype}]`)
+      .join(", ");
+    throw new Error(
+      `pre-emitter ownership gate failed for ${incompatibleOwnershipSymbols.length} symbol(s): ${preview}`,
+    );
+  }
   const qualityOwnershipModel: OwnershipModel = {
     ...fullOwnershipModel,
     generatedAtIso: new Date().toISOString(),
@@ -946,7 +972,7 @@ async function run(): Promise<void> {
         return false;
       }
       const quality = scoreNameQuality(symbol.symbolName);
-      return quality >= 0.56 && symbol.confidence >= 0.2;
+      return quality >= 0.56 && symbol.confidence >= 0.3;
     }),
   };
   const qualityOwnershipModelPath = path.join(artifactsDirectory, "ownership-model.quality.json");

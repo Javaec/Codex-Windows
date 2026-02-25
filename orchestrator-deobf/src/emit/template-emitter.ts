@@ -4,6 +4,7 @@ import * as ts from "typescript";
 import { ArchetypeId, LayerId } from "../contracts";
 import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
+import { assertArchetypeLayerCompatibility } from "../ir/ownership-compatibility";
 import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { buildAstLiftResult, LiftedSymbolBinding } from "../lift/ast-lift";
 import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
@@ -37,26 +38,12 @@ interface ModuleQualityEntry {
   rerendered: boolean;
 }
 
-interface ModulePlanPartition {
-  qualityPlans: ModulePlan[];
-  speculativePlans: ModulePlan[];
-  qualitySymbolCount: number;
-  speculativeSymbolCount: number;
-}
-
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
-const ARCHETYPE_LAYER_COMPATIBILITY: Record<ArchetypeId, LayerId[]> = {
-  hook: ["renderer"],
-  service: ["services", "main"],
-  ui: ["renderer"],
-  transport: ["main", "tauri", "services"],
-  store: ["services", "renderer"],
-};
+const MAX_PARTS_PER_TOPIC = 3;
+const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
 const FILE_QUALITY_WORST_PERCENT = 0.08;
-const FILE_QUALITY_MIN_RERENDER_COUNT = 1;
-const FILE_QUALITY_TARGET_BUDGET_FACTOR = 0.6;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -108,8 +95,6 @@ const ARCHETYPE_SYMBOL_BUDGET_FLOOR: Record<ArchetypeId, number> = {
 };
 const QUALITY_PLAN_BUDGET_MULTIPLIER = 4;
 const QUALITY_PLAN_BUDGET_MIN = 128;
-const SPECULATIVE_PLAN_BUDGET_MULTIPLIER = 10;
-const SPECULATIVE_PLAN_BUDGET_MIN = 256;
 const RESERVED_IDENTIFIERS = new Set<string>([
   "await",
   "break",
@@ -374,6 +359,13 @@ function nextUniqueIdentifier(baseName: string, usedNames: Set<string>): string 
   return candidate;
 }
 
+function compactIdentifier(name: string, maxLength: number): string {
+  if (name.length <= maxLength) {
+    return name;
+  }
+  return name.slice(0, maxLength);
+}
+
 function isNoisyIdentifier(name: string): boolean {
   if (name.length <= 2) {
     return true;
@@ -635,9 +627,10 @@ function buildSignalDrivenBaseName(
 }
 
 function buildReadableImportAliasBase(exportName: string): string {
-  const pascal = toPascalCase(exportName);
-  const stem = pascal.length > 0 ? pascal : "DomainSymbol";
-  return sanitizeIdentifier(`impl${stem}`);
+  const tokens = dedupeNameTokens(splitNameTokens(exportName)).slice(0, 2);
+  const stem = tokens.length > 0 ? tokens.map((token) => toPascalCase(token)).join("") : "Domain";
+  const alias = sanitizeIdentifier(`ref${stem}`);
+  return compactIdentifier(alias, 28);
 }
 
 function buildChunkImportAliasBase(chunkId: string, chunkTopicTokensById: Map<string, string[]>): string {
@@ -666,7 +659,8 @@ function buildChunkImportAliasBase(chunkId: string, chunkTopicTokensById: Map<st
   }
 
   const stem = semanticTokens.map((token) => toPascalCase(token)).join("");
-  return sanitizeIdentifier(`chunk${stem.length > 0 ? stem : "Source"}`);
+  const alias = sanitizeIdentifier(`src${stem.length > 0 ? stem : "Chunk"}`);
+  return compactIdentifier(alias, 24);
 }
 
 function buildDomainExportName(
@@ -769,26 +763,6 @@ function splitByBudget<T>(items: T[], budget: number): T[][] {
   return result;
 }
 
-function ensureUniqueFilePath(filePath: string, usedFilePaths: Set<string>): string {
-  if (!usedFilePaths.has(filePath)) {
-    usedFilePaths.add(filePath);
-    return filePath;
-  }
-
-  const extension = path.extname(filePath);
-  const stem = extension.length > 0 ? filePath.slice(0, -extension.length) : filePath;
-  let index = 2;
-  while (true) {
-    const suffix = `-v${String(index).padStart(2, "0")}`;
-    const candidate = `${stem}${suffix}${extension}`;
-    if (!usedFilePaths.has(candidate)) {
-      usedFilePaths.add(candidate);
-      return candidate;
-    }
-    index += 1;
-  }
-}
-
 function layerDirectory(layer: LayerId): string {
   if (layer === "main") {
     return "src/main";
@@ -810,15 +784,6 @@ function clamp(value: number): number {
     return 1;
   }
   return Number(value.toFixed(4));
-}
-
-function assertHardOwnershipCompatibility(layer: LayerId, archetype: ArchetypeId, symbolKey: string): void {
-  const allowedLayers = ARCHETYPE_LAYER_COMPATIBILITY[archetype];
-  if (!allowedLayers.includes(layer)) {
-    throw new Error(
-      `template-emitter: hard file-ownership gate blocked ${symbolKey} (layer=${layer}, archetype=${archetype}, allowed=${allowedLayers.join(",")})`,
-    );
-  }
 }
 
 function average(numbers: number[]): number {
@@ -848,14 +813,6 @@ function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, Lifted
   };
 }
 
-function modelBySymbol(chunkArtifacts: ChunkArtifactModel): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const mapping of chunkArtifacts.symbolMappings) {
-    map.set(mapping.symbolKey, mapping.chunkId);
-  }
-  return map;
-}
-
 function buildOwnershipSubset(base: OwnershipModel, symbols: OwnershipRecord[]): OwnershipModel {
   return {
     ...base,
@@ -872,59 +829,47 @@ function topicSegmentForSymbol(symbol: OwnershipRecord): string {
   return fallbackTopicByArchetype(symbol.archetype);
 }
 
-function toSpeculativeFilePath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, "/");
-  return `coverage/speculative/${normalized}`;
+function splitBalanced<T>(items: T[], parts: number): T[][] {
+  if (parts < 1) {
+    throw new Error(`splitBalanced: parts must be >= 1, got ${parts}`);
+  }
+  if (items.length === 0) {
+    return [];
+  }
+  const boundedParts = Math.max(1, Math.min(parts, items.length));
+  const result: T[][] = [];
+  let offset = 0;
+  for (let index = 0; index < boundedParts; index += 1) {
+    const remainingItems = items.length - offset;
+    const remainingParts = boundedParts - index;
+    const size = Math.ceil(remainingItems / remainingParts);
+    result.push(items.slice(offset, offset + size));
+    offset += size;
+  }
+  return result.filter((part) => part.length > 0);
 }
 
-function partitionModulePlansByLiftBinding(
-  modulePlans: ModulePlan[],
-  bindingByKey: Map<string, LiftedSymbolBinding>,
-): ModulePlanPartition {
-  const qualityPlans: ModulePlan[] = [];
-  const speculativePlans: ModulePlan[] = [];
-  let qualitySymbolCount = 0;
-  let speculativeSymbolCount = 0;
-
-  for (const plan of modulePlans) {
-    const qualitySymbols = plan.symbols.filter((symbol) => bindingByKey.has(symbol.symbolKey));
-    const speculativeSymbols = plan.symbols.filter((symbol) => !bindingByKey.has(symbol.symbolKey));
-
-    if (qualitySymbols.length > 0) {
-      qualityPlans.push({
-        ...plan,
-        symbols: qualitySymbols,
-      });
-      qualitySymbolCount += qualitySymbols.length;
-    }
-
-    if (speculativeSymbols.length > 0) {
-      speculativePlans.push({
-        ...plan,
-        moduleId: `${plan.moduleId}:speculative`,
-        filePath: toSpeculativeFilePath(plan.filePath),
-        symbols: speculativeSymbols,
-      });
-      speculativeSymbolCount += speculativeSymbols.length;
-    }
+function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): OwnershipRecord[][] {
+  const initial = splitByBudget(symbols, chunkBudget);
+  if (initial.length <= 1) {
+    return initial;
   }
-
-  qualityPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
-  speculativePlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
-
-  return {
-    qualityPlans,
-    speculativePlans,
-    qualitySymbolCount,
-    speculativeSymbolCount,
-  };
+  const minPartCountByHardLimit = Math.max(1, Math.ceil(symbols.length / HARD_SYMBOL_LIMIT_PER_MODULE));
+  const targetPartCount = Math.max(
+    minPartCountByHardLimit,
+    Math.min(MAX_PARTS_PER_TOPIC, initial.length),
+  );
+  if (targetPartCount >= initial.length) {
+    return initial;
+  }
+  return splitBalanced(symbols, targetPartCount);
 }
 
 function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
   const buckets = new Map<string, OwnershipRecord[]>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
-    assertHardOwnershipCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
+    assertArchetypeLayerCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
     const topic = topicSegmentForSymbol(symbol);
     const key = `${symbol.layer}::${symbol.archetype}::${topic}`;
     const existing = buckets.get(key);
@@ -948,7 +893,7 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
         const topic = topicKey.split("::")[2] ?? fallbackTopicByArchetype(archetype);
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
         const chunkBudget = statementBudgetForArchetype(archetype, statementBudget);
-        const chunks = splitByBudget(byName, chunkBudget);
+        const chunks = splitTopicSymbols(byName, chunkBudget);
         for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
           const partSymbols = chunks[partIndex];
           if (!partSymbols || partSymbols.length === 0) {
@@ -972,28 +917,6 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
   }
 
   return plans.sort((left, right) => left.filePath.localeCompare(right.filePath));
-}
-
-function splitPlanForQuality(plan: ModulePlan, statementBudget: number): ModulePlan[] {
-  const archetypeBudget = statementBudgetForArchetype(plan.archetype, statementBudget);
-  const qualityBudget = Math.max(6, Math.floor(archetypeBudget * FILE_QUALITY_TARGET_BUDGET_FACTOR));
-  let chunks = splitByBudget(plan.symbols, qualityBudget);
-  if (chunks.length === 1 && plan.symbols.length > 1) {
-    const half = Math.ceil(plan.symbols.length / 2);
-    chunks = [plan.symbols.slice(0, half), plan.symbols.slice(half)];
-  }
-
-  return chunks
-    .filter((chunk) => chunk.length > 0)
-    .map((chunk, index) => {
-      const suffix = `quality-${String(index + 1).padStart(2, "0")}`;
-      return {
-        ...plan,
-        moduleId: `${plan.moduleId}:${suffix}`,
-        symbols: chunk,
-        filePath: plan.filePath.replace(/\.ts$/, `-${suffix}.ts`),
-      };
-    });
 }
 
 function applyFileQualityRerender(
@@ -1129,246 +1052,6 @@ function buildEslintConfig(): string {
   ].join("\n");
 }
 
-function buildRuntimeContent(allChunks: ChunkArtifactModel["chunks"], liftedChunkIds: string[]): string {
-  const liftedImports = liftedChunkIds.map((chunkId) => {
-    const importName = `lifted${sanitizeIdentifier(chunkId)}`;
-    return {
-      importName,
-      line: `import * as ${importName} from "../src/chunks-ts/${chunkId}.js";`,
-      chunkId,
-    };
-  });
-
-  const descriptorRegistry = allChunks.map((chunk) =>
-    [
-      `  ${quote(chunk.chunkId)}: {`,
-      `    chunkId: ${quote(chunk.chunkId)},`,
-      `    sourceFilePath: ${quote(chunk.sourceFilePath.replace(/\\/g, "/"))},`,
-      `    bytes: ${chunk.bytes},`,
-      `    sha256: ${quote(chunk.sha256)},`,
-      `    lineageId: ${quote(chunk.lineageId)},`,
-      `    tool: ${quote(chunk.tool)},`,
-      "  },",
-    ].join("\n"),
-  );
-  const liftedRegistry = liftedImports.map((entry) => `  ${quote(entry.chunkId)}: ${entry.importName} as Record<string, unknown>,`);
-
-  return [
-    ...liftedImports.map((entry) => entry.line),
-    "",
-    "export interface ChunkArtifactDescriptor {",
-    "  chunkId: string;",
-    "  sourceFilePath: string;",
-    "  bytes: number;",
-    "  sha256: string;",
-    "  lineageId: string;",
-    "  tool: string;",
-    "}",
-    "",
-    "export interface SymbolFallbackDescriptor {",
-    "  placeholder: true;",
-    "  chunkId: string;",
-    "  symbolName: string;",
-    "  symbolKey: string;",
-    "}",
-    "",
-    "export interface ResolvedSymbol<T = unknown> extends ChunkArtifactDescriptor {",
-    "  symbolName: string;",
-    "  symbolKey: string;",
-    '  source: "lifted" | "descriptor";',
-    "  value: T | SymbolFallbackDescriptor;",
-    "}",
-    "",
-    "const chunkDescriptorRegistry: Record<string, ChunkArtifactDescriptor> = {",
-    ...descriptorRegistry,
-    "};",
-    "",
-    "const liftedChunkRegistry: Record<string, Record<string, unknown>> = {",
-    ...liftedRegistry,
-    "};",
-    "",
-    "function descriptorFallback(chunkId: string, symbolName: string, symbolKey: string): SymbolFallbackDescriptor {",
-    "  return {",
-    "    placeholder: true,",
-    "    chunkId,",
-    "    symbolName,",
-    "    symbolKey,",
-    "  };",
-    "}",
-    "",
-    "export function resolveSymbol<T = unknown>(chunkId: string, symbolName: string, symbolKey: string): ResolvedSymbol<T> {",
-    "  const descriptor = chunkDescriptorRegistry[chunkId];",
-    "  if (!descriptor) {",
-    "    throw new Error(`Unknown chunk id: ${chunkId}`);",
-    "  }",
-    "",
-    "  const liftedChunk = liftedChunkRegistry[chunkId];",
-    "  if (liftedChunk && symbolName in liftedChunk) {",
-    "    const liftedValue = liftedChunk[symbolName] as T;",
-    "    return {",
-    "      ...descriptor,",
-    "      symbolName,",
-    "      symbolKey,",
-    '      source: "lifted",',
-    "      value: liftedValue,",
-    "    };",
-    "  }",
-    "",
-    "  return {",
-    "    ...descriptor,",
-    "    symbolName,",
-    "    symbolKey,",
-    '    source: "descriptor",',
-    "    value: descriptorFallback(chunkId, symbolName, symbolKey),",
-    "  };",
-    "}",
-    "",
-  ].join("\n");
-}
-
-function contractFactoryName(archetype: ArchetypeId): string {
-  if (archetype === "hook") {
-    return "createHookModuleContract";
-  }
-  if (archetype === "service") {
-    return "createServiceModuleContract";
-  }
-  if (archetype === "ui") {
-    return "createUiModuleContract";
-  }
-  if (archetype === "transport") {
-    return "createTransportModuleContract";
-  }
-  return "createStoreModuleContract";
-}
-
-function buildModuleContractsContent(): string {
-  return [
-    'import type { ResolvedSymbol } from "./chunk-runtime.js";',
-    "",
-    'export type LayerContractId = "main" | "renderer" | "services" | "tauri";',
-    'export type ArchetypeContractId = "hook" | "service" | "ui" | "transport" | "store";',
-    "",
-    "export interface ModuleContractBase {",
-    "  moduleId: string;",
-    "  layer: LayerContractId;",
-    "  archetype: ArchetypeContractId;",
-    "  symbols: Readonly<Record<string, ResolvedSymbol>>;",
-    "}",
-    "",
-    'export interface HookModuleContract extends ModuleContractBase { archetype: "hook"; }',
-    'export interface ServiceModuleContract extends ModuleContractBase { archetype: "service"; }',
-    'export interface UiModuleContract extends ModuleContractBase { archetype: "ui"; }',
-    'export interface TransportModuleContract extends ModuleContractBase { archetype: "transport"; }',
-    'export interface StoreModuleContract extends ModuleContractBase { archetype: "store"; }',
-    "",
-    "export function createHookModuleContract(",
-    "  moduleId: string,",
-    "  layer: LayerContractId,",
-    "  symbols: Record<string, ResolvedSymbol>,",
-    "): HookModuleContract {",
-    '  return { moduleId, layer, archetype: "hook", symbols };',
-    "}",
-    "",
-    "export function createServiceModuleContract(",
-    "  moduleId: string,",
-    "  layer: LayerContractId,",
-    "  symbols: Record<string, ResolvedSymbol>,",
-    "): ServiceModuleContract {",
-    '  return { moduleId, layer, archetype: "service", symbols };',
-    "}",
-    "",
-    "export function createUiModuleContract(",
-    "  moduleId: string,",
-    "  layer: LayerContractId,",
-    "  symbols: Record<string, ResolvedSymbol>,",
-    "): UiModuleContract {",
-    '  return { moduleId, layer, archetype: "ui", symbols };',
-    "}",
-    "",
-    "export function createTransportModuleContract(",
-    "  moduleId: string,",
-    "  layer: LayerContractId,",
-    "  symbols: Record<string, ResolvedSymbol>,",
-    "): TransportModuleContract {",
-    '  return { moduleId, layer, archetype: "transport", symbols };',
-    "}",
-    "",
-    "export function createStoreModuleContract(",
-    "  moduleId: string,",
-    "  layer: LayerContractId,",
-    "  symbols: Record<string, ResolvedSymbol>,",
-    "): StoreModuleContract {",
-    '  return { moduleId, layer, archetype: "store", symbols };',
-    "}",
-    "",
-  ].join("\n");
-}
-
-function buildIpcContractsContent(): string {
-  return [
-    'import type { ResolvedSymbol } from "../../runtime/chunk-runtime.js";',
-    "",
-    "export interface IpcContract<Request = unknown, Response = unknown> {",
-    '  kind: "ipc";',
-    "  channel: string;",
-    "  symbol: ResolvedSymbol;",
-    "  invoke: (payload: Request) => Promise<Response>;",
-    "}",
-    "",
-    "export function defineIpcContract<Request = unknown, Response = unknown>(",
-    "  channel: string,",
-    "  symbol: ResolvedSymbol,",
-    "): IpcContract<Request, Response> {",
-    "  return {",
-    '    kind: "ipc",',
-    "    channel,",
-    "    symbol,",
-    "    invoke: async (_payload: Request) => {",
-    '      throw new Error(`IPC contract ${channel} is unresolved in generated output`);',
-    "    },",
-    "  };",
-    "}",
-    "",
-  ].join("\n");
-}
-
-function buildRpcContractsContent(): string {
-  return [
-    'import type { ResolvedSymbol } from "../../runtime/chunk-runtime.js";',
-    "",
-    "export interface RpcContract<Request = unknown, Response = unknown> {",
-    '  kind: "rpc";',
-    "  method: string;",
-    "  symbol: ResolvedSymbol;",
-    "  execute: (payload: Request) => Promise<Response>;",
-    "}",
-    "",
-    "export function defineRpcContract<Request = unknown, Response = unknown>(",
-    "  method: string,",
-    "  symbol: ResolvedSymbol,",
-    "): RpcContract<Request, Response> {",
-    "  return {",
-    '    kind: "rpc",',
-    "    method,",
-    "    symbol,",
-    "    execute: async (_payload: Request) => {",
-    '      throw new Error(`RPC contract ${method} is unresolved in generated output`);',
-    "    },",
-    "  };",
-    "}",
-    "",
-  ].join("\n");
-}
-
-function buildContractsEntryContent(): string {
-  return [
-    'export { defineIpcContract, type IpcContract } from "./ipc.js";',
-    'export { defineRpcContract, type RpcContract } from "./rpc.js";',
-    "",
-  ].join("\n");
-}
-
 function buildQualityModuleContent(
   plan: ModulePlan,
   moduleAbsolutePath: string,
@@ -1468,100 +1151,6 @@ function buildQualityModuleContent(
   }
   lines.push("};");
   lines.push("export default moduleExports;");
-  lines.push("");
-  return lines.join("\n");
-}
-
-function buildSpeculativeModuleContent(
-  plan: ModulePlan,
-  runtimeImportPath: string,
-  contractsImportPath: string,
-  domainContractsImportPath: string,
-  symbols: OwnershipRecord[],
-  symbolToChunk: Map<string, string>,
-  bindingByKey: Map<string, LiftedSymbolBinding>,
-  chunkTopicTokensById: Map<string, string[]>,
-): string {
-  const lines: string[] = [];
-  const contractFactory = contractFactoryName(plan.archetype);
-  lines.push(`import { resolveSymbol, type ResolvedSymbol } from ${quote(runtimeImportPath)};`);
-  lines.push(`import { ${contractFactory} } from ${quote(contractsImportPath)};`);
-
-  const requiresIpc = plan.archetype === "transport";
-  const requiresRpc = plan.archetype === "service";
-  if (requiresIpc || requiresRpc) {
-    const importNames: string[] = [];
-    if (requiresIpc) {
-      importNames.push("defineIpcContract");
-    }
-    if (requiresRpc) {
-      importNames.push("defineRpcContract");
-    }
-    lines.push(`import { ${importNames.join(", ")} } from ${quote(domainContractsImportPath)};`);
-  }
-
-  lines.push("");
-
-  const usedNames = new Map<string, number>();
-  const exportedNames: string[] = [];
-  const resolvedSymbolNames: string[] = [];
-  const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
-
-  for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
-    const symbol = symbols[symbolIndex];
-    if (!symbol) {
-      continue;
-    }
-    const chunkId = symbolToChunk.get(symbol.symbolKey);
-    if (!chunkId) {
-      throw new Error(`Missing chunk mapping for symbol ${symbol.symbolKey}`);
-    }
-
-    const liftBinding = bindingByKey.get(symbol.symbolKey);
-    const exportName = buildDomainExportName(
-      symbol,
-      plan,
-      topic,
-      symbolIndex + 1,
-      usedNames,
-      liftBinding,
-      chunkTopicTokensById,
-    );
-    const resolvedName = `${exportName}Symbol`;
-    const runtimeSymbolName = liftBinding && liftBinding.chunkId === chunkId ? liftBinding.exportName : symbol.symbolName;
-
-    exportedNames.push(exportName);
-    resolvedSymbolNames.push(resolvedName);
-
-    lines.push(
-      `const ${resolvedName}: ResolvedSymbol = resolveSymbol(${quote(chunkId)}, ${quote(runtimeSymbolName)}, ${quote(symbol.symbolKey)});`,
-    );
-    lines.push(`export const ${exportName} = ${resolvedName}.value;`);
-
-    if (requiresIpc) {
-      lines.push(`export const ${exportName}Ipc = defineIpcContract(${quote(exportName)}, ${resolvedName});`);
-    }
-    if (requiresRpc) {
-      lines.push(`export const ${exportName}Rpc = defineRpcContract(${quote(exportName)}, ${resolvedName});`);
-    }
-  }
-
-  lines.push("");
-  lines.push("const moduleSymbols: Record<string, ResolvedSymbol> = {");
-  for (let index = 0; index < exportedNames.length; index += 1) {
-    const exportName = exportedNames[index];
-    const resolvedName = resolvedSymbolNames[index];
-    if (!exportName || !resolvedName) {
-      continue;
-    }
-    lines.push(`  ${exportName}: ${resolvedName},`);
-  }
-  lines.push("};");
-  lines.push("");
-  lines.push(
-    `export const moduleContract = ${contractFactory}(${quote(plan.moduleId)}, ${quote(plan.layer)}, moduleSymbols);`,
-  );
-  lines.push("export default moduleContract;");
   lines.push("");
   return lines.join("\n");
 }
@@ -1763,31 +1352,18 @@ export async function emitTemplateProject(
     emittedFiles.push(toProjectRelative(outputProjectDirectory, stubPath));
   }
 
-  const runtimePath = path.join(outputProjectDirectory, "runtime", "chunk-runtime.ts");
-  const runtimeContent = buildRuntimeContent(sortedChunks, [...liftedChunkIds].sort((left, right) => left.localeCompare(right)));
-  await writeTextFile(runtimePath, runtimeContent);
-  emittedFiles.push(toProjectRelative(outputProjectDirectory, runtimePath));
-
-  const moduleContractsPath = path.join(outputProjectDirectory, "runtime", "module-contracts.ts");
-  await writeTextFile(moduleContractsPath, buildModuleContractsContent());
-  emittedFiles.push(toProjectRelative(outputProjectDirectory, moduleContractsPath));
-
-  const ipcContractsPath = path.join(outputProjectDirectory, "src", "contracts", "ipc.ts");
-  await writeTextFile(ipcContractsPath, buildIpcContractsContent());
-  emittedFiles.push(toProjectRelative(outputProjectDirectory, ipcContractsPath));
-
-  const rpcContractsPath = path.join(outputProjectDirectory, "src", "contracts", "rpc.ts");
-  await writeTextFile(rpcContractsPath, buildRpcContractsContent());
-  emittedFiles.push(toProjectRelative(outputProjectDirectory, rpcContractsPath));
-
-  const contractsEntryPath = path.join(outputProjectDirectory, "src", "contracts", "contracts.ts");
-  await writeTextFile(contractsEntryPath, buildContractsEntryContent());
-  emittedFiles.push(toProjectRelative(outputProjectDirectory, contractsEntryPath));
-
-  const symbolToChunk = modelBySymbol(chunkArtifacts);
   const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
-  const speculativeSymbols = ownershipModel.symbols.filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey));
+  const unresolvedSymbols = ownershipModel.symbols
+    .filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey))
+    .sort((left, right) => left.symbolKey.localeCompare(right.symbolKey))
+    .map((symbol) => ({
+      symbolKey: symbol.symbolKey,
+      symbolName: symbol.symbolName,
+      layer: symbol.layer,
+      archetype: symbol.archetype,
+      confidence: symbol.confidence,
+    }));
 
   const qualityOwnership = buildOwnershipSubset(ownershipModel, qualitySymbols);
   const qualityRawPlans = buildModulePlans(
@@ -1796,16 +1372,6 @@ export async function emitTemplateProject(
   );
   const qualityPass = applyFileQualityRerender(qualityRawPlans, astLift.symbolBindingByKey, statementBudget);
   const qualityModulePlans = qualityPass.modulePlans;
-  const speculativeOwnership = buildOwnershipSubset(ownershipModel, speculativeSymbols);
-  const speculativeRawPlans = buildModulePlans(
-    speculativeOwnership,
-    Math.max(statementBudget * SPECULATIVE_PLAN_BUDGET_MULTIPLIER, SPECULATIVE_PLAN_BUDGET_MIN),
-  );
-  const speculativeModulePlans = speculativeRawPlans.map((plan) => ({
-    ...plan,
-    moduleId: `${plan.moduleId}:speculative`,
-    filePath: toSpeculativeFilePath(plan.filePath),
-  }));
 
   for (const plan of qualityModulePlans) {
     const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
@@ -1821,25 +1387,12 @@ export async function emitTemplateProject(
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
   }
 
-  for (const plan of speculativeModulePlans) {
-    const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
-    const runtimeImport = toJsImportPath(absoluteFilePath, runtimePath);
-    const moduleContractsImport = toJsImportPath(absoluteFilePath, moduleContractsPath);
-    const domainContractsImport = toJsImportPath(absoluteFilePath, contractsEntryPath);
-
-    const moduleContent = buildSpeculativeModuleContent(
-      plan,
-      runtimeImport,
-      moduleContractsImport,
-      domainContractsImport,
-      plan.symbols,
-      symbolToChunk,
-      astLift.symbolBindingByKey,
-      chunkTopicTokensById,
-    );
-    await writeTextFile(absoluteFilePath, moduleContent);
-    emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
-  }
+  const pendingLiftPath = path.join(outputProjectDirectory, "artifacts", "pending-lift-symbols.json");
+  await writeTextFile(
+    pendingLiftPath,
+    `${JSON.stringify({ generatedAtIso: new Date().toISOString(), symbols: unresolvedSymbols }, null, 2)}\n`,
+  );
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, pendingLiftPath));
 
   const smokeModuleTargets = emittedFiles
     .filter((relativePath) => relativePath.endsWith(".ts"))
@@ -1861,7 +1414,7 @@ export async function emitTemplateProject(
   const sortedFiles = [...emittedFiles].sort((left, right) => left.localeCompare(right));
   return {
     emittedFiles: sortedFiles,
-    emittedModuleCount: qualityModulePlans.length + speculativeModulePlans.length,
+    emittedModuleCount: qualityModulePlans.length,
     emittedSymbolCount: qualitySymbols.length,
     fileQualityReportPath,
     rerenderedModuleCount: qualityPass.rerenderedModuleCount,

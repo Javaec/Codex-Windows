@@ -8,11 +8,11 @@
     "minScore": 0.9554,
     "nameQualityAverage": 0.7769
   },
-  "generatedAtIso": "2026-02-25T12:38:01.485Z",
+  "generatedAtIso": "2026-02-25T13:20:31.571Z",
   "profiles": [
     {
-      "durationMs": 36610,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-123545\\logs\\01-core-no-binary.log",
+      "durationMs": 30298,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-131826\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -38,10 +38,10 @@
         "mappedSymbols": 1365,
         "nameQuality": 0.7769
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-01-core-no-binary",
-      "runId": "reg-suite-20260225-123545-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-01-core-no-binary",
+      "runId": "reg-suite-20260225-131826-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -50,11 +50,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-01-core-no-binary\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-01-core-no-binary\\summary.json"
     },
     {
-      "durationMs": 32579,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-123545\\logs\\02-core-no-binary-no-pretty.log",
+      "durationMs": 31960,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-131826\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -80,10 +80,10 @@
         "mappedSymbols": 1365,
         "nameQuality": 0.7769
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-02-core-no-binary-no-pretty",
-      "runId": "reg-suite-20260225-123545-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-02-core-no-binary-no-pretty",
+      "runId": "reg-suite-20260225-131826-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -92,11 +92,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-02-core-no-binary-no-pretty\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-02-core-no-binary-no-pretty\\summary.json"
     },
     {
-      "durationMs": 32594,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-123545\\logs\\03-core-no-binary-top120.log",
+      "durationMs": 31467,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-131826\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -122,10 +122,10 @@
         "mappedSymbols": 1365,
         "nameQuality": 0.7769
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-03-core-no-binary-top120",
-      "runId": "reg-suite-20260225-123545-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-03-core-no-binary-top120",
+      "runId": "reg-suite-20260225-131826-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -134,11 +134,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-03-core-no-binary-top120\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-03-core-no-binary-top120\\summary.json"
     },
     {
-      "durationMs": 34604,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-123545\\logs\\04-core-runtime-probe-soft.log",
+      "durationMs": 31043,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\suite-20260225-131826\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -164,10 +164,10 @@
         "mappedSymbols": 1365,
         "nameQuality": 0.7769
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-04-core-runtime-probe-soft",
-      "runId": "reg-suite-20260225-123545-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-04-core-runtime-probe-soft",
+      "runId": "reg-suite-20260225-131826-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -176,11 +176,11 @@
         "nameQualityScore": 0.7769,
         "total": 0.9554
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-123545-04-core-runtime-probe-soft\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-suite-20260225-131826-04-core-runtime-probe-soft\\summary.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "suite-20260225-123545",
+  "suiteRunId": "suite-20260225-131826",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

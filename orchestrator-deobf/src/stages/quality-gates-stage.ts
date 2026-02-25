@@ -61,6 +61,20 @@ function validateNoRuntimeJsInSourceTree(files: string[]): string[] {
   return violations;
 }
 
+function validateNoSpeculativeTsModules(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
+    if (!normalized.endsWith(".ts")) {
+      continue;
+    }
+    if (normalized.startsWith("coverage/speculative/")) {
+      violations.push(`speculative TS modules are not allowed in quality output: ${relativePath}`);
+    }
+  }
+  return violations;
+}
+
 function isQualitySourceModule(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/");
   if (!normalized.endsWith(".ts")) {
@@ -147,6 +161,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateFileOrdering(emittedFilesIndex.files));
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
+  violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
   violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 

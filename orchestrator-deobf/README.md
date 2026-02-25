@@ -38,7 +38,8 @@ Stage-based orchestrator for decompile/deobfuscation pipelines.
 
 - `artifacts/ownership-model.json`: hard ownership (`one symbol = one layer`) + archetype from semantic-ir v2 domains.
 - `artifacts/chunk-artifacts.json`: strict `1 chunk = 1 source artifact` model + symbol mappings.
-- `artifacts/project/*`: template-driven TypeScript-first emitted project with archetype contracts and cluster-driven module synthesis.
+- `artifacts/project/*`: quality-only TypeScript output emitted from AST-lift bindings (no speculative/proxy TS modules).
+- `artifacts/project/artifacts/pending-lift-symbols.json`: unresolved symbols that remain in coverage contour and are not emitted as quality TS.
 - `artifacts/emitted-files.json`: deterministic file ordering index.
 - `quality-gates.json`: gate report for generation quality checks.
 - `output/latest/project` and `output/regression-latest/project`: stable generated outputs.

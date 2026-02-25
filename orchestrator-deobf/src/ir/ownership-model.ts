@@ -1,6 +1,7 @@
 import { ArchetypeId, LayerId } from "../contracts";
 import { DomainKind, SemanticIrModel } from "./semantic-ir";
 import { isGenericName } from "./name-quality";
+import { ARCHETYPE_LAYER_COMPATIBILITY, assertArchetypeLayerCompatibility } from "./ownership-compatibility";
 
 export interface OwnershipScoreBreakdown {
   main: number;
@@ -29,13 +30,6 @@ export interface OwnershipModel {
 }
 
 const LAYER_TIE_BREAK_ORDER: LayerId[] = ["services", "renderer", "main", "tauri"];
-const ARCHETYPE_LAYER_COMPATIBILITY: Record<ArchetypeId, LayerId[]> = {
-  hook: ["renderer"],
-  service: ["services", "main"],
-  ui: ["renderer"],
-  transport: ["main", "tauri", "services"],
-  store: ["services", "renderer"],
-};
 
 function clamp(value: number): number {
   if (value < 0) {
@@ -241,15 +235,6 @@ function mapDomainToArchetype(domainKind: DomainKind): ArchetypeId {
     return "store";
   }
   return "service";
-}
-
-function assertArchetypeLayerCompatibility(layer: LayerId, archetype: ArchetypeId, symbolKey: string): void {
-  const allowedLayers = ARCHETYPE_LAYER_COMPATIBILITY[archetype];
-  if (!allowedLayers.includes(layer)) {
-    throw new Error(
-      `ownership-model: hard ownership gate blocked ${symbolKey} (archetype=${archetype}, layer=${layer}, allowed=${allowedLayers.join(",")})`,
-    );
-  }
 }
 
 function selectChunkHint(symbolKey: string, symbolName: string): string {
