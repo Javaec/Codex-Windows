@@ -3,12 +3,20 @@ import * as path from "node:path";
 import { NamingMemoryStageInput, NamingMemoryStageOutput } from "../contracts";
 import { readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { SemanticIrModel } from "../ir/semantic-ir";
-import { applyNamingMemory, createEmptyNamingMemory, NamingMemoryModel, updateNamingMemory } from "../ir/naming-memory";
+import {
+  applyNamingMemory,
+  createEmptyNamingMemory,
+  NamingMemoryModel,
+  NamingSeedCandidate,
+  updateNamingMemory,
+} from "../ir/naming-memory";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
 
 interface CensusSeedEntry {
   symbolKey: string;
   censusName: string;
+  signalScore?: number;
+  promoteToQuality?: boolean;
 }
 
 interface CensusMappingModel {
@@ -26,18 +34,76 @@ async function readNamingMemoryFromPath(namingMemoryPath: string): Promise<Namin
   return await readJsonFile<NamingMemoryModel>(namingMemoryPath);
 }
 
-async function readSeedMap(censusMappingPath: string): Promise<Map<string, string>> {
+function clamp(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return Number(value.toFixed(4));
+}
+
+function scoreSeedCandidate(candidate: NamingSeedCandidate): number {
+  return Number((candidate.confidence * 0.75 + candidate.signalScore * 0.25).toFixed(4));
+}
+
+function pickStrongerSeed(
+  existing: NamingSeedCandidate | undefined,
+  incoming: NamingSeedCandidate,
+): NamingSeedCandidate {
+  if (!existing) {
+    return incoming;
+  }
+  const existingScore = scoreSeedCandidate(existing);
+  const incomingScore = scoreSeedCandidate(incoming);
+  if (incomingScore !== existingScore) {
+    return incomingScore > existingScore ? incoming : existing;
+  }
+  if (incoming.name.length !== existing.name.length) {
+    return incoming.name.length > existing.name.length ? incoming : existing;
+  }
+  return incoming.name.localeCompare(existing.name) < 0 ? incoming : existing;
+}
+
+function toPromotionKey(symbolKey: string): string {
+  return symbolKey.replace("-census:", ":");
+}
+
+async function readSeedMap(censusMappingPath: string): Promise<Map<string, NamingSeedCandidate>> {
   const exists = await fs
     .stat(censusMappingPath)
     .then(() => true)
     .catch(() => false);
   if (!exists) {
-    return new Map<string, string>();
+    return new Map<string, NamingSeedCandidate>();
   }
   const mapping = await readJsonFile<CensusMappingModel>(censusMappingPath);
-  const seedMap = new Map<string, string>();
+  const seedMap = new Map<string, NamingSeedCandidate>();
   for (const entry of mapping.seedEntries) {
-    seedMap.set(entry.symbolKey, entry.censusName);
+    const signalScore = clamp(typeof entry.signalScore === "number" ? entry.signalScore : 0.42);
+    const directCandidate: NamingSeedCandidate = {
+      name: entry.censusName,
+      confidence: clamp(0.38 + signalScore * 0.34),
+      source: "direct",
+      signalScore,
+    };
+    seedMap.set(entry.symbolKey, pickStrongerSeed(seedMap.get(entry.symbolKey), directCandidate));
+
+    if (!entry.promoteToQuality) {
+      continue;
+    }
+    const promotedKey = toPromotionKey(entry.symbolKey);
+    if (promotedKey === entry.symbolKey) {
+      continue;
+    }
+    const promotedCandidate: NamingSeedCandidate = {
+      name: entry.censusName,
+      confidence: clamp(0.64 + signalScore * 0.28),
+      source: "promotion",
+      signalScore,
+    };
+    seedMap.set(promotedKey, pickStrongerSeed(seedMap.get(promotedKey), promotedCandidate));
   }
   return seedMap;
 }

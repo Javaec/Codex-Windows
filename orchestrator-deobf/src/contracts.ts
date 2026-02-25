@@ -126,6 +126,7 @@ export interface MonolithCensusStageOutput {
   callableVariableCount: number;
   variableCoverageCount: number;
   renamedDeclarationCount: number;
+  qualityPromotionCandidateCount: number;
 }
 
 export interface WakaruStageInput {

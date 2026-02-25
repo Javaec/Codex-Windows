@@ -32,6 +32,13 @@ export interface NamingMemoryUpdateResult {
   keptEntryCount: number;
 }
 
+export interface NamingSeedCandidate {
+  name: string;
+  confidence: number;
+  source: "direct" | "promotion";
+  signalScore: number;
+}
+
 function clamp(value: number): number {
   if (value < 0) {
     return 0;
@@ -46,21 +53,55 @@ function buildCandidateScore(symbol: SemanticSymbol): number {
   return clamp(symbol.confidence * Math.max(symbol.quality, 0.1));
 }
 
-function buildSeededCandidate(symbol: SemanticSymbol, seedNameBySymbolKey: ReadonlyMap<string, string>): SemanticSymbol {
-  const seedName = seedNameBySymbolKey.get(symbol.symbolKey);
-  if (!seedName) {
+function isSyntheticCoverageName(name: string): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized.startsWith("classunit")) {
+    return true;
+  }
+  if (normalized.startsWith("functionunit")) {
+    return true;
+  }
+  if (normalized.startsWith("callableunit")) {
+    return true;
+  }
+  if (normalized.startsWith("valueunit")) {
+    return true;
+  }
+  return false;
+}
+
+function buildSeededCandidate(
+  symbol: SemanticSymbol,
+  seedBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
+): SemanticSymbol {
+  const seed = seedBySymbolKey.get(symbol.symbolKey);
+  if (!seed) {
     return symbol;
   }
+
+  if (seed.source === "promotion" && isSyntheticCoverageName(seed.name)) {
+    return symbol;
+  }
+
   const currentQuality = scoreNameQuality(symbol.name);
-  const shouldUseSeed = isGenericName(symbol.name) || currentQuality < 0.56;
-  if (!shouldUseSeed) {
+  const seedQuality = scoreNameQuality(seed.name);
+  const isPromotion = seed.source === "promotion";
+  const shouldUseDirectSeed = !isPromotion && (isGenericName(symbol.name) || currentQuality < 0.56);
+  const shouldUsePromotionSeed =
+    isPromotion &&
+    (isGenericName(symbol.name) || currentQuality < 0.74) &&
+    seedQuality >= currentQuality + 0.04 &&
+    seed.signalScore >= 0.68;
+
+  if (!shouldUseDirectSeed && !shouldUsePromotionSeed) {
     return symbol;
   }
+
   return {
     ...symbol,
-    name: seedName,
-    quality: scoreNameQuality(seedName),
-    confidence: Math.max(symbol.confidence, 0.36),
+    name: seed.name,
+    quality: seedQuality,
+    confidence: Math.max(symbol.confidence, seed.confidence),
   };
 }
 
@@ -112,7 +153,7 @@ export function updateNamingMemory(
   currentMemory: NamingMemoryModel,
   semanticIr: SemanticIrModel,
   runId: string,
-  seedNameBySymbolKey: ReadonlyMap<string, string> = new Map<string, string>(),
+  seedBySymbolKey: ReadonlyMap<string, NamingSeedCandidate> = new Map<string, NamingSeedCandidate>(),
 ): NamingMemoryUpdateResult {
   const entriesByKey = new Map<string, NamingMemoryEntry>();
   for (const entry of currentMemory.entries) {
@@ -125,7 +166,7 @@ export function updateNamingMemory(
   const orderedSymbols = [...semanticIr.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
 
   for (const symbol of orderedSymbols) {
-    const candidateSymbol = buildSeededCandidate(symbol, seedNameBySymbolKey);
+    const candidateSymbol = buildSeededCandidate(symbol, seedBySymbolKey);
     const score = buildCandidateScore(candidateSymbol);
     const existing = entriesByKey.get(symbol.symbolKey);
     if (!existing) {
