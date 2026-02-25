@@ -1,5 +1,5 @@
 import { SemanticIrModel, SemanticSymbol } from "./semantic-ir";
-import { isGenericName } from "./name-quality";
+import { isGenericName, scoreNameQuality } from "./name-quality";
 
 export interface NamingMemoryHistoryEvent {
   runId: string;
@@ -47,8 +47,16 @@ function buildCandidateScore(symbol: SemanticSymbol): number {
 }
 
 function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candidateScore: number): boolean {
+  const currentQuality = scoreNameQuality(entry.currentName);
+  const candidateQuality = scoreNameQuality(symbol.name);
   if (!isGenericName(entry.currentName) && isGenericName(symbol.name)) {
     return false;
+  }
+  if (candidateQuality >= currentQuality + 0.08 && candidateScore >= entry.currentScore * 0.9) {
+    return true;
+  }
+  if (candidateQuality > currentQuality && candidateScore >= entry.currentScore && symbol.name.length <= entry.currentName.length + 12) {
+    return true;
   }
   if (candidateScore > entry.currentScore + 0.01) {
     return true;

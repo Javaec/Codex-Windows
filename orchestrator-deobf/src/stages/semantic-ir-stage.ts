@@ -36,7 +36,7 @@ export const semanticIrStage: PipelineStage = {
   id: "semantic-ir",
   execute: executeSemanticIr,
   cachePlan: {
-    version: 1,
+    version: 2,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as SemanticIrStageInput;
       const digest = await hashFileSha256(input.evidenceStorePath);

@@ -1,5 +1,5 @@
 import { ToolWeights } from "../contracts";
-import { scoreNameQuality, isGenericName } from "./name-quality";
+import { scoreNameQuality, isGenericName, isIdentifierName } from "./name-quality";
 import {
   SemanticCallEdge,
   SemanticDeclarationCluster,
@@ -49,6 +49,14 @@ interface ScoredFileHintCandidate {
   profileId: string;
   hint: SemanticFileHint;
   score: number;
+}
+
+interface RankedNameCandidate {
+  name: string;
+  score: number;
+  quality: number;
+  support: number;
+  evidence: number;
 }
 
 function clamp(value: number): number {
@@ -109,33 +117,84 @@ function fileHintCandidateScore(hint: SemanticFileHint): number {
   return hint.confidence * 0.9 + provenanceBonus;
 }
 
-function mergeSymbolAlternatives(candidates: ScoredSymbolCandidate[], winnerName: string): string[] {
-  const nameScores = new Map<string, number>();
+function buildRankedSymbolNames(candidates: ScoredSymbolCandidate[]): RankedNameCandidate[] {
+  const ranking = new Map<string, RankedNameCandidate>();
   for (const candidate of candidates) {
-    const candidateNames = [candidate.symbol.name, ...candidate.symbol.alternatives];
+    const candidateNames = [...new Set([candidate.symbol.name, ...candidate.symbol.alternatives])];
     for (const candidateName of candidateNames) {
-      if (candidateName === winnerName) {
+      if (!isIdentifierName(candidateName)) {
         continue;
       }
       const quality = scoreNameQuality(candidateName);
-      const genericPenalty = isGenericName(candidateName) ? 0.08 : 0;
-      const score = candidate.score * 0.65 + quality * 0.35 - genericPenalty;
-      const current = nameScores.get(candidateName) ?? Number.NEGATIVE_INFINITY;
-      if (score > current) {
-        nameScores.set(candidateName, score);
+      if (quality < 0.2) {
+        continue;
       }
+      const genericPenalty = isGenericName(candidateName) ? 0.14 : 0;
+      const baseScore = candidate.score * 0.52 + quality * 0.4 + candidate.symbol.confidence * 0.08 - genericPenalty;
+
+      const existing = ranking.get(candidateName);
+      if (existing) {
+        existing.score += baseScore;
+        existing.support += 1;
+        existing.quality = Math.max(existing.quality, quality);
+        existing.evidence = Math.max(existing.evidence, candidate.symbol.evidenceIds.length);
+        continue;
+      }
+      ranking.set(candidateName, {
+        name: candidateName,
+        score: baseScore,
+        quality,
+        support: 1,
+        evidence: candidate.symbol.evidenceIds.length,
+      });
     }
   }
 
-  return [...nameScores.entries()]
+  return [...ranking.values()]
+    .map((entry) => ({
+      ...entry,
+      score: entry.score + Math.min(0.24, entry.support * 0.04) + Math.min(0.08, entry.evidence * 0.005),
+    }))
     .sort((left, right) => {
-      if (left[1] !== right[1]) {
-        return right[1] - left[1];
+      if (left.score !== right.score) {
+        return right.score - left.score;
       }
-      return left[0].localeCompare(right[0]);
+      if (left.quality !== right.quality) {
+        return right.quality - left.quality;
+      }
+      return left.name.localeCompare(right.name);
     })
-    .slice(0, 8)
-    .map((entry) => entry[0]);
+    .slice(0, 16);
+}
+
+function selectWinnerSymbolName(
+  rankedNames: RankedNameCandidate[],
+  defaultWinnerName: string,
+): { winnerName: string; winnerQuality: number; alternatives: string[] } {
+  const defaultEntry = rankedNames.find((entry) => entry.name === defaultWinnerName);
+  const first = rankedNames[0];
+  if (!first) {
+    const quality = scoreNameQuality(defaultWinnerName);
+    return {
+      winnerName: defaultWinnerName,
+      winnerQuality: quality,
+      alternatives: [],
+    };
+  }
+
+  const baselineScore = defaultEntry ? defaultEntry.score : scoreNameQuality(defaultWinnerName) * 0.55;
+  const baselineQuality = defaultEntry ? defaultEntry.quality : scoreNameQuality(defaultWinnerName);
+  const topIsBetter = first.score >= baselineScore + 0.05;
+  const genericUpgrade = isGenericName(defaultWinnerName) && first.quality >= 0.72 && first.score >= baselineScore - 0.015;
+  const qualityUpgrade = first.quality >= baselineQuality + 0.08 && first.score >= baselineScore - 0.01;
+  const winnerName = topIsBetter || genericUpgrade || qualityUpgrade ? first.name : defaultWinnerName;
+  const winnerEntry = rankedNames.find((entry) => entry.name === winnerName);
+
+  return {
+    winnerName,
+    winnerQuality: winnerEntry ? winnerEntry.quality : scoreNameQuality(winnerName),
+    alternatives: rankedNames.filter((entry) => entry.name !== winnerName).slice(0, 8).map((entry) => entry.name),
+  };
 }
 
 function mergeSymbols(models: ProfileModel[], anchorModel: ProfileModel): { symbols: SemanticSymbol[]; winners: number } {
@@ -193,12 +252,15 @@ function mergeSymbols(models: ProfileModel[], anchorModel: ProfileModel): { symb
       }
     }
 
+    const rankedNames = buildRankedSymbolNames(candidates);
+    const selectedName = selectWinnerSymbolName(rankedNames, winner.symbol.name);
+
     merged.push({
       ...anchor,
-      name: winner.symbol.name,
+      name: selectedName.winnerName,
       confidence: clamp(Math.max(winner.symbol.confidence, averageConfidence * 0.85)),
-      quality: Math.max(winner.symbol.quality, scoreNameQuality(winner.symbol.name)),
-      alternatives: mergeSymbolAlternatives(candidates, winner.symbol.name),
+      quality: Math.max(winner.symbol.quality, selectedName.winnerQuality),
+      alternatives: selectedName.alternatives,
       evidenceIds: [...unionEvidence].sort((left, right) => left.localeCompare(right)),
       provenance: [...unionProvenance].sort((left, right) => left.localeCompare(right)),
       domainKind: winner.symbol.domainKind,

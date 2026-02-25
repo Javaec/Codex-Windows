@@ -50,6 +50,21 @@ const FILE_QUALITY_WORST_PERCENT = 0.08;
 const FILE_QUALITY_MIN_RERENDER_COUNT = 1;
 const FILE_QUALITY_TARGET_BUDGET_FACTOR = 0.6;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
+const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
+const ARCHETYPE_BUDGET_FACTOR: Record<ArchetypeId, number> = {
+  hook: 0.55,
+  service: 0.85,
+  ui: 0.65,
+  transport: 0.6,
+  store: 0.5,
+};
+const ARCHETYPE_BUDGET_MIN: Record<ArchetypeId, number> = {
+  hook: 8,
+  service: 12,
+  ui: 10,
+  transport: 8,
+  store: 8,
+};
 const RESERVED_IDENTIFIERS = new Set<string>([
   "await",
   "break",
@@ -133,6 +148,56 @@ function toPascalCase(value: string): string {
     return "Domain";
   }
   return normalized;
+}
+
+function splitNameTokens(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.toLowerCase())
+    .filter((token) => token.length >= 2)
+    .filter((token) => !GENERIC_SEGMENTS.has(token))
+    .filter((token) => !NOISE_NAME_TOKENS.has(token));
+}
+
+function canonicalToken(token: string): string {
+  if (token.endsWith("ies") && token.length > 4) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.endsWith("s") && token.length > 3) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+function dedupeNameTokens(tokens: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (token.length === 0) {
+      continue;
+    }
+    const canonical = canonicalToken(token);
+    const previous = result[result.length - 1];
+    if (previous && canonicalToken(previous) === canonical) {
+      continue;
+    }
+    if (seen.has(canonical)) {
+      continue;
+    }
+    result.push(token);
+    seen.add(canonical);
+  }
+  return result;
+}
+
+function statementBudgetForArchetype(archetype: ArchetypeId, baseBudget: number): number {
+  const factor = ARCHETYPE_BUDGET_FACTOR[archetype];
+  const minimum = ARCHETYPE_BUDGET_MIN[archetype];
+  const scaled = Math.floor(baseBudget * factor);
+  return Math.max(minimum, scaled);
 }
 
 function sanitizeSegment(candidate: string, fallback: string): string {
@@ -244,11 +309,27 @@ function buildDomainExportName(
     return nextUniqueName(sanitizeIdentifier(symbol.symbolName), usedNames);
   }
 
-  const topicPart = toPascalCase(topic);
-  const layerPart = toPascalCase(plan.layer);
-  const archetypePart = toPascalCase(plan.archetype);
-  const domainPart = toPascalCase(symbol.domainKind);
-  const base = sanitizeIdentifier(`${topicPart}${domainPart}${layerPart}${archetypePart}${ordinal}`);
+  const topicTokens = splitNameTokens(topic);
+  const domainTokens = splitNameTokens(symbol.domainKind);
+  const layerTokens = splitNameTokens(plan.layer);
+  const archetypeTokens = splitNameTokens(plan.archetype);
+
+  let tokens = dedupeNameTokens([...topicTokens, ...domainTokens]);
+  if (tokens.length < 3) {
+    tokens = dedupeNameTokens([...tokens, ...layerTokens]);
+  }
+  if (tokens.length < 3) {
+    tokens = dedupeNameTokens([...tokens, ...archetypeTokens]);
+  }
+  if (tokens.length === 0) {
+    tokens = ["domain", "symbol"];
+  }
+
+  const stem = tokens
+    .slice(0, 4)
+    .map((token) => toPascalCase(token))
+    .join("");
+  const base = sanitizeIdentifier(`${stem}${ordinal}`);
   return nextUniqueName(base, usedNames);
 }
 
@@ -407,7 +488,8 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
         }
         const clusterOrdinal = String(clusterIndex + 1).padStart(3, "0");
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
-        const chunks = splitByBudget(byName, statementBudget);
+        const splitBudget = statementBudgetForArchetype(archetype, statementBudget);
+        const chunks = splitByBudget(byName, splitBudget);
         const topicSegment = topicSegmentForChunk(archetype, byName, clusterId);
         for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
           const symbolChunk = chunks[partIndex];
@@ -438,7 +520,8 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
 }
 
 function splitPlanForQuality(plan: ModulePlan, statementBudget: number): ModulePlan[] {
-  const qualityBudget = Math.max(6, Math.floor(statementBudget * FILE_QUALITY_TARGET_BUDGET_FACTOR));
+  const archetypeBudget = statementBudgetForArchetype(plan.archetype, statementBudget);
+  const qualityBudget = Math.max(6, Math.floor(archetypeBudget * FILE_QUALITY_TARGET_BUDGET_FACTOR));
   let chunks = splitByBudget(plan.symbols, qualityBudget);
   if (chunks.length === 1 && plan.symbols.length > 1) {
     const half = Math.ceil(plan.symbols.length / 2);
