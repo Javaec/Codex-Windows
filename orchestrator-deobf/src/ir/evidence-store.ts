@@ -55,7 +55,16 @@ interface MonolithTypingVariableHintEntry {
   inferredType?: string;
 }
 
+interface MonolithTypingFunctionHintEntry {
+  symbolKey: string;
+  name: string;
+  parameterCount?: number;
+  signature?: string;
+  returnHint?: string;
+}
+
 interface MonolithTypingHintsModel {
+  functionHints?: MonolithTypingFunctionHintEntry[];
   variableHints?: MonolithTypingVariableHintEntry[];
 }
 
@@ -462,6 +471,30 @@ function pushMonolithTypingHints(
     parsed = JSON.parse(source) as MonolithTypingHintsModel;
   } catch {
     return;
+  }
+
+  const functionHints = Array.isArray(parsed.functionHints) ? parsed.functionHints : [];
+  const sortedFunctions = [...functionHints]
+    .filter((entry) => typeof entry.symbolKey === "string" && entry.symbolKey.length > 0)
+    .filter((entry) => typeof entry.name === "string" && entry.name.length > 0)
+    .sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+
+  for (const functionHint of sortedFunctions) {
+    const anchor = functionHint.symbolKey.startsWith(`${owner}:`)
+      ? functionHint.symbolKey.slice(owner.length + 1)
+      : functionHint.symbolKey;
+    const parameterBoost = typeof functionHint.parameterCount === "number" && functionHint.parameterCount > 0 ? 0.06 : 0;
+    const returnBoost = typeof functionHint.returnHint === "string" && functionHint.returnHint !== "unknown" ? 0.04 : 0;
+    sink.push(
+      createRecord(
+        "symbol_hint",
+        owner,
+        anchor,
+        functionHint.name,
+        baseConfidence * (0.82 + parameterBoost + returnBoost),
+        provenance,
+      ),
+    );
   }
 
   const variableHints = Array.isArray(parsed.variableHints) ? parsed.variableHints : [];

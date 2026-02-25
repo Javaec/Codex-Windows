@@ -1,21 +1,21 @@
 {
   "aggregate": {
-    "averageScore": 0.9554,
+    "averageScore": 0.9553,
     "buildHealthAllGreen": true,
     "devHealthAllGreen": true,
-    "highConfidenceSymbolsAverage": 694,
+    "highConfidenceSymbolsAverage": 693,
     "mappedFilesAverage": 48,
     "mappedSymbolsAverage": 1365,
-    "minScore": 0.9554,
-    "nameQualityAverage": 0.7769,
+    "minScore": 0.9553,
+    "nameQualityAverage": 0.7766,
     "variableCoverageAverage": 1
   },
-  "generatedAtIso": "2026-02-25T15:43:07.477Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\monolithstep1b-20260225-153910-c01\\merged-evidence.json",
+  "generatedAtIso": "2026-02-25T16:07:04.689Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 81213,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\monolithstep1b-20260225-153910-c01\\logs\\01-core-no-binary.log",
+      "durationMs": 51953,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -33,7 +33,7 @@
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 694,
+        "highConfidenceSymbols": 693,
         "layerCoverage": {
           "main": 198,
           "renderer": 439,
@@ -43,26 +43,26 @@
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
         "mappedSymbols": 1365,
-        "nameQuality": 0.7769,
+        "nameQuality": 0.7766,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-01-core-no-binary",
-      "runId": "reg-monolithstep1b-20260225-153910-c01-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary",
+      "runId": "reg-step2aggr-20260225-160353-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7769,
-        "total": 0.9554
+        "nameQualityScore": 0.7766,
+        "total": 0.9553
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-01-core-no-binary\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary\\summary.json"
     },
     {
-      "durationMs": 48083,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\monolithstep1b-20260225-153910-c01\\logs\\02-core-no-binary-no-pretty.log",
+      "durationMs": 46576,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -80,7 +80,7 @@
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 694,
+        "highConfidenceSymbols": 693,
         "layerCoverage": {
           "main": 198,
           "renderer": 439,
@@ -90,26 +90,26 @@
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
         "mappedSymbols": 1365,
-        "nameQuality": 0.7769,
+        "nameQuality": 0.7766,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-02-core-no-binary-no-pretty",
-      "runId": "reg-monolithstep1b-20260225-153910-c01-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7769,
-        "total": 0.9554
+        "nameQualityScore": 0.7766,
+        "total": 0.9553
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-02-core-no-binary-no-pretty\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty\\summary.json"
     },
     {
-      "durationMs": 57855,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\monolithstep1b-20260225-153910-c01\\logs\\03-core-no-binary-top120.log",
+      "durationMs": 46251,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -127,7 +127,7 @@
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 694,
+        "highConfidenceSymbols": 693,
         "layerCoverage": {
           "main": 198,
           "renderer": 439,
@@ -137,26 +137,26 @@
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
         "mappedSymbols": 1365,
-        "nameQuality": 0.7769,
+        "nameQuality": 0.7766,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-03-core-no-binary-top120",
-      "runId": "reg-monolithstep1b-20260225-153910-c01-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120",
+      "runId": "reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7769,
-        "total": 0.9554
+        "nameQualityScore": 0.7766,
+        "total": 0.9553
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-03-core-no-binary-top120\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120\\summary.json"
     },
     {
-      "durationMs": 49693,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\monolithstep1b-20260225-153910-c01\\logs\\04-core-runtime-probe-soft.log",
+      "durationMs": 45849,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 124,
@@ -174,7 +174,7 @@
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 694,
+        "highConfidenceSymbols": 693,
         "layerCoverage": {
           "main": 198,
           "renderer": 439,
@@ -184,26 +184,26 @@
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
         "mappedSymbols": 1365,
-        "nameQuality": 0.7769,
+        "nameQuality": 0.7766,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-04-core-runtime-probe-soft",
-      "runId": "reg-monolithstep1b-20260225-153910-c01-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft",
+      "runId": "reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7769,
-        "total": 0.9554
+        "nameQualityScore": 0.7766,
+        "total": 0.9553
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-monolithstep1b-20260225-153910-c01-04-core-runtime-probe-soft\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft\\summary.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "monolithstep1b-20260225-153910-c01",
+  "suiteRunId": "step2aggr-20260225-160353-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

@@ -32,6 +32,8 @@ Stage-based orchestrator for decompile/deobfuscation pipelines.
 - `artifacts/evidence-store.json`: unified evidence (file/symbol/call/state/sourcemap hints).
 - `artifacts/semantic-ir.json`: semantic-ir v2 with domain declarations (`service/use-case/store/hook/transport/ui`) and declaration clusters.
 - `artifacts/semantic-ir.named.json`: IR after naming-memory application.
+- `artifacts/semantic-ir.coverage.named.json`: aggressive coverage contour naming.
+- `artifacts/semantic-ir.named.json`: strict quality contour naming.
 - `naming-memory.json` (project root): monotonic naming memory across runs.
 - `artifacts/monolith-census/unified-monolith.js`: canonical pass-2 monolith (rough semantic names).
 - `artifacts/monolith-census/symbol-table.json`: canonical naming map for coverage contour (class/function/callable/variable).

@@ -28,6 +28,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - `regression:cycles` promotes `merged-evidence` top-N symbols directly into snapshot naming-memory after each cycle.
 - Monolith-first naming uses `unified-monolith.js` + `symbol-table.json` as canonical coverage naming sources.
   Verified reason: `monolith-census` now emits deterministic pass-1 (`Class/Func/Var`) and pass-2 (`parse/sum/state/orchestrate`) names for all covered declaration anchors.
+- Naming stage maintains two contours: aggressive coverage (`semantic-ir.coverage.named.json`) and strict quality (`semantic-ir.named.json`).
+  Verified reason: coverage ownership now tracks full symbol set while quality emitter continues to consume strict quality names only.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

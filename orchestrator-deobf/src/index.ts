@@ -872,6 +872,8 @@ async function run(): Promise<void> {
     namingMemoryPath: namingMemoryProfile.profilePath,
     snapshotPath: path.join(runDirectory, "naming-memory.snapshot.json"),
     namedSemanticIrPath: path.join(artifactsDirectory, "semantic-ir.named.json"),
+    coverageNamedSemanticIrPath: path.join(artifactsDirectory, "semantic-ir.coverage.named.json"),
+    monolithTypingHintsPath: monolithCensusOutput.typingHintsPath,
     runId: cli.runId,
     monolithSymbolTablePath: monolithCensusOutput.symbolTablePath,
     promotionBudget: cli.promotionBudget,
@@ -888,8 +890,21 @@ async function run(): Promise<void> {
     await fs.copyFile(namingMemoryProfile.profilePath, namingMemoryProfile.legacyPath);
   }
 
+  const ownershipResolverCoverageInput: OwnershipResolverStageInput = {
+    namedSemanticIrPath: namingMemoryOutput.coverageNamedSemanticIrPath,
+    outputFilePath: path.join(artifactsDirectory, "ownership-model.coverage.json"),
+  };
+  const ownershipResolverCoverageOutput = await runStage<OwnershipResolverStageInput, OwnershipResolverStageOutput>(
+    ownershipResolverStage,
+    ownershipResolverCoverageInput,
+    runDirectory,
+    {
+      cacheEnabled: effectiveStageCacheEnabled,
+    },
+  );
+
   const ownershipResolverInput: OwnershipResolverStageInput = {
-    namedSemanticIrPath: namingMemoryOutput.namedSemanticIrPath,
+    namedSemanticIrPath: namingMemoryOutput.qualityNamedSemanticIrPath,
     outputFilePath: path.join(artifactsDirectory, "ownership-model.json"),
   };
   const ownershipResolverOutput = await runStage<OwnershipResolverStageInput, OwnershipResolverStageOutput>(
@@ -901,7 +916,7 @@ async function run(): Promise<void> {
     },
   );
 
-  const fullOwnershipModel = await readJsonFile<OwnershipModel>(ownershipResolverOutput.outputFilePath);
+  const fullOwnershipModel = await readJsonFile<OwnershipModel>(ownershipResolverCoverageOutput.outputFilePath);
   const incompatibleOwnershipSymbols = fullOwnershipModel.symbols.filter(
     (symbol) => !isArchetypeLayerCompatible(symbol.layer, symbol.archetype),
   );
@@ -1008,7 +1023,7 @@ async function run(): Promise<void> {
     },
   );
 
-  const namedSemanticIr = await readJsonFile<SemanticIrModel>(namingMemoryOutput.namedSemanticIrPath);
+  const namedSemanticIr = await readJsonFile<SemanticIrModel>(namingMemoryOutput.qualityNamedSemanticIrPath);
   const runMetrics = buildRunMetrics(
     monolithCensusOutput,
     namedSemanticIr,

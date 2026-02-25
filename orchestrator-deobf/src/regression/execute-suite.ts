@@ -19,6 +19,8 @@ interface RunSummarySnapshot {
   stageOutputs: {
     namingMemory: {
       namedSemanticIrPath: string;
+      qualityNamedSemanticIrPath?: string;
+      coverageNamedSemanticIrPath?: string;
     };
   };
 }
@@ -269,7 +271,11 @@ async function buildMergedEvidenceReport(
 
   for (const execution of executions) {
     const summary = await readJsonFile<RunSummarySnapshot>(execution.summaryPath);
-    const semanticIr = await readJsonFile<SemanticIrModel>(summary.stageOutputs.namingMemory.namedSemanticIrPath);
+    const semanticIrPath =
+      summary.stageOutputs.namingMemory.coverageNamedSemanticIrPath ??
+      summary.stageOutputs.namingMemory.qualityNamedSemanticIrPath ??
+      summary.stageOutputs.namingMemory.namedSemanticIrPath;
+    const semanticIr = await readJsonFile<SemanticIrModel>(semanticIrPath);
     const profileScore = execution.score.total;
 
     for (const symbol of semanticIr.symbols) {

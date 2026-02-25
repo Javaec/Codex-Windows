@@ -266,6 +266,8 @@ export interface NamingMemoryStageInput {
   namingMemoryPath: string;
   snapshotPath: string;
   namedSemanticIrPath: string;
+  coverageNamedSemanticIrPath: string;
+  monolithTypingHintsPath: string;
   runId: string;
   monolithSymbolTablePath: string;
   promotionBudget: number;
@@ -275,6 +277,8 @@ export interface NamingMemoryStageOutput {
   namingMemoryPath: string;
   snapshotPath: string;
   namedSemanticIrPath: string;
+  qualityNamedSemanticIrPath: string;
+  coverageNamedSemanticIrPath: string;
   insertedEntryCount: number;
   updatedEntryCount: number;
   keptEntryCount: number;

@@ -77,6 +77,11 @@ interface SymbolTableEntry {
   signalScore: number;
   semanticBucket: SemanticBucket;
   promoteToQuality: boolean;
+  parameterNames?: string[];
+  parameterCount?: number;
+  signature?: string;
+  returnHint?: TypeHintKind;
+  inferredType?: TypeHintKind;
 }
 
 interface SymbolTableModel {
@@ -561,6 +566,22 @@ function shouldPromoteVariableToQuality(signalScore: number, bucket: SemanticBuc
   return signalScore >= 0.68;
 }
 
+function variableTokenByType(inferredType: TypeHintKind): string {
+  if (inferredType === "boolean") {
+    return "BoolVar";
+  }
+  if (inferredType === "array") {
+    return "ListVar";
+  }
+  if (inferredType === "object") {
+    return "ObjectVar";
+  }
+  if (inferredType === "function") {
+    return "FnVar";
+  }
+  return "Var";
+}
+
 function buildSeedEntries(
   lineageId: string,
   namedRenames: NamedOccurrence[],
@@ -628,13 +649,14 @@ function buildVariableCoverage(source: string, namedRenames: NamedOccurrence[]):
     const variableKey = `var:${padOrdinal(ordinal, 6)}`;
     const inferredType = inferValueType(expression);
     const semantic = inferVariableSemanticBucket(originalName, expression, inferredType);
+    const variableToken = variableTokenByType(inferredType);
     output.push({
       variableKey,
       anchor: `coverage:${variableKey}`,
       originalName,
       pass1Name: `Var${padOrdinal(ordinal, 6)}`,
       pass2Name: sanitizeIdentifier(
-        `${semantic.bucket}Var${padOrdinal(ordinal, 6)}`,
+        `${semantic.bucket}${variableToken}${padOrdinal(ordinal, 6)}`,
         `stateVar${padOrdinal(ordinal, 6)}`,
       ),
       inferredType,
@@ -650,26 +672,38 @@ function buildVariableCoverage(source: string, namedRenames: NamedOccurrence[]):
 }
 
 function buildSymbolTable(
+  source: string,
   sourceJsPath: string,
   unifiedMonolithPath: string,
   lineageId: string,
   namedRenames: NamedOccurrence[],
   variableCoverage: VariableCoverageEntry[],
 ): SymbolTableModel {
-  const declarationEntries: SymbolTableEntry[] = namedRenames.map((entry, index) => ({
-    symbolKey: `${lineageId}:symbol:${index}`,
-    anchor: `symbol:${index}`,
-    kind: entry.kind,
-    originalName: entry.originalName,
-    pass1Name: entry.pass1Name,
-    finalName: entry.replacementName,
-    start: entry.start,
-    end: entry.end,
-    signalTags: entry.signalTags,
-    signalScore: entry.signalScore,
-    semanticBucket: entry.semanticBucket,
-    promoteToQuality: entry.promoteToQuality,
-  }));
+  const declarationEntries: SymbolTableEntry[] = namedRenames.map((entry, index) => {
+    const symbolKey = `${lineageId}:symbol:${index}`;
+    const parameterNames = extractFunctionParameters(source, entry);
+    const signatureBase = entry.kind === "class" ? `new ${entry.replacementName}` : entry.replacementName;
+    const signature = `${signatureBase}(${parameterNames.join(", ")})`;
+    const returnHint = inferReturnHintFromSnippet(snippetAt(source, entry.start));
+    return {
+      symbolKey,
+      anchor: `symbol:${index}`,
+      kind: entry.kind,
+      originalName: entry.originalName,
+      pass1Name: entry.pass1Name,
+      finalName: entry.replacementName,
+      start: entry.start,
+      end: entry.end,
+      signalTags: entry.signalTags,
+      signalScore: entry.signalScore,
+      semanticBucket: entry.semanticBucket,
+      promoteToQuality: entry.promoteToQuality,
+      parameterNames,
+      parameterCount: parameterNames.length,
+      signature,
+      returnHint,
+    };
+  });
   const variableEntries: SymbolTableEntry[] = variableCoverage.map((entry) => ({
     symbolKey: `${lineageId}:${entry.anchor}`,
     anchor: entry.anchor,
@@ -683,6 +717,7 @@ function buildSymbolTable(
     signalScore: entry.signalScore,
     semanticBucket: entry.semanticBucket,
     promoteToQuality: entry.promoteToQuality,
+    inferredType: entry.inferredType,
   }));
   const entries = [...declarationEntries, ...variableEntries].sort((left, right) => left.anchor.localeCompare(right.anchor));
   return {
@@ -759,7 +794,14 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
   const symbolTablePath = path.join(input.outputDirectory, "symbol-table.json");
   const typingHintsPath = path.join(input.outputDirectory, "typing-hints.json");
 
-  const symbolTable = buildSymbolTable(input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames, variableCoverage);
+  const symbolTable = buildSymbolTable(
+    source,
+    input.sourceJsPath,
+    unifiedMonolithPath,
+    input.lineageId,
+    namedRenames,
+    variableCoverage,
+  );
   const typingHints = buildTypingHints(source, input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames, variableCoverage);
 
   const mapping: MonolithCensusMapping = {
