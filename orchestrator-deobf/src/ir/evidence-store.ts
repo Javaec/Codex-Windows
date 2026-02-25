@@ -37,19 +37,31 @@ export interface EvidenceStoreModel {
   stats: EvidenceStats;
 }
 
-interface MonolithCensusSeedEntry {
+interface MonolithSymbolTableEntry {
+  symbolKey: string;
   anchor: string;
-  censusName: string;
+  finalName: string;
+  signalScore?: number;
+  promoteToQuality?: boolean;
 }
 
-interface MonolithCensusVariableEntry {
+interface MonolithSymbolTableModel {
+  entries?: MonolithSymbolTableEntry[];
+}
+
+interface MonolithTypingVariableHintEntry {
   variableKey: string;
-  censusName: string;
+  variableName: string;
+  inferredType?: string;
 }
 
-interface MonolithCensusMappingModel {
-  seedEntries?: MonolithCensusSeedEntry[];
-  variableCoverage?: MonolithCensusVariableEntry[];
+interface MonolithTypingHintsModel {
+  variableHints?: MonolithTypingVariableHintEntry[];
+}
+
+interface UnwebpackScanSummaryModel {
+  selectedMapFiles?: string[];
+  extractedSourceFiles?: string[];
 }
 
 const COVERAGE_OWNER_SUFFIX = "-census";
@@ -400,60 +412,129 @@ function isCoverageSource(sourceFile: EvidenceSourceFile): boolean {
   return sourceFile.lineageId.endsWith(COVERAGE_OWNER_SUFFIX) || sourceFile.stageId === "monolith-census";
 }
 
-function pushMonolithCensusMappingHints(
+function pushMonolithSymbolTableHints(
   source: string,
   owner: string,
   baseConfidence: number,
   provenance: EvidenceProvenance,
   sink: EvidenceRecord[],
 ): void {
-  let parsed: MonolithCensusMappingModel = {};
+  let parsed: MonolithSymbolTableModel = {};
   try {
-    parsed = JSON.parse(source) as MonolithCensusMappingModel;
+    parsed = JSON.parse(source) as MonolithSymbolTableModel;
   } catch {
     return;
   }
 
-  const seedEntries = Array.isArray(parsed.seedEntries) ? parsed.seedEntries : [];
-  const variableCoverage = Array.isArray(parsed.variableCoverage) ? parsed.variableCoverage : [];
-
-  const sortedSeeds = [...seedEntries].sort((left, right) => left.anchor.localeCompare(right.anchor));
-  for (const seed of sortedSeeds) {
-    if (typeof seed.anchor !== "string" || seed.anchor.length === 0) {
+  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  const sortedEntries = [...entries].sort((left, right) => left.anchor.localeCompare(right.anchor));
+  for (const entry of sortedEntries) {
+    if (typeof entry.anchor !== "string" || entry.anchor.length === 0) {
       continue;
     }
-    if (typeof seed.censusName !== "string" || seed.censusName.length === 0) {
+    if (typeof entry.finalName !== "string" || entry.finalName.length === 0) {
       continue;
     }
+    const signalScore = clampConfidence(typeof entry.signalScore === "number" ? entry.signalScore : 0.42);
+    const confidenceWeight = entry.promoteToQuality ? 0.78 : 0.66;
     sink.push(
       createRecord(
         "symbol_hint",
         owner,
-        seed.anchor,
-        seed.censusName,
-        baseConfidence * 0.98,
+        entry.anchor,
+        entry.finalName,
+        baseConfidence * confidenceWeight + signalScore * 0.12,
         provenance,
       ),
     );
   }
+}
 
-  const sortedVariables = [...variableCoverage]
+function pushMonolithTypingHints(
+  source: string,
+  owner: string,
+  baseConfidence: number,
+  provenance: EvidenceProvenance,
+  sink: EvidenceRecord[],
+): void {
+  let parsed: MonolithTypingHintsModel = {};
+  try {
+    parsed = JSON.parse(source) as MonolithTypingHintsModel;
+  } catch {
+    return;
+  }
+
+  const variableHints = Array.isArray(parsed.variableHints) ? parsed.variableHints : [];
+  const sortedVariables = [...variableHints]
     .filter((entry) => typeof entry.variableKey === "string" && entry.variableKey.length > 0)
-    .filter((entry) => typeof entry.censusName === "string" && entry.censusName.length > 0)
+    .filter((entry) => typeof entry.variableName === "string" && entry.variableName.length > 0)
     .sort((left, right) => left.variableKey.localeCompare(right.variableKey))
     .slice(0, COVERAGE_VARIABLE_LIMIT);
 
   for (const variable of sortedVariables) {
+    const inferredType = typeof variable.inferredType === "string" ? variable.inferredType : "unknown";
+    const typePenalty = inferredType === "unknown" ? 0.08 : 0;
     sink.push(
       createRecord(
         "symbol_hint",
         owner,
         `coverage:${variable.variableKey}`,
-        variable.censusName,
-        baseConfidence * 0.74,
+        variable.variableName,
+        baseConfidence * (0.64 - typePenalty),
         provenance,
       ),
     );
+  }
+}
+
+function pushUnwebpackScanSummaryHints(
+  source: string,
+  owner: string,
+  baseConfidence: number,
+  provenance: EvidenceProvenance,
+  sink: EvidenceRecord[],
+): void {
+  let parsed: UnwebpackScanSummaryModel = {};
+  try {
+    parsed = JSON.parse(source) as UnwebpackScanSummaryModel;
+  } catch {
+    return;
+  }
+
+  const selectedMapFiles = Array.isArray(parsed.selectedMapFiles) ? parsed.selectedMapFiles : [];
+  const extractedSourceFiles = Array.isArray(parsed.extractedSourceFiles) ? parsed.extractedSourceFiles : [];
+  const candidates = [...selectedMapFiles, ...extractedSourceFiles]
+    .filter((value) => typeof value === "string" && value.length > 0)
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, 320);
+
+  if (candidates.length === 0) {
+    sink.push(
+      createRecord(
+        "file_hint",
+        owner,
+        "unwebpack:file:empty",
+        "sourcemap/no-map-files",
+        baseConfidence * 0.22,
+        provenance,
+      ),
+    );
+    return;
+  }
+
+  let ordinal = 0;
+  for (const candidate of candidates) {
+    sink.push(
+      createRecord(
+        "file_hint",
+        owner,
+        `unwebpack:file:${ordinal}`,
+        candidate,
+        baseConfidence * 0.86,
+        provenance,
+      ),
+    );
+    ordinal += 1;
   }
 }
 
@@ -468,12 +549,30 @@ async function extractSourceEvidence(sourceFile: EvidenceSourceFile): Promise<Ev
   const owner = sourceFile.lineageId;
   const sink: EvidenceRecord[] = [];
 
-  const isMonolithCensusMapping =
+  const isMonolithSymbolTable =
     sourceFile.stageId === "monolith-census" &&
     sourceFile.sourceKind === "text" &&
-    sourceFile.filePath.toLowerCase().endsWith("census-mapping.json");
-  if (isMonolithCensusMapping) {
-    pushMonolithCensusMappingHints(source, owner, sourceFile.baseConfidence, provenance, sink);
+    sourceFile.filePath.toLowerCase().endsWith("symbol-table.json");
+  if (isMonolithSymbolTable) {
+    pushMonolithSymbolTableHints(source, owner, sourceFile.baseConfidence, provenance, sink);
+    return sink;
+  }
+
+  const isMonolithTypingHints =
+    sourceFile.stageId === "monolith-census" &&
+    sourceFile.sourceKind === "text" &&
+    sourceFile.filePath.toLowerCase().endsWith("typing-hints.json");
+  if (isMonolithTypingHints) {
+    pushMonolithTypingHints(source, owner, sourceFile.baseConfidence, provenance, sink);
+    return sink;
+  }
+
+  const isUnwebpackScanSummary =
+    sourceFile.stageId === "unwebpack-sourcemap" &&
+    sourceFile.sourceKind === "text" &&
+    sourceFile.filePath.toLowerCase().endsWith("scan-summary.json");
+  if (isUnwebpackScanSummary) {
+    pushUnwebpackScanSummaryHints(source, owner, sourceFile.baseConfidence, provenance, sink);
     return sink;
   }
 
@@ -490,16 +589,19 @@ async function extractSourceEvidence(sourceFile: EvidenceSourceFile): Promise<Ev
 async function ingestEvidenceSources(
   sourceFiles: EvidenceSourceFile[],
   recordsById: Map<string, EvidenceRecord>,
-  limit: number,
-): Promise<void> {
+  maxNewRecords: number,
+): Promise<number> {
+  if (maxNewRecords <= 0) {
+    return 0;
+  }
   let added = 0;
   const orderedSourceFiles = [...sourceFiles].sort((left, right) => left.filePath.localeCompare(right.filePath));
 
   for (const sourceFile of orderedSourceFiles) {
     const extractedRecords = await extractSourceEvidence(sourceFile);
     for (const record of extractedRecords) {
-      if (added >= limit) {
-        return;
+      if (added >= maxNewRecords) {
+        return added;
       }
       if (recordsById.has(record.id)) {
         continue;
@@ -508,6 +610,7 @@ async function ingestEvidenceSources(
       added += 1;
     }
   }
+  return added;
 }
 
 function buildStats(records: EvidenceRecord[]): EvidenceStats {
@@ -553,7 +656,24 @@ export async function buildEvidenceStore(sourceFiles: EvidenceSourceFile[], maxR
   const coverageSources = sourceFiles.filter((sourceFile) => isCoverageSource(sourceFile));
 
   const primaryRecordsById = new Map<string, EvidenceRecord>();
-  await ingestEvidenceSources(primarySources, primaryRecordsById, maxRecords);
+  const tools = [...new Set(primarySources.map((sourceFile) => sourceFile.tool))].sort((left, right) => left.localeCompare(right));
+  const minBudgetPerTool =
+    tools.length === 0 ? 0 : Math.max(300, Math.floor(maxRecords / Math.max(1, tools.length * 2)));
+  let remainingPrimaryBudget = maxRecords;
+
+  for (const tool of tools) {
+    if (remainingPrimaryBudget <= 0) {
+      break;
+    }
+    const toolSources = primarySources.filter((sourceFile) => sourceFile.tool === tool);
+    const reservedBudget = Math.min(remainingPrimaryBudget, minBudgetPerTool);
+    const added = await ingestEvidenceSources(toolSources, primaryRecordsById, reservedBudget);
+    remainingPrimaryBudget -= added;
+  }
+
+  if (remainingPrimaryBudget > 0) {
+    await ingestEvidenceSources(primarySources, primaryRecordsById, remainingPrimaryBudget);
+  }
 
   const coverageRecordsById = new Map<string, EvidenceRecord>();
   const coverageBudget = Math.max(1200, Math.floor(maxRecords * COVERAGE_RECORD_BUDGET_FACTOR));

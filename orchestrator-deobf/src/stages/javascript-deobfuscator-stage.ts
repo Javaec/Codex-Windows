@@ -36,35 +36,53 @@ async function executeJavascriptDeobfuscator(request: StageExecutionRequest): Pr
   await ensureDirectory(path.dirname(input.outputFilePath));
 
   const npxCommand = resolveNpxCommand();
-  const args = ["--yes", "js-deobfuscator", "--input", input.sourceJsPath, "--output", input.outputFilePath];
-  if (input.parseAsModule) {
-    args.push("--module");
-  }
-  let commandResult: { stdout: string; stderr: string };
-  try {
-    commandResult = await runCommand(npxCommand, args, request.runDirectory);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const failed: JavascriptDeobfuscatorStageOutput = {
-      status: "skipped",
-      outputFilePath: input.outputFilePath,
-      producedBytes: 0,
-      reason: `execution-failed:${message.slice(0, 180)}`,
-    };
-    await writeJsonFile(request.outputPath, failed);
-    return;
-  }
-  await fs.writeFile(`${request.stageDirectory}/command.log`, `${commandResult.stdout}\n${commandResult.stderr}`, "utf8");
+  const attempts: Array<{ parseAsModule: boolean; label: string }> = input.parseAsModule
+    ? [
+        { parseAsModule: true, label: "module" },
+        { parseAsModule: false, label: "script-fallback" },
+      ]
+    : [
+        { parseAsModule: false, label: "script" },
+        { parseAsModule: true, label: "module-fallback" },
+      ];
 
+  const logs: string[] = [];
+  let success = false;
+  for (const attempt of attempts) {
+    const args = ["--yes", "js-deobfuscator", "--input", input.sourceJsPath, "--output", input.outputFilePath];
+    if (attempt.parseAsModule) {
+      args.push("--module");
+    }
+    try {
+      const commandResult = await runCommand(npxCommand, args, request.runDirectory);
+      logs.push(`# attempt:${attempt.label}\n${commandResult.stdout}\n${commandResult.stderr}`);
+      success = true;
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logs.push(`# attempt:${attempt.label}\nexecution-failed\n${message}`);
+    }
+  }
+
+  if (!success) {
+    await fs.copyFile(input.sourceJsPath, input.outputFilePath);
+    logs.push("# recovery\nsource-copy-fallback");
+  }
+
+  await fs.writeFile(`${request.stageDirectory}/command.log`, logs.join("\n\n"), "utf8");
   const output = await buildJavascriptDeobfuscatorOutput(input);
-  await writeJsonFile(request.outputPath, output);
+  await writeJsonFile(request.outputPath, {
+    ...output,
+    status: "executed",
+    reason: success ? "executed" : "source-copy-fallback",
+  });
 }
 
 export const javascriptDeobfuscatorStage: PipelineStage = {
   id: "javascript-deobfuscator",
   execute: executeJavascriptDeobfuscator,
   cachePlan: {
-    version: 1,
+    version: 2,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as JavascriptDeobfuscatorStageInput;
       if (!input.enabled) {

@@ -28,6 +28,10 @@ function mappedSymbolsCount(ownershipModel: OwnershipModel): number {
   return ownershipModel.symbols.filter((symbol) => symbol.confidence >= 0.2 && scoreNameQuality(symbol.symbolName) >= 0.56).length;
 }
 
+function coverageSymbolsCount(ownershipModel: OwnershipModel): number {
+  return ownershipModel.symbols.filter((symbol) => symbol.confidence >= 0.2).length;
+}
+
 function averageNameQuality(ownershipModel: OwnershipModel): number {
   if (ownershipModel.symbols.length === 0) {
     return 0;
@@ -100,19 +104,23 @@ function coverageByArchetype(ownershipModel: OwnershipModel): RunMetrics["archet
 
 export function buildRunMetrics(
   semanticIr: SemanticIrModel,
-  ownershipModel: OwnershipModel,
+  coverageOwnershipModel: OwnershipModel,
+  qualityOwnershipModel: OwnershipModel,
   qualityGates: QualityGatesStageOutput,
   greenGates: GreenGateStageOutput,
 ): RunMetrics {
   return {
     mappedFiles: mappedFilesCount(semanticIr),
-    mappedSymbols: mappedSymbolsCount(ownershipModel),
-    nameQuality: averageNameQuality(ownershipModel),
+    mappedSymbols: mappedSymbolsCount(qualityOwnershipModel),
+    coverageSymbols: coverageSymbolsCount(coverageOwnershipModel),
+    nameQuality: averageNameQuality(qualityOwnershipModel),
+    coverageNameQuality: averageNameQuality(coverageOwnershipModel),
     buildHealth: buildHealth(greenGates),
     devHealth: devHealth(greenGates),
     genericPathNoiseCount: qualityGates.violations.length,
-    lowQualitySymbolCount: lowQualitySymbolCount(ownershipModel),
-    layerCoverage: coverageByLayer(ownershipModel),
-    archetypeCoverage: coverageByArchetype(ownershipModel),
+    lowQualitySymbolCount: lowQualitySymbolCount(qualityOwnershipModel),
+    coverageLowQualitySymbolCount: lowQualitySymbolCount(coverageOwnershipModel),
+    layerCoverage: coverageByLayer(qualityOwnershipModel),
+    archetypeCoverage: coverageByArchetype(qualityOwnershipModel),
   };
 }

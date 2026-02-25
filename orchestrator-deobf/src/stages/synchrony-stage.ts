@@ -36,6 +36,7 @@ async function executeSynchrony(request: StageExecutionRequest): Promise<void> {
   await ensureDirectory(path.dirname(input.outputFilePath));
 
   const npxCommand = resolveNpxCommand();
+  const logs: string[] = [];
   const args = ["--yes", "deobfuscator", input.sourceJsPath, "--output", input.outputFilePath];
   if (input.rename) {
     args.push("--rename");
@@ -43,31 +44,36 @@ async function executeSynchrony(request: StageExecutionRequest): Promise<void> {
   if (input.loose) {
     args.push("--loose");
   }
-  let commandResult: { stdout: string; stderr: string };
+
+  let success = false;
   try {
-    commandResult = await runCommand(npxCommand, args, request.runDirectory);
+    const commandResult = await runCommand(npxCommand, args, request.runDirectory);
+    logs.push(`${commandResult.stdout}\n${commandResult.stderr}`);
+    success = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const failed: SynchronyStageOutput = {
-      status: "skipped",
-      outputFilePath: input.outputFilePath,
-      producedBytes: 0,
-      reason: `execution-failed:${message.slice(0, 180)}`,
-    };
-    await writeJsonFile(request.outputPath, failed);
-    return;
+    logs.push(`execution-failed\n${message}`);
   }
-  await fs.writeFile(`${request.stageDirectory}/command.log`, `${commandResult.stdout}\n${commandResult.stderr}`, "utf8");
 
+  if (!success) {
+    await fs.copyFile(input.sourceJsPath, input.outputFilePath);
+    logs.push("source-copy-fallback");
+  }
+
+  await fs.writeFile(`${request.stageDirectory}/command.log`, logs.join("\n\n"), "utf8");
   const output = await buildSynchronyOutput(input);
-  await writeJsonFile(request.outputPath, output);
+  await writeJsonFile(request.outputPath, {
+    ...output,
+    status: "executed",
+    reason: success ? "executed" : "source-copy-fallback",
+  });
 }
 
 export const synchronyStage: PipelineStage = {
   id: "synchrony",
   execute: executeSynchrony,
   cachePlan: {
-    version: 1,
+    version: 2,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as SynchronyStageInput;
       if (!input.enabled) {

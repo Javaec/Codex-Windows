@@ -6,6 +6,18 @@ import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { PipelineStage, StageExecutionRequest, StageCachePlan } from "./stage-runner";
 
 type CensusSymbolKind = "class" | "function" | "callable-variable";
+type TypeHintKind = "boolean" | "array" | "object" | "function" | "unknown";
+type SemanticBucket =
+  | "sum"
+  | "orchestrate"
+  | "parse"
+  | "state"
+  | "event"
+  | "request"
+  | "config"
+  | "view"
+  | "flow"
+  | "domain";
 
 interface RenameOccurrence {
   start: number;
@@ -15,9 +27,11 @@ interface RenameOccurrence {
 }
 
 interface NamedOccurrence extends RenameOccurrence {
+  pass1Name: string;
   replacementName: string;
   signalTags: string[];
   signalScore: number;
+  semanticBucket: SemanticBucket;
   promoteToQuality: boolean;
 }
 
@@ -28,8 +42,10 @@ interface CensusSeedEntry {
   kind: CensusSymbolKind;
   originalName: string;
   censusName: string;
+  pass1Name: string;
   signalTags: string[];
   signalScore: number;
+  semanticBucket: SemanticBucket;
   promoteToQuality: boolean;
 }
 
@@ -37,15 +53,67 @@ interface VariableCoverageEntry {
   variableKey: string;
   originalName: string;
   censusName: string;
+  inferredType: TypeHintKind;
 }
 
 interface MonolithCensusMapping {
   version: number;
   generatedAtIso: string;
   sourceJsPath: string;
+  unifiedMonolithPath: string;
   lineageId: string;
   seedEntries: CensusSeedEntry[];
   variableCoverage: VariableCoverageEntry[];
+}
+
+interface SymbolTableEntry {
+  symbolKey: string;
+  anchor: string;
+  kind: CensusSymbolKind;
+  originalName: string;
+  pass1Name: string;
+  finalName: string;
+  start: number;
+  end: number;
+  signalTags: string[];
+  signalScore: number;
+  semanticBucket: SemanticBucket;
+  promoteToQuality: boolean;
+}
+
+interface SymbolTableModel {
+  version: number;
+  generatedAtIso: string;
+  sourceJsPath: string;
+  unifiedMonolithPath: string;
+  lineageId: string;
+  entries: SymbolTableEntry[];
+}
+
+interface FunctionTypingHint {
+  symbolKey: string;
+  name: string;
+  kind: CensusSymbolKind;
+  parameterNames: string[];
+  parameterCount: number;
+  signature: string;
+  returnHint: TypeHintKind;
+}
+
+interface VariableTypingHint {
+  variableKey: string;
+  variableName: string;
+  inferredType: TypeHintKind;
+}
+
+interface TypingHintsModel {
+  version: number;
+  generatedAtIso: string;
+  sourceJsPath: string;
+  unifiedMonolithPath: string;
+  lineageId: string;
+  functionHints: FunctionTypingHint[];
+  variableHints: VariableTypingHint[];
 }
 
 interface SignalPattern {
@@ -58,35 +126,24 @@ const CLASS_REGEX = /\bclass\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\b/g;
 const FUNCTION_REGEX = /\bfunction\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\s*\(/g;
 const CALLABLE_VARIABLE_REGEX =
   /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/g;
-const VARIABLE_COVERAGE_REGEX = /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
+const VARIABLE_DECLARATION_WITH_INIT_REGEX =
+  /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;\n]+))?/g;
 
 const SIGNAL_PATTERNS: SignalPattern[] = [
-  { tag: "ipc", regex: /\b(ipc|invoke|channel|electron)\b/i, weight: 0.22 },
-  { tag: "rpc", regex: /\b(rpc|request|response|transport)\b/i, weight: 0.2 },
-  { tag: "route", regex: /\b(route|router|navigate|path|screen|page)\b/i, weight: 0.2 },
-  { tag: "event", regex: /\b(event|emit|listener|subscribe|dispatch)\b/i, weight: 0.2 },
-  { tag: "state", regex: /\b(state|store|cache|reducer|atom)\b/i, weight: 0.19 },
-  { tag: "async", regex: /\b(async|await|promise|then)\b/i, weight: 0.16 },
-  { tag: "math", regex: /\b(Math|sum|total|average|calc|compute)\b/i, weight: 0.14 },
-  { tag: "collection", regex: /\b(map|filter|reduce|forEach|find|sort)\b/i, weight: 0.12 },
-  { tag: "config", regex: /\b(config|settings|profile|option|flag)\b/i, weight: 0.12 },
+  { tag: "ipc", regex: /\b(ipc|invoke|channel|electron)\b/i, weight: 0.2 },
+  { tag: "rpc", regex: /\b(rpc|request|response|transport)\b/i, weight: 0.18 },
+  { tag: "route", regex: /\b(route|router|navigate|path|screen|page)\b/i, weight: 0.17 },
+  { tag: "event", regex: /\b(event|emit|listener|subscribe|dispatch)\b/i, weight: 0.17 },
+  { tag: "state", regex: /\b(state|store|cache|reducer|atom)\b/i, weight: 0.17 },
+  { tag: "async", regex: /\b(async|await|promise|then)\b/i, weight: 0.14 },
+  { tag: "parse", regex: /\b(parse|json|decode|encode|lexer|token|ast)\b/i, weight: 0.16 },
+  { tag: "math", regex: /\b(Math|sum|total|average|calc|compute)\b/i, weight: 0.15 },
   { tag: "network", regex: /\b(fetch|http|socket|ws|request|client)\b/i, weight: 0.14 },
+  { tag: "config", regex: /\b(config|settings|profile|option|flag)\b/i, weight: 0.13 },
   { tag: "ui", regex: /\b(jsx|render|component|dialog|panel|view)\b/i, weight: 0.12 },
 ];
 
-const TAG_PRIORITY = [
-  "ipc",
-  "rpc",
-  "route",
-  "event",
-  "state",
-  "async",
-  "network",
-  "config",
-  "ui",
-  "collection",
-  "math",
-];
+const TAG_PRIORITY = ["ipc", "rpc", "route", "event", "state", "parse", "network", "config", "ui", "async", "math"];
 
 function clamp(value: number): number {
   if (value < 0) {
@@ -98,8 +155,8 @@ function clamp(value: number): number {
   return Number(value.toFixed(4));
 }
 
-function ordinalToken(value: number): string {
-  return value.toString(36).toUpperCase();
+function padOrdinal(value: number, size: number): string {
+  return String(value).padStart(size, "0");
 }
 
 function sanitizeIdentifier(value: string, fallback: string): string {
@@ -127,13 +184,19 @@ function sanitizeIdentifier(value: string, fallback: string): string {
 }
 
 function toPascalCase(value: string): string {
-  return value
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[^A-Za-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
-    .filter((segment) => segment.length > 0)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .filter((token) => token.length > 0)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
     .join("");
+  return normalized.length > 0 ? normalized : "Domain";
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function collectRenames(source: string): RenameOccurrence[] {
@@ -219,14 +282,19 @@ function assertNoOverlaps(renames: RenameOccurrence[]): void {
 }
 
 function snippetAt(source: string, start: number): string {
-  const left = Math.max(0, start - 260);
-  const right = Math.min(source.length, start + 360);
+  const left = Math.max(0, start - 280);
+  const right = Math.min(source.length, start + 420);
   return source.slice(left, right);
+}
+
+function estimateCallCount(snippet: string): number {
+  const matches = snippet.match(/\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g);
+  return matches ? matches.length : 0;
 }
 
 function collectSignalTags(snippet: string): { tags: string[]; score: number } {
   const tags: string[] = [];
-  let score = 0.36;
+  let score = 0.34;
   for (const signal of SIGNAL_PATTERNS) {
     if (!signal.regex.test(snippet)) {
       continue;
@@ -241,133 +309,205 @@ function collectSignalTags(snippet: string): { tags: string[]; score: number } {
   };
 }
 
-function stemByTag(tag: string): string {
-  if (tag === "ipc") {
-    return "ipcTransport";
+function bucketFromTags(snippet: string, tags: string[]): SemanticBucket {
+  if (/\b(sum|total|average|compute|calc|Math\.)\b/.test(snippet)) {
+    return "sum";
   }
-  if (tag === "rpc") {
-    return "rpcGateway";
+  if (/\b(parse|json|decode|encode|lexer|token|ast)\b/i.test(snippet)) {
+    return "parse";
   }
-  if (tag === "route") {
-    return "routeFlow";
+  if (/\b(state|store|cache|reducer|atom|getState|setState)\b/i.test(snippet)) {
+    return "state";
   }
-  if (tag === "event") {
-    return "eventStream";
+  if (/\b(event|emit|dispatch|listener|subscribe)\b/i.test(snippet)) {
+    return "event";
   }
-  if (tag === "state") {
-    return "stateStore";
+  if (/\b(fetch|http|request|response|socket|ws)\b/i.test(snippet)) {
+    return "request";
   }
-  if (tag === "async") {
-    return "asyncWorkflow";
+  if (/\b(config|setting|profile|option|flag)\b/i.test(snippet)) {
+    return "config";
   }
-  if (tag === "network") {
-    return "networkClient";
+  if (/\b(view|render|component|dialog|panel|screen)\b/i.test(snippet)) {
+    return "view";
   }
-  if (tag === "config") {
-    return "configProfile";
+  const callCount = estimateCallCount(snippet);
+  if (callCount >= 5) {
+    return "orchestrate";
   }
-  if (tag === "ui") {
-    return "uiComponent";
+  const dominantTag = tags[0] ?? "";
+  if (dominantTag === "ipc" || dominantTag === "rpc" || dominantTag === "route") {
+    return "orchestrate";
   }
-  if (tag === "collection") {
-    return "collectionTransform";
-  }
-  if (tag === "math") {
-    return "mathCompute";
-  }
-  return "domainUnit";
+  return "flow";
 }
 
-function fallbackName(kind: CensusSymbolKind, ordinal: number): string {
+function composePass1Name(kind: CensusSymbolKind, classOrdinal: number, functionOrdinal: number): string {
   if (kind === "class") {
-    return `classUnit${ordinalToken(ordinal)}`;
+    return `Class${padOrdinal(classOrdinal, 4)}`;
   }
-  if (kind === "function") {
-    return `functionUnit${ordinalToken(ordinal)}`;
-  }
-  return `callableUnit${ordinalToken(ordinal)}`;
+  return `Func${padOrdinal(functionOrdinal, 4)}`;
 }
 
-function composeCoverageName(
+function composePass2Name(
   kind: CensusSymbolKind,
-  ordinal: number,
-  tags: string[],
+  bucket: SemanticBucket,
+  classOrdinal: number,
+  functionOrdinal: number,
   usedNames: Set<string>,
 ): string {
-  const dominantTag = tags[0];
-  const stem = dominantTag ? stemByTag(dominantTag) : "";
-  let raw = "";
-  if (stem.length > 0) {
-    if (kind === "class") {
-      raw = `${toPascalCase(stem)}Class${ordinalToken(ordinal)}`;
-    } else if (kind === "function") {
-      raw = `${stem}Fn${ordinalToken(ordinal)}`;
-    } else {
-      raw = `${stem}Callable${ordinalToken(ordinal)}`;
-    }
+  let base = "";
+  if (kind === "class") {
+    base = `${toPascalCase(bucket)}Class${padOrdinal(classOrdinal, 4)}`;
   } else {
-    raw = fallbackName(kind, ordinal);
+    base = sanitizeIdentifier(`${bucket}Func${padOrdinal(functionOrdinal, 4)}`, `flowFunc${padOrdinal(functionOrdinal, 4)}`);
   }
-
-  const base = sanitizeIdentifier(raw, fallbackName(kind, ordinal));
   let candidate = base;
   let collision = 2;
   while (usedNames.has(candidate)) {
-    candidate = `${base}${ordinalToken(collision)}`;
+    candidate = `${base}_${collision}`;
     collision += 1;
   }
   usedNames.add(candidate);
   return candidate;
 }
 
-function shouldPromoteToQuality(name: string, signalScore: number, tags: string[]): boolean {
-  const normalized = name.toLowerCase();
-  if (normalized.startsWith("classunit")) {
-    return false;
+function shouldPromoteToQuality(signalScore: number, semanticBucket: SemanticBucket): boolean {
+  if (semanticBucket === "flow") {
+    return signalScore >= 0.62;
   }
-  if (normalized.startsWith("functionunit")) {
-    return false;
-  }
-  if (normalized.startsWith("callableunit")) {
-    return false;
-  }
-  if (tags.length === 0) {
-    return false;
-  }
-  return signalScore >= 0.68;
+  return signalScore >= 0.5;
 }
 
-function assignCoverageNames(source: string, renames: RenameOccurrence[]): NamedOccurrence[] {
-  const usedNames = new Set<string>();
-  return renames.map((entry, index) => {
+function assignNames(source: string, renames: RenameOccurrence[]): NamedOccurrence[] {
+  let classOrdinal = 0;
+  let functionOrdinal = 0;
+  const usedPass2Names = new Set<string>();
+  const output: NamedOccurrence[] = [];
+
+  for (const entry of renames) {
     const snippet = snippetAt(source, entry.start);
     const signal = collectSignalTags(snippet);
-    const replacementName = composeCoverageName(entry.kind, index + 1, signal.tags, usedNames);
-    return {
+    const bucket = bucketFromTags(snippet, signal.tags);
+    if (entry.kind === "class") {
+      classOrdinal += 1;
+    } else {
+      functionOrdinal += 1;
+    }
+    const pass1Name = composePass1Name(entry.kind, classOrdinal, functionOrdinal);
+    const replacementName = composePass2Name(entry.kind, bucket, classOrdinal, functionOrdinal, usedPass2Names);
+
+    output.push({
       ...entry,
+      pass1Name,
       replacementName,
       signalTags: signal.tags,
       signalScore: signal.score,
-      promoteToQuality: shouldPromoteToQuality(replacementName, signal.score, signal.tags),
-    };
-  });
+      semanticBucket: bucket,
+      promoteToQuality: shouldPromoteToQuality(signal.score, bucket),
+    });
+  }
+
+  return output;
 }
 
-function applyRenames(source: string, renames: NamedOccurrence[]): string {
+function applyDeclarationRenames(source: string, renames: RenameOccurrence[], getName: (entry: RenameOccurrence) => string): string {
   const sorted = [...renames].sort((left, right) => right.start - left.start);
   let output = source;
   for (const rename of sorted) {
-    output = `${output.slice(0, rename.start)}${rename.replacementName}${output.slice(rename.end)}`;
+    output = `${output.slice(0, rename.start)}${getName(rename)}${output.slice(rename.end)}`;
   }
   return output;
 }
 
-function buildSeedEntries(lineageId: string, renames: NamedOccurrence[]): CensusSeedEntry[] {
-  const classes = renames.filter((entry) => entry.kind === "class");
-  const functions = renames.filter((entry) => entry.kind === "function");
-  const callableVariables = renames.filter((entry) => entry.kind === "callable-variable");
-  const ordered = [...classes, ...functions, ...callableVariables];
-  return ordered.map((entry, index) => {
+function parseParameterNames(rawParameters: string): string[] {
+  return rawParameters
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => entry.replace(/=[\s\S]*$/, "").trim())
+    .map((entry) => entry.replace(/^[.\s]*\.\.\./, "").trim())
+    .map((entry) => entry.replace(/[:?].*$/, "").trim())
+    .filter((entry) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(entry));
+}
+
+function inferReturnHintFromSnippet(snippet: string): TypeHintKind {
+  if (/\breturn\s+(?:true|false)\b/.test(snippet)) {
+    return "boolean";
+  }
+  if (/\breturn\s+\[/.test(snippet)) {
+    return "array";
+  }
+  if (/\breturn\s+\{/.test(snippet)) {
+    return "object";
+  }
+  if (/\breturn\s+(?:async\s*)?function\b/.test(snippet) || /\breturn\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=>/.test(snippet)) {
+    return "function";
+  }
+  return "unknown";
+}
+
+function extractFunctionParameters(source: string, entry: NamedOccurrence): string[] {
+  const tail = source.slice(entry.start, Math.min(source.length, entry.start + 520));
+  if (entry.kind === "function") {
+    const direct = new RegExp(`^${escapeRegex(entry.originalName)}\\s*\\(([^)]*)\\)`).exec(tail);
+    if (direct && direct[1]) {
+      return parseParameterNames(direct[1]);
+    }
+    return [];
+  }
+  if (entry.kind === "callable-variable") {
+    const callableMatch =
+      new RegExp(
+        `^${escapeRegex(entry.originalName)}\\s*=\\s*(?:async\\s*)?(?:function\\s*(?:[A-Za-z_$][A-Za-z0-9_$]*)?\\s*\\(([^)]*)\\)|\\(([^)]*)\\)\\s*=>|([A-Za-z_$][A-Za-z0-9_$]*)\\s*=>)`,
+      ).exec(tail);
+    if (!callableMatch) {
+      return [];
+    }
+    if (callableMatch[1]) {
+      return parseParameterNames(callableMatch[1]);
+    }
+    if (callableMatch[2]) {
+      return parseParameterNames(callableMatch[2]);
+    }
+    if (callableMatch[3]) {
+      return [callableMatch[3]];
+    }
+    return [];
+  }
+  const classTail = source.slice(entry.start, Math.min(source.length, entry.start + 1200));
+  const constructorMatch = /\bconstructor\s*\(([^)]*)\)/.exec(classTail);
+  if (!constructorMatch || !constructorMatch[1]) {
+    return [];
+  }
+  return parseParameterNames(constructorMatch[1]);
+}
+
+function inferValueType(expression: string): TypeHintKind {
+  const normalized = expression.trim();
+  if (normalized.length === 0) {
+    return "unknown";
+  }
+  if (/^(?:true|false)\b/.test(normalized)) {
+    return "boolean";
+  }
+  if (/^(?:!|Boolean\()/.test(normalized) || /(?:===|!==|<=|>=|<|>)/.test(normalized)) {
+    return "boolean";
+  }
+  if (/^\[/.test(normalized) || /^new\s+Array\b/.test(normalized)) {
+    return "array";
+  }
+  if (/^\{/.test(normalized) || /^new\s+(?:Map|Set|WeakMap|WeakSet|Object)\b/.test(normalized)) {
+    return "object";
+  }
+  if (/^(?:async\s*)?function\b/.test(normalized) || /=>/.test(normalized)) {
+    return "function";
+  }
+  return "unknown";
+}
+
+function buildSeedEntries(lineageId: string, namedRenames: NamedOccurrence[]): CensusSeedEntry[] {
+  return namedRenames.map((entry, index) => {
     const anchor = `symbol:${index}`;
     return {
       symbolKey: `${lineageId}:${anchor}`,
@@ -376,53 +516,158 @@ function buildSeedEntries(lineageId: string, renames: NamedOccurrence[]): Census
       kind: entry.kind,
       originalName: entry.originalName,
       censusName: entry.replacementName,
+      pass1Name: entry.pass1Name,
       signalTags: entry.signalTags,
       signalScore: entry.signalScore,
+      semanticBucket: entry.semanticBucket,
       promoteToQuality: entry.promoteToQuality,
     };
   });
 }
 
 function buildVariableCoverage(source: string): VariableCoverageEntry[] {
-  return [...source.matchAll(VARIABLE_COVERAGE_REGEX)].map((match, index) => {
+  return [...source.matchAll(VARIABLE_DECLARATION_WITH_INIT_REGEX)].map((match, index) => {
     const originalName = match[1];
+    const expression = match[2] ?? "";
     if (!originalName) {
       throw new Error("buildVariableCoverage: invalid variable match");
     }
     return {
       variableKey: `var:${index}`,
       originalName,
-      censusName: `valueUnit${ordinalToken(index + 1)}`,
+      censusName: `Var${padOrdinal(index + 1, 6)}`,
+      inferredType: inferValueType(expression),
     };
   });
+}
+
+function buildSymbolTable(
+  sourceJsPath: string,
+  unifiedMonolithPath: string,
+  lineageId: string,
+  namedRenames: NamedOccurrence[],
+): SymbolTableModel {
+  const entries: SymbolTableEntry[] = namedRenames.map((entry, index) => ({
+    symbolKey: `${lineageId}:symbol:${index}`,
+    anchor: `symbol:${index}`,
+    kind: entry.kind,
+    originalName: entry.originalName,
+    pass1Name: entry.pass1Name,
+    finalName: entry.replacementName,
+    start: entry.start,
+    end: entry.end,
+    signalTags: entry.signalTags,
+    signalScore: entry.signalScore,
+    semanticBucket: entry.semanticBucket,
+    promoteToQuality: entry.promoteToQuality,
+  }));
+  return {
+    version: 1,
+    generatedAtIso: new Date().toISOString(),
+    sourceJsPath,
+    unifiedMonolithPath,
+    lineageId,
+    entries,
+  };
+}
+
+function buildTypingHints(
+  source: string,
+  sourceJsPath: string,
+  unifiedMonolithPath: string,
+  lineageId: string,
+  namedRenames: NamedOccurrence[],
+  variableCoverage: VariableCoverageEntry[],
+): TypingHintsModel {
+  const functionHints: FunctionTypingHint[] = namedRenames.map((entry, index) => {
+    const parameterNames = extractFunctionParameters(source, entry);
+    const signatureBase = entry.kind === "class" ? `new ${entry.replacementName}` : entry.replacementName;
+    const signature = `${signatureBase}(${parameterNames.join(", ")})`;
+    const returnHint = inferReturnHintFromSnippet(snippetAt(source, entry.start));
+    return {
+      symbolKey: `${lineageId}:symbol:${index}`,
+      name: entry.replacementName,
+      kind: entry.kind,
+      parameterNames,
+      parameterCount: parameterNames.length,
+      signature,
+      returnHint,
+    };
+  });
+
+  const variableHints: VariableTypingHint[] = variableCoverage.map((entry) => ({
+    variableKey: entry.variableKey,
+    variableName: entry.censusName,
+    inferredType: entry.inferredType,
+  }));
+
+  return {
+    version: 1,
+    generatedAtIso: new Date().toISOString(),
+    sourceJsPath,
+    unifiedMonolithPath,
+    lineageId,
+    functionHints,
+    variableHints,
+  };
 }
 
 async function executeMonolithCensus(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<MonolithCensusStageInput>(request.inputPath);
   const source = await fs.readFile(input.sourceJsPath, "utf8");
+
   const renames = collectRenames(source);
   assertNoOverlaps(renames);
-  const namedRenames = assignCoverageNames(source, renames);
-  const censusSource = applyRenames(source, namedRenames);
+  const namedRenames = assignNames(source, renames);
+
+  const pass1Source = applyDeclarationRenames(source, namedRenames, (entry) => {
+    const named = namedRenames.find((candidate) => candidate.start === entry.start && candidate.end === entry.end);
+    if (!named) {
+      throw new Error(`Missing named entry for declaration at ${entry.start}`);
+    }
+    return named.pass1Name;
+  });
+  const pass2Source = applyDeclarationRenames(source, namedRenames, (entry) => {
+    const named = namedRenames.find((candidate) => candidate.start === entry.start && candidate.end === entry.end);
+    if (!named) {
+      throw new Error(`Missing named entry for declaration at ${entry.start}`);
+    }
+    return named.replacementName;
+  });
 
   const seedEntries = buildSeedEntries(input.lineageId, namedRenames);
   const variableCoverage = buildVariableCoverage(source);
   const qualityPromotionCandidateCount = seedEntries.filter((entry) => entry.promoteToQuality).length;
 
+  const unifiedMonolithPath = path.join(input.outputDirectory, "unified-monolith.js");
+  const pass1MonolithPath = path.join(input.outputDirectory, "unified-monolith.pass1.js");
+  const pass2MonolithPath = path.join(input.outputDirectory, "unified-monolith.pass2.js");
+  const censusJsPath = path.join(input.outputDirectory, "monolith-census.js");
+  const mappingPath = path.join(input.outputDirectory, "census-mapping.json");
+  const symbolTablePath = path.join(input.outputDirectory, "symbol-table.json");
+  const typingHintsPath = path.join(input.outputDirectory, "typing-hints.json");
+
+  const symbolTable = buildSymbolTable(input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames);
+  const typingHints = buildTypingHints(source, input.sourceJsPath, unifiedMonolithPath, input.lineageId, namedRenames, variableCoverage);
+
   const mapping: MonolithCensusMapping = {
-    version: 2,
+    version: 3,
     generatedAtIso: new Date().toISOString(),
     sourceJsPath: input.sourceJsPath,
+    unifiedMonolithPath,
     lineageId: input.lineageId,
     seedEntries,
     variableCoverage,
   };
 
   await ensureDirectory(input.outputDirectory);
-  const censusJsPath = path.join(input.outputDirectory, "monolith-census.js");
-  const mappingPath = path.join(input.outputDirectory, "census-mapping.json");
-  await fs.writeFile(censusJsPath, censusSource, "utf8");
+  await fs.writeFile(unifiedMonolithPath, source, "utf8");
+  await fs.writeFile(pass1MonolithPath, pass1Source, "utf8");
+  await fs.writeFile(pass2MonolithPath, pass2Source, "utf8");
+  await fs.writeFile(censusJsPath, pass2Source, "utf8");
   await writeJsonFile(mappingPath, mapping);
+  await writeJsonFile(symbolTablePath, symbolTable);
+  await writeJsonFile(typingHintsPath, typingHints);
 
   const output: MonolithCensusStageOutput = {
     outputDirectory: input.outputDirectory,
@@ -436,6 +681,11 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
     variableCoverageCount: variableCoverage.length,
     renamedDeclarationCount: namedRenames.length,
     qualityPromotionCandidateCount,
+    unifiedMonolithPath,
+    pass1MonolithPath,
+    pass2MonolithPath,
+    symbolTablePath,
+    typingHintsPath,
   };
   await writeJsonFile(request.outputPath, output);
 }
@@ -444,7 +694,7 @@ export const monolithCensusStage: PipelineStage = {
   id: "monolith-census",
   execute: executeMonolithCensus,
   cachePlan: {
-    version: 2,
+    version: 4,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as MonolithCensusStageInput;
       const digest = await hashFileSha256(input.sourceJsPath);
@@ -462,6 +712,11 @@ export const monolithCensusStage: PipelineStage = {
       const input = inputUnknown as MonolithCensusStageInput;
       const mappingPath = path.join(input.outputDirectory, "census-mapping.json");
       const censusJsPath = path.join(input.outputDirectory, "monolith-census.js");
+      const unifiedMonolithPath = path.join(input.outputDirectory, "unified-monolith.js");
+      const pass1MonolithPath = path.join(input.outputDirectory, "unified-monolith.pass1.js");
+      const pass2MonolithPath = path.join(input.outputDirectory, "unified-monolith.pass2.js");
+      const symbolTablePath = path.join(input.outputDirectory, "symbol-table.json");
+      const typingHintsPath = path.join(input.outputDirectory, "typing-hints.json");
       const mapping = await readJsonFile<MonolithCensusMapping>(mappingPath);
       const classCount = mapping.seedEntries.filter((entry) => entry.kind === "class").length;
       const functionCount = mapping.seedEntries.filter((entry) => entry.kind === "function").length;
@@ -479,6 +734,11 @@ export const monolithCensusStage: PipelineStage = {
         variableCoverageCount: mapping.variableCoverage.length,
         renamedDeclarationCount: mapping.seedEntries.length,
         qualityPromotionCandidateCount,
+        unifiedMonolithPath,
+        pass1MonolithPath,
+        pass2MonolithPath,
+        symbolTablePath,
+        typingHintsPath,
       };
     },
   } as StageCachePlan<unknown>,

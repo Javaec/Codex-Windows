@@ -48,12 +48,15 @@ export interface InputArtifacts {
   snapshotAsarPath: string;
   snapshotAsarSha256: string;
   snapshotAsarBytes: number;
+  snapshotKey: string;
 }
 
 export interface RunFlags {
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
   promotionBudget: number;
+  coverageLineageId: string;
+  namingMemoryProfilePath: string;
   enableJavascriptDeobfuscator: boolean;
   enableSynchrony: boolean;
   enableUnwebpackSourcemap: boolean;
@@ -128,6 +131,11 @@ export interface MonolithCensusStageOutput {
   variableCoverageCount: number;
   renamedDeclarationCount: number;
   qualityPromotionCandidateCount: number;
+  unifiedMonolithPath: string;
+  pass1MonolithPath: string;
+  pass2MonolithPath: string;
+  symbolTablePath: string;
+  typingHintsPath: string;
 }
 
 export interface WakaruStageInput {
@@ -185,6 +193,7 @@ export interface UnwebpackSourcemapStageInput {
 export interface UnwebpackSourcemapStageOutput {
   status: OptionalStageStatus;
   outputDirectory: string;
+  summaryFilePath: string;
   scannedMapCount: number;
   usedMapCount: number;
   extractedSourceFileCount: number;
@@ -257,7 +266,7 @@ export interface NamingMemoryStageInput {
   snapshotPath: string;
   namedSemanticIrPath: string;
   runId: string;
-  censusMappingPath: string;
+  monolithSymbolTablePath: string;
   promotionBudget: number;
 }
 
@@ -392,11 +401,14 @@ export interface DecisionDashboardStageOutput {
 export interface RunMetrics {
   mappedFiles: number;
   mappedSymbols: number;
+  coverageSymbols: number;
   nameQuality: number;
+  coverageNameQuality: number;
   buildHealth: boolean;
   devHealth: boolean;
   genericPathNoiseCount: number;
   lowQualitySymbolCount: number;
+  coverageLowQualitySymbolCount: number;
   layerCoverage: Record<LayerId, number>;
   archetypeCoverage: Record<ArchetypeId, number>;
 }

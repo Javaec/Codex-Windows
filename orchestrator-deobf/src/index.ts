@@ -44,6 +44,7 @@ import {
 } from "./contracts";
 import { SemanticIrModel } from "./ir/semantic-ir";
 import { OwnershipModel } from "./ir/ownership-model";
+import { scoreNameQuality } from "./ir/name-quality";
 import { resolveToolVersions } from "./adapters/tool-versions";
 import { buildRunMetrics } from "./quality/run-metrics";
 import { runStage } from "./stages/stage-runner";
@@ -153,7 +154,7 @@ function parseCli(argv: string[]): CliOptions {
   let seed = 424242;
   let forceOverwriteOutputs = true;
   let wakaruConcurrency = 1;
-  let promotionBudget = 50;
+  let promotionBudget = 100;
   let enableJavascriptDeobfuscator = true;
   let enableSynchrony = true;
   let enableUnwebpackSourcemap = true;
@@ -371,6 +372,13 @@ function normalizePath(value: string): string {
   return value.split(path.sep).join("/");
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  return await fs
+    .stat(filePath)
+    .then(() => true)
+    .catch(() => false);
+}
+
 function shouldUseAsarJavascriptForArtifacts(extractedRootDirectory: string, filePath: string): boolean {
   const relativePath = normalizePath(path.relative(extractedRootDirectory, filePath)).toLowerCase();
   if (relativePath.startsWith(".vite/build/")) {
@@ -395,6 +403,62 @@ async function listWakaruOutputs(outputDirectory: string, outputFiles: string[])
     }
   }
   return resolved.sort((left, right) => left.localeCompare(right));
+}
+
+const COVERAGE_OWNER_SUFFIX = "-census";
+
+function buildCoverageOwnerLineageId(snapshotKey: string): string {
+  return `main-entry-${snapshotKey}${COVERAGE_OWNER_SUFFIX}`;
+}
+
+function isCoverageOwnerLineageId(lineageId: string): boolean {
+  return lineageId.endsWith(COVERAGE_OWNER_SUFFIX);
+}
+
+async function resolveNamingMemoryProfilePath(
+  projectRoot: string,
+  snapshotKey: string,
+): Promise<{ profilePath: string; legacyPath: string }> {
+  const legacyPath = path.join(projectRoot, "naming-memory.json");
+  const profilesDirectory = path.join(projectRoot, "naming-memory-store", "snapshots");
+  await ensureDirectory(profilesDirectory);
+  const profilePath = path.join(profilesDirectory, `snapshot-${snapshotKey}.json`);
+  const hasProfile = await fileExists(profilePath);
+  if (!hasProfile) {
+    const hasLegacy = await fileExists(legacyPath);
+    if (hasLegacy) {
+      await fs.copyFile(legacyPath, profilePath);
+    } else {
+      const entries = await fs.readdir(profilesDirectory, { withFileTypes: true });
+      const candidates: Array<{ filePath: string; mtimeMs: number }> = [];
+      for (const entry of entries) {
+        if (!entry.isFile()) {
+          continue;
+        }
+        if (!entry.name.startsWith("snapshot-") || !entry.name.endsWith(".json")) {
+          continue;
+        }
+        const candidatePath = path.join(profilesDirectory, entry.name);
+        if (candidatePath === profilePath) {
+          continue;
+        }
+        const stat = await fs.stat(candidatePath);
+        candidates.push({
+          filePath: candidatePath,
+          mtimeMs: stat.mtimeMs,
+        });
+      }
+      candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+      const latestSnapshotProfile = candidates[0];
+      if (latestSnapshotProfile) {
+        await fs.copyFile(latestSnapshotProfile.filePath, profilePath);
+      }
+    }
+  }
+  return {
+    profilePath,
+    legacyPath,
+  };
 }
 
 function normalizeWeight(token: string, value: unknown): number {
@@ -437,7 +501,7 @@ function applyWeightScale(base: ToolWeights, factors: Partial<ToolWeights>): Too
 }
 
 function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[] {
-  return [
+  const baseProfiles: SemanticIrSweepProfile[] = [
     {
       profileId: "base",
       toolWeights: base,
@@ -470,9 +534,78 @@ function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[]
       }),
     },
   ];
-}
 
-const COVERAGE_OWNER_LINEAGE_ID = "main-entry-census";
+  const isolateProfiles: SemanticIrSweepProfile[] = [
+    {
+      profileId: "isolate-webcrack",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 2.2,
+        wakaru: 0.55,
+        javascriptDeobfuscator: 0.45,
+        synchrony: 0.45,
+        unwebpackSourcemap: 0.5,
+        asar: 0.7,
+      }),
+    },
+    {
+      profileId: "isolate-wakaru",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 0.65,
+        wakaru: 2.2,
+        javascriptDeobfuscator: 0.5,
+        synchrony: 0.5,
+        unwebpackSourcemap: 0.55,
+        asar: 0.7,
+      }),
+    },
+    {
+      profileId: "isolate-javascript-deobfuscator",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 0.6,
+        wakaru: 0.6,
+        javascriptDeobfuscator: 2.3,
+        synchrony: 0.55,
+        unwebpackSourcemap: 0.5,
+        asar: 0.65,
+      }),
+    },
+    {
+      profileId: "isolate-synchrony",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 0.6,
+        wakaru: 0.6,
+        javascriptDeobfuscator: 0.55,
+        synchrony: 2.3,
+        unwebpackSourcemap: 0.5,
+        asar: 0.65,
+      }),
+    },
+    {
+      profileId: "isolate-unwebpack-sourcemap",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 0.55,
+        wakaru: 0.55,
+        javascriptDeobfuscator: 0.5,
+        synchrony: 0.5,
+        unwebpackSourcemap: 2.4,
+        asar: 0.75,
+      }),
+    },
+    {
+      profileId: "isolate-asar",
+      toolWeights: applyWeightScale(base, {
+        webcrack: 0.55,
+        wakaru: 0.55,
+        javascriptDeobfuscator: 0.5,
+        synchrony: 0.5,
+        unwebpackSourcemap: 0.55,
+        asar: 2.15,
+      }),
+    },
+  ];
+
+  return [...baseProfiles, ...isolateProfiles];
+}
 
 async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2));
@@ -487,9 +620,12 @@ async function run(): Promise<void> {
   await ensureDirectory(artifactsDirectory);
 
   const inputArtifact = await hashFileSha256(cli.snapshotAsarPath);
+  const snapshotKey = inputArtifact.sha256.slice(0, 12);
+  const coverageLineageId = buildCoverageOwnerLineageId(snapshotKey);
+  const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
-    manifestVersion: 7,
+    manifestVersion: 8,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
@@ -516,6 +652,8 @@ async function run(): Promise<void> {
       forceOverwriteOutputs: cli.forceOverwriteOutputs,
       wakaruConcurrency: cli.wakaruConcurrency,
       promotionBudget: cli.promotionBudget,
+      coverageLineageId,
+      namingMemoryProfilePath: namingMemoryProfile.profilePath,
       enableJavascriptDeobfuscator: cli.enableJavascriptDeobfuscator,
       enableSynchrony: cli.enableSynchrony,
       enableUnwebpackSourcemap: cli.enableUnwebpackSourcemap,
@@ -533,10 +671,19 @@ async function run(): Promise<void> {
       snapshotAsarPath: cli.snapshotAsarPath,
       snapshotAsarSha256: inputArtifact.sha256,
       snapshotAsarBytes: inputArtifact.bytes,
+      snapshotKey,
     },
   };
   const manifestPath = path.join(runDirectory, "run-manifest.json");
   await writeJsonFile(manifestPath, manifest);
+  await writeJsonFile(path.join(runDirectory, "snapshot-profile.json"), {
+    version: 1,
+    snapshotKey,
+    snapshotAsarSha256: inputArtifact.sha256,
+    coverageLineageId,
+    namingMemoryProfilePath: namingMemoryProfile.profilePath,
+    namingMemoryLegacyPath: namingMemoryProfile.legacyPath,
+  });
 
   const asarInput: AsarExtractStageInput = {
     snapshotAsarPath: cli.snapshotAsarPath,
@@ -566,7 +713,7 @@ async function run(): Promise<void> {
   const monolithCensusInput: MonolithCensusStageInput = {
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputDirectory: path.join(artifactsDirectory, "monolith-census"),
-    lineageId: COVERAGE_OWNER_LINEAGE_ID,
+    lineageId: coverageLineageId,
   };
   const monolithCensusOutput = await runStage<MonolithCensusStageInput, MonolithCensusStageOutput>(
     monolithCensusStage,
@@ -632,6 +779,14 @@ async function run(): Promise<void> {
 
   const evidenceSources: EvidenceSourceFile[] = [];
   pushEvidenceSource(evidenceSources, {
+    tool: "asar",
+    stageId: "asar-extract",
+    lineageId: `main-entry-asar:${snapshotKey}`,
+    filePath: asarOutput.selectedEntryJsPath,
+    sourceKind: "javascript",
+    baseConfidence: 0.62,
+  });
+  pushEvidenceSource(evidenceSources, {
     tool: "webcrack",
     stageId: "webcrack",
     lineageId: "main-entry",
@@ -643,9 +798,17 @@ async function run(): Promise<void> {
     tool: "webcrack",
     stageId: "monolith-census",
     lineageId: monolithCensusOutput.lineageId,
-    filePath: monolithCensusOutput.mappingPath,
+    filePath: monolithCensusOutput.symbolTablePath,
     sourceKind: "text",
-    baseConfidence: 0.34,
+    baseConfidence: 0.46,
+  });
+  pushEvidenceSource(evidenceSources, {
+    tool: "webcrack",
+    stageId: "monolith-census",
+    lineageId: monolithCensusOutput.lineageId,
+    filePath: monolithCensusOutput.typingHintsPath,
+    sourceKind: "text",
+    baseConfidence: 0.33,
   });
 
   const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);
@@ -694,6 +857,16 @@ async function run(): Promise<void> {
   }
 
   if (unwebpackSourcemapOutput.status === "executed") {
+    if (await fileExists(unwebpackSourcemapOutput.summaryFilePath)) {
+      pushEvidenceSource(evidenceSources, {
+        tool: "unwebpack-sourcemap",
+        stageId: "unwebpack-sourcemap",
+        lineageId: "sourcemap-summary:unwebpack",
+        filePath: unwebpackSourcemapOutput.summaryFilePath,
+        sourceKind: "text",
+        baseConfidence: 0.48,
+      });
+    }
     for (const extractedSource of unwebpackSourcemapOutput.extractedSourceFiles) {
       pushEvidenceSource(evidenceSources, {
         tool: "unwebpack-sourcemap",
@@ -732,11 +905,11 @@ async function run(): Promise<void> {
 
   const namingMemoryInput: NamingMemoryStageInput = {
     semanticIrPath: semanticIrOutput.outputFilePath,
-    namingMemoryPath: path.join(projectRoot, "naming-memory.json"),
+    namingMemoryPath: namingMemoryProfile.profilePath,
     snapshotPath: path.join(runDirectory, "naming-memory.snapshot.json"),
     namedSemanticIrPath: path.join(artifactsDirectory, "semantic-ir.named.json"),
     runId: cli.runId,
-    censusMappingPath: monolithCensusOutput.mappingPath,
+    monolithSymbolTablePath: monolithCensusOutput.symbolTablePath,
     promotionBudget: cli.promotionBudget,
   };
   const namingMemoryOutput = await runStage<NamingMemoryStageInput, NamingMemoryStageOutput>(
@@ -747,6 +920,9 @@ async function run(): Promise<void> {
       cacheEnabled: cli.stageCacheEnabled,
     },
   );
+  if (namingMemoryProfile.profilePath !== namingMemoryProfile.legacyPath) {
+    await fs.copyFile(namingMemoryProfile.profilePath, namingMemoryProfile.legacyPath);
+  }
 
   const ownershipResolverInput: OwnershipResolverStageInput = {
     namedSemanticIrPath: namingMemoryOutput.namedSemanticIrPath,
@@ -765,7 +941,13 @@ async function run(): Promise<void> {
   const qualityOwnershipModel: OwnershipModel = {
     ...fullOwnershipModel,
     generatedAtIso: new Date().toISOString(),
-    symbols: fullOwnershipModel.symbols.filter((symbol) => symbol.ownerLineageId !== COVERAGE_OWNER_LINEAGE_ID),
+    symbols: fullOwnershipModel.symbols.filter((symbol) => {
+      if (isCoverageOwnerLineageId(symbol.ownerLineageId)) {
+        return false;
+      }
+      const quality = scoreNameQuality(symbol.symbolName);
+      return quality >= 0.56 && symbol.confidence >= 0.2;
+    }),
   };
   const qualityOwnershipModelPath = path.join(artifactsDirectory, "ownership-model.quality.json");
   await writeJsonFile(qualityOwnershipModelPath, qualityOwnershipModel);
@@ -851,14 +1033,19 @@ async function run(): Promise<void> {
   );
 
   const namedSemanticIr = await readJsonFile<SemanticIrModel>(namingMemoryOutput.namedSemanticIrPath);
-  const ownershipModel = await readJsonFile<OwnershipModel>(ownershipResolverOutput.outputFilePath);
-  const runMetrics = buildRunMetrics(namedSemanticIr, ownershipModel, qualityGatesOutput, greenGatesOutput);
+  const runMetrics = buildRunMetrics(
+    namedSemanticIr,
+    fullOwnershipModel,
+    qualityOwnershipModel,
+    qualityGatesOutput,
+    greenGatesOutput,
+  );
   const runMetricsPath = path.join(runDirectory, "run-metrics.json");
   await writeJsonFile(runMetricsPath, runMetrics);
 
   const decisionDashboardInput: DecisionDashboardStageInput = {
     runId: cli.runId,
-    ownershipModelPath: ownershipResolverOutput.outputFilePath,
+    ownershipModelPath: qualityOwnershipModelPath,
     metricsPath: runMetricsPath,
     outputJsonPath: path.join(runDirectory, "decision-dashboard.json"),
     outputMarkdownPath: path.join(runDirectory, "decision-dashboard.md"),

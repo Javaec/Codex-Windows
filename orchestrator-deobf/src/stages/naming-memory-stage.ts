@@ -14,15 +14,15 @@ import {
 } from "../ir/naming-memory";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
 
-interface CensusSeedEntry {
+interface MonolithSymbolTableEntry {
   symbolKey: string;
-  censusName: string;
+  finalName: string;
   signalScore?: number;
   promoteToQuality?: boolean;
 }
 
-interface CensusMappingModel {
-  seedEntries: CensusSeedEntry[];
+interface MonolithSymbolTableModel {
+  entries: MonolithSymbolTableEntry[];
 }
 
 interface SeedMapSplit {
@@ -215,24 +215,20 @@ function selectPromotionSeeds(
   };
 }
 
-async function readSeedMap(censusMappingPath: string): Promise<SeedMapSplit> {
-  const exists = await fs
-    .stat(censusMappingPath)
-    .then(() => true)
-    .catch(() => false);
-  if (!exists) {
-    return {
-      directBySymbolKey: new Map<string, NamingSeedCandidate>(),
-      promotionBySymbolKey: new Map<string, NamingSeedCandidate>(),
-    };
-  }
-  const mapping = await readJsonFile<CensusMappingModel>(censusMappingPath);
+async function readSeedMap(symbolTablePath: string): Promise<SeedMapSplit> {
+  const symbolTable = await readJsonFile<MonolithSymbolTableModel>(symbolTablePath);
   const directBySymbolKey = new Map<string, NamingSeedCandidate>();
   const promotionBySymbolKey = new Map<string, NamingSeedCandidate>();
-  for (const entry of mapping.seedEntries) {
+  for (const entry of symbolTable.entries) {
+    if (typeof entry.symbolKey !== "string" || entry.symbolKey.length === 0) {
+      continue;
+    }
+    if (typeof entry.finalName !== "string" || entry.finalName.length === 0) {
+      continue;
+    }
     const signalScore = clamp(typeof entry.signalScore === "number" ? entry.signalScore : 0.42);
     const directCandidate: NamingSeedCandidate = {
-      name: entry.censusName,
+      name: entry.finalName,
       confidence: clamp(0.38 + signalScore * 0.34),
       source: "direct",
       signalScore,
@@ -247,7 +243,7 @@ async function readSeedMap(censusMappingPath: string): Promise<SeedMapSplit> {
       continue;
     }
     const promotedCandidate: NamingSeedCandidate = {
-      name: entry.censusName,
+      name: entry.finalName,
       confidence: clamp(0.64 + signalScore * 0.28),
       source: "promotion",
       signalScore,
@@ -267,7 +263,7 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
   }
   const semanticIr = await readJsonFile<SemanticIrModel>(input.semanticIrPath);
   const namingMemory = await readNamingMemoryFromPath(input.namingMemoryPath);
-  const seedMap = await readSeedMap(input.censusMappingPath);
+  const seedMap = await readSeedMap(input.monolithSymbolTablePath);
   const promotionSelection = selectPromotionSeeds(semanticIr, namingMemory, seedMap.promotionBySymbolKey, input.promotionBudget);
   const seedBySymbolKey = new Map<string, NamingSeedCandidate>();
   for (const [symbolKey, candidate] of seedMap.directBySymbolKey) {

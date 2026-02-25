@@ -1389,9 +1389,12 @@ async function liftChunkToTypescript(
     (count, statement) => count + (ts.isImportDeclaration(statement) ? 0 : 1),
     0,
   );
-  const existingExports = collectExportedNames(liftedSourceFile);
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
   const liftedDeclarationsText = liftedSelection.statements.length > 0 ? printer.printFile(liftedSourceFile).trim() : "";
+  const requiresNoCondAssignDisable = /\b(?:if|while|for)\s*\([^)]*\b[A-Za-z_$][A-Za-z0-9_$]*\s*=(?!=)[^)]*\)/.test(
+    liftedDeclarationsText,
+  );
+  const existingExports = collectExportedNames(liftedSourceFile);
 
   const fallbackNames = new Set<string>();
   const aliasLines = symbolBindings
@@ -1425,6 +1428,7 @@ async function liftChunkToTypescript(
 
   const lines = [
     "// @ts-nocheck",
+    ...(requiresNoCondAssignDisable ? ["/* eslint-disable no-cond-assign */"] : []),
     `// Lifted from ${chunk.sourceFilePath.split(path.sep).join("/")}`,
     "",
     ...(liftedDeclarationsText.length > 0 ? [liftedDeclarationsText, ""] : []),

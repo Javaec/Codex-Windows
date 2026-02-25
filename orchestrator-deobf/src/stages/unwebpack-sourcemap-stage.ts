@@ -11,11 +11,39 @@ function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join("/");
 }
 
+function buildSummaryFilePath(outputDirectory: string): string {
+  return path.join(outputDirectory, "scan-summary.json");
+}
+
+interface UnwebpackScanSummary {
+  version: number;
+  generatedAtIso: string;
+  status: "executed" | "skipped";
+  reason: string;
+  scannedMapCount: number;
+  usedMapCount: number;
+  selectedMapFiles: string[];
+  extractedSourceFileCount: number;
+  extractedSourceFiles: string[];
+}
+
+async function writeScanSummary(
+  outputDirectory: string,
+  summary: UnwebpackScanSummary,
+): Promise<string> {
+  await fs.mkdir(outputDirectory, { recursive: true });
+  const summaryFilePath = buildSummaryFilePath(outputDirectory);
+  await writeJsonFile(summaryFilePath, summary);
+  return summaryFilePath;
+}
+
 async function buildUnwebpackOutput(input: UnwebpackSourcemapStageInput): Promise<UnwebpackSourcemapStageOutput> {
+  const summaryFilePath = buildSummaryFilePath(input.outputDirectory);
   if (!input.enabled) {
     return {
       status: "skipped",
       outputDirectory: input.outputDirectory,
+      summaryFilePath,
       scannedMapCount: input.mapFilePaths.length,
       usedMapCount: 0,
       extractedSourceFileCount: 0,
@@ -27,8 +55,9 @@ async function buildUnwebpackOutput(input: UnwebpackSourcemapStageInput): Promis
   const selectedMapFiles = input.mapFilePaths.slice(0, input.maxMaps);
   if (selectedMapFiles.length === 0) {
     return {
-      status: "skipped",
+      status: "executed",
       outputDirectory: input.outputDirectory,
+      summaryFilePath,
       scannedMapCount: 0,
       usedMapCount: 0,
       extractedSourceFileCount: 0,
@@ -41,6 +70,7 @@ async function buildUnwebpackOutput(input: UnwebpackSourcemapStageInput): Promis
   return {
     status: "executed",
     outputDirectory: input.outputDirectory,
+    summaryFilePath,
     scannedMapCount: input.mapFilePaths.length,
     usedMapCount: selectedMapFiles.length,
     extractedSourceFileCount: extractedFiles.length,
@@ -53,19 +83,40 @@ async function executeUnwebpackSourcemap(request: StageExecutionRequest): Promis
   const input = await readJsonFile<UnwebpackSourcemapStageInput>(request.inputPath);
   if (!input.enabled) {
     const skipped = await buildUnwebpackOutput(input);
+    await writeScanSummary(input.outputDirectory, {
+      version: 1,
+      generatedAtIso: new Date().toISOString(),
+      status: "skipped",
+      reason: "stage-disabled",
+      scannedMapCount: skipped.scannedMapCount,
+      usedMapCount: skipped.usedMapCount,
+      selectedMapFiles: [],
+      extractedSourceFileCount: 0,
+      extractedSourceFiles: [],
+    });
     await writeJsonFile(request.outputPath, skipped);
     return;
   }
 
   await fs.stat(input.referenceScriptPath);
   const selectedMapFiles = input.mapFilePaths.slice(0, input.maxMaps);
+  await ensureCleanDirectory(input.outputDirectory);
   if (selectedMapFiles.length === 0) {
-    const skipped = await buildUnwebpackOutput(input);
-    await writeJsonFile(request.outputPath, skipped);
+    const executedWithoutMaps = await buildUnwebpackOutput(input);
+    await writeScanSummary(input.outputDirectory, {
+      version: 1,
+      generatedAtIso: new Date().toISOString(),
+      status: "executed",
+      reason: "no-map-files",
+      scannedMapCount: executedWithoutMaps.scannedMapCount,
+      usedMapCount: executedWithoutMaps.usedMapCount,
+      selectedMapFiles: [],
+      extractedSourceFileCount: 0,
+      extractedSourceFiles: [],
+    });
+    await writeJsonFile(request.outputPath, executedWithoutMaps);
     return;
   }
-
-  await ensureCleanDirectory(input.outputDirectory);
   const logs: string[] = [];
   for (let index = 0; index < selectedMapFiles.length; index += 1) {
     const mapPath = selectedMapFiles[index];
@@ -86,6 +137,17 @@ async function executeUnwebpackSourcemap(request: StageExecutionRequest): Promis
 
   await fs.writeFile(`${request.stageDirectory}/command.log`, logs.join("\n\n"), "utf8");
   const output = await buildUnwebpackOutput(input);
+  await writeScanSummary(input.outputDirectory, {
+    version: 1,
+    generatedAtIso: new Date().toISOString(),
+    status: "executed",
+    reason: output.reason,
+    scannedMapCount: output.scannedMapCount,
+    usedMapCount: output.usedMapCount,
+    selectedMapFiles: [...selectedMapFiles].map((mapPath) => normalizePath(mapPath)).sort((left, right) => left.localeCompare(right)),
+    extractedSourceFileCount: output.extractedSourceFileCount,
+    extractedSourceFiles: output.extractedSourceFiles,
+  });
   await writeJsonFile(request.outputPath, output);
 }
 
@@ -93,7 +155,7 @@ export const unwebpackSourcemapStage: PipelineStage = {
   id: "unwebpack-sourcemap",
   execute: executeUnwebpackSourcemap,
   cachePlan: {
-    version: 1,
+    version: 2,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as UnwebpackSourcemapStageInput;
       if (!input.enabled) {
@@ -121,7 +183,7 @@ export const unwebpackSourcemapStage: PipelineStage = {
     },
     artifacts: (inputUnknown: unknown) => {
       const input = inputUnknown as UnwebpackSourcemapStageInput;
-      if (!input.enabled || input.mapFilePaths.length === 0) {
+      if (!input.enabled) {
         return [];
       }
       return [{ kind: "directory", path: input.outputDirectory }];

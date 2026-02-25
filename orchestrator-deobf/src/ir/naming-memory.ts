@@ -86,7 +86,11 @@ function buildSeededCandidate(
   const currentQuality = scoreNameQuality(symbol.name);
   const seedQuality = scoreNameQuality(seed.name);
   const isPromotion = seed.source === "promotion";
-  const shouldUseDirectSeed = !isPromotion && (isGenericName(symbol.name) || currentQuality < 0.56);
+  const shouldUseDirectSeed =
+    !isPromotion &&
+    (isGenericName(symbol.name) || currentQuality < 0.56) &&
+    seedQuality >= currentQuality + 0.03 &&
+    seed.signalScore >= 0.45;
   const shouldUsePromotionSeed =
     isPromotion &&
     (isGenericName(symbol.name) || currentQuality < 0.74) &&
@@ -109,6 +113,9 @@ function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candida
   const currentQuality = scoreNameQuality(entry.currentName);
   const candidateQuality = scoreNameQuality(symbol.name);
   if (!isGenericName(entry.currentName) && isGenericName(symbol.name)) {
+    return false;
+  }
+  if (candidateQuality + 0.01 < currentQuality) {
     return false;
   }
   if (candidateQuality >= currentQuality + 0.08 && candidateScore >= entry.currentScore * 0.9) {
