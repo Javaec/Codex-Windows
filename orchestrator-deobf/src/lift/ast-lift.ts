@@ -44,6 +44,17 @@ interface ImportShapingResult {
   shapedCount: number;
 }
 
+interface ImportRenamePair {
+  from: string;
+  to: string;
+}
+
+interface RenameScopeFrame {
+  node: ts.Node;
+  declarations: Set<string>;
+  parent?: RenameScopeFrame;
+}
+
 interface BeautifyResult {
   sourceFile: ts.SourceFile;
   prunedDeclarationCount: number;
@@ -326,6 +337,7 @@ function shapeImportDeclaration(
 ): {
   statement: ts.ImportDeclaration;
   bridges: ts.Statement[];
+  renamePairs: ImportRenamePair[];
   shapedCount: number;
 } {
   const moduleSpecifier = statement.moduleSpecifier;
@@ -333,6 +345,7 @@ function shapeImportDeclaration(
     return {
       statement,
       bridges: [],
+      renamePairs: [],
       shapedCount: 0,
     };
   }
@@ -342,11 +355,13 @@ function shapeImportDeclaration(
     return {
       statement,
       bridges: [],
+      renamePairs: [],
       shapedCount: 0,
     };
   }
 
   const bridges: ts.Statement[] = [];
+  const renamePairs: ImportRenamePair[] = [];
   let shapedCount = 0;
 
   let defaultImportName = clause.name;
@@ -356,6 +371,7 @@ function shapeImportDeclaration(
       const shapedName = makeUniqueName(buildReadableImportName(moduleSpecifier.text, "default"), usedNames);
       defaultImportName = ts.factory.createIdentifier(shapedName);
       bridges.push(createAliasBridge(localName, shapedName));
+      renamePairs.push({ from: localName, to: shapedName });
       shapedCount += 1;
     } else {
       usedNames.add(localName);
@@ -369,6 +385,7 @@ function shapeImportDeclaration(
       const shapedName = makeUniqueName(buildReadableImportName(moduleSpecifier.text, "namespace"), usedNames);
       namedBindings = ts.factory.createNamespaceImport(ts.factory.createIdentifier(shapedName));
       bridges.push(createAliasBridge(localName, shapedName));
+      renamePairs.push({ from: localName, to: shapedName });
       shapedCount += 1;
     } else {
       usedNames.add(localName);
@@ -395,6 +412,7 @@ function shapeImportDeclaration(
         ),
       );
       bridges.push(createAliasBridge(localName, shapedName));
+      renamePairs.push({ from: localName, to: shapedName });
       shapedCount += 1;
     }
     namedBindings = ts.factory.createNamedImports(shapedElements);
@@ -415,8 +433,180 @@ function shapeImportDeclaration(
       statement.attributes,
     ),
     bridges,
+    renamePairs,
     shapedCount,
   };
+}
+
+function addBindingName(bindingName: ts.BindingName, sink: Set<string>): void {
+  if (ts.isIdentifier(bindingName)) {
+    sink.add(bindingName.text);
+    return;
+  }
+  for (const element of bindingName.elements) {
+    if (ts.isOmittedExpression(element)) {
+      continue;
+    }
+    addBindingName(element.name, sink);
+  }
+}
+
+function isScopeNode(node: ts.Node): boolean {
+  if (ts.isSourceFile(node)) {
+    return true;
+  }
+  if (ts.isBlock(node)) {
+    return true;
+  }
+  if (ts.isFunctionLike(node)) {
+    return true;
+  }
+  if (ts.isCatchClause(node)) {
+    return true;
+  }
+  return false;
+}
+
+function collectDirectDeclarations(scopeNode: ts.Node): Set<string> {
+  const declarations = new Set<string>();
+
+  if (ts.isSourceFile(scopeNode)) {
+    for (const statement of scopeNode.statements) {
+      if (ts.isImportDeclaration(statement)) {
+        const clause = statement.importClause;
+        if (!clause) {
+          continue;
+        }
+        if (clause.name) {
+          declarations.add(clause.name.text);
+        }
+        const namedBindings = clause.namedBindings;
+        if (!namedBindings) {
+          continue;
+        }
+        if (ts.isNamespaceImport(namedBindings)) {
+          declarations.add(namedBindings.name.text);
+          continue;
+        }
+        for (const element of namedBindings.elements) {
+          declarations.add(element.name.text);
+        }
+        continue;
+      }
+      if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+        declarations.add(statement.name.text);
+        continue;
+      }
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          addBindingName(declaration.name, declarations);
+        }
+      }
+    }
+    return declarations;
+  }
+
+  if (ts.isFunctionLike(scopeNode)) {
+    if ((ts.isFunctionDeclaration(scopeNode) || ts.isFunctionExpression(scopeNode)) && scopeNode.name) {
+      declarations.add(scopeNode.name.text);
+    }
+    for (const parameter of scopeNode.parameters) {
+      addBindingName(parameter.name, declarations);
+    }
+    return declarations;
+  }
+
+  if (ts.isCatchClause(scopeNode)) {
+    if (scopeNode.variableDeclaration) {
+      addBindingName(scopeNode.variableDeclaration.name, declarations);
+    }
+    return declarations;
+  }
+
+  if (ts.isBlock(scopeNode)) {
+    for (const statement of scopeNode.statements) {
+      if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+        declarations.add(statement.name.text);
+        continue;
+      }
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          addBindingName(declaration.name, declarations);
+        }
+      }
+    }
+  }
+
+  return declarations;
+}
+
+function identifierCanBeRenamed(
+  name: string,
+  scope: RenameScopeFrame | undefined,
+  sourceImportRenames: Set<string>,
+): boolean {
+  let cursor = scope;
+  while (cursor) {
+    if (cursor.declarations.has(name)) {
+      if (ts.isSourceFile(cursor.node) && sourceImportRenames.has(name)) {
+        cursor = cursor.parent;
+        continue;
+      }
+      return false;
+    }
+    cursor = cursor.parent;
+  }
+  return true;
+}
+
+function applyScopedIdentifierRenames(
+  statements: ts.Statement[],
+  renameMap: Map<string, string>,
+): ts.Statement[] {
+  if (renameMap.size === 0) {
+    return statements;
+  }
+
+  const sourceImportRenames = new Set<string>(renameMap.keys());
+  const transformerFactory: ts.TransformerFactory<ts.SourceFile> = (context) => {
+    const visit = (node: ts.Node, scope: RenameScopeFrame | undefined): ts.VisitResult<ts.Node> => {
+      const nextScope = isScopeNode(node)
+        ? {
+            node,
+            declarations: collectDirectDeclarations(node),
+            parent: scope,
+          }
+        : scope;
+
+      if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+        const replacement = renameMap.get(node.text);
+        if (replacement && identifierCanBeRenamed(node.text, nextScope, sourceImportRenames)) {
+          return ts.factory.createIdentifier(replacement);
+        }
+      }
+
+      return ts.visitEachChild(
+        node,
+        (child) => visit(child, nextScope),
+        context,
+      );
+    };
+
+    return (sourceFile) => ts.visitNode(sourceFile, (node) => visit(node, undefined)) as ts.SourceFile;
+  };
+
+  const syntheticFile = ts.factory.createSourceFile(
+    statements,
+    ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+    ts.NodeFlags.None,
+  );
+  const result = ts.transform(syntheticFile, [transformerFactory]);
+  const transformed = result.transformed[0];
+  if (!transformed) {
+    throw new Error("applyScopedIdentifierRenames: missing transformed source");
+  }
+  result.dispose();
+  return [...transformed.statements];
 }
 
 function applyImportShaping(sourceFile: ts.SourceFile): ImportShapingResult {
@@ -424,6 +614,7 @@ function applyImportShaping(sourceFile: ts.SourceFile): ImportShapingResult {
   const imports: ts.ImportDeclaration[] = [];
   const bridges: ts.Statement[] = [];
   const others: ts.Statement[] = [];
+  const renameMap = new Map<string, string>();
   let shapedCount = 0;
 
   for (const statement of sourceFile.statements) {
@@ -437,6 +628,9 @@ function applyImportShaping(sourceFile: ts.SourceFile): ImportShapingResult {
     for (const bridge of shaped.bridges) {
       bridges.push(bridge);
     }
+    for (const rename of shaped.renamePairs) {
+      renameMap.set(rename.from, rename.to);
+    }
     shapedCount += shaped.shapedCount;
   }
 
@@ -449,8 +643,10 @@ function applyImportShaping(sourceFile: ts.SourceFile): ImportShapingResult {
     return leftSpecifier.text.localeCompare(rightSpecifier.text);
   });
 
+  const renamedOthers = applyScopedIdentifierRenames(others, renameMap);
+
   return {
-    sourceFile: ts.factory.updateSourceFile(sourceFile, [...imports, ...bridges, ...others]),
+    sourceFile: ts.factory.updateSourceFile(sourceFile, [...imports, ...bridges, ...renamedOthers]),
     shapedCount,
   };
 }
@@ -571,6 +767,10 @@ function isIdentifierReference(node: ts.Identifier): boolean {
   }
 
   if (ts.isPropertyAssignment(parent) && parent.name === node && !ts.isShorthandPropertyAssignment(parent)) {
+    return false;
+  }
+
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
     return false;
   }
 

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import * as ts from "typescript";
 import { ArchetypeId, LayerId } from "../contracts";
 import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
@@ -270,6 +271,8 @@ function topicSegmentFromFilePath(filePath: string, archetype: ArchetypeId): str
   const prefix = `${archetype}-`;
   let candidate = baseName.startsWith(prefix) ? baseName.slice(prefix.length) : baseName;
   candidate = candidate.replace(/-g\d{3}-part-\d{3}(?:-quality-\d{2})?$/, "");
+  candidate = candidate.replace(/-part-\d{3}(?:-v\d{2})?(?:-quality-\d{2})?$/, "");
+  candidate = candidate.replace(/-v\d{2}(?:-quality-\d{2})?$/, "");
   candidate = candidate.replace(/-quality-\d{2}$/, "");
   const topic = sanitizeSegment(candidate, fallbackTopicByArchetype(archetype));
   if (topic === "domain") {
@@ -329,7 +332,8 @@ function buildDomainExportName(
     .slice(0, 4)
     .map((token) => toPascalCase(token))
     .join("");
-  const base = sanitizeIdentifier(`${stem}${ordinal}`);
+  const fallbackStem = `DomainSymbol${ordinal}`;
+  const base = sanitizeIdentifier(stem.length > 0 ? stem : fallbackStem);
   return nextUniqueName(base, usedNames);
 }
 
@@ -387,6 +391,26 @@ function splitByBudget<T>(items: T[], budget: number): T[][] {
     result.push(items.slice(offset, offset + budget));
   }
   return result;
+}
+
+function ensureUniqueFilePath(filePath: string, usedFilePaths: Set<string>): string {
+  if (!usedFilePaths.has(filePath)) {
+    usedFilePaths.add(filePath);
+    return filePath;
+  }
+
+  const extension = path.extname(filePath);
+  const stem = extension.length > 0 ? filePath.slice(0, -extension.length) : filePath;
+  let index = 2;
+  while (true) {
+    const suffix = `-v${String(index).padStart(2, "0")}`;
+    const candidate = `${stem}${suffix}${extension}`;
+    if (!usedFilePaths.has(candidate)) {
+      usedFilePaths.add(candidate);
+      return candidate;
+    }
+    index += 1;
+  }
 }
 
 function layerDirectory(layer: LayerId): string {
@@ -458,6 +482,7 @@ function modelBySymbol(chunkArtifacts: ChunkArtifactModel): Map<string, string> 
 
 function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
   const groups = new Map<string, OwnershipRecord[]>();
+  const usedFilePaths = new Set<string>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
     assertHardOwnershipCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
@@ -499,11 +524,18 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
           const anchor = pickAnchorSymbol(symbolChunk);
           const anchorSegment = kebabFromSymbol(anchor.symbolName);
           const namingSegment = anchorSegment === "domain" ? topicSegment : anchorSegment;
+          const fallbackTopic = fallbackTopicByArchetype(archetype);
+          const clusterTopic = clusterSegment(clusterId);
+          const resolvedSegment =
+            namingSegment === fallbackTopic && clusterTopic !== "cluster" ? sanitizeSegment(clusterTopic, namingSegment) : namingSegment;
+          const hasMultipleParts = chunks.length > 1;
+          const partSuffix = hasMultipleParts ? `-part-${String(partIndex + 1).padStart(3, "0")}` : "";
           const moduleFileName = sanitizeSegment(
-            `${archetype}-${namingSegment}-g${clusterOrdinal}-part-${String(partIndex + 1).padStart(3, "0")}`,
-            `${archetype}-domain-part-${String(partIndex + 1).padStart(3, "0")}`,
+            `${archetype}-${resolvedSegment}${partSuffix}`,
+            `${archetype}-domain${partSuffix}`,
           );
-          const filePath = `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`;
+          const tentativePath = `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`;
+          const filePath = ensureUniqueFilePath(tentativePath, usedFilePaths);
           plans.push({
             layer,
             archetype,
@@ -1079,6 +1111,101 @@ function toJsImportPath(fromFile: string, targetFile: string): string {
   return relative.startsWith(".") ? relative : `./${relative}`;
 }
 
+interface ChunkStubDependency {
+  requiresDefaultExport: boolean;
+  namedExports: Set<string>;
+}
+
+function chunkIdFromRelativeImport(moduleSpecifier: string): string | undefined {
+  if (!moduleSpecifier.startsWith(".")) {
+    return undefined;
+  }
+  const normalized = moduleSpecifier.replace(/\\/g, "/");
+  const baseName = path.basename(normalized).replace(/\.[cm]?[jt]sx?$/i, "");
+  if (baseName.length === 0) {
+    return undefined;
+  }
+  return baseName;
+}
+
+function collectChunkStubDependencies(
+  liftedChunks: Awaited<ReturnType<typeof buildAstLiftResult>>["liftedChunks"],
+  emittedChunkIds: Set<string>,
+): Map<string, ChunkStubDependency> {
+  const dependencies = new Map<string, ChunkStubDependency>();
+
+  for (const liftedChunk of liftedChunks) {
+    const sourceFile = ts.createSourceFile(
+      `${liftedChunk.chunkId}.ts`,
+      liftedChunk.content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      if (!ts.isStringLiteral(statement.moduleSpecifier)) {
+        continue;
+      }
+      const importedChunkId = chunkIdFromRelativeImport(statement.moduleSpecifier.text);
+      if (!importedChunkId || emittedChunkIds.has(importedChunkId)) {
+        continue;
+      }
+
+      const existing = dependencies.get(importedChunkId) ?? {
+        requiresDefaultExport: false,
+        namedExports: new Set<string>(),
+      };
+      const clause = statement.importClause;
+      if (clause?.name) {
+        existing.requiresDefaultExport = true;
+      }
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          const importedName = element.propertyName ?? element.name;
+          existing.namedExports.add(importedName.text);
+        }
+      }
+      dependencies.set(importedChunkId, existing);
+    }
+  }
+
+  return dependencies;
+}
+
+function buildChunkStubContent(chunkId: string, dependency: ChunkStubDependency): string {
+  const lines: string[] = [];
+  lines.push("// @ts-nocheck");
+  lines.push(`// Auto-generated chunk stub for unresolved lifted dependency: ${chunkId}`);
+  lines.push("");
+  lines.push(
+    "const chunkStub = new Proxy(function chunkStubCallable() { return undefined; }, {",
+    "  get: () => chunkStub,",
+    "  apply: () => undefined,",
+    "  construct: () => ({}),",
+    "});",
+  );
+  lines.push("");
+  lines.push(`export const liftedSourcePath = ${quote(`stub://${chunkId}`)};`);
+  lines.push("export const liftedImportShapingCount = 0;");
+  lines.push("export const liftedPrunedDeclarationCount = 0;");
+  lines.push("export const liftedDeclarationCount = 0;");
+  lines.push("");
+  const namedExports = [...dependency.namedExports].sort((left, right) => left.localeCompare(right));
+  for (const name of namedExports) {
+    lines.push(`export const ${name} = chunkStub;`);
+  }
+  if (dependency.requiresDefaultExport || namedExports.length === 0) {
+    lines.push("export default chunkStub;");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 export async function emitTemplateProject(
   ownershipModel: OwnershipModel,
   chunkArtifacts: ChunkArtifactModel,
@@ -1122,6 +1249,17 @@ export async function emitTemplateProject(
     const liftedPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${liftedChunk.chunkId}.ts`);
     await writeTextFile(liftedPath, liftedChunk.content);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, liftedPath));
+  }
+
+  const chunkStubDependencies = collectChunkStubDependencies(astLift.liftedChunks, liftedChunkIds);
+  for (const [stubChunkId, dependency] of [...chunkStubDependencies.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    if (liftedChunkIds.has(stubChunkId)) {
+      continue;
+    }
+    const stubPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${stubChunkId}.ts`);
+    await writeTextFile(stubPath, buildChunkStubContent(stubChunkId, dependency));
+    liftedChunkIds.add(stubChunkId);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, stubPath));
   }
 
   const runtimePath = path.join(outputProjectDirectory, "runtime", "chunk-runtime.ts");
