@@ -46,6 +46,24 @@ function buildCandidateScore(symbol: SemanticSymbol): number {
   return clamp(symbol.confidence * Math.max(symbol.quality, 0.1));
 }
 
+function buildSeededCandidate(symbol: SemanticSymbol, seedNameBySymbolKey: ReadonlyMap<string, string>): SemanticSymbol {
+  const seedName = seedNameBySymbolKey.get(symbol.symbolKey);
+  if (!seedName) {
+    return symbol;
+  }
+  const currentQuality = scoreNameQuality(symbol.name);
+  const shouldUseSeed = isGenericName(symbol.name) || currentQuality < 0.56;
+  if (!shouldUseSeed) {
+    return symbol;
+  }
+  return {
+    ...symbol,
+    name: seedName,
+    quality: scoreNameQuality(seedName),
+    confidence: Math.max(symbol.confidence, 0.36),
+  };
+}
+
 function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candidateScore: number): boolean {
   const currentQuality = scoreNameQuality(entry.currentName);
   const candidateQuality = scoreNameQuality(symbol.name);
@@ -94,6 +112,7 @@ export function updateNamingMemory(
   currentMemory: NamingMemoryModel,
   semanticIr: SemanticIrModel,
   runId: string,
+  seedNameBySymbolKey: ReadonlyMap<string, string> = new Map<string, string>(),
 ): NamingMemoryUpdateResult {
   const entriesByKey = new Map<string, NamingMemoryEntry>();
   for (const entry of currentMemory.entries) {
@@ -106,33 +125,34 @@ export function updateNamingMemory(
   const orderedSymbols = [...semanticIr.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
 
   for (const symbol of orderedSymbols) {
-    const score = buildCandidateScore(symbol);
+    const candidateSymbol = buildSeededCandidate(symbol, seedNameBySymbolKey);
+    const score = buildCandidateScore(candidateSymbol);
     const existing = entriesByKey.get(symbol.symbolKey);
     if (!existing) {
       const created: NamingMemoryEntry = {
         symbolKey: symbol.symbolKey,
-        currentName: symbol.name,
+        currentName: candidateSymbol.name,
         currentScore: score,
         updatedAtIso: new Date().toISOString(),
-        evidenceIds: [...symbol.evidenceIds],
-        history: [historyEvent(runId, symbol, score, true)],
+        evidenceIds: [...candidateSymbol.evidenceIds],
+        history: [historyEvent(runId, candidateSymbol, score, true)],
       };
       entriesByKey.set(symbol.symbolKey, created);
       insertedEntryCount += 1;
       continue;
     }
 
-    if (shouldUpgrade(existing, symbol, score)) {
-      existing.currentName = symbol.name;
+    if (shouldUpgrade(existing, candidateSymbol, score)) {
+      existing.currentName = candidateSymbol.name;
       existing.currentScore = score;
       existing.updatedAtIso = new Date().toISOString();
-      existing.evidenceIds = [...symbol.evidenceIds];
-      existing.history = trimHistory([...existing.history, historyEvent(runId, symbol, score, true)]);
+      existing.evidenceIds = [...candidateSymbol.evidenceIds];
+      existing.history = trimHistory([...existing.history, historyEvent(runId, candidateSymbol, score, true)]);
       updatedEntryCount += 1;
       continue;
     }
 
-    existing.history = trimHistory([...existing.history, historyEvent(runId, symbol, score, false)]);
+    existing.history = trimHistory([...existing.history, historyEvent(runId, candidateSymbol, score, false)]);
     keptEntryCount += 1;
   }
 

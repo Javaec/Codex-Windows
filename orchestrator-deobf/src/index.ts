@@ -16,6 +16,8 @@ import {
   GreenGateStageOutput,
   JavascriptDeobfuscatorStageInput,
   JavascriptDeobfuscatorStageOutput,
+  MonolithCensusStageInput,
+  MonolithCensusStageOutput,
   NamingMemoryStageInput,
   NamingMemoryStageOutput,
   OutputProfile,
@@ -47,6 +49,7 @@ import { buildRunMetrics } from "./quality/run-metrics";
 import { runStage } from "./stages/stage-runner";
 import { asarExtractStage } from "./stages/asar-extract-stage";
 import { webcrackStage } from "./stages/webcrack-stage";
+import { monolithCensusStage } from "./stages/monolith-census-stage";
 import { wakaruStage } from "./stages/wakaru-stage";
 import { javascriptDeobfuscatorStage } from "./stages/javascript-deobfuscator-stage";
 import { synchronyStage } from "./stages/synchrony-stage";
@@ -468,13 +471,14 @@ async function run(): Promise<void> {
   const inputArtifact = await hashFileSha256(cli.snapshotAsarPath);
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
-    manifestVersion: 5,
+    manifestVersion: 6,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
     pipeline: [
       "asar-extract",
       "webcrack",
+      "monolith-census",
       "wakaru",
       "javascript-deobfuscator",
       "synchrony",
@@ -540,6 +544,20 @@ async function run(): Promise<void> {
     cacheEnabled: cli.stageCacheEnabled,
   });
 
+  const monolithCensusInput: MonolithCensusStageInput = {
+    sourceJsPath: webcrackOutput.primaryOutputJsPath,
+    outputDirectory: path.join(artifactsDirectory, "monolith-census"),
+    lineageId: "main-entry",
+  };
+  const monolithCensusOutput = await runStage<MonolithCensusStageInput, MonolithCensusStageOutput>(
+    monolithCensusStage,
+    monolithCensusInput,
+    runDirectory,
+    {
+      cacheEnabled: cli.stageCacheEnabled,
+    },
+  );
+
   const wakaruInput: WakaruStageInput = {
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputDirectory: path.join(artifactsDirectory, "wakaru"),
@@ -601,6 +619,14 @@ async function run(): Promise<void> {
     filePath: webcrackOutput.primaryOutputJsPath,
     sourceKind: "javascript",
     baseConfidence: 0.93,
+  });
+  pushEvidenceSource(evidenceSources, {
+    tool: "webcrack",
+    stageId: "monolith-census",
+    lineageId: monolithCensusOutput.lineageId,
+    filePath: monolithCensusOutput.censusJsPath,
+    sourceKind: "javascript",
+    baseConfidence: 0.24,
   });
 
   const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);
@@ -691,6 +717,7 @@ async function run(): Promise<void> {
     snapshotPath: path.join(runDirectory, "naming-memory.snapshot.json"),
     namedSemanticIrPath: path.join(artifactsDirectory, "semantic-ir.named.json"),
     runId: cli.runId,
+    censusMappingPath: monolithCensusOutput.mappingPath,
   };
   const namingMemoryOutput = await runStage<NamingMemoryStageInput, NamingMemoryStageOutput>(
     namingMemoryStage,
@@ -714,7 +741,7 @@ async function run(): Promise<void> {
     },
   );
 
-  const chunkArtifactSources: EvidenceSourceFile[] = [...evidenceSources];
+  const chunkArtifactSources: EvidenceSourceFile[] = evidenceSources.filter((source) => source.stageId !== "monolith-census");
   for (const extractedJsFile of asarOutput.discoveredJsFiles) {
     if (!shouldUseAsarJavascriptForArtifacts(asarOutput.extractedRootDirectory, extractedJsFile)) {
       continue;
@@ -836,6 +863,7 @@ async function run(): Promise<void> {
     stageOutputs: {
       asarExtract: asarOutput,
       webcrack: webcrackOutput,
+      monolithCensus: monolithCensusOutput,
       wakaru: wakaruOutput,
       javascriptDeobfuscator: javascriptDeobfuscatorOutput,
       synchrony: synchronyOutput,

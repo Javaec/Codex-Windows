@@ -6,6 +6,15 @@ import { SemanticIrModel } from "../ir/semantic-ir";
 import { applyNamingMemory, createEmptyNamingMemory, NamingMemoryModel, updateNamingMemory } from "../ir/naming-memory";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
 
+interface CensusSeedEntry {
+  symbolKey: string;
+  censusName: string;
+}
+
+interface CensusMappingModel {
+  seedEntries: CensusSeedEntry[];
+}
+
 async function readNamingMemoryFromPath(namingMemoryPath: string): Promise<NamingMemoryModel> {
   const exists = await fs
     .stat(namingMemoryPath)
@@ -17,11 +26,28 @@ async function readNamingMemoryFromPath(namingMemoryPath: string): Promise<Namin
   return await readJsonFile<NamingMemoryModel>(namingMemoryPath);
 }
 
+async function readSeedMap(censusMappingPath: string): Promise<Map<string, string>> {
+  const exists = await fs
+    .stat(censusMappingPath)
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    return new Map<string, string>();
+  }
+  const mapping = await readJsonFile<CensusMappingModel>(censusMappingPath);
+  const seedMap = new Map<string, string>();
+  for (const entry of mapping.seedEntries) {
+    seedMap.set(entry.symbolKey, entry.censusName);
+  }
+  return seedMap;
+}
+
 async function executeNamingMemory(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<NamingMemoryStageInput>(request.inputPath);
   const semanticIr = await readJsonFile<SemanticIrModel>(input.semanticIrPath);
   const namingMemory = await readNamingMemoryFromPath(input.namingMemoryPath);
-  const updateResult = updateNamingMemory(namingMemory, semanticIr, input.runId);
+  const seedNameBySymbolKey = await readSeedMap(input.censusMappingPath);
+  const updateResult = updateNamingMemory(namingMemory, semanticIr, input.runId, seedNameBySymbolKey);
   const namedSemanticIr = applyNamingMemory(semanticIr, updateResult.namingMemory);
 
   await fs.mkdir(path.dirname(input.namingMemoryPath), { recursive: true });

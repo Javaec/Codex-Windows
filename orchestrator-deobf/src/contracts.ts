@@ -1,6 +1,7 @@
 export type StageId =
   | "asar-extract"
   | "webcrack"
+  | "monolith-census"
   | "wakaru"
   | "javascript-deobfuscator"
   | "synchrony"
@@ -106,6 +107,25 @@ export interface WebcrackStageOutput {
   producedJsFileCount: number;
   primaryOutputJsPath: string;
   primaryOutputJsRelativePath: string;
+}
+
+export interface MonolithCensusStageInput {
+  sourceJsPath: string;
+  outputDirectory: string;
+  lineageId: string;
+}
+
+export interface MonolithCensusStageOutput {
+  outputDirectory: string;
+  censusJsPath: string;
+  mappingPath: string;
+  sourceJsPath: string;
+  lineageId: string;
+  classCount: number;
+  functionCount: number;
+  callableVariableCount: number;
+  variableCoverageCount: number;
+  renamedDeclarationCount: number;
 }
 
 export interface WakaruStageInput {
@@ -235,6 +255,7 @@ export interface NamingMemoryStageInput {
   snapshotPath: string;
   namedSemanticIrPath: string;
   runId: string;
+  censusMappingPath: string;
 }
 
 export interface NamingMemoryStageOutput {
@@ -378,6 +399,7 @@ export interface RunSummary {
   stageOutputs: {
     asarExtract: AsarExtractStageOutput;
     webcrack: WebcrackStageOutput;
+    monolithCensus: MonolithCensusStageOutput;
     wakaru: WakaruStageOutput;
     javascriptDeobfuscator: JavascriptDeobfuscatorStageOutput;
     synchrony: SynchronyStageOutput;
