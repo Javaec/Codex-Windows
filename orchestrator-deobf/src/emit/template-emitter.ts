@@ -37,6 +37,13 @@ interface ModuleQualityEntry {
   rerendered: boolean;
 }
 
+interface ModulePlanPartition {
+  qualityPlans: ModulePlan[];
+  speculativePlans: ModulePlan[];
+  qualitySymbolCount: number;
+  speculativeSymbolCount: number;
+}
+
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
@@ -301,6 +308,17 @@ function nextUniqueName(baseName: string, usedNames: Map<string, number>): strin
   return seen === 0 ? baseName : `${baseName}${seen + 1}`;
 }
 
+function nextUniqueIdentifier(baseName: string, usedNames: Set<string>): string {
+  let candidate = baseName;
+  let index = 2;
+  while (usedNames.has(candidate)) {
+    candidate = `${baseName}${index}`;
+    index += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
+}
+
 function buildDomainExportName(
   symbol: OwnershipRecord,
   plan: ModulePlan,
@@ -478,6 +496,54 @@ function modelBySymbol(chunkArtifacts: ChunkArtifactModel): Map<string, string> 
     map.set(mapping.symbolKey, mapping.chunkId);
   }
   return map;
+}
+
+function toSpeculativeFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  return `coverage/speculative/${normalized}`;
+}
+
+function partitionModulePlansByLiftBinding(
+  modulePlans: ModulePlan[],
+  bindingByKey: Map<string, LiftedSymbolBinding>,
+): ModulePlanPartition {
+  const qualityPlans: ModulePlan[] = [];
+  const speculativePlans: ModulePlan[] = [];
+  let qualitySymbolCount = 0;
+  let speculativeSymbolCount = 0;
+
+  for (const plan of modulePlans) {
+    const qualitySymbols = plan.symbols.filter((symbol) => bindingByKey.has(symbol.symbolKey));
+    const speculativeSymbols = plan.symbols.filter((symbol) => !bindingByKey.has(symbol.symbolKey));
+
+    if (qualitySymbols.length > 0) {
+      qualityPlans.push({
+        ...plan,
+        symbols: qualitySymbols,
+      });
+      qualitySymbolCount += qualitySymbols.length;
+    }
+
+    if (speculativeSymbols.length > 0) {
+      speculativePlans.push({
+        ...plan,
+        moduleId: `${plan.moduleId}:speculative`,
+        filePath: toSpeculativeFilePath(plan.filePath),
+        symbols: speculativeSymbols,
+      });
+      speculativeSymbolCount += speculativeSymbols.length;
+    }
+  }
+
+  qualityPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+  speculativePlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+  return {
+    qualityPlans,
+    speculativePlans,
+    qualitySymbolCount,
+    speculativeSymbolCount,
+  };
 }
 
 function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
@@ -979,7 +1045,84 @@ function buildContractsEntryContent(): string {
   ].join("\n");
 }
 
-function buildModuleContent(
+function buildQualityModuleContent(
+  plan: ModulePlan,
+  moduleAbsolutePath: string,
+  outputProjectDirectory: string,
+  symbols: OwnershipRecord[],
+  bindingByKey: Map<string, LiftedSymbolBinding>,
+): string {
+  if (symbols.length === 0) {
+    throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
+  }
+
+  const lines: string[] = [];
+  lines.push("// Quality contour module: AST-lift declarations only.");
+  const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
+  const usedExportNames = new Map<string, number>();
+  const usedLocalNames = new Set<string>();
+  const importMapByChunk = new Map<string, Map<string, string>>();
+  const localNameByLiftedSymbol = new Map<string, string>();
+  const exportEntries: Array<{ exportName: string; localName: string }> = [];
+
+  for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
+    const symbol = symbols[symbolIndex];
+    if (!symbol) {
+      continue;
+    }
+    const liftBinding = bindingByKey.get(symbol.symbolKey);
+    if (!liftBinding) {
+      throw new Error(`buildQualityModuleContent: missing AST-lift binding for ${symbol.symbolKey}`);
+    }
+
+    const exportName = buildDomainExportName(symbol, plan, topic, symbolIndex + 1, usedExportNames);
+    const liftedBindingKey = `${liftBinding.chunkId}::${liftBinding.exportName}`;
+    let localName = localNameByLiftedSymbol.get(liftedBindingKey);
+    if (!localName) {
+      const localBaseName = sanitizeIdentifier(`${liftBinding.exportName}Lifted`);
+      localName = nextUniqueIdentifier(localBaseName, usedLocalNames);
+      localNameByLiftedSymbol.set(liftedBindingKey, localName);
+      const chunkImports = importMapByChunk.get(liftBinding.chunkId) ?? new Map<string, string>();
+      chunkImports.set(liftBinding.exportName, localName);
+      importMapByChunk.set(liftBinding.chunkId, chunkImports);
+    }
+
+    exportEntries.push({
+      exportName,
+      localName,
+    });
+  }
+
+  const chunkIds = [...importMapByChunk.keys()].sort((left, right) => left.localeCompare(right));
+  for (const chunkId of chunkIds) {
+    const chunkImports = importMapByChunk.get(chunkId);
+    if (!chunkImports || chunkImports.size === 0) {
+      continue;
+    }
+    const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
+    const importPath = toJsImportPath(moduleAbsolutePath, chunkModulePath);
+    const importSpecifiers = [...chunkImports.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([sourceExport, localName]) => (sourceExport === localName ? sourceExport : `${sourceExport} as ${localName}`));
+    lines.push(`import { ${importSpecifiers.join(", ")} } from ${quote(importPath)};`);
+  }
+
+  lines.push("");
+  for (const entry of exportEntries) {
+    lines.push(`export const ${entry.exportName} = ${entry.localName};`);
+  }
+  lines.push("");
+  lines.push("const moduleExports = {");
+  for (const entry of exportEntries) {
+    lines.push(`  ${entry.exportName},`);
+  }
+  lines.push("};");
+  lines.push("export default moduleExports;");
+  lines.push("");
+  return lines.join("\n");
+}
+
+function buildSpeculativeModuleContent(
   plan: ModulePlan,
   runtimeImportPath: string,
   contractsImportPath: string,
@@ -1285,16 +1428,31 @@ export async function emitTemplateProject(
 
   const symbolToChunk = modelBySymbol(chunkArtifacts);
   const rawModulePlans = buildModulePlans(ownershipModel, statementBudget);
-  const qualityPass = applyFileQualityRerender(rawModulePlans, astLift.symbolBindingByKey, statementBudget);
-  const modulePlans = qualityPass.modulePlans;
+  const planPartition = partitionModulePlansByLiftBinding(rawModulePlans, astLift.symbolBindingByKey);
+  const qualityPass = applyFileQualityRerender(planPartition.qualityPlans, astLift.symbolBindingByKey, statementBudget);
+  const qualityModulePlans = qualityPass.modulePlans;
+  const speculativeModulePlans = planPartition.speculativePlans;
 
-  for (const plan of modulePlans) {
+  for (const plan of qualityModulePlans) {
+    const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
+    const moduleContent = buildQualityModuleContent(
+      plan,
+      absoluteFilePath,
+      outputProjectDirectory,
+      plan.symbols,
+      astLift.symbolBindingByKey,
+    );
+    await writeTextFile(absoluteFilePath, moduleContent);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
+  }
+
+  for (const plan of speculativeModulePlans) {
     const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
     const runtimeImport = toJsImportPath(absoluteFilePath, runtimePath);
     const moduleContractsImport = toJsImportPath(absoluteFilePath, moduleContractsPath);
     const domainContractsImport = toJsImportPath(absoluteFilePath, contractsEntryPath);
 
-    const moduleContent = buildModuleContent(
+    const moduleContent = buildSpeculativeModuleContent(
       plan,
       runtimeImport,
       moduleContractsImport,
@@ -1327,8 +1485,8 @@ export async function emitTemplateProject(
   const sortedFiles = [...emittedFiles].sort((left, right) => left.localeCompare(right));
   return {
     emittedFiles: sortedFiles,
-    emittedModuleCount: modulePlans.length,
-    emittedSymbolCount: ownershipModel.symbols.length,
+    emittedModuleCount: qualityModulePlans.length + speculativeModulePlans.length,
+    emittedSymbolCount: planPartition.qualitySymbolCount,
     fileQualityReportPath,
     rerenderedModuleCount: qualityPass.rerenderedModuleCount,
     hotChunkCount: astLift.hotChunkIds.length,

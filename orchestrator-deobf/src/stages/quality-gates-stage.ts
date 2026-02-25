@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as fs from "node:fs/promises";
 import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { copyTreeDeterministic } from "../utils/copy-tree";
 import { readJsonFile, writeJsonFile, ensureDirectory } from "../utils/fs-json";
@@ -60,6 +61,57 @@ function validateNoRuntimeJsInSourceTree(files: string[]): string[] {
   return violations;
 }
 
+function isQualitySourceModule(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  if (!normalized.endsWith(".ts")) {
+    return false;
+  }
+  if (normalized.startsWith("src/main/")) {
+    return true;
+  }
+  if (normalized.startsWith("src/renderer/")) {
+    return true;
+  }
+  if (normalized.startsWith("src/services/")) {
+    return true;
+  }
+  if (normalized.startsWith("src-tauri-adapter/")) {
+    return true;
+  }
+  return false;
+}
+
+async function validateNoProxyInQuality(outputProjectDirectory: string, files: string[]): Promise<string[]> {
+  const violations: string[] = [];
+  const proxyPatterns = [
+    "resolveSymbol(",
+    "moduleContract =",
+    "createHookModuleContract(",
+    "createServiceModuleContract(",
+    "createUiModuleContract(",
+    "createTransportModuleContract(",
+    "createStoreModuleContract(",
+    "runtime/chunk-runtime.js",
+    "runtime/module-contracts.js",
+  ];
+
+  for (const relativePath of files) {
+    if (!isQualitySourceModule(relativePath)) {
+      continue;
+    }
+    const absolutePath = path.join(outputProjectDirectory, relativePath);
+    const content = await fs.readFile(absolutePath, "utf8");
+    for (const token of proxyPatterns) {
+      if (!content.includes(token)) {
+        continue;
+      }
+      violations.push(`no-proxy-in-quality gate blocked ${relativePath} (token: ${token})`);
+      break;
+    }
+  }
+  return violations;
+}
+
 function validateChunkArtifacts(chunkArtifacts: ChunkArtifactModel): string[] {
   const violations: string[] = [];
   const sourcePaths = new Set<string>();
@@ -95,6 +147,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateFileOrdering(emittedFilesIndex.files));
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
+  violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 
   const stableProfileDirectory = path.join(input.stableOutputRoot, input.stableOutputProfile);
