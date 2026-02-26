@@ -23,6 +23,7 @@ import {
   ensureGitOnPath,
   patchMainForWindowsEnvironment,
   patchPreload,
+  patchWebviewAppSunsetGate,
   patchWebviewCwdNormalization,
   patchWebviewAutoScroll,
   startCodexDirectLaunch,
@@ -94,6 +95,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   patchPreload(appDir);
   writeHeader("Patching webview auto-scroll");
   patchWebviewAutoScroll(appDir);
+  writeHeader("Patching webview app sunset gate");
+  patchWebviewAppSunsetGate(appDir);
   writeHeader("Patching webview cwd normalization");
   patchWebviewCwdNormalization(appDir);
 

@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.patchPreload = patchPreload;
 exports.patchWebviewAutoScroll = patchWebviewAutoScroll;
 exports.patchWebviewCwdNormalization = patchWebviewCwdNormalization;
+exports.patchWebviewAppSunsetGate = patchWebviewAppSunsetGate;
 exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
 exports.ensureGitOnPath = ensureGitOnPath;
 exports.startCodexDirectLaunch = startCodexDirectLaunch;
@@ -44,6 +45,7 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const AUTOSCROLL_SCRIPT_FILE = "codex-windows-autoscroll.js";
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
+const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 function patchPreload(appDir) {
     const preload = path.join(appDir, ".vite", "build", "preload.js");
     if (!(0, exec_1.fileExists)(preload))
@@ -420,6 +422,37 @@ function patchWebviewCwdNormalization(appDir) {
     }
     if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
         throw new Error("webview cwd normalization patch point not found.");
+    }
+}
+function patchWebviewAppSunsetGate(appDir) {
+    const assetsDir = path.join(appDir, "webview", "assets");
+    if (!(0, exec_1.fileExists)(assetsDir))
+        return;
+    const bundles = fs
+        .readdirSync(assetsDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
+        .map((entry) => path.join(assetsDir, entry.name));
+    if (bundles.length === 0) {
+        throw new Error("webview index bundle not found for app sunset patch.");
+    }
+    const patchNeedle = "const s=Xs(i);if(r){";
+    const patchReplacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}const s=!1;if(r){`;
+    let patchedFileCount = 0;
+    let alreadyPatchedFileCount = 0;
+    for (const bundlePath of bundles) {
+        let raw = fs.readFileSync(bundlePath, "utf8");
+        if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
+            alreadyPatchedFileCount += 1;
+            continue;
+        }
+        if (!raw.includes(patchNeedle))
+            continue;
+        raw = raw.replace(patchNeedle, patchReplacement);
+        fs.writeFileSync(bundlePath, raw, "utf8");
+        patchedFileCount += 1;
+    }
+    if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
+        throw new Error("webview app sunset patch point not found.");
     }
 }
 function escapeJsString(value) {

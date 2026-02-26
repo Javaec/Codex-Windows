@@ -97,6 +97,8 @@ async function runPipeline(options) {
     (0, launch_1.patchPreload)(appDir);
     (0, exec_1.writeHeader)("Patching webview auto-scroll");
     (0, launch_1.patchWebviewAutoScroll)(appDir);
+    (0, exec_1.writeHeader)("Patching webview app sunset gate");
+    (0, launch_1.patchWebviewAppSunsetGate)(appDir);
     (0, exec_1.writeHeader)("Patching webview cwd normalization");
     (0, launch_1.patchWebviewCwdNormalization)(appDir);
     (0, exec_1.writeHeader)("Reading app metadata");
