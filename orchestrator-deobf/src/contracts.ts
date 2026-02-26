@@ -443,6 +443,7 @@ export interface RunMetrics {
   buildHealth: boolean;
   devHealth: boolean;
   genericPathNoiseCount: number;
+  proxyInQualityCount: number;
   lowQualitySymbolCount: number;
   coverageLowQualitySymbolCount: number;
   layerCoverage: Record<LayerId, number>;

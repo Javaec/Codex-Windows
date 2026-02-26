@@ -133,6 +133,7 @@ export interface RegressionSuiteExecution {
     functionCoverageAverage: number;
     functionClassCoverageAverage: number;
     variableCoverageAverage: number;
+    proxyInQualityAverage: number;
     worstFileDecileScoreAverage: number;
     lowQualityFileCountAverage: number;
     rerenderedModuleAverage: number;
@@ -422,6 +423,7 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     functionCoverageAverage: average(executions.map((entry) => entry.metrics.functionCoverage)),
     functionClassCoverageAverage: average(executions.map((entry) => entry.metrics.functionClassCoverage)),
     variableCoverageAverage: average(executions.map((entry) => entry.metrics.variableCoverage)),
+    proxyInQualityAverage: average(executions.map((entry) => entry.metrics.proxyInQualityCount)),
     worstFileDecileScoreAverage: average(executions.map((entry) => entry.fileQuality.worstDecileAverageScore)),
     lowQualityFileCountAverage: average(executions.map((entry) => entry.fileQuality.lowQualityFileCount)),
     rerenderedModuleAverage: average(executions.map((entry) => entry.fileQuality.rerenderedModuleCount)),

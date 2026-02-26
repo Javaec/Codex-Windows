@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { RunMetrics } from "../contracts";
 import { SemanticIrModel } from "../ir/semantic-ir";
 import { OwnershipModel } from "../ir/ownership-model";
@@ -116,26 +117,74 @@ function normalizeCoverage(value: number): number {
   return clamp(value);
 }
 
-function classCoverage(monolith: MonolithCensusStageOutput): number {
-  if (monolith.classCount < 1) {
-    return 0;
-  }
-  return 1;
+interface SymbolTableEntrySnapshot {
+  kind: "function" | "class" | "variable";
+  finalName: string;
 }
 
-function functionCoverage(monolith: MonolithCensusStageOutput): number {
-  if (monolith.functionCount < 1) {
-    return 0;
-  }
-  return 1;
+interface SymbolTableSnapshot {
+  entries: SymbolTableEntrySnapshot[];
 }
 
-function functionClassCoverage(monolith: MonolithCensusStageOutput): number {
-  const total = monolith.classCount + monolith.functionCount;
-  if (total < 1) {
+function loadSymbolTableEntries(monolith: MonolithCensusStageOutput): SymbolTableEntrySnapshot[] {
+  try {
+    const raw = fs.readFileSync(monolith.symbolTablePath, "utf8");
+    const parsed = JSON.parse(raw) as SymbolTableSnapshot;
+    if (!parsed || !Array.isArray(parsed.entries)) {
+      return [];
+    }
+    return parsed.entries.filter(
+      (entry) =>
+        entry &&
+        (entry.kind === "function" || entry.kind === "class" || entry.kind === "variable") &&
+        typeof entry.finalName === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function isSemanticName(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length < 1) {
+    return false;
+  }
+  const lower = trimmed.toLowerCase();
+  if (/^(func|function|class|var|variable)\d+$/i.test(trimmed)) {
+    return false;
+  }
+  if (/^(symbol|item|node|entry)\d+$/i.test(trimmed)) {
+    return false;
+  }
+  if (lower.includes("unknown")) {
+    return false;
+  }
+  return scoreNameQuality(trimmed) >= 0.55;
+}
+
+function semanticCoverageByKind(entries: SymbolTableEntrySnapshot[], kinds: ReadonlySet<SymbolTableEntrySnapshot["kind"]>): number {
+  const scoped = entries.filter((entry) => kinds.has(entry.kind));
+  if (scoped.length < 1) {
     return 0;
   }
-  return 1;
+  const semanticNamed = scoped.reduce((count, entry) => (isSemanticName(entry.finalName) ? count + 1 : count), 0);
+  return normalizeCoverage(semanticNamed / scoped.length);
+}
+
+function classCoverage(entries: SymbolTableEntrySnapshot[]): number {
+  return semanticCoverageByKind(entries, new Set<SymbolTableEntrySnapshot["kind"]>(["class"]));
+}
+
+function functionCoverage(entries: SymbolTableEntrySnapshot[]): number {
+  return semanticCoverageByKind(entries, new Set<SymbolTableEntrySnapshot["kind"]>(["function"]));
+}
+
+function functionClassCoverage(entries: SymbolTableEntrySnapshot[]): number {
+  return semanticCoverageByKind(entries, new Set<SymbolTableEntrySnapshot["kind"]>(["function", "class"]));
+}
+
+function variableSemanticCoverage(entries: SymbolTableEntrySnapshot[]): number {
+  return semanticCoverageByKind(entries, new Set<SymbolTableEntrySnapshot["kind"]>(["variable"]));
 }
 
 function variableCoverageByOwnership(monolith: MonolithCensusStageOutput, coverageOwnershipModel: OwnershipModel): number {
@@ -151,6 +200,10 @@ function variableCoverageByOwnership(monolith: MonolithCensusStageOutput, covera
   return normalizeCoverage(covered / monolith.variableCoverageCount);
 }
 
+function proxyInQualityViolationCount(qualityGates: QualityGatesStageOutput): number {
+  return qualityGates.violations.filter((violation) => violation.includes("no-proxy-in-quality gate blocked")).length;
+}
+
 export function buildRunMetrics(
   monolithCensus: MonolithCensusStageOutput,
   semanticIr: SemanticIrModel,
@@ -159,6 +212,12 @@ export function buildRunMetrics(
   qualityGates: QualityGatesStageOutput,
   greenGates: GreenGateStageOutput,
 ): RunMetrics {
+  const symbolTableEntries = loadSymbolTableEntries(monolithCensus);
+  const classSemanticCoverage = classCoverage(symbolTableEntries);
+  const functionSemanticCoverage = functionCoverage(symbolTableEntries);
+  const functionClassSemanticCoverage = functionClassCoverage(symbolTableEntries);
+  const variableOwnershipCoverage = variableCoverageByOwnership(monolithCensus, coverageOwnershipModel);
+  const variableSemanticNameCoverage = variableSemanticCoverage(symbolTableEntries);
   return {
     mappedFiles: mappedFilesCount(semanticIr),
     mappedSymbols: mappedSymbolsCount(qualityOwnershipModel),
@@ -166,13 +225,14 @@ export function buildRunMetrics(
     highConfidenceSymbols: highConfidenceSymbolsCount(qualityOwnershipModel),
     nameQuality: averageNameQuality(qualityOwnershipModel),
     coverageNameQuality: averageNameQuality(coverageOwnershipModel),
-    classCoverage: classCoverage(monolithCensus),
-    functionCoverage: functionCoverage(monolithCensus),
-    functionClassCoverage: functionClassCoverage(monolithCensus),
-    variableCoverage: variableCoverageByOwnership(monolithCensus, coverageOwnershipModel),
+    classCoverage: classSemanticCoverage,
+    functionCoverage: functionSemanticCoverage,
+    functionClassCoverage: functionClassSemanticCoverage,
+    variableCoverage: Math.min(variableOwnershipCoverage, variableSemanticNameCoverage),
     buildHealth: buildHealth(greenGates),
     devHealth: devHealth(greenGates),
     genericPathNoiseCount: qualityGates.violations.length,
+    proxyInQualityCount: proxyInQualityViolationCount(qualityGates),
     lowQualitySymbolCount: lowQualitySymbolCount(qualityOwnershipModel),
     coverageLowQualitySymbolCount: lowQualitySymbolCount(coverageOwnershipModel),
     layerCoverage: coverageByLayer(qualityOwnershipModel),
