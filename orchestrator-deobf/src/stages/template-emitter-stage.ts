@@ -22,15 +22,16 @@ async function executeTemplateEmitter(request: StageExecutionRequest): Promise<v
     input.outputProjectDirectory,
     input.statementBudget,
   );
+  const emittedFiles = [...new Set(emitResult.emittedFiles)].sort((left, right) => left.localeCompare(right));
 
   await writeJsonFile(input.emittedFilesIndexPath, {
     generatedAtIso: new Date().toISOString(),
-    files: emitResult.emittedFiles,
+    files: emittedFiles,
   });
 
   const output: TemplateEmitterStageOutput = {
     outputProjectDirectory: input.outputProjectDirectory,
-    emittedFileCount: emitResult.emittedFiles.length,
+    emittedFileCount: emittedFiles.length,
     emittedModuleCount: emitResult.emittedModuleCount,
     emittedSymbolCount: emitResult.emittedSymbolCount,
     emittedFilesIndexPath: input.emittedFilesIndexPath,

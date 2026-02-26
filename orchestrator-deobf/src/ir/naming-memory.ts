@@ -1,4 +1,4 @@
-import { SemanticIrModel, SemanticSymbol } from "./semantic-ir";
+import { SemanticDeclarationFingerprint, SemanticEvidenceLedgerEntry, SemanticIrModel, SemanticSymbol } from "./semantic-ir";
 import { isGenericName, scoreNameQuality } from "./name-quality";
 
 export interface NamingMemoryHistoryEvent {
@@ -46,6 +46,11 @@ interface NameVariantCandidate {
   source: "symbol" | "alternative" | "seed";
 }
 
+interface NamingSemanticContext {
+  declarationFingerprint: SemanticDeclarationFingerprint | undefined;
+  evidenceLedgerEntry: SemanticEvidenceLedgerEntry | undefined;
+}
+
 function clamp(value: number): number {
   if (value < 0) {
     return 0;
@@ -56,13 +61,64 @@ function clamp(value: number): number {
   return Number(value.toFixed(4));
 }
 
-function buildCandidateScore(symbol: SemanticSymbol): number {
-  return clamp(symbol.confidence * Math.max(symbol.quality, 0.1));
+function roleSignalWeight(
+  name: string,
+  declarationFingerprint: SemanticDeclarationFingerprint | undefined,
+): number {
+  if (!declarationFingerprint) {
+    return 0;
+  }
+  const lower = name.toLowerCase();
+  const role = declarationFingerprint.role;
+  if (role === "parser") {
+    return lower.includes("parse") || lower.includes("decode") || lower.includes("encode") ? 0.08 : 0;
+  }
+  if (role === "store") {
+    return lower.includes("state") || lower.includes("store") || lower.includes("cache") ? 0.08 : 0;
+  }
+  if (role === "transport") {
+    return lower.includes("ipc") || lower.includes("rpc") || lower.includes("transport") || lower.includes("invoke") ? 0.08 : 0;
+  }
+  if (role === "ui") {
+    return lower.includes("view") || lower.includes("ui") || lower.includes("render") || lower.includes("component") ? 0.08 : 0;
+  }
+  return lower.includes("flow") || lower.includes("orchestrate") || lower.includes("pipeline") || lower.includes("run") ? 0.08 : 0;
+}
+
+function ledgerCandidateWeight(
+  name: string,
+  evidenceLedgerEntry: SemanticEvidenceLedgerEntry | undefined,
+): number {
+  if (!evidenceLedgerEntry) {
+    return 0;
+  }
+  const candidate = evidenceLedgerEntry.candidates.find((entry) => entry.name === name);
+  if (candidate) {
+    return Math.min(0.2, candidate.score * 0.2 + candidate.supportCount * 0.01 + candidate.provenance.length * 0.01);
+  }
+  if (evidenceLedgerEntry.winnerName === name) {
+    return Math.min(0.18, evidenceLedgerEntry.winnerScore * 0.2);
+  }
+  return 0;
+}
+
+function buildCandidateScore(symbol: SemanticSymbol, context: NamingSemanticContext): number {
+  const roleWeight = roleSignalWeight(symbol.name, context.declarationFingerprint);
+  const ledgerWeight = ledgerCandidateWeight(symbol.name, context.evidenceLedgerEntry);
+  const mutationWeight = context.declarationFingerprint
+    ? context.declarationFingerprint.mutationProfile === "io-mutation"
+      ? 0.03
+      : context.declarationFingerprint.mutationProfile === "state-mutation"
+        ? 0.02
+        : 0
+    : 0;
+  return clamp(symbol.confidence * Math.max(symbol.quality, 0.1) + roleWeight + ledgerWeight + mutationWeight);
 }
 
 function scoreVariant(
   symbol: SemanticSymbol,
   variant: NameVariantCandidate,
+  context: NamingSemanticContext,
 ): number {
   const quality = scoreNameQuality(variant.name);
   const genericPenalty = isGenericName(variant.name) ? 0.2 : 0;
@@ -70,13 +126,17 @@ function scoreVariant(
   const evidenceBoost = Math.min(0.08, symbol.evidenceIds.length * 0.004);
   const sourceBoost = variant.source === "seed" ? 0.07 : variant.source === "alternative" ? 0.03 : 0;
   const signalBoost = variant.signalScore * 0.06;
+  const roleBoost = roleSignalWeight(variant.name, context.declarationFingerprint);
+  const ledgerBoost = ledgerCandidateWeight(variant.name, context.evidenceLedgerEntry);
   return clamp(
     variant.confidence * 0.36 +
       quality * 0.44 +
       provenanceBoost +
       evidenceBoost +
       sourceBoost +
-      signalBoost -
+      signalBoost +
+      roleBoost +
+      ledgerBoost -
       genericPenalty,
   );
 }
@@ -84,6 +144,7 @@ function scoreVariant(
 function pickBestRerankVariant(
   symbol: SemanticSymbol,
   selectedSeed: NamingSeedCandidate | undefined,
+  context: NamingSemanticContext,
 ): SemanticSymbol {
   const variantByName = new Map<string, NameVariantCandidate>();
   const registerVariant = (variant: NameVariantCandidate): void => {
@@ -97,8 +158,8 @@ function pickBestRerankVariant(
       variantByName.set(key, { ...variant, name: normalized });
       return;
     }
-    const existingScore = scoreVariant(symbol, existing);
-    const candidateScore = scoreVariant(symbol, variant);
+    const existingScore = scoreVariant(symbol, existing, context);
+    const candidateScore = scoreVariant(symbol, variant, context);
     if (candidateScore > existingScore) {
       variantByName.set(key, { ...variant, name: normalized });
     }
@@ -132,7 +193,7 @@ function pickBestRerankVariant(
   const ranked = [...variantByName.values()]
     .map((variant) => ({
       variant,
-      score: scoreVariant(symbol, variant),
+      score: scoreVariant(symbol, variant, context),
       quality: scoreNameQuality(variant.name),
     }))
     .sort((left, right) => {
@@ -150,17 +211,20 @@ function pickBestRerankVariant(
     return symbol;
   }
 
-  if (winner.variant.name === symbol.name) {
+    if (winner.variant.name === symbol.name) {
     return symbol;
   }
 
   const qualityGain = winner.quality - baseline.quality;
   const scoreGain = winner.score - baseline.score;
+  const ledgerWinnerBoost = context.evidenceLedgerEntry && context.evidenceLedgerEntry.winnerName === winner.variant.name
+    ? 0.02
+    : 0;
   const genericUpgrade = isGenericName(symbol.name) && !isGenericName(winner.variant.name);
   const shouldAdopt =
     qualityGain >= 0.02 ||
     (genericUpgrade && scoreGain >= -0.03) ||
-    (scoreGain >= 0.028 && winner.quality >= baseline.quality);
+    (scoreGain + ledgerWinnerBoost >= 0.028 && winner.quality >= baseline.quality);
   if (!shouldAdopt) {
     return symbol;
   }
@@ -202,14 +266,15 @@ function isCoverageSymbolKey(symbolKey: string): boolean {
 function buildSeededCandidate(
   symbol: SemanticSymbol,
   seedBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
+  context: NamingSemanticContext,
 ): SemanticSymbol {
   const seed = seedBySymbolKey.get(symbol.symbolKey);
   if (!seed) {
-    return pickBestRerankVariant(symbol, undefined);
+    return pickBestRerankVariant(symbol, undefined, context);
   }
 
   if (seed.source === "promotion" && isSyntheticCoverageName(seed.name)) {
-    return pickBestRerankVariant(symbol, undefined);
+    return pickBestRerankVariant(symbol, undefined, context);
   }
 
   if (seed.source === "direct" && isCoverageSymbolKey(symbol.symbolKey)) {
@@ -219,7 +284,7 @@ function buildSeededCandidate(
       quality: scoreNameQuality(seed.name),
       confidence: Math.max(symbol.confidence, seed.confidence),
     };
-    return pickBestRerankVariant(seededCoverage, seed);
+    return pickBestRerankVariant(seededCoverage, seed, context);
   }
 
   const currentQuality = scoreNameQuality(symbol.name);
@@ -237,7 +302,7 @@ function buildSeededCandidate(
     seed.signalScore >= 0.58;
 
   if (!shouldUseDirectSeed && !shouldUsePromotionSeed) {
-    return pickBestRerankVariant(symbol, undefined);
+    return pickBestRerankVariant(symbol, undefined, context);
   }
 
   const seeded = {
@@ -246,7 +311,7 @@ function buildSeededCandidate(
     quality: seedQuality,
     confidence: Math.max(symbol.confidence, seed.confidence),
   };
-  return pickBestRerankVariant(seeded, seed);
+  return pickBestRerankVariant(seeded, seed, context);
 }
 
 function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candidateScore: number): boolean {
@@ -317,10 +382,20 @@ export function updateNamingMemory(
   let updatedEntryCount = 0;
   let keptEntryCount = 0;
   const orderedSymbols = [...semanticIr.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+  const declarationFingerprintBySymbolKey = new Map(
+    semanticIr.declarationFingerprints.map((fingerprint) => [fingerprint.symbolKey, fingerprint]),
+  );
+  const evidenceLedgerEntryBySymbolKey = new Map(
+    semanticIr.evidenceLedger.entries.map((entry) => [entry.symbolKey, entry]),
+  );
 
   for (const symbol of orderedSymbols) {
-    const candidateSymbol = buildSeededCandidate(symbol, seedBySymbolKey);
-    const score = buildCandidateScore(candidateSymbol);
+    const semanticContext: NamingSemanticContext = {
+      declarationFingerprint: declarationFingerprintBySymbolKey.get(symbol.symbolKey),
+      evidenceLedgerEntry: evidenceLedgerEntryBySymbolKey.get(symbol.symbolKey),
+    };
+    const candidateSymbol = buildSeededCandidate(symbol, seedBySymbolKey, semanticContext);
+    const score = buildCandidateScore(candidateSymbol, semanticContext);
     const existing = entriesByKey.get(symbol.symbolKey);
     if (!existing) {
       const created: NamingMemoryEntry = {
@@ -388,8 +463,27 @@ export function applyNamingMemory(semanticIr: SemanticIrModel, namingMemory: Nam
       confidence: Math.max(symbol.confidence, memoryEntry.currentScore),
     };
   });
+  const symbolNameByKey = new Map(symbols.map((symbol) => [symbol.symbolKey, symbol.name]));
+  const domainDeclarations = semanticIr.domainDeclarations.map((declaration) => ({
+    ...declaration,
+    symbolName: symbolNameByKey.get(declaration.symbolKey) ?? declaration.symbolName,
+  }));
+  const declarationFingerprints = semanticIr.declarationFingerprints.map((fingerprint) => ({
+    ...fingerprint,
+    symbolName: symbolNameByKey.get(fingerprint.symbolKey) ?? fingerprint.symbolName,
+  }));
+  const evidenceLedger = {
+    ...semanticIr.evidenceLedger,
+    entries: semanticIr.evidenceLedger.entries.map((entry) => ({
+      ...entry,
+      winnerName: symbolNameByKey.get(entry.symbolKey) ?? entry.winnerName,
+    })),
+  };
   return {
     ...semanticIr,
     symbols,
+    domainDeclarations,
+    declarationFingerprints,
+    evidenceLedger,
   };
 }
