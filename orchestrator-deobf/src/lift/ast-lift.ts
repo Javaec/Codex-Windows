@@ -20,6 +20,9 @@ export interface LiftedChunkArtifact {
   sourceFilePath: string;
   content: string;
   symbolBindings: LiftedSymbolBinding[];
+  dependencies: LiftedChunkDependency[];
+  exportedIdentifiers: string[];
+  hasDefaultExport: boolean;
   importShapingCount: number;
   prunedDeclarationCount: number;
   liftedDeclarationCount: number;
@@ -37,11 +40,24 @@ export interface AstLiftOptions {
   minHotChunkCount: number;
   preferredArchetypes: ArchetypeId[];
   minimumChunkScore: number;
+  closureChunkLimit: number;
+}
+
+export interface LiftedChunkDependency {
+  chunkId: string;
+  namedImports: string[];
+  requiresDefaultExport: boolean;
+  requiresNamespaceImport: boolean;
 }
 
 interface ImportShapingResult {
   sourceFile: ts.SourceFile;
   shapedCount: number;
+}
+
+interface ImportResolutionResult {
+  sourceFile: ts.SourceFile;
+  rewrittenCount: number;
 }
 
 interface ImportRenamePair {
@@ -65,9 +81,21 @@ interface LiftedStatementSelection {
   availableIdentifiers: Set<string>;
 }
 
+interface LiftChunkRequirements {
+  requiredIdentifiers: ReadonlySet<string>;
+  requiresDefaultExport: boolean;
+  requiresNamespaceImport: boolean;
+}
+
 interface ExportCandidate {
   referenceName: string;
   exportName: string;
+}
+
+interface MutableLiftChunkRequirements {
+  requiredIdentifiers: Set<string>;
+  requiresDefaultExport: boolean;
+  requiresNamespaceImport: boolean;
 }
 
 const DEFAULT_LIFT_OPTIONS: AstLiftOptions = {
@@ -76,6 +104,7 @@ const DEFAULT_LIFT_OPTIONS: AstLiftOptions = {
   minHotChunkCount: 8,
   preferredArchetypes: ["ui", "service", "hook", "transport"],
   minimumChunkScore: 0,
+  closureChunkLimit: 128,
 };
 
 const GENERIC_IMPORT_TOKENS = new Set<string>(["index", "chunk", "main", "entry", "assets", "webview", "src"]);
@@ -741,6 +770,148 @@ function collectExportedNames(sourceFile: ts.SourceFile): Set<string> {
   return exported;
 }
 
+function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return true;
+    }
+    if (!statementHasExportModifier(statement)) {
+      continue;
+    }
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    if (!modifiers) {
+      continue;
+    }
+    for (const modifier of modifiers) {
+      if (modifier.kind === ts.SyntaxKind.DefaultKeyword) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function chunkIdFromRelativeImport(moduleSpecifier: string): string | undefined {
+  if (!moduleSpecifier.startsWith(".")) {
+    return undefined;
+  }
+  const normalized = moduleSpecifier.replace(/\\/g, "/");
+  const baseName = path.basename(normalized).replace(/\.[cm]?[jt]sx?$/i, "");
+  if (baseName.length === 0) {
+    return undefined;
+  }
+  return baseName;
+}
+
+function rewriteChunkImportSpecifier(moduleSpecifier: string, chunkAliasToId: ReadonlyMap<string, string>): string {
+  if (!moduleSpecifier.startsWith(".")) {
+    return moduleSpecifier;
+  }
+  const normalized = moduleSpecifier.replace(/\\/g, "/");
+  const extensionMatch = normalized.match(/\.[cm]?[jt]sx?$/i);
+  const extension = extensionMatch ? extensionMatch[0] : "";
+  const withoutExtension = extension.length > 0 ? normalized.slice(0, -extension.length) : normalized;
+  const baseName = path.posix.basename(withoutExtension);
+  if (baseName.length === 0) {
+    return moduleSpecifier;
+  }
+  const resolvedChunkId = chunkAliasToId.get(baseName);
+  if (!resolvedChunkId || resolvedChunkId === baseName) {
+    return moduleSpecifier;
+  }
+  const directory = path.posix.dirname(withoutExtension);
+  const rewrittenBase = `${resolvedChunkId}${extension}`;
+  return directory === "." ? `./${rewrittenBase}` : `${directory}/${rewrittenBase}`;
+}
+
+function applyChunkImportResolution(
+  sourceFile: ts.SourceFile,
+  chunkAliasToId: ReadonlyMap<string, string>,
+): ImportResolutionResult {
+  if (chunkAliasToId.size === 0) {
+    return {
+      sourceFile,
+      rewrittenCount: 0,
+    };
+  }
+
+  let rewrittenCount = 0;
+  const nextStatements = sourceFile.statements.map((statement) => {
+    if (!ts.isImportDeclaration(statement)) {
+      return statement;
+    }
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) {
+      return statement;
+    }
+    const currentSpecifier = statement.moduleSpecifier.text;
+    const rewrittenSpecifier = rewriteChunkImportSpecifier(currentSpecifier, chunkAliasToId);
+    if (rewrittenSpecifier === currentSpecifier) {
+      return statement;
+    }
+    rewrittenCount += 1;
+    return ts.factory.updateImportDeclaration(
+      statement,
+      statement.modifiers,
+      statement.importClause,
+      ts.factory.createStringLiteral(rewrittenSpecifier),
+      statement.attributes,
+    );
+  });
+
+  return {
+    sourceFile: rewrittenCount > 0 ? ts.factory.updateSourceFile(sourceFile, nextStatements) : sourceFile,
+    rewrittenCount,
+  };
+}
+
+function collectLiftedChunkDependencies(sourceFile: ts.SourceFile): LiftedChunkDependency[] {
+  const byChunk = new Map<string, { namedImports: Set<string>; requiresDefaultExport: boolean; requiresNamespaceImport: boolean }>();
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) {
+      continue;
+    }
+    const specifier = statement.moduleSpecifier;
+    if (!ts.isStringLiteral(specifier)) {
+      continue;
+    }
+    const chunkId = chunkIdFromRelativeImport(specifier.text);
+    if (!chunkId) {
+      continue;
+    }
+
+    const dependency = byChunk.get(chunkId) ?? {
+      namedImports: new Set<string>(),
+      requiresDefaultExport: false,
+      requiresNamespaceImport: false,
+    };
+    const clause = statement.importClause;
+    if (clause?.name) {
+      dependency.requiresDefaultExport = true;
+    }
+    const namedBindings = clause?.namedBindings;
+    if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+      dependency.requiresNamespaceImport = true;
+    }
+    if (namedBindings && ts.isNamedImports(namedBindings)) {
+      for (const element of namedBindings.elements) {
+        const imported = element.propertyName ?? element.name;
+        dependency.namedImports.add(imported.text);
+      }
+    }
+    byChunk.set(chunkId, dependency);
+  }
+
+  return [...byChunk.entries()]
+    .map(([chunkId, dependency]) => ({
+      chunkId,
+      namedImports: [...dependency.namedImports].sort((left, right) => left.localeCompare(right)),
+      requiresDefaultExport: dependency.requiresDefaultExport,
+      requiresNamespaceImport: dependency.requiresNamespaceImport,
+    }))
+    .sort((left, right) => left.chunkId.localeCompare(right.chunkId));
+}
+
 function isIdentifierReference(node: ts.Identifier): boolean {
   const parent = node.parent;
 
@@ -926,7 +1097,7 @@ function isSafeTopLevelDeclaration(statement: ts.Statement): boolean {
     return true;
   }
   if (ts.isClassDeclaration(statement)) {
-    return false;
+    return true;
   }
   if (!ts.isVariableStatement(statement)) {
     return false;
@@ -936,8 +1107,7 @@ function isSafeTopLevelDeclaration(statement: ts.Statement): boolean {
     if (!initializer) {
       continue;
     }
-    const isFunctionInitializer = ts.isFunctionExpression(initializer) || ts.isArrowFunction(initializer);
-    if (!isFunctionInitializer) {
+    if (hasSideEffectExpression(initializer)) {
       return false;
     }
   }
@@ -979,11 +1149,39 @@ function keepImportDeclaration(importDeclaration: ts.ImportDeclaration, referenc
   return false;
 }
 
-function selectLiftedStatements(sourceFile: ts.SourceFile, targetIdentifiers: string[]): LiftedStatementSelection {
+function collectImportBindingNames(importDeclaration: ts.ImportDeclaration): string[] {
+  const names: string[] = [];
+  const clause = importDeclaration.importClause;
+  if (!clause) {
+    return names;
+  }
+  if (clause.name) {
+    names.push(clause.name.text);
+  }
+  const bindings = clause.namedBindings;
+  if (!bindings) {
+    return names;
+  }
+  if (ts.isNamespaceImport(bindings)) {
+    names.push(bindings.name.text);
+    return names;
+  }
+  for (const element of bindings.elements) {
+    names.push(element.name.text);
+  }
+  return names;
+}
+
+function selectLiftedStatements(
+  sourceFile: ts.SourceFile,
+  targetIdentifiers: string[],
+  requiredIdentifiers: ReadonlySet<string>,
+): LiftedStatementSelection {
   const declarationIndex = buildDeclarationStatementIndex(sourceFile);
   const selectedStatements = new Set<ts.Statement>();
   const availableIdentifiers = new Set<string>();
   const queue: string[] = [...new Set(targetIdentifiers)].sort((left, right) => left.localeCompare(right));
+  const unsafeAllowlist = new Set<string>([...queue, ...requiredIdentifiers]);
 
   while (queue.length > 0) {
     const identifier = queue.shift();
@@ -994,7 +1192,9 @@ function selectLiftedStatements(sourceFile: ts.SourceFile, targetIdentifiers: st
     if (!declaration) {
       continue;
     }
-    if (!isSafeTopLevelDeclaration(declaration)) {
+    const declaredNames = collectDeclaredNamesFromNode(declaration);
+    const allowlistedDeclaration = declaredNames.some((declaredName) => unsafeAllowlist.has(declaredName));
+    if (!isSafeTopLevelDeclaration(declaration) && !allowlistedDeclaration) {
       continue;
     }
     if (selectedStatements.has(declaration)) {
@@ -1002,12 +1202,15 @@ function selectLiftedStatements(sourceFile: ts.SourceFile, targetIdentifiers: st
     }
 
     selectedStatements.add(declaration);
-    for (const declaredName of collectDeclaredNamesFromNode(declaration)) {
+    for (const declaredName of declaredNames) {
       availableIdentifiers.add(declaredName);
     }
 
     const references = collectIdentifierReferences(declaration);
     for (const referenceName of references) {
+      if (allowlistedDeclaration && declarationIndex.has(referenceName)) {
+        unsafeAllowlist.add(referenceName);
+      }
       if (declarationIndex.has(referenceName)) {
         queue.push(referenceName);
       }
@@ -1033,6 +1236,12 @@ function selectLiftedStatements(sourceFile: ts.SourceFile, targetIdentifiers: st
       }
       return leftSpecifier.text.localeCompare(rightSpecifier.text);
     });
+
+  for (const importDeclaration of keptImports) {
+    for (const name of collectImportBindingNames(importDeclaration)) {
+      availableIdentifiers.add(name);
+    }
+  }
 
   const declarationStatements = sourceFile.statements.filter((statement) => selectedStatements.has(statement));
   const statements: ts.Statement[] = [...keptImports, ...declarationStatements];
@@ -1088,6 +1297,43 @@ function collectExportCandidates(sourceFile: ts.SourceFile): ExportCandidate[] {
   }
 
   return candidates;
+}
+
+function exportLocalPriority(exportName: string, localName: string): number {
+  let score = 0;
+  if (localName !== exportName) {
+    score += 2;
+  }
+  if (!isObfuscatedIdentifier(localName)) {
+    score += 2;
+  }
+  if (localName.length >= 4) {
+    score += 1;
+  }
+  return score;
+}
+
+function buildExportLocalsByExportName(candidates: ReadonlyArray<ExportCandidate>): Map<string, string[]> {
+  const grouped = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    const locals = grouped.get(candidate.exportName) ?? new Set<string>();
+    locals.add(candidate.referenceName);
+    grouped.set(candidate.exportName, locals);
+  }
+
+  const result = new Map<string, string[]>();
+  for (const [exportName, locals] of grouped.entries()) {
+    const orderedLocals = [...locals].sort((left, right) => {
+      const leftPriority = exportLocalPriority(exportName, left);
+      const rightPriority = exportLocalPriority(exportName, right);
+      if (leftPriority !== rightPriority) {
+        return rightPriority - leftPriority;
+      }
+      return left.localeCompare(right);
+    });
+    result.set(exportName, orderedLocals);
+  }
+  return result;
 }
 
 function symbolKeyAnchor(symbolKey: string): string {
@@ -1324,7 +1570,7 @@ function pickHotChunks(
     hotChunkIds.push(firstChunk.chunkId);
   }
 
-  return hotChunkIds.sort((left, right) => left.localeCompare(right));
+  return hotChunkIds;
 }
 
 function selectChunkById(chunkArtifacts: ChunkArtifactModel, chunkId: string): ChunkArtifactRecord {
@@ -1333,6 +1579,57 @@ function selectChunkById(chunkArtifacts: ChunkArtifactModel, chunkId: string): C
     throw new Error(`selectChunkById: missing chunk ${chunkId}`);
   }
   return chunk;
+}
+
+function buildChunkAliasToId(chunkArtifacts: ChunkArtifactModel): Map<string, string> {
+  const sourcePriority = (sourceFilePath: string): number => {
+    const normalized = sourceFilePath.replace(/\\/g, "/").toLowerCase();
+    let score = 0;
+    if (normalized.includes("/asar-extract/")) {
+      score += 6;
+    }
+    if (normalized.includes("/webview/assets/")) {
+      score += 5;
+    }
+    if (normalized.includes("/.vite/build/")) {
+      score += 4;
+    }
+    if (normalized.includes("/webcrack/")) {
+      score -= 2;
+    }
+    if (normalized.includes("/wakaru/")) {
+      score -= 2;
+    }
+    if (normalized.includes("/javascript-deobfuscator/")) {
+      score -= 2;
+    }
+    if (normalized.includes("/synchrony/")) {
+      score -= 2;
+    }
+    return score;
+  };
+
+  const aliasToChunkId = new Map<string, string>();
+  const aliasToScore = new Map<string, number>();
+  for (const chunk of chunkArtifacts.chunks) {
+    const alias = path.basename(chunk.sourceFilePath).replace(/\.[cm]?[jt]sx?$/i, "");
+    if (alias.length === 0) {
+      continue;
+    }
+    const nextScore = sourcePriority(chunk.sourceFilePath);
+    const existing = aliasToChunkId.get(alias);
+    if (!existing) {
+      aliasToChunkId.set(alias, chunk.chunkId);
+      aliasToScore.set(alias, nextScore);
+      continue;
+    }
+    const existingScore = aliasToScore.get(alias) ?? Number.NEGATIVE_INFINITY;
+    if (nextScore > existingScore || (nextScore === existingScore && chunk.chunkId.localeCompare(existing) < 0)) {
+      aliasToChunkId.set(alias, chunk.chunkId);
+      aliasToScore.set(alias, nextScore);
+    }
+  }
+  return aliasToChunkId;
 }
 
 function buildSymbolsByChunk(
@@ -1371,20 +1668,46 @@ function buildSymbolsByChunk(
 async function liftChunkToTypescript(
   chunk: ChunkArtifactRecord,
   symbols: OwnershipRecord[],
+  requirements: LiftChunkRequirements,
+  chunkAliasToId: ReadonlyMap<string, string>,
 ): Promise<LiftedChunkArtifact> {
   const sourceText = await fs.readFile(chunk.sourceFilePath, "utf8");
   const sourceFile = ts.createSourceFile(chunk.sourceFilePath, sourceText, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
 
-  const importShaping = applyImportShaping(sourceFile);
+  const importResolution = applyChunkImportResolution(sourceFile, chunkAliasToId);
+  const importShaping = applyImportShaping(importResolution.sourceFile);
   const beautify = applyBeautifyPipeline(importShaping.sourceFile);
   const exportCandidates = collectExportCandidates(beautify.sourceFile);
+  const exportLocalsByName = buildExportLocalsByExportName(exportCandidates);
   const symbolBindings = bindChunkSymbols(chunk.chunkId, symbols, exportCandidates);
 
-  const uniqueSourceIdentifiers = [...new Set(symbolBindings.map((binding) => binding.sourceIdentifier))]
+  const requiredSourceIdentifiers = new Set<string>();
+  for (const requiredName of requirements.requiredIdentifiers) {
+    requiredSourceIdentifiers.add(requiredName);
+    const aliasLocals = exportLocalsByName.get(requiredName) ?? [];
+    for (const aliasLocal of aliasLocals) {
+      if (aliasLocal.length === 0) {
+        continue;
+      }
+      requiredSourceIdentifiers.add(aliasLocal);
+    }
+  }
+
+  const uniqueSourceIdentifiers = [
+    ...new Set<string>([
+      ...symbolBindings.map((binding) => binding.sourceIdentifier),
+      ...requiredSourceIdentifiers,
+    ]),
+  ]
     .filter((identifier) => identifier.length > 0)
     .sort((left, right) => left.localeCompare(right));
-  const liftedSelection = selectLiftedStatements(beautify.sourceFile, uniqueSourceIdentifiers);
+  const liftedSelection = selectLiftedStatements(
+    beautify.sourceFile,
+    uniqueSourceIdentifiers,
+    requiredSourceIdentifiers,
+  );
   const liftedSourceFile = ts.factory.updateSourceFile(beautify.sourceFile, liftedSelection.statements);
+  const dependencies = collectLiftedChunkDependencies(liftedSourceFile);
   const liftedDeclarationCount = liftedSelection.statements.reduce(
     (count, statement) => count + (ts.isImportDeclaration(statement) ? 0 : 1),
     0,
@@ -1395,32 +1718,65 @@ async function liftChunkToTypescript(
     liftedDeclarationsText,
   );
   const existingExports = collectExportedNames(liftedSourceFile);
+  const defaultExportPresent = hasDefaultExport(liftedSourceFile);
+  const existingIdentifiers = liftedSelection.availableIdentifiers;
+  const resolvedBindings: LiftedSymbolBinding[] = [];
 
-  const fallbackNames = new Set<string>();
   const aliasLines = symbolBindings
     .sort((left, right) => left.exportName.localeCompare(right.exportName))
-    .flatMap((binding) => {
-      if (liftedSelection.availableIdentifiers.has(binding.sourceIdentifier)) {
-        if (binding.exportName === binding.sourceIdentifier) {
-          if (existingExports.has(binding.sourceIdentifier)) {
-            return [];
-          }
-          return [`export { ${binding.sourceIdentifier} };`];
-        }
-        return [`export { ${binding.sourceIdentifier} as ${binding.exportName} };`];
+    .flatMap((binding): string[] => {
+      if (!existingIdentifiers.has(binding.sourceIdentifier)) {
+        return [];
       }
 
-      const fallbackName = makeUniqueName(
-        sanitizeIdentifier(`lifted fallback ${binding.exportName}`, "liftedFallback"),
-        fallbackNames,
-      );
-      return [
-        `const ${fallbackName}: unknown = Object.freeze({ lifted: true, chunkId: ${JSON.stringify(chunk.chunkId)}, sourceIdentifier: ${JSON.stringify(binding.sourceIdentifier)} });`,
-        `export const ${binding.exportName} = ${fallbackName};`,
-      ];
+      resolvedBindings.push(binding);
+      if (binding.exportName === binding.sourceIdentifier) {
+        if (existingExports.has(binding.sourceIdentifier)) {
+          return [];
+        }
+        existingExports.add(binding.sourceIdentifier);
+        return [`export { ${binding.sourceIdentifier} };`];
+      }
+      return [`export { ${binding.sourceIdentifier} as ${binding.exportName} };`];
     });
+
+  const requiredExportLines: string[] = [];
+  const requiredIdentifiers = [...requirements.requiredIdentifiers].sort((left, right) => left.localeCompare(right));
+  for (const identifier of requiredIdentifiers) {
+    if (existingExports.has(identifier)) {
+      continue;
+    }
+
+    if (existingIdentifiers.has(identifier)) {
+      requiredExportLines.push(`export { ${identifier} };`);
+      existingExports.add(identifier);
+      continue;
+    }
+
+    const aliasLocals = exportLocalsByName.get(identifier) ?? [];
+    const aliasLocal = aliasLocals.find((candidate) => existingIdentifiers.has(candidate));
+    if (!aliasLocal) {
+      throw new Error(
+        `liftChunkToTypescript: chunk ${chunk.chunkId} missing required export "${identifier}" in ${chunk.sourceFilePath}`,
+      );
+    }
+    if (aliasLocal === identifier) {
+      requiredExportLines.push(`export { ${aliasLocal} };`);
+      existingExports.add(identifier);
+      continue;
+    }
+    requiredExportLines.push(`export { ${aliasLocal} as ${identifier} };`);
+    existingExports.add(identifier);
+  }
+  if (requirements.requiresDefaultExport && !defaultExportPresent) {
+    throw new Error(
+      `liftChunkToTypescript: chunk ${chunk.chunkId} requires default export but none was found in ${chunk.sourceFilePath}`,
+    );
+  }
+
   const metadataLines = [
     `export const liftedSourcePath = ${JSON.stringify(chunk.sourceFilePath.split(path.sep).join("/"))};`,
+    `export const liftedImportResolutionCount = ${importResolution.rewrittenCount};`,
     `export const liftedImportShapingCount = ${importShaping.shapedCount};`,
     `export const liftedPrunedDeclarationCount = ${beautify.prunedDeclarationCount};`,
     `export const liftedDeclarationCount = ${liftedDeclarationCount};`,
@@ -1432,6 +1788,8 @@ async function liftChunkToTypescript(
     `// Lifted from ${chunk.sourceFilePath.split(path.sep).join("/")}`,
     "",
     ...(liftedDeclarationsText.length > 0 ? [liftedDeclarationsText, ""] : []),
+    ...requiredExportLines,
+    ...(requiredExportLines.length > 0 ? [""] : []),
     ...metadataLines,
     "",
     ...aliasLines,
@@ -1442,11 +1800,52 @@ async function liftChunkToTypescript(
     chunkId: chunk.chunkId,
     sourceFilePath: chunk.sourceFilePath,
     content: lines.join("\n"),
-    symbolBindings,
+    symbolBindings: resolvedBindings,
+    dependencies,
+    exportedIdentifiers: [...existingExports].sort((left, right) => left.localeCompare(right)),
+    hasDefaultExport: defaultExportPresent,
     importShapingCount: importShaping.shapedCount,
     prunedDeclarationCount: beautify.prunedDeclarationCount,
     liftedDeclarationCount,
   };
+}
+
+function createMutableRequirements(): MutableLiftChunkRequirements {
+  return {
+    requiredIdentifiers: new Set<string>(),
+    requiresDefaultExport: false,
+    requiresNamespaceImport: false,
+  };
+}
+
+function assertRequiredExportClosure(
+  liftedChunkById: ReadonlyMap<string, LiftedChunkArtifact>,
+  requirementsByChunk: ReadonlyMap<string, MutableLiftChunkRequirements>,
+): void {
+  const chunkIds = [...requirementsByChunk.keys()].sort((left, right) => left.localeCompare(right));
+  for (const chunkId of chunkIds) {
+    const requirements = requirementsByChunk.get(chunkId);
+    if (!requirements) {
+      continue;
+    }
+    const liftedChunk = liftedChunkById.get(chunkId);
+    if (!liftedChunk) {
+      throw new Error(`required-export closure: missing lifted chunk ${chunkId}`);
+    }
+
+    const exported = new Set<string>(liftedChunk.exportedIdentifiers);
+    const requiredIdentifiers = [...requirements.requiredIdentifiers].sort((left, right) => left.localeCompare(right));
+    const missingNamedExports = requiredIdentifiers.filter((identifier) => !exported.has(identifier));
+    if (missingNamedExports.length > 0) {
+      const preview = missingNamedExports.slice(0, 12).join(", ");
+      throw new Error(
+        `required-export closure: chunk ${chunkId} missing named export(s): ${preview}`,
+      );
+    }
+    if (requirements.requiresDefaultExport && !liftedChunk.hasDefaultExport) {
+      throw new Error(`required-export closure: chunk ${chunkId} requires default export but none was lifted`);
+    }
+  }
 }
 
 export async function buildAstLiftResult(
@@ -1461,26 +1860,116 @@ export async function buildAstLiftResult(
 
   const hotChunkIds = pickHotChunks(chunkArtifacts, ownershipModel, options);
   const symbolsByChunk = buildSymbolsByChunk(chunkArtifacts, ownershipModel);
+  const chunkById = new Map<string, ChunkArtifactRecord>(
+    chunkArtifacts.chunks.map((chunk) => [chunk.chunkId, chunk]),
+  );
+  const chunkAliasToId = buildChunkAliasToId(chunkArtifacts);
 
-  const liftedChunks: LiftedChunkArtifact[] = [];
+  const liftedChunkById = new Map<string, LiftedChunkArtifact>();
   const symbolBindingByKey = new Map<string, LiftedSymbolBinding>();
+  const processedChunkIds = new Set<string>();
+  const queuedChunkIds = new Set<string>();
+  const queue: string[] = [];
+  const requirementsByChunk = new Map<string, MutableLiftChunkRequirements>();
 
-  const hotChunks = hotChunkIds.map((chunkId) => selectChunkById(chunkArtifacts, chunkId));
-  for (const chunk of hotChunks) {
+  const enqueue = (chunkId: string): void => {
+    if (processedChunkIds.has(chunkId) || queuedChunkIds.has(chunkId)) {
+      return;
+    }
+    if (!chunkById.has(chunkId)) {
+      return;
+    }
+    queue.push(chunkId);
+    queuedChunkIds.add(chunkId);
+  };
+
+  const mergeRequirements = (
+    chunkId: string,
+    dependency: LiftedChunkDependency,
+  ): void => {
+    const existing = requirementsByChunk.get(chunkId) ?? createMutableRequirements();
+    let changed = false;
+    for (const name of dependency.namedImports) {
+      if (existing.requiredIdentifiers.has(name)) {
+        continue;
+      }
+      existing.requiredIdentifiers.add(name);
+      changed = true;
+    }
+    if (dependency.requiresDefaultExport && !existing.requiresDefaultExport) {
+      existing.requiresDefaultExport = true;
+      changed = true;
+    }
+    if (dependency.requiresNamespaceImport && !existing.requiresNamespaceImport) {
+      existing.requiresNamespaceImport = true;
+      changed = true;
+    }
+    requirementsByChunk.set(chunkId, existing);
+    if (changed && processedChunkIds.has(chunkId)) {
+      processedChunkIds.delete(chunkId);
+      enqueue(chunkId);
+    }
+  };
+
+  for (const hotChunkId of hotChunkIds) {
+    requirementsByChunk.set(hotChunkId, createMutableRequirements());
+    enqueue(hotChunkId);
+  }
+
+  while (queue.length > 0) {
+    if (processedChunkIds.size >= options.closureChunkLimit) {
+      break;
+    }
+    const chunkId = queue.shift();
+    if (!chunkId) {
+      continue;
+    }
+    queuedChunkIds.delete(chunkId);
+    if (processedChunkIds.has(chunkId)) {
+      continue;
+    }
+
+    const chunk = selectChunkById(chunkArtifacts, chunkId);
     if (chunk.sourceKind !== "javascript") {
-      throw new Error(`buildAstLiftResult: hot chunk ${chunk.chunkId} is not javascript`);
+      throw new Error(`buildAstLiftResult: chunk ${chunk.chunkId} is not javascript`);
     }
 
     const symbols = symbolsByChunk.get(chunk.chunkId) ?? [];
-    const lifted = await liftChunkToTypescript(chunk, symbols);
-    liftedChunks.push(lifted);
+    const requirements = requirementsByChunk.get(chunk.chunkId) ?? createMutableRequirements();
+    requirementsByChunk.set(chunk.chunkId, requirements);
+    const lifted = await liftChunkToTypescript(chunk, symbols, {
+      requiredIdentifiers: requirements.requiredIdentifiers,
+      requiresDefaultExport: requirements.requiresDefaultExport,
+      requiresNamespaceImport: requirements.requiresNamespaceImport,
+    }, chunkAliasToId);
+    const previousLifted = liftedChunkById.get(chunk.chunkId);
+    if (previousLifted) {
+      for (const binding of previousLifted.symbolBindings) {
+        const currentBinding = symbolBindingByKey.get(binding.symbolKey);
+        if (currentBinding && currentBinding.chunkId === chunk.chunkId) {
+          symbolBindingByKey.delete(binding.symbolKey);
+        }
+      }
+    }
+    liftedChunkById.set(chunk.chunkId, lifted);
+    processedChunkIds.add(chunk.chunkId);
 
     for (const binding of lifted.symbolBindings) {
       symbolBindingByKey.set(binding.symbolKey, binding);
     }
+
+    for (const dependency of lifted.dependencies) {
+      if (!chunkById.has(dependency.chunkId)) {
+        continue;
+      }
+      mergeRequirements(dependency.chunkId, dependency);
+      enqueue(dependency.chunkId);
+    }
   }
 
-  liftedChunks.sort((left, right) => left.chunkId.localeCompare(right.chunkId));
+  assertRequiredExportClosure(liftedChunkById, requirementsByChunk);
+
+  const liftedChunks = [...liftedChunkById.values()].sort((left, right) => left.chunkId.localeCompare(right.chunkId));
 
   return {
     hotChunkIds,

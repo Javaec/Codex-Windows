@@ -1,209 +1,216 @@
 {
   "aggregate": {
-    "averageScore": 0.9553,
+    "averageScore": 0.96,
     "buildHealthAllGreen": true,
+    "classCoverageAverage": 1,
     "devHealthAllGreen": true,
-    "highConfidenceSymbolsAverage": 693,
+    "functionClassCoverageAverage": 1,
+    "functionCoverageAverage": 1,
+    "highConfidenceSymbolsAverage": 550,
     "mappedFilesAverage": 48,
-    "mappedSymbolsAverage": 1365,
-    "minScore": 0.9553,
-    "nameQualityAverage": 0.7766,
-    "variableCoverageAverage": 1
+    "mappedSymbolsAverage": 1069,
+    "minScore": 0.96,
+    "nameQualityAverage": 0.7778,
+    "variableCoverageAverage": 0.575
   },
-  "generatedAtIso": "2026-02-25T16:07:04.689Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\merged-evidence.json",
+  "generatedAtIso": "2026-02-25T19:40:31.466Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\fast-cycle-20260225-193428-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 51953,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\01-core-no-binary.log",
+      "durationMs": 101132,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\fast-cycle-20260225-193428-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
-          "hook": 124,
-          "service": 368,
-          "store": 628,
-          "transport": 111,
-          "ui": 134
+          "hook": 7,
+          "service": 212,
+          "store": 829,
+          "transport": 12,
+          "ui": 9
         },
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7941,
-        "coverageSymbols": 5365,
+        "coverageNameQuality": 0.7966,
+        "coverageSymbols": 7069,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 693,
+        "highConfidenceSymbols": 550,
         "layerCoverage": {
-          "main": 198,
-          "renderer": 439,
-          "services": 711,
-          "tauri": 17
+          "main": 23,
+          "renderer": 181,
+          "services": 865,
+          "tauri": 0
         },
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
-        "mappedSymbols": 1365,
-        "nameQuality": 0.7766,
-        "variableCoverage": 1
+        "mappedSymbols": 1069,
+        "nameQuality": 0.7778,
+        "variableCoverage": 0.575
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary",
-      "runId": "reg-step2aggr-20260225-160353-c01-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-01-core-no-binary",
+      "runId": "reg-fast-cycle-20260225-193428-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7766,
-        "total": 0.9553
+        "nameQualityScore": 0.7778,
+        "total": 0.96,
+        "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-01-core-no-binary\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-01-core-no-binary\\summary.json"
     },
     {
-      "durationMs": 46576,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\02-core-no-binary-no-pretty.log",
+      "durationMs": 86742,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\fast-cycle-20260225-193428-c01\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
-          "hook": 124,
-          "service": 368,
-          "store": 628,
-          "transport": 111,
-          "ui": 134
+          "hook": 7,
+          "service": 212,
+          "store": 829,
+          "transport": 12,
+          "ui": 9
         },
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7941,
-        "coverageSymbols": 5365,
+        "coverageNameQuality": 0.7966,
+        "coverageSymbols": 7069,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 693,
+        "highConfidenceSymbols": 550,
         "layerCoverage": {
-          "main": 198,
-          "renderer": 439,
-          "services": 711,
-          "tauri": 17
+          "main": 23,
+          "renderer": 181,
+          "services": 865,
+          "tauri": 0
         },
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
-        "mappedSymbols": 1365,
-        "nameQuality": 0.7766,
-        "variableCoverage": 1
+        "mappedSymbols": 1069,
+        "nameQuality": 0.7778,
+        "variableCoverage": 0.575
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty",
-      "runId": "reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-fast-cycle-20260225-193428-c01-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7766,
-        "total": 0.9553
+        "nameQualityScore": 0.7778,
+        "total": 0.96,
+        "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-02-core-no-binary-no-pretty\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-02-core-no-binary-no-pretty\\summary.json"
     },
     {
-      "durationMs": 46251,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\03-core-no-binary-top120.log",
+      "durationMs": 82054,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\fast-cycle-20260225-193428-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
-          "hook": 124,
-          "service": 368,
-          "store": 628,
-          "transport": 111,
-          "ui": 134
+          "hook": 7,
+          "service": 212,
+          "store": 829,
+          "transport": 12,
+          "ui": 9
         },
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7941,
-        "coverageSymbols": 5365,
+        "coverageNameQuality": 0.7966,
+        "coverageSymbols": 7069,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 693,
+        "highConfidenceSymbols": 550,
         "layerCoverage": {
-          "main": 198,
-          "renderer": 439,
-          "services": 711,
-          "tauri": 17
+          "main": 23,
+          "renderer": 181,
+          "services": 865,
+          "tauri": 0
         },
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
-        "mappedSymbols": 1365,
-        "nameQuality": 0.7766,
-        "variableCoverage": 1
+        "mappedSymbols": 1069,
+        "nameQuality": 0.7778,
+        "variableCoverage": 0.575
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120",
-      "runId": "reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-03-core-no-binary-top120",
+      "runId": "reg-fast-cycle-20260225-193428-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7766,
-        "total": 0.9553
+        "nameQualityScore": 0.7778,
+        "total": 0.96,
+        "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-03-core-no-binary-top120\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-03-core-no-binary-top120\\summary.json"
     },
     {
-      "durationMs": 45849,
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step2aggr-20260225-160353-c01\\logs\\04-core-runtime-probe-soft.log",
+      "durationMs": 93105,
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\fast-cycle-20260225-193428-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
-          "hook": 124,
-          "service": 368,
-          "store": 628,
-          "transport": 111,
-          "ui": 134
+          "hook": 7,
+          "service": 212,
+          "store": 829,
+          "transport": 12,
+          "ui": 9
         },
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7941,
-        "coverageSymbols": 5365,
+        "coverageNameQuality": 0.7966,
+        "coverageSymbols": 7069,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 693,
+        "highConfidenceSymbols": 550,
         "layerCoverage": {
-          "main": 198,
-          "renderer": 439,
-          "services": 711,
-          "tauri": 17
+          "main": 23,
+          "renderer": 181,
+          "services": 865,
+          "tauri": 0
         },
         "lowQualitySymbolCount": 0,
         "mappedFiles": 48,
-        "mappedSymbols": 1365,
-        "nameQuality": 0.7766,
-        "variableCoverage": 1
+        "mappedSymbols": 1069,
+        "nameQuality": 0.7778,
+        "variableCoverage": 0.575
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft",
-      "runId": "reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-04-core-runtime-probe-soft",
+      "runId": "reg-fast-cycle-20260225-193428-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7766,
-        "total": 0.9553
+        "nameQualityScore": 0.7778,
+        "total": 0.96,
+        "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step2aggr-20260225-160353-c01-04-core-runtime-probe-soft\\summary.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-fast-cycle-20260225-193428-c01-04-core-runtime-probe-soft\\summary.json"
     }
   ],
-  "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "step2aggr-20260225-160353-c01",
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "suiteRunId": "fast-cycle-20260225-193428-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

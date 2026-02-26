@@ -5,13 +5,16 @@ import {
   SemanticDeclarationCluster,
   SemanticDomainDeclaration,
   SemanticFileHint,
+  SemanticIrCoreModel,
   SemanticIrModel,
   SemanticSourceMapHint,
   SemanticStateKey,
   SemanticSymbol,
   buildSemanticIr,
+  finalizeSemanticIrModel,
 } from "./semantic-ir";
 import { EvidenceStoreModel } from "./evidence-store";
+import { applyObfuscationProfileWeights, resolveObfuscationProfile } from "./obfuscation-profile";
 
 export interface SemanticIrSweepProfile {
   profileId: string;
@@ -32,6 +35,8 @@ export interface SemanticIrSweepResult {
   anchorProfileId: string;
   mergedSymbolWinners: number;
   mergedFileHintWinners: number;
+  obfuscationProfileId: string;
+  obfuscationProfileConfidence: number;
 }
 
 interface ProfileModel {
@@ -614,10 +619,16 @@ export function buildSemanticIrFromSweep(
   if (sweepProfiles.length === 0) {
     throw new Error("semantic-ir-sweep: no sweep profiles provided");
   }
+  const profileResolution = resolveObfuscationProfile(evidenceStore);
+  const normalizedEvidenceStore = profileResolution.normalizedEvidenceStore;
 
   const models: ProfileModel[] = sweepProfiles.map((profile) => ({
     profileId: profile.profileId,
-    model: buildSemanticIr(evidenceStore, profile.toolWeights),
+    model: buildSemanticIr(
+      normalizedEvidenceStore,
+      applyObfuscationProfileWeights(profile.toolWeights, profileResolution.profile),
+      profileResolution.profile,
+    ),
   }));
 
   const anchorModel = selectAnchorModel(models);
@@ -628,9 +639,7 @@ export function buildSemanticIrFromSweep(
   const mergedSourceMaps = mergeSourceMaps(models);
   const mergedDeclarationsAndClusters = mergeDeclarationsAndClusters(mergedSymbols.symbols, models, anchorModel);
 
-  const merged: SemanticIrModel = {
-    version: 2,
-    generatedAtIso: new Date().toISOString(),
+  const core: SemanticIrCoreModel = {
     fileHints: mergedFileHints.fileHints,
     symbols: mergedSymbols.symbols,
     callEdges: mergedCallEdges,
@@ -639,6 +648,7 @@ export function buildSemanticIrFromSweep(
     domainDeclarations: mergedDeclarationsAndClusters.declarations,
     declarationClusters: mergedDeclarationsAndClusters.clusters,
   };
+  const merged = finalizeSemanticIrModel(core, normalizedEvidenceStore, profileResolution.profile);
 
   const profileSummaries = models
     .map((profileModel) => summarizeProfile(profileModel.profileId, profileModel.model))
@@ -651,5 +661,7 @@ export function buildSemanticIrFromSweep(
     anchorProfileId: anchorModel.profileId,
     mergedSymbolWinners: mergedSymbols.winners,
     mergedFileHintWinners: mergedFileHints.winners,
+    obfuscationProfileId: profileResolution.profile.profileId,
+    obfuscationProfileConfidence: profileResolution.profile.confidence,
   };
 }

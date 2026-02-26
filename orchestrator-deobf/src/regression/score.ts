@@ -22,6 +22,7 @@ export interface MetricScore {
   mappedFilesScore: number;
   mappedSymbolsScore: number;
   nameQualityScore: number;
+  variableCoverageScore: number;
   buildScore: number;
   devScore: number;
 }
@@ -30,13 +31,15 @@ export function scoreRunMetrics(metrics: RunMetrics): MetricScore {
   const mappedFilesScore = minTargetScore(metrics.mappedFiles, 5);
   const mappedSymbolsScore = clamp01(metrics.mappedSymbols / 16);
   const nameQualityScore = clamp01(metrics.nameQuality);
+  const variableCoverageScore = minTargetScore(metrics.variableCoverage, 0.5);
   const buildScore = metrics.buildHealth ? 1 : 0;
   const devScore = metrics.devHealth ? 1 : 0;
 
   const coreScore =
-    mappedFilesScore * 0.35 +
-    mappedSymbolsScore * 0.25 +
-    nameQualityScore * 0.2 +
+    mappedFilesScore * 0.3 +
+    mappedSymbolsScore * 0.22 +
+    nameQualityScore * 0.18 +
+    variableCoverageScore * 0.1 +
     buildScore * 0.1 +
     devScore * 0.1;
 
@@ -49,6 +52,7 @@ export function scoreRunMetrics(metrics: RunMetrics): MetricScore {
     mappedFilesScore: Number(mappedFilesScore.toFixed(4)),
     mappedSymbolsScore: Number(mappedSymbolsScore.toFixed(4)),
     nameQualityScore: Number(nameQualityScore.toFixed(4)),
+    variableCoverageScore: Number(variableCoverageScore.toFixed(4)),
     buildScore: Number(buildScore.toFixed(4)),
     devScore: Number(devScore.toFixed(4)),
   };

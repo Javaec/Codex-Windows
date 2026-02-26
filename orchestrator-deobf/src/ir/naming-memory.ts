@@ -39,6 +39,13 @@ export interface NamingSeedCandidate {
   signalScore: number;
 }
 
+interface NameVariantCandidate {
+  name: string;
+  confidence: number;
+  signalScore: number;
+  source: "symbol" | "alternative" | "seed";
+}
+
 function clamp(value: number): number {
   if (value < 0) {
     return 0;
@@ -51,6 +58,124 @@ function clamp(value: number): number {
 
 function buildCandidateScore(symbol: SemanticSymbol): number {
   return clamp(symbol.confidence * Math.max(symbol.quality, 0.1));
+}
+
+function scoreVariant(
+  symbol: SemanticSymbol,
+  variant: NameVariantCandidate,
+): number {
+  const quality = scoreNameQuality(variant.name);
+  const genericPenalty = isGenericName(variant.name) ? 0.2 : 0;
+  const provenanceBoost = Math.min(0.12, symbol.provenance.length * 0.02);
+  const evidenceBoost = Math.min(0.08, symbol.evidenceIds.length * 0.004);
+  const sourceBoost = variant.source === "seed" ? 0.07 : variant.source === "alternative" ? 0.03 : 0;
+  const signalBoost = variant.signalScore * 0.06;
+  return clamp(
+    variant.confidence * 0.36 +
+      quality * 0.44 +
+      provenanceBoost +
+      evidenceBoost +
+      sourceBoost +
+      signalBoost -
+      genericPenalty,
+  );
+}
+
+function pickBestRerankVariant(
+  symbol: SemanticSymbol,
+  selectedSeed: NamingSeedCandidate | undefined,
+): SemanticSymbol {
+  const variantByName = new Map<string, NameVariantCandidate>();
+  const registerVariant = (variant: NameVariantCandidate): void => {
+    const normalized = variant.name.trim();
+    if (normalized.length === 0) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    const existing = variantByName.get(key);
+    if (!existing) {
+      variantByName.set(key, { ...variant, name: normalized });
+      return;
+    }
+    const existingScore = scoreVariant(symbol, existing);
+    const candidateScore = scoreVariant(symbol, variant);
+    if (candidateScore > existingScore) {
+      variantByName.set(key, { ...variant, name: normalized });
+    }
+  };
+
+  registerVariant({
+    name: symbol.name,
+    confidence: symbol.confidence,
+    signalScore: 0.5,
+    source: "symbol",
+  });
+
+  for (const alternative of symbol.alternatives) {
+    registerVariant({
+      name: alternative,
+      confidence: clamp(symbol.confidence * 0.93),
+      signalScore: 0.44,
+      source: "alternative",
+    });
+  }
+
+  if (selectedSeed) {
+    registerVariant({
+      name: selectedSeed.name,
+      confidence: Math.max(symbol.confidence, selectedSeed.confidence),
+      signalScore: selectedSeed.signalScore,
+      source: "seed",
+    });
+  }
+
+  const ranked = [...variantByName.values()]
+    .map((variant) => ({
+      variant,
+      score: scoreVariant(symbol, variant),
+      quality: scoreNameQuality(variant.name),
+    }))
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return right.score - left.score;
+      }
+      if (left.quality !== right.quality) {
+        return right.quality - left.quality;
+      }
+      return left.variant.name.localeCompare(right.variant.name);
+    });
+  const winner = ranked[0];
+  const baseline = ranked.find((entry) => entry.variant.name === symbol.name) ?? winner;
+  if (!winner || !baseline) {
+    return symbol;
+  }
+
+  if (winner.variant.name === symbol.name) {
+    return symbol;
+  }
+
+  const qualityGain = winner.quality - baseline.quality;
+  const scoreGain = winner.score - baseline.score;
+  const genericUpgrade = isGenericName(symbol.name) && !isGenericName(winner.variant.name);
+  const shouldAdopt =
+    qualityGain >= 0.03 ||
+    (genericUpgrade && scoreGain >= -0.02) ||
+    (scoreGain >= 0.045 && winner.quality >= baseline.quality);
+  if (!shouldAdopt) {
+    return symbol;
+  }
+
+  const alternatives = ranked
+    .map((entry) => entry.variant.name)
+    .filter((name) => name !== winner.variant.name)
+    .slice(0, 8);
+  return {
+    ...symbol,
+    name: winner.variant.name,
+    quality: Math.max(symbol.quality, winner.quality),
+    confidence: Math.max(symbol.confidence, winner.variant.confidence),
+    alternatives,
+  };
 }
 
 function isSyntheticCoverageName(name: string): boolean {
@@ -80,20 +205,21 @@ function buildSeededCandidate(
 ): SemanticSymbol {
   const seed = seedBySymbolKey.get(symbol.symbolKey);
   if (!seed) {
-    return symbol;
+    return pickBestRerankVariant(symbol, undefined);
   }
 
   if (seed.source === "promotion" && isSyntheticCoverageName(seed.name)) {
-    return symbol;
+    return pickBestRerankVariant(symbol, undefined);
   }
 
   if (seed.source === "direct" && isCoverageSymbolKey(symbol.symbolKey)) {
-    return {
+    const seededCoverage = {
       ...symbol,
       name: seed.name,
       quality: scoreNameQuality(seed.name),
       confidence: Math.max(symbol.confidence, seed.confidence),
     };
+    return pickBestRerankVariant(seededCoverage, seed);
   }
 
   const currentQuality = scoreNameQuality(symbol.name);
@@ -111,15 +237,16 @@ function buildSeededCandidate(
     seed.signalScore >= 0.68;
 
   if (!shouldUseDirectSeed && !shouldUsePromotionSeed) {
-    return symbol;
+    return pickBestRerankVariant(symbol, undefined);
   }
 
-  return {
+  const seeded = {
     ...symbol,
     name: seed.name,
     quality: seedQuality,
     confidence: Math.max(symbol.confidence, seed.confidence),
   };
+  return pickBestRerankVariant(seeded, seed);
 }
 
 function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candidateScore: number): boolean {
@@ -134,10 +261,16 @@ function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candida
   if (candidateQuality >= currentQuality + 0.08 && candidateScore >= entry.currentScore * 0.9) {
     return true;
   }
+  if (candidateQuality >= currentQuality + 0.12 && candidateScore >= entry.currentScore * 0.78) {
+    return true;
+  }
   if (candidateQuality > currentQuality && candidateScore >= entry.currentScore && symbol.name.length <= entry.currentName.length + 12) {
     return true;
   }
   if (candidateScore > entry.currentScore + 0.01) {
+    return true;
+  }
+  if (!isGenericName(symbol.name) && isGenericName(entry.currentName) && candidateScore >= entry.currentScore * 0.72) {
     return true;
   }
   if (isGenericName(entry.currentName) && !isGenericName(symbol.name) && candidateScore >= entry.currentScore * 0.9) {

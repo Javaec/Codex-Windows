@@ -23,11 +23,14 @@ async function executeSemanticIr(request: StageExecutionRequest): Promise<void> 
     anchorProfileId: sweepResult.anchorProfileId,
     mergedSymbolWinners: sweepResult.mergedSymbolWinners,
     mergedFileHintWinners: sweepResult.mergedFileHintWinners,
+    obfuscationProfileId: sweepResult.obfuscationProfileId,
+    obfuscationProfileConfidence: sweepResult.obfuscationProfileConfidence,
   };
   await writeJsonFile(`${request.stageDirectory}/sweep-profiles.json`, {
     generatedAtIso: new Date().toISOString(),
     profileSummaries: sweepResult.profileSummaries,
     anchorProfileId: sweepResult.anchorProfileId,
+    obfuscationProfile: sweepResult.merged.obfuscationProfile,
   });
   await writeJsonFile(request.outputPath, output);
 }
@@ -36,7 +39,7 @@ export const semanticIrStage: PipelineStage = {
   id: "semantic-ir",
   execute: executeSemanticIr,
   cachePlan: {
-    version: 2,
+    version: 3,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as SemanticIrStageInput;
       const digest = await hashFileSha256(input.evidenceStorePath);
@@ -65,6 +68,8 @@ export const semanticIrStage: PipelineStage = {
         anchorProfileId: firstProfile ? firstProfile.profileId : "base",
         mergedSymbolWinners: semanticIr.symbols.length,
         mergedFileHintWinners: semanticIr.fileHints.length,
+        obfuscationProfileId: semanticIr.obfuscationProfile.profileId,
+        obfuscationProfileConfidence: semanticIr.obfuscationProfile.confidence,
       };
     },
   } as StageCachePlan<unknown>,

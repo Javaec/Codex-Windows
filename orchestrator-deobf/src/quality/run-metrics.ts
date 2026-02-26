@@ -138,11 +138,17 @@ function functionClassCoverage(monolith: MonolithCensusStageOutput): number {
   return 1;
 }
 
-function variableCoverage(monolith: MonolithCensusStageOutput): number {
+function variableCoverageByOwnership(monolith: MonolithCensusStageOutput, coverageOwnershipModel: OwnershipModel): number {
   if (monolith.variableCoverageCount < 1) {
     return 0;
   }
-  return normalizeCoverage(1);
+  let covered = 0;
+  for (const symbol of coverageOwnershipModel.symbols) {
+    if (symbol.symbolKey.includes(":coverage:var:")) {
+      covered += 1;
+    }
+  }
+  return normalizeCoverage(covered / monolith.variableCoverageCount);
 }
 
 export function buildRunMetrics(
@@ -163,7 +169,7 @@ export function buildRunMetrics(
     classCoverage: classCoverage(monolithCensus),
     functionCoverage: functionCoverage(monolithCensus),
     functionClassCoverage: functionClassCoverage(monolithCensus),
-    variableCoverage: variableCoverage(monolithCensus),
+    variableCoverage: variableCoverageByOwnership(monolithCensus, coverageOwnershipModel),
     buildHealth: buildHealth(greenGates),
     devHealth: devHealth(greenGates),
     genericPathNoiseCount: qualityGates.violations.length,

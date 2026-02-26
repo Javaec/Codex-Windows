@@ -259,6 +259,8 @@ export interface SemanticIrStageOutput {
   anchorProfileId: string;
   mergedSymbolWinners: number;
   mergedFileHintWinners: number;
+  obfuscationProfileId: string;
+  obfuscationProfileConfidence: number;
 }
 
 export interface NamingMemoryStageInput {
@@ -318,6 +320,7 @@ export interface ChunkArtifactModelStageOutput {
 export interface TemplateEmitterStageInput {
   ownershipModelPath: string;
   chunkArtifactsPath: string;
+  semanticIrPath: string;
   outputProjectDirectory: string;
   statementBudget: number;
   emittedFilesIndexPath: string;

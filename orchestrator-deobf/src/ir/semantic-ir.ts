@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { ToolWeights } from "../contracts";
 import { EvidenceRecord, EvidenceStoreModel } from "./evidence-store";
 import { isGenericName, scoreNameQuality } from "./name-quality";
+import { ObfuscationProfileDescriptor } from "./obfuscation-profile";
 
-export type DomainKind = "service" | "use-case" | "store" | "hook" | "transport" | "ui";
+export type DomainKind = "service" | "usecase" | "store" | "hook" | "transport" | "ui";
 export type DomainArchetype = "hook" | "service" | "ui" | "transport" | "store";
 
 export interface SemanticFileHint {
@@ -83,9 +84,68 @@ export interface SemanticDeclarationCluster {
   cohesionScore: number;
 }
 
-export interface SemanticIrModel {
-  version: number;
-  generatedAtIso: string;
+export interface SemanticDomainEntity {
+  entityId: string;
+  clusterId: string;
+  ownerLineageId: string;
+  kind: DomainKind;
+  preferredArchetype: DomainArchetype;
+  symbolKeys: string[];
+  exportSymbols: string[];
+  importEntityIds: string[];
+  confidence: number;
+}
+
+export type SemanticProvenanceNodeType = "symbol" | "evidence" | "tool" | "ownership";
+export type SemanticProvenanceEdgeType = "named_by" | "provided_by" | "supports_ownership";
+
+export interface SemanticSymbolProvenanceNode {
+  nodeId: string;
+  nodeType: SemanticProvenanceNodeType;
+  label: string;
+  confidence: number;
+}
+
+export interface SemanticSymbolProvenanceEdge {
+  fromNodeId: string;
+  toNodeId: string;
+  edgeType: SemanticProvenanceEdgeType;
+  confidence: number;
+  evidenceIds: string[];
+}
+
+export interface SemanticSymbolProvenanceGraph {
+  nodes: SemanticSymbolProvenanceNode[];
+  edges: SemanticSymbolProvenanceEdge[];
+}
+
+export type SemanticExportContractNodeType = "module" | "symbol";
+export type SemanticExportContractEdgeType = "exports" | "imports";
+
+export interface SemanticExportContractNode {
+  nodeId: string;
+  nodeType: SemanticExportContractNodeType;
+  label: string;
+  ownerLineageId: string;
+  layerHint: string;
+  archetype: DomainArchetype;
+  symbolKey: string;
+}
+
+export interface SemanticExportContractEdge {
+  fromNodeId: string;
+  toNodeId: string;
+  edgeType: SemanticExportContractEdgeType;
+  confidence: number;
+  evidenceIds: string[];
+}
+
+export interface SemanticExportContractGraph {
+  nodes: SemanticExportContractNode[];
+  edges: SemanticExportContractEdge[];
+}
+
+export interface SemanticIrCoreModel {
   fileHints: SemanticFileHint[];
   symbols: SemanticSymbol[];
   callEdges: SemanticCallEdge[];
@@ -93,6 +153,22 @@ export interface SemanticIrModel {
   sourceMaps: SemanticSourceMapHint[];
   domainDeclarations: SemanticDomainDeclaration[];
   declarationClusters: SemanticDeclarationCluster[];
+}
+
+export interface SemanticIrModel {
+  version: number;
+  generatedAtIso: string;
+  obfuscationProfile: ObfuscationProfileDescriptor;
+  fileHints: SemanticFileHint[];
+  symbols: SemanticSymbol[];
+  callEdges: SemanticCallEdge[];
+  stateKeys: SemanticStateKey[];
+  sourceMaps: SemanticSourceMapHint[];
+  domainDeclarations: SemanticDomainDeclaration[];
+  declarationClusters: SemanticDeclarationCluster[];
+  domainEntities: SemanticDomainEntity[];
+  symbolProvenanceGraph: SemanticSymbolProvenanceGraph;
+  exportContractGraph: SemanticExportContractGraph;
 }
 
 interface AggregatedCandidate {
@@ -106,6 +182,13 @@ interface AggregatedCandidate {
 interface SymbolGraphContext {
   adjacency: Map<string, Set<string>>;
   reverseAdjacency: Map<string, Set<string>>;
+}
+
+interface ResolvedCallEdge {
+  callerKey: string;
+  calleeKey: string;
+  confidence: number;
+  evidenceIds: string[];
 }
 
 const ROUTE_SIGNAL_TOKENS = new Set<string>(["route", "router", "path", "screen", "page", "navigate", "url"]);
@@ -275,7 +358,7 @@ function mergeSymbolGroup(groupRecords: EvidenceRecord[], weights: ToolWeights):
     alternatives: candidates.slice(1, 5).map((candidate) => candidate.value),
     evidenceIds: [...winner.evidenceIds].sort((left, right) => left.localeCompare(right)),
     provenance: [...winner.provenance].sort((left, right) => left.localeCompare(right)),
-    domainKind: "use-case",
+    domainKind: "usecase",
     preferredArchetype: "service",
     declarationClusterId: "cluster-unassigned",
     routeFlowScore: 0,
@@ -340,6 +423,68 @@ function buildGlobalNameIndex(symbols: SemanticSymbol[]): Map<string, string[]> 
   return index;
 }
 
+function resolveCallEdgesToSymbolKeys(symbols: SemanticSymbol[], callEdges: SemanticCallEdge[]): ResolvedCallEdge[] {
+  const ownerNameIndex = buildOwnerNameIndex(symbols);
+  const globalNameIndex = buildGlobalNameIndex(symbols);
+  const merged = new Map<string, ResolvedCallEdge>();
+
+  for (const edge of callEdges) {
+    const callerName = edge.caller.toLowerCase();
+    const calleeName = edge.callee.toLowerCase();
+    const directPairs: Array<{ callerKey: string; calleeKey: string }> = [];
+
+    for (const owner of edge.owners) {
+      const callers = ownerNameIndex.get(`${owner}::${callerName}`) ?? [];
+      const callees = ownerNameIndex.get(`${owner}::${calleeName}`) ?? [];
+      for (const callerKey of callers) {
+        for (const calleeKey of callees) {
+          directPairs.push({ callerKey, calleeKey });
+        }
+      }
+    }
+
+    if (directPairs.length === 0) {
+      const globalCallers = globalNameIndex.get(callerName) ?? [];
+      const globalCallees = globalNameIndex.get(calleeName) ?? [];
+      if (globalCallers.length === 1 && globalCallees.length === 1) {
+        const callerKey = globalCallers[0];
+        const calleeKey = globalCallees[0];
+        if (callerKey && calleeKey) {
+          directPairs.push({ callerKey, calleeKey });
+        }
+      }
+    }
+
+    for (const pair of directPairs) {
+      if (pair.callerKey === pair.calleeKey) {
+        continue;
+      }
+      const key = `${pair.callerKey}->${pair.calleeKey}`;
+      const existing = merged.get(key);
+      if (existing) {
+        existing.confidence = Math.max(existing.confidence, edge.confidence);
+        existing.evidenceIds = [...new Set<string>([...existing.evidenceIds, ...edge.evidenceIds])].sort((left, right) =>
+          left.localeCompare(right),
+        );
+        continue;
+      }
+      merged.set(key, {
+        callerKey: pair.callerKey,
+        calleeKey: pair.calleeKey,
+        confidence: edge.confidence,
+        evidenceIds: [...edge.evidenceIds].sort((left, right) => left.localeCompare(right)),
+      });
+    }
+  }
+
+  return [...merged.values()].sort((left, right) => {
+    if (left.callerKey !== right.callerKey) {
+      return left.callerKey.localeCompare(right.callerKey);
+    }
+    return left.calleeKey.localeCompare(right.calleeKey);
+  });
+}
+
 function addDirectedEdge(adjacency: Map<string, Set<string>>, from: string, to: string): void {
   if (from === to) {
     return;
@@ -355,37 +500,10 @@ function addDirectedEdge(adjacency: Map<string, Set<string>>, from: string, to: 
 function buildSymbolGraph(symbols: SemanticSymbol[], callEdges: SemanticCallEdge[]): SymbolGraphContext {
   const adjacency = new Map<string, Set<string>>();
   const reverseAdjacency = new Map<string, Set<string>>();
-  const ownerNameIndex = buildOwnerNameIndex(symbols);
-  const globalNameIndex = buildGlobalNameIndex(symbols);
-
-  for (const edge of callEdges) {
-    const callerName = edge.caller.toLowerCase();
-    const calleeName = edge.callee.toLowerCase();
-    let connected = false;
-    for (const owner of edge.owners) {
-      const callers = ownerNameIndex.get(`${owner}::${callerName}`) ?? [];
-      const callees = ownerNameIndex.get(`${owner}::${calleeName}`) ?? [];
-      for (const caller of callers) {
-        for (const callee of callees) {
-          addDirectedEdge(adjacency, caller, callee);
-          addDirectedEdge(reverseAdjacency, callee, caller);
-          connected = true;
-        }
-      }
-    }
-    if (connected) {
-      continue;
-    }
-    const globalCallers = globalNameIndex.get(callerName) ?? [];
-    const globalCallees = globalNameIndex.get(calleeName) ?? [];
-    if (globalCallers.length === 1 && globalCallees.length === 1) {
-      const caller = globalCallers[0];
-      const callee = globalCallees[0];
-      if (caller && callee) {
-        addDirectedEdge(adjacency, caller, callee);
-        addDirectedEdge(reverseAdjacency, callee, caller);
-      }
-    }
+  const resolvedEdges = resolveCallEdgesToSymbolKeys(symbols, callEdges);
+  for (const edge of resolvedEdges) {
+    addDirectedEdge(adjacency, edge.callerKey, edge.calleeKey);
+    addDirectedEdge(reverseAdjacency, edge.calleeKey, edge.callerKey);
   }
   return {
     adjacency,
@@ -485,10 +603,10 @@ function inferDomainKind(
     lower.includes("handler") ||
     lower.includes("orchestr")
   ) {
-    return "use-case";
+    return "usecase";
   }
   if (routeFlowScore > 0.55 && eventFlowScore > 0.4) {
-    return "use-case";
+    return "usecase";
   }
   if (eventFlowScore > 0.62 || outDegree + inDegree > 4) {
     return "service";
@@ -503,11 +621,11 @@ function inferDomainKind(
     if (stateSignalCount > 0 && outDegree <= 2) {
       return "store";
     }
-    const candidates: DomainKind[] = ["service", "use-case", "store", "transport", "ui", "hook"];
+    const candidates: DomainKind[] = ["service", "usecase", "store", "transport", "ui", "hook"];
     const hashed = stableHash(`${symbolKey}|${stateSignalCount}|${outDegree}|${inDegree}`);
-    return candidates[hashed % candidates.length] ?? "use-case";
+    return candidates[hashed % candidates.length] ?? "usecase";
   }
-  return "use-case";
+  return "usecase";
 }
 
 function pickStateSignalsForSymbol(symbolName: string, ownerSignals: Set<string>): string[] {
@@ -747,7 +865,388 @@ function buildDeclarationClusters(
   };
 }
 
-export function buildSemanticIr(evidenceStore: EvidenceStoreModel, weights: ToolWeights): SemanticIrModel {
+function inferLayerHint(domainKind: DomainKind): string {
+  if (domainKind === "hook" || domainKind === "ui") {
+    return "renderer";
+  }
+  if (domainKind === "transport") {
+    return "main";
+  }
+  if (domainKind === "store" || domainKind === "service" || domainKind === "usecase") {
+    return "services";
+  }
+  return "services";
+}
+
+function buildDomainEntities(core: SemanticIrCoreModel, resolvedCallEdges: ResolvedCallEdge[]): SemanticDomainEntity[] {
+  const declarationBySymbol = new Map<string, SemanticDomainDeclaration>();
+  for (const declaration of core.domainDeclarations) {
+    declarationBySymbol.set(declaration.symbolKey, declaration);
+  }
+  const symbolByKey = new Map<string, SemanticSymbol>();
+  for (const symbol of core.symbols) {
+    symbolByKey.set(symbol.symbolKey, symbol);
+  }
+
+  const symbolToEntityId = new Map<string, string>();
+  for (const cluster of core.declarationClusters) {
+    const entityId = `entity:${cluster.clusterId}`;
+    for (const symbolKey of cluster.symbolKeys) {
+      symbolToEntityId.set(symbolKey, entityId);
+    }
+  }
+
+  const importEdgesByEntity = new Map<string, Set<string>>();
+  for (const edge of resolvedCallEdges) {
+    const fromEntity = symbolToEntityId.get(edge.callerKey);
+    const toEntity = symbolToEntityId.get(edge.calleeKey);
+    if (!fromEntity || !toEntity || fromEntity === toEntity) {
+      continue;
+    }
+    const existing = importEdgesByEntity.get(fromEntity);
+    if (existing) {
+      existing.add(toEntity);
+      continue;
+    }
+    importEdgesByEntity.set(fromEntity, new Set<string>([toEntity]));
+  }
+
+  return [...core.declarationClusters]
+    .sort((left, right) => left.clusterId.localeCompare(right.clusterId))
+    .map((cluster) => {
+      const symbolKeys = [...cluster.symbolKeys].sort((left, right) => left.localeCompare(right));
+      const declarations = symbolKeys
+        .map((symbolKey) => declarationBySymbol.get(symbolKey))
+        .filter((declaration): declaration is SemanticDomainDeclaration => Boolean(declaration));
+      const confidenceBase =
+        declarations.length === 0
+          ? cluster.cohesionScore
+          : declarations.reduce((sum, declaration) => sum + declaration.confidence, 0) / declarations.length;
+      const exportSymbols = symbolKeys
+        .map((symbolKey) => symbolByKey.get(symbolKey)?.name ?? symbolKey)
+        .sort((left, right) => left.localeCompare(right));
+      const entityId = `entity:${cluster.clusterId}`;
+      const importEntityIds = [...(importEdgesByEntity.get(entityId) ?? new Set<string>())].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      return {
+        entityId,
+        clusterId: cluster.clusterId,
+        ownerLineageId: cluster.ownerLineageId,
+        kind: cluster.domainKind,
+        preferredArchetype: cluster.preferredArchetype,
+        symbolKeys,
+        exportSymbols,
+        importEntityIds,
+        confidence: clamp(confidenceBase * 0.82 + cluster.cohesionScore * 0.18),
+      };
+    });
+}
+
+function buildSymbolProvenanceGraph(
+  core: SemanticIrCoreModel,
+  evidenceStore: EvidenceStoreModel,
+): SemanticSymbolProvenanceGraph {
+  const nodesById = new Map<string, SemanticSymbolProvenanceNode>();
+  const edgesById = new Map<string, SemanticSymbolProvenanceEdge>();
+
+  const declarationBySymbol = new Map<string, SemanticDomainDeclaration>();
+  for (const declaration of core.domainDeclarations) {
+    declarationBySymbol.set(declaration.symbolKey, declaration);
+  }
+  const recordById = new Map<string, EvidenceRecord>();
+  for (const record of evidenceStore.records) {
+    recordById.set(record.id, record);
+  }
+
+  const ownershipSignalByOwner = new Map<string, EvidenceRecord[]>();
+  for (const record of evidenceStore.records) {
+    if (record.kind !== "call_edge" && record.kind !== "state_key") {
+      continue;
+    }
+    const existing = ownershipSignalByOwner.get(record.owner);
+    if (existing) {
+      existing.push(record);
+      continue;
+    }
+    ownershipSignalByOwner.set(record.owner, [record]);
+  }
+  for (const [owner, records] of ownershipSignalByOwner.entries()) {
+    const ordered = [...records]
+      .sort((left, right) => {
+        if (left.confidence !== right.confidence) {
+          return right.confidence - left.confidence;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .slice(0, 16);
+    ownershipSignalByOwner.set(owner, ordered);
+  }
+
+  const registerNode = (node: SemanticSymbolProvenanceNode): void => {
+    const existing = nodesById.get(node.nodeId);
+    if (existing) {
+      existing.confidence = Math.max(existing.confidence, node.confidence);
+      return;
+    }
+    nodesById.set(node.nodeId, node);
+  };
+
+  const registerEdge = (edge: SemanticSymbolProvenanceEdge): void => {
+    const key = `${edge.fromNodeId}::${edge.toNodeId}::${edge.edgeType}`;
+    const existing = edgesById.get(key);
+    if (existing) {
+      existing.confidence = Math.max(existing.confidence, edge.confidence);
+      existing.evidenceIds = [...new Set<string>([...existing.evidenceIds, ...edge.evidenceIds])].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      return;
+    }
+    edgesById.set(key, edge);
+  };
+
+  for (const symbol of core.symbols) {
+    const symbolNodeId = `symbol:${symbol.symbolKey}`;
+    registerNode({
+      nodeId: symbolNodeId,
+      nodeType: "symbol",
+      label: symbol.name,
+      confidence: symbol.confidence,
+    });
+
+    const declaration = declarationBySymbol.get(symbol.symbolKey);
+    const ownershipLabel = declaration
+      ? `${declaration.domainKind}/${declaration.preferredArchetype}`
+      : `${symbol.domainKind}/${symbol.preferredArchetype}`;
+    const ownershipConfidence = declaration ? declaration.confidence : symbol.confidence;
+    const ownershipNodeId = `ownership:${symbol.symbolKey}`;
+    registerNode({
+      nodeId: ownershipNodeId,
+      nodeType: "ownership",
+      label: ownershipLabel,
+      confidence: ownershipConfidence,
+    });
+    registerEdge({
+      fromNodeId: symbolNodeId,
+      toNodeId: ownershipNodeId,
+      edgeType: "supports_ownership",
+      confidence: ownershipConfidence,
+      evidenceIds: [...symbol.evidenceIds].sort((left, right) => left.localeCompare(right)),
+    });
+
+    const symbolEvidence = symbol.evidenceIds
+      .map((evidenceId) => recordById.get(evidenceId))
+      .filter((record): record is EvidenceRecord => Boolean(record))
+      .slice(0, 12);
+    for (const record of symbolEvidence) {
+      const evidenceNodeId = `evidence:${record.id}`;
+      registerNode({
+        nodeId: evidenceNodeId,
+        nodeType: "evidence",
+        label: `${record.kind}:${record.anchor}`,
+        confidence: record.confidence,
+      });
+      registerEdge({
+        fromNodeId: symbolNodeId,
+        toNodeId: evidenceNodeId,
+        edgeType: "named_by",
+        confidence: record.confidence,
+        evidenceIds: [record.id],
+      });
+
+      const toolNodeId = `tool:${record.provenance.tool}`;
+      registerNode({
+        nodeId: toolNodeId,
+        nodeType: "tool",
+        label: record.provenance.tool,
+        confidence: 1,
+      });
+      registerEdge({
+        fromNodeId: evidenceNodeId,
+        toNodeId: toolNodeId,
+        edgeType: "provided_by",
+        confidence: record.confidence,
+        evidenceIds: [record.id],
+      });
+    }
+
+    const ownershipSignals = ownershipSignalByOwner.get(symbol.owner) ?? [];
+    for (const record of ownershipSignals.slice(0, 8)) {
+      const evidenceNodeId = `evidence:${record.id}`;
+      registerNode({
+        nodeId: evidenceNodeId,
+        nodeType: "evidence",
+        label: `${record.kind}:${record.anchor}`,
+        confidence: record.confidence,
+      });
+      registerEdge({
+        fromNodeId: ownershipNodeId,
+        toNodeId: evidenceNodeId,
+        edgeType: "supports_ownership",
+        confidence: record.confidence,
+        evidenceIds: [record.id],
+      });
+      const toolNodeId = `tool:${record.provenance.tool}`;
+      registerNode({
+        nodeId: toolNodeId,
+        nodeType: "tool",
+        label: record.provenance.tool,
+        confidence: 1,
+      });
+      registerEdge({
+        fromNodeId: evidenceNodeId,
+        toNodeId: toolNodeId,
+        edgeType: "provided_by",
+        confidence: record.confidence,
+        evidenceIds: [record.id],
+      });
+    }
+  }
+
+  return {
+    nodes: [...nodesById.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
+    edges: [...edgesById.values()].sort((left, right) => {
+      if (left.fromNodeId !== right.fromNodeId) {
+        return left.fromNodeId.localeCompare(right.fromNodeId);
+      }
+      if (left.toNodeId !== right.toNodeId) {
+        return left.toNodeId.localeCompare(right.toNodeId);
+      }
+      return left.edgeType.localeCompare(right.edgeType);
+    }),
+  };
+}
+
+function buildExportContractGraph(
+  core: SemanticIrCoreModel,
+  resolvedCallEdges: ResolvedCallEdge[],
+): SemanticExportContractGraph {
+  const nodesById = new Map<string, SemanticExportContractNode>();
+  const edgesById = new Map<string, SemanticExportContractEdge>();
+  const symbolByKey = new Map<string, SemanticSymbol>();
+  for (const symbol of core.symbols) {
+    symbolByKey.set(symbol.symbolKey, symbol);
+  }
+  const declarationBySymbol = new Map<string, SemanticDomainDeclaration>();
+  for (const declaration of core.domainDeclarations) {
+    declarationBySymbol.set(declaration.symbolKey, declaration);
+  }
+  const moduleBySymbol = new Map<string, string>();
+
+  const registerNode = (node: SemanticExportContractNode): void => {
+    if (!nodesById.has(node.nodeId)) {
+      nodesById.set(node.nodeId, node);
+    }
+  };
+  const registerEdge = (edge: SemanticExportContractEdge): void => {
+    const key = `${edge.fromNodeId}::${edge.toNodeId}::${edge.edgeType}`;
+    const existing = edgesById.get(key);
+    if (existing) {
+      existing.confidence = Math.max(existing.confidence, edge.confidence);
+      existing.evidenceIds = [...new Set<string>([...existing.evidenceIds, ...edge.evidenceIds])].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      return;
+    }
+    edgesById.set(key, edge);
+  };
+
+  for (const cluster of [...core.declarationClusters].sort((left, right) => left.clusterId.localeCompare(right.clusterId))) {
+    const moduleNodeId = `module:${cluster.clusterId}`;
+    registerNode({
+      nodeId: moduleNodeId,
+      nodeType: "module",
+      label: cluster.clusterId,
+      ownerLineageId: cluster.ownerLineageId,
+      layerHint: inferLayerHint(cluster.domainKind),
+      archetype: cluster.preferredArchetype,
+      symbolKey: "",
+    });
+    const symbolKeys = [...cluster.symbolKeys].sort((left, right) => left.localeCompare(right));
+    for (const symbolKey of symbolKeys) {
+      moduleBySymbol.set(symbolKey, moduleNodeId);
+      const symbol = symbolByKey.get(symbolKey);
+      const declaration = declarationBySymbol.get(symbolKey);
+      const symbolNodeId = `symbol:${symbolKey}`;
+      registerNode({
+        nodeId: symbolNodeId,
+        nodeType: "symbol",
+        label: symbol ? symbol.name : symbolKey,
+        ownerLineageId: declaration ? declaration.ownerLineageId : cluster.ownerLineageId,
+        layerHint: inferLayerHint(declaration ? declaration.domainKind : cluster.domainKind),
+        archetype: declaration ? declaration.preferredArchetype : cluster.preferredArchetype,
+        symbolKey,
+      });
+      registerEdge({
+        fromNodeId: moduleNodeId,
+        toNodeId: symbolNodeId,
+        edgeType: "exports",
+        confidence: symbol ? symbol.confidence : 0.42,
+        evidenceIds: symbol ? [...symbol.evidenceIds] : [],
+      });
+    }
+  }
+
+  for (const edge of resolvedCallEdges) {
+    const fromModule = moduleBySymbol.get(edge.callerKey);
+    const toModule = moduleBySymbol.get(edge.calleeKey);
+    if (!fromModule || !toModule || fromModule === toModule) {
+      continue;
+    }
+    registerEdge({
+      fromNodeId: fromModule,
+      toNodeId: toModule,
+      edgeType: "imports",
+      confidence: edge.confidence,
+      evidenceIds: edge.evidenceIds,
+    });
+  }
+
+  return {
+    nodes: [...nodesById.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
+    edges: [...edgesById.values()].sort((left, right) => {
+      if (left.fromNodeId !== right.fromNodeId) {
+        return left.fromNodeId.localeCompare(right.fromNodeId);
+      }
+      if (left.toNodeId !== right.toNodeId) {
+        return left.toNodeId.localeCompare(right.toNodeId);
+      }
+      return left.edgeType.localeCompare(right.edgeType);
+    }),
+  };
+}
+
+export function finalizeSemanticIrModel(
+  core: SemanticIrCoreModel,
+  evidenceStore: EvidenceStoreModel,
+  obfuscationProfile: ObfuscationProfileDescriptor,
+): SemanticIrModel {
+  const resolvedCallEdges = resolveCallEdgesToSymbolKeys(core.symbols, core.callEdges);
+  const domainEntities = buildDomainEntities(core, resolvedCallEdges);
+  const symbolProvenanceGraph = buildSymbolProvenanceGraph(core, evidenceStore);
+  const exportContractGraph = buildExportContractGraph(core, resolvedCallEdges);
+  return {
+    version: 3,
+    generatedAtIso: new Date().toISOString(),
+    obfuscationProfile,
+    fileHints: core.fileHints,
+    symbols: core.symbols,
+    callEdges: core.callEdges,
+    stateKeys: core.stateKeys,
+    sourceMaps: core.sourceMaps,
+    domainDeclarations: core.domainDeclarations,
+    declarationClusters: core.declarationClusters,
+    domainEntities,
+    symbolProvenanceGraph,
+    exportContractGraph,
+  };
+}
+
+export function buildSemanticIr(
+  evidenceStore: EvidenceStoreModel,
+  weights: ToolWeights,
+  obfuscationProfile: ObfuscationProfileDescriptor,
+): SemanticIrModel {
   const fileHints = aggregateCollections(
     evidenceStore.records
       .filter((record) => record.kind === "file_hint")
@@ -886,9 +1385,7 @@ export function buildSemanticIr(evidenceStore: EvidenceStoreModel, weights: Tool
     })
     .sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
 
-  return {
-    version: 2,
-    generatedAtIso: new Date().toISOString(),
+  const core: SemanticIrCoreModel = {
     fileHints,
     symbols,
     callEdges,
@@ -897,4 +1394,5 @@ export function buildSemanticIr(evidenceStore: EvidenceStoreModel, weights: Tool
     domainDeclarations,
     declarationClusters: clusters,
   };
+  return finalizeSemanticIrModel(core, evidenceStore, obfuscationProfile);
 }

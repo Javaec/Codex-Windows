@@ -581,9 +581,9 @@ async function run(): Promise<void> {
   const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
   const bootstrapSnapshotMode = namingMemoryProfile.seededFrom !== "existing";
   const effectiveStageCacheEnabled = bootstrapSnapshotMode ? false : cli.stageCacheEnabled;
-  const effectiveEnableJavascriptDeobfuscator = bootstrapSnapshotMode ? true : cli.enableJavascriptDeobfuscator;
-  const effectiveEnableSynchrony = bootstrapSnapshotMode ? true : cli.enableSynchrony;
-  const effectiveEnableUnwebpackSourcemap = bootstrapSnapshotMode ? true : cli.enableUnwebpackSourcemap;
+  const effectiveEnableJavascriptDeobfuscator = true;
+  const effectiveEnableSynchrony = true;
+  const effectiveEnableUnwebpackSourcemap = true;
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
     manifestVersion: 8,
@@ -846,7 +846,7 @@ async function run(): Promise<void> {
   const evidenceStoreInput: EvidenceStoreStageInput = {
     sourceFiles: evidenceSources,
     outputFilePath: path.join(artifactsDirectory, "evidence-store.json"),
-    maxRecords: 8000,
+    maxRecords: 12000,
   };
   const evidenceStoreOutput = await runStage<EvidenceStoreStageInput, EvidenceStoreStageOutput>(
     evidenceStoreStage,
@@ -979,6 +979,7 @@ async function run(): Promise<void> {
   const templateEmitterInput: TemplateEmitterStageInput = {
     ownershipModelPath: qualityOwnershipModelPath,
     chunkArtifactsPath: chunkArtifactModelOutput.outputFilePath,
+    semanticIrPath: namingMemoryOutput.qualityNamedSemanticIrPath,
     outputProjectDirectory: path.join(artifactsDirectory, "project"),
     statementBudget: cli.statementBudget,
     emittedFilesIndexPath: path.join(artifactsDirectory, "emitted-files.json"),

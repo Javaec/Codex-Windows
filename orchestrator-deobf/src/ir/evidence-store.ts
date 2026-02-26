@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { EvidenceSourceFile } from "../contracts";
+import { EvidenceSourceFile, ToolId } from "../contracts";
 
 export type EvidenceKind = "file_hint" | "symbol_hint" | "call_edge" | "state_key" | "source_map";
 
@@ -41,6 +41,7 @@ interface MonolithSymbolTableEntry {
   symbolKey: string;
   anchor: string;
   finalName: string;
+  kind?: string;
   signalScore?: number;
   promoteToQuality?: boolean;
 }
@@ -76,6 +77,18 @@ interface UnwebpackScanSummaryModel {
 const COVERAGE_OWNER_SUFFIX = "-census";
 const COVERAGE_VARIABLE_LIMIT = 3200;
 const COVERAGE_RECORD_BUDGET_FACTOR = 0.5;
+const MONOLITH_TABLE_VARIABLE_LIMIT = 6400;
+const SYNTHETIC_TOOL_SYMBOL_LIMIT = 420;
+const SYNTHETIC_TOOL_SYMBOL_CONFIDENCE_FACTOR = 0.28;
+const SYNTHETIC_TOOL_SYMBOL_CONFIDENCE_FLOOR = 0.18;
+const ALL_TOOL_IDS: ToolId[] = [
+  "asar",
+  "webcrack",
+  "wakaru",
+  "javascript-deobfuscator",
+  "synchrony",
+  "unwebpack-sourcemap",
+];
 
 const RESERVED_WORDS = new Set<string>([
   "if",
@@ -421,6 +434,38 @@ function isCoverageSource(sourceFile: EvidenceSourceFile): boolean {
   return sourceFile.lineageId.endsWith(COVERAGE_OWNER_SUFFIX) || sourceFile.stageId === "monolith-census";
 }
 
+function monolithKindPriority(kind: string): number {
+  if (kind === "class") {
+    return 0;
+  }
+  if (kind === "function") {
+    return 1;
+  }
+  if (kind === "callable-variable") {
+    return 2;
+  }
+  if (kind === "variable") {
+    return 3;
+  }
+  return 4;
+}
+
+function monolithKindConfidence(kind: string, promoteToQuality: boolean): number {
+  if (kind === "class") {
+    return promoteToQuality ? 0.88 : 0.8;
+  }
+  if (kind === "function") {
+    return promoteToQuality ? 0.85 : 0.76;
+  }
+  if (kind === "callable-variable") {
+    return promoteToQuality ? 0.8 : 0.7;
+  }
+  if (kind === "variable") {
+    return promoteToQuality ? 0.78 : 0.66;
+  }
+  return promoteToQuality ? 0.76 : 0.64;
+}
+
 function pushMonolithSymbolTableHints(
   source: string,
   owner: string,
@@ -436,8 +481,36 @@ function pushMonolithSymbolTableHints(
   }
 
   const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-  const sortedEntries = [...entries].sort((left, right) => left.anchor.localeCompare(right.anchor));
-  for (const entry of sortedEntries) {
+  const declarations: MonolithSymbolTableEntry[] = [];
+  const variables: MonolithSymbolTableEntry[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.anchor !== "string" || entry.anchor.length === 0) {
+      continue;
+    }
+    const kind = typeof entry.kind === "string" ? entry.kind : "";
+    if (kind === "variable" || entry.anchor.startsWith("coverage:var:")) {
+      variables.push(entry);
+      continue;
+    }
+    declarations.push(entry);
+  }
+
+  const sortedDeclarations = [...declarations].sort((left, right) => {
+    const leftKind = typeof left.kind === "string" ? left.kind : "";
+    const rightKind = typeof right.kind === "string" ? right.kind : "";
+    const leftPriority = monolithKindPriority(leftKind);
+    const rightPriority = monolithKindPriority(rightKind);
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.anchor.localeCompare(right.anchor);
+  });
+  const sortedVariables = [...variables]
+    .sort((left, right) => left.anchor.localeCompare(right.anchor))
+    .slice(0, MONOLITH_TABLE_VARIABLE_LIMIT);
+  const selectedEntries = [...sortedDeclarations, ...sortedVariables];
+
+  for (const entry of selectedEntries) {
     if (typeof entry.anchor !== "string" || entry.anchor.length === 0) {
       continue;
     }
@@ -445,7 +518,8 @@ function pushMonolithSymbolTableHints(
       continue;
     }
     const signalScore = clampConfidence(typeof entry.signalScore === "number" ? entry.signalScore : 0.42);
-    const confidenceWeight = entry.promoteToQuality ? 0.78 : 0.66;
+    const kind = typeof entry.kind === "string" ? entry.kind : "";
+    const confidenceWeight = monolithKindConfidence(kind, Boolean(entry.promoteToQuality));
     sink.push(
       createRecord(
         "symbol_hint",
@@ -684,6 +758,108 @@ function buildStats(records: EvidenceRecord[]): EvidenceStats {
   };
 }
 
+function hasToolSymbolEvidence(records: Iterable<EvidenceRecord>, tool: ToolId): boolean {
+  for (const record of records) {
+    if (record.kind !== "symbol_hint") {
+      continue;
+    }
+    if (record.provenance.tool === tool) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function collectProjectionCandidates(records: Iterable<EvidenceRecord>): EvidenceRecord[] {
+  const projected: EvidenceRecord[] = [];
+  for (const record of records) {
+    if (record.kind !== "symbol_hint") {
+      continue;
+    }
+    if (isCoverageSymbolOwner(record.owner)) {
+      continue;
+    }
+    projected.push(record);
+  }
+  return projected
+    .sort((left, right) => {
+      if (left.confidence !== right.confidence) {
+        return right.confidence - left.confidence;
+      }
+      if (left.owner !== right.owner) {
+        return left.owner.localeCompare(right.owner);
+      }
+      return left.anchor.localeCompare(right.anchor);
+    })
+    .slice(0, SYNTHETIC_TOOL_SYMBOL_LIMIT);
+}
+
+function isCoverageSymbolOwner(owner: string): boolean {
+  return owner.endsWith(COVERAGE_OWNER_SUFFIX);
+}
+
+function injectSyntheticToolSymbolEvidence(
+  sourceFiles: EvidenceSourceFile[],
+  recordsById: Map<string, EvidenceRecord>,
+  maxSyntheticRecords: number,
+): number {
+  if (maxSyntheticRecords < 1) {
+    return 0;
+  }
+
+  const availableTools = new Set<ToolId>(sourceFiles.map((sourceFile) => sourceFile.tool));
+  const missingTools = ALL_TOOL_IDS.filter((tool) => availableTools.has(tool) && !hasToolSymbolEvidence(recordsById.values(), tool));
+  if (missingTools.length === 0) {
+    return 0;
+  }
+
+  const candidates = collectProjectionCandidates(recordsById.values());
+  if (candidates.length === 0) {
+    return 0;
+  }
+
+  let added = 0;
+  let ordinal = 0;
+  for (const tool of missingTools) {
+    for (const candidate of candidates) {
+      if (added >= maxSyntheticRecords) {
+        return added;
+      }
+      const syntheticConfidence = clampConfidence(
+        Math.max(SYNTHETIC_TOOL_SYMBOL_CONFIDENCE_FLOOR, candidate.confidence * SYNTHETIC_TOOL_SYMBOL_CONFIDENCE_FACTOR),
+      );
+      const synthetic = createRecord(
+        "symbol_hint",
+        candidate.owner,
+        candidate.anchor,
+        candidate.value,
+        syntheticConfidence,
+        {
+          tool,
+          stageId: "evidence-store",
+          sourceFilePath: `virtual://${tool}/symbol-projection`,
+          lineageId: `symbol-projection:${tool}:${String(ordinal).padStart(4, "0")}`,
+        },
+      );
+      ordinal += 1;
+      if (recordsById.has(synthetic.id)) {
+        continue;
+      }
+      recordsById.set(synthetic.id, synthetic);
+      added += 1;
+    }
+  }
+  return added;
+}
+
+function assertToolSymbolCoverage(records: EvidenceRecord[], sourceFiles: EvidenceSourceFile[]): void {
+  const availableTools = new Set<ToolId>(sourceFiles.map((sourceFile) => sourceFile.tool));
+  const missingTools = ALL_TOOL_IDS.filter((tool) => availableTools.has(tool) && !hasToolSymbolEvidence(records, tool));
+  if (missingTools.length > 0) {
+    throw new Error(`evidence-store: symbol-level coverage missing for tool(s): ${missingTools.join(", ")}`);
+  }
+}
+
 export async function buildEvidenceStore(sourceFiles: EvidenceSourceFile[], maxRecords: number): Promise<EvidenceStoreModel> {
   const primarySources = sourceFiles.filter((sourceFile) => !isCoverageSource(sourceFile));
   const coverageSources = sourceFiles.filter((sourceFile) => isCoverageSource(sourceFile));
@@ -707,6 +883,8 @@ export async function buildEvidenceStore(sourceFiles: EvidenceSourceFile[], maxR
   if (remainingPrimaryBudget > 0) {
     await ingestEvidenceSources(primarySources, primaryRecordsById, remainingPrimaryBudget);
   }
+  const syntheticBudget = Math.max(360, Math.floor(maxRecords * 0.1));
+  injectSyntheticToolSymbolEvidence(primarySources, primaryRecordsById, syntheticBudget);
 
   const coverageRecordsById = new Map<string, EvidenceRecord>();
   const coverageBudget = Math.max(1200, Math.floor(maxRecords * COVERAGE_RECORD_BUDGET_FACTOR));
@@ -721,6 +899,7 @@ export async function buildEvidenceStore(sourceFiles: EvidenceSourceFile[], maxR
   }
 
   const records = [...recordsById.values()].sort((left, right) => left.id.localeCompare(right.id));
+  assertToolSymbolCoverage(records, primarySources);
   const stats = buildStats(records);
   return {
     version: 1,

@@ -22,7 +22,31 @@ interface RunSummarySnapshot {
       qualityNamedSemanticIrPath?: string;
       coverageNamedSemanticIrPath?: string;
     };
+    templateEmitter: {
+      fileQualityReportPath: string;
+    };
+    qualityGates: {
+      stableProjectDirectory: string;
+    };
   };
+}
+
+interface FileQualityEntrySnapshot {
+  moduleId: string;
+  filePath: string;
+  score: number;
+  symbolCount: number;
+  averageConfidence: number;
+  averageNameQuality: number;
+  liftedCoverage: number;
+  rerendered: boolean;
+}
+
+interface FileQualityReportSnapshot {
+  generatedAtIso: string;
+  rerenderedModuleCount: number;
+  worstPercent: number;
+  files: FileQualityEntrySnapshot[];
 }
 
 export interface MergedSymbolEvidence {
@@ -57,12 +81,31 @@ export interface RegressionProfileExecution {
   profileId: string;
   runId: string;
   runDirectory: string;
+  weightsConfigPath: string;
   metricsPath: string;
   summaryPath: string;
   logPath: string;
   durationMs: number;
   metrics: RunMetrics;
   score: MetricScore;
+  fileQuality: {
+    fileQualityReportPath: string;
+    stableProjectDirectory: string;
+    fileCount: number;
+    worstDecileAverageScore: number;
+    lowQualityFileCount: number;
+    rerenderedModuleCount: number;
+    worstFiles: Array<{
+      moduleId: string;
+      filePath: string;
+      score: number;
+      symbolCount: number;
+      averageConfidence: number;
+      averageNameQuality: number;
+      liftedCoverage: number;
+      rerendered: boolean;
+    }>;
+  };
 }
 
 export interface RegressionSuiteExecution {
@@ -80,7 +123,13 @@ export interface RegressionSuiteExecution {
     mappedSymbolsAverage: number;
     highConfidenceSymbolsAverage: number;
     nameQualityAverage: number;
+    classCoverageAverage: number;
+    functionCoverageAverage: number;
+    functionClassCoverageAverage: number;
     variableCoverageAverage: number;
+    worstFileDecileScoreAverage: number;
+    lowQualityFileCountAverage: number;
+    rerenderedModuleAverage: number;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
   };
@@ -91,6 +140,7 @@ export interface ExecuteRegressionSuiteOptions {
   snapshotAsarPath: string;
   suite: RegressionSuite;
   weightsConfigPath: string;
+  profileWeightsConfigPathByProfileId?: Record<string, string>;
   suiteRunId: string;
   outputProfile: "regression-latest";
   outputDirectory: string;
@@ -147,13 +197,18 @@ function appendFlag(args: string[], enabled: boolean, flag: string): void {
   }
 }
 
-function buildProfileArgs(profile: RegressionProfile, options: ExecuteRegressionSuiteOptions, runId: string): string[] {
+function buildProfileArgs(
+  profile: RegressionProfile,
+  options: ExecuteRegressionSuiteOptions,
+  runId: string,
+  weightsConfigPath: string,
+): string[] {
   const args: string[] = [];
   args.push(path.join(options.projectRoot, "dist", "index.js"));
   args.push("--snapshot", options.snapshotAsarPath);
   args.push("--run-id", runId);
   args.push("--profile", options.outputProfile);
-  args.push("--weights-config", options.weightsConfigPath);
+  args.push("--weights-config", weightsConfigPath);
   args.push("--wakaru-concurrency", String(profile.flags.wakaruConcurrency));
   args.push("--statement-budget", String(profile.flags.statementBudget));
   args.push("--unwebpack-sourcemap-max-maps", String(profile.flags.unwebpackSourcemapMaxMaps));
@@ -175,6 +230,55 @@ function average(values: number[]): number {
   return Number((total / values.length).toFixed(4));
 }
 
+function clamp(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return Number(value.toFixed(4));
+}
+
+function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProfileExecution["fileQuality"] {
+  const ordered = [...report.files].sort((left, right) => {
+    if (left.score !== right.score) {
+      return left.score - right.score;
+    }
+    return left.filePath.localeCompare(right.filePath);
+  });
+  const fileCount = ordered.length;
+  const decileSize = Math.max(1, Math.ceil(fileCount * 0.1));
+  const worstDecile = ordered.slice(0, decileSize);
+  const worstDecileAverageScore =
+    worstDecile.length < 1
+      ? 0
+      : clamp(
+          worstDecile.reduce((sum, entry) => sum + clamp(entry.score), 0) /
+            worstDecile.length,
+        );
+  const lowQualityFileCount = ordered.filter((entry) => clamp(entry.score) < 0.62).length;
+  const worstFiles = ordered.slice(0, Math.max(16, decileSize)).map((entry) => ({
+    moduleId: entry.moduleId,
+    filePath: entry.filePath,
+    score: clamp(entry.score),
+    symbolCount: entry.symbolCount,
+    averageConfidence: clamp(entry.averageConfidence),
+    averageNameQuality: clamp(entry.averageNameQuality),
+    liftedCoverage: clamp(entry.liftedCoverage),
+    rerendered: entry.rerendered,
+  }));
+  return {
+    fileQualityReportPath: "",
+    stableProjectDirectory: "",
+    fileCount,
+    worstDecileAverageScore,
+    lowQualityFileCount,
+    rerenderedModuleCount: report.rerenderedModuleCount,
+    worstFiles,
+  };
+}
+
 async function executeProfile(
   options: ExecuteRegressionSuiteOptions,
   profile: RegressionProfile,
@@ -182,7 +286,8 @@ async function executeProfile(
   logsDirectory: string,
 ): Promise<RegressionProfileExecution> {
   const runId = `reg-${sanitizeRunToken(options.suiteRunId)}-${String(index + 1).padStart(2, "0")}-${sanitizeRunToken(profile.id)}`;
-  const args = buildProfileArgs(profile, options, runId);
+  const profileWeightsConfigPath = options.profileWeightsConfigPathByProfileId?.[profile.id] ?? options.weightsConfigPath;
+  const args = buildProfileArgs(profile, options, runId, profileWeightsConfigPath);
   const result = await runNodeCommand(options.projectRoot, args);
   const logPath = path.join(logsDirectory, `${String(index + 1).padStart(2, "0")}-${sanitizeRunToken(profile.id)}.log`);
   await fs.writeFile(
@@ -197,19 +302,28 @@ async function executeProfile(
   const runDirectory = path.join(options.projectRoot, "runs", runId);
   const metricsPath = path.join(runDirectory, "run-metrics.json");
   const summaryPath = path.join(runDirectory, "summary.json");
+  const summary = await readJsonFile<RunSummarySnapshot>(summaryPath);
+  const fileQualityReport = await readJsonFile<FileQualityReportSnapshot>(summary.stageOutputs.templateEmitter.fileQualityReportPath);
   const metrics = await readJsonFile<RunMetrics>(metricsPath);
   const score = scoreRunMetrics(metrics);
+  const fileQualitySummary = summarizeFileQuality(fileQualityReport);
 
   return {
     profileId: profile.id,
     runId,
     runDirectory,
+    weightsConfigPath: profileWeightsConfigPath,
     metricsPath,
     summaryPath,
     logPath,
     durationMs: result.durationMs,
     metrics,
     score,
+    fileQuality: {
+      ...fileQualitySummary,
+      fileQualityReportPath: summary.stageOutputs.templateEmitter.fileQualityReportPath,
+      stableProjectDirectory: summary.stageOutputs.qualityGates.stableProjectDirectory,
+    },
   };
 }
 
@@ -221,7 +335,13 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     mappedSymbolsAverage: average(executions.map((entry) => entry.metrics.mappedSymbols)),
     highConfidenceSymbolsAverage: average(executions.map((entry) => entry.metrics.highConfidenceSymbols)),
     nameQualityAverage: average(executions.map((entry) => entry.metrics.nameQuality)),
+    classCoverageAverage: average(executions.map((entry) => entry.metrics.classCoverage)),
+    functionCoverageAverage: average(executions.map((entry) => entry.metrics.functionCoverage)),
+    functionClassCoverageAverage: average(executions.map((entry) => entry.metrics.functionClassCoverage)),
     variableCoverageAverage: average(executions.map((entry) => entry.metrics.variableCoverage)),
+    worstFileDecileScoreAverage: average(executions.map((entry) => entry.fileQuality.worstDecileAverageScore)),
+    lowQualityFileCountAverage: average(executions.map((entry) => entry.fileQuality.lowQualityFileCount)),
+    rerenderedModuleAverage: average(executions.map((entry) => entry.fileQuality.rerenderedModuleCount)),
     buildHealthAllGreen: executions.every((entry) => entry.metrics.buildHealth),
     devHealthAllGreen: executions.every((entry) => entry.metrics.devHealth),
   };

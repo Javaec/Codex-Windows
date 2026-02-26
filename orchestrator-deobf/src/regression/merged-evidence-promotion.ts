@@ -74,7 +74,7 @@ function inferDomainKind(symbolName: string): DomainKind {
   if (lower.includes("service") || lower.includes("client")) {
     return "service";
   }
-  return "use-case";
+  return "usecase";
 }
 
 function archetypeForDomain(kind: DomainKind): DomainArchetype {
@@ -149,8 +149,14 @@ function buildPromotionCandidates(report: MergedEvidenceReport): PromotionCandid
 function buildSyntheticSemanticIr(selected: MergedSymbolEvidence[]): SemanticIrModel {
   const symbols = selected.map((symbol, index) => toSemanticSymbol(symbol, index));
   return {
-    version: 1,
+    version: 3,
     generatedAtIso: new Date().toISOString(),
+    obfuscationProfile: {
+      profileId: "profile-v1",
+      confidence: 0.35,
+      adapterVersion: 1,
+      signals: ["synthetic=merged-evidence-promotion"],
+    },
     fileHints: [],
     symbols,
     callEdges: [],
@@ -158,6 +164,15 @@ function buildSyntheticSemanticIr(selected: MergedSymbolEvidence[]): SemanticIrM
     sourceMaps: [],
     domainDeclarations: [],
     declarationClusters: [],
+    domainEntities: [],
+    symbolProvenanceGraph: {
+      nodes: [],
+      edges: [],
+    },
+    exportContractGraph: {
+      nodes: [],
+      edges: [],
+    },
   };
 }
 
@@ -197,4 +212,3 @@ export async function applyMergedEvidencePromotion(
     averageSelectedQuality: averageSelectedQuality(selectedCandidates),
   };
 }
-

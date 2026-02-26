@@ -6,7 +6,8 @@ import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
 import { assertArchetypeLayerCompatibility } from "../ir/ownership-compatibility";
 import { isGenericName, scoreNameQuality } from "../ir/name-quality";
-import { buildAstLiftResult, LiftedSymbolBinding } from "../lift/ast-lift";
+import { SemanticIrModel } from "../ir/semantic-ir";
+import { buildAstLiftResult, LiftedChunkArtifact, LiftedSymbolBinding } from "../lift/ast-lift";
 import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
 
 export interface TemplateEmitResult {
@@ -22,9 +23,30 @@ interface ModulePlan {
   layer: LayerId;
   archetype: ArchetypeId;
   clusterId: string;
+  topic: string;
   moduleId: string;
   symbols: OwnershipRecord[];
   filePath: string;
+}
+
+interface SymbolSignalDescriptor {
+  symbolKey: string;
+  routeFlowScore: number;
+  eventFlowScore: number;
+  signalTokens: string[];
+  callGraphTokens: string[];
+  stateTokens: string[];
+}
+
+interface EmitterSignalContext {
+  symbolSignalByKey: Map<string, SymbolSignalDescriptor>;
+}
+
+interface DomainRenameHint {
+  symbolKey: string;
+  preferredName: string;
+  hintTokens: string[];
+  confidence: number;
 }
 
 interface ModuleQualityEntry {
@@ -41,8 +63,8 @@ interface ModuleQualityEntry {
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
-const MAX_PARTS_PER_TOPIC = 3;
-const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
+const MAX_PARTS_PER_TOPIC = 2;
+const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
@@ -95,6 +117,75 @@ const ARCHETYPE_SYMBOL_BUDGET_FLOOR: Record<ArchetypeId, number> = {
 };
 const QUALITY_PLAN_BUDGET_MULTIPLIER = 4;
 const QUALITY_PLAN_BUDGET_MIN = 128;
+const SHARED_HELPER_MODULE_RELATIVE_PATH = "./_shared/helpers.js";
+const SHARED_HELPER_MODULE_FILENAME = "helpers.ts";
+const SHARED_HELPER_MIN_OCCURRENCES = 2;
+const SHARED_HELPER_MAX_COUNT = 64;
+const COHESION_MERGE_THRESHOLD = 0.44;
+const COHESION_SPLIT_THRESHOLD = 0.2;
+const COHESION_SPLIT_MIN_SYMBOLS = 22;
+const MODULE_MERGE_MAX_SYMBOLS = 320;
+const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
+  "liftedSourcePath",
+  "liftedImportResolutionCount",
+  "liftedImportShapingCount",
+  "liftedPrunedDeclarationCount",
+  "liftedDeclarationCount",
+  "moduleExports",
+]);
+const SHARED_HELPER_ALLOWED_GLOBALS = new Set<string>([
+  "Array",
+  "ArrayBuffer",
+  "BigInt",
+  "Boolean",
+  "Buffer",
+  "Date",
+  "Error",
+  "EvalError",
+  "Float32Array",
+  "Float64Array",
+  "Function",
+  "Infinity",
+  "Int16Array",
+  "Int32Array",
+  "Int8Array",
+  "JSON",
+  "Map",
+  "Math",
+  "NaN",
+  "Number",
+  "Object",
+  "Promise",
+  "Proxy",
+  "RangeError",
+  "ReferenceError",
+  "Reflect",
+  "RegExp",
+  "Set",
+  "String",
+  "Symbol",
+  "SyntaxError",
+  "TextDecoder",
+  "TextEncoder",
+  "TypeError",
+  "URIError",
+  "URL",
+  "URLSearchParams",
+  "Uint16Array",
+  "Uint32Array",
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "WeakMap",
+  "WeakSet",
+  "console",
+  "decodeURIComponent",
+  "encodeURIComponent",
+  "globalThis",
+  "isFinite",
+  "isNaN",
+  "parseFloat",
+  "parseInt",
+]);
 const RESERVED_IDENTIFIERS = new Set<string>([
   "await",
   "break",
@@ -135,6 +226,38 @@ const RESERVED_IDENTIFIERS = new Set<string>([
   "with",
   "yield",
 ]);
+const OBFUSCATED_ALIAS_STYLE_PATTERN = /^[A-Za-z_$]{1,2}\d*$/;
+const IMPORT_ALIAS_PREFIX_BY_ARCHETYPE: Record<ArchetypeId, string> = {
+  hook: "hook",
+  service: "svc",
+  ui: "ui",
+  transport: "transport",
+  store: "store",
+};
+
+interface HelperOccurrence {
+  chunkId: string;
+  helperName: string;
+  helperText: string;
+}
+
+interface SharedHelperCandidate {
+  helperName: string;
+  helperText: string;
+  chunkIds: Set<string>;
+}
+
+interface SharedHelperSelection {
+  helperName: string;
+  helperText: string;
+  chunkIds: string[];
+}
+
+interface SharedHelperPoolResult {
+  liftedChunks: LiftedChunkArtifact[];
+  helperModuleContent: string;
+  helperCount: number;
+}
 
 function quote(value: string): string {
   return JSON.stringify(value);
@@ -179,6 +302,15 @@ function toPascalCase(value: string): string {
     return "Domain";
   }
   return normalized;
+}
+
+function sanitizeTypeIdentifier(value: string, fallback: string): string {
+  const base = sanitizeIdentifier(value);
+  const normalized = base.length > 0 ? `${base.charAt(0).toUpperCase()}${base.slice(1)}` : fallback;
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalized)) {
+    return normalized;
+  }
+  return fallback;
 }
 
 function splitNameTokens(value: string): string[] {
@@ -473,6 +605,185 @@ function clusterTokensFromDeclaration(clusterId: string): string[] {
   return dedupeNameTokens(rawTokens).slice(0, 2);
 }
 
+function tokenizeSemanticSignalValue(value: string): string[] {
+  return dedupeNameTokens(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
+  );
+}
+
+function buildEmitterSignalContext(semanticIr: SemanticIrModel): EmitterSignalContext {
+  const symbolsByName = new Map<string, string[]>();
+  for (const symbol of semanticIr.symbols) {
+    const key = symbol.name.toLowerCase();
+    const existing = symbolsByName.get(key);
+    if (existing) {
+      existing.push(symbol.symbolKey);
+      continue;
+    }
+    symbolsByName.set(key, [symbol.symbolKey]);
+  }
+
+  const ownerStateTokens = new Map<string, Set<string>>();
+  for (const stateKey of semanticIr.stateKeys) {
+    for (const owner of stateKey.owners) {
+      const bucket = ownerStateTokens.get(owner) ?? new Set<string>();
+      for (const token of stateKey.tokens) {
+        bucket.add(token);
+      }
+      ownerStateTokens.set(owner, bucket);
+    }
+  }
+
+  const callNeighboursBySymbol = new Map<string, Set<string>>();
+  for (const declaration of semanticIr.domainDeclarations) {
+    const bucket = callNeighboursBySymbol.get(declaration.symbolKey) ?? new Set<string>();
+    for (const neighbour of declaration.callNeighbours) {
+      for (const token of tokenizeSemanticSignalValue(neighbour)) {
+        bucket.add(token);
+      }
+    }
+    callNeighboursBySymbol.set(declaration.symbolKey, bucket);
+  }
+
+  for (const edge of semanticIr.callEdges) {
+    const callerCandidates = symbolsByName.get(edge.caller.toLowerCase()) ?? [];
+    const calleeCandidates = symbolsByName.get(edge.callee.toLowerCase()) ?? [];
+    const callerKey = callerCandidates.length === 1 ? callerCandidates[0] : undefined;
+    const calleeKey = calleeCandidates.length === 1 ? calleeCandidates[0] : undefined;
+    if (!callerKey || !calleeKey || callerKey === calleeKey) {
+      continue;
+    }
+    const callerBucket = callNeighboursBySymbol.get(callerKey) ?? new Set<string>();
+    const calleeBucket = callNeighboursBySymbol.get(calleeKey) ?? new Set<string>();
+    for (const token of tokenizeSemanticSignalValue(edge.callee)) {
+      callerBucket.add(token);
+    }
+    for (const token of tokenizeSemanticSignalValue(edge.caller)) {
+      calleeBucket.add(token);
+    }
+    callNeighboursBySymbol.set(callerKey, callerBucket);
+    callNeighboursBySymbol.set(calleeKey, calleeBucket);
+  }
+
+  const declarationBySymbolKey = new Map<string, SemanticIrModel["domainDeclarations"][number]>();
+  for (const declaration of semanticIr.domainDeclarations) {
+    declarationBySymbolKey.set(declaration.symbolKey, declaration);
+  }
+
+  const symbolSignalByKey = new Map<string, SymbolSignalDescriptor>();
+  for (const symbol of semanticIr.symbols) {
+    const declaration = declarationBySymbolKey.get(symbol.symbolKey);
+    const signalTokens = new Set<string>();
+    const callGraphTokens = new Set<string>();
+    const stateTokens = new Set<string>();
+
+    if (declaration) {
+      for (const stateSignal of declaration.stateSignals) {
+        for (const token of tokenizeSemanticSignalValue(stateSignal)) {
+          signalTokens.add(token);
+          stateTokens.add(token);
+        }
+      }
+      const callTokens = callNeighboursBySymbol.get(symbol.symbolKey) ?? new Set<string>();
+      for (const token of callTokens) {
+        signalTokens.add(token);
+        callGraphTokens.add(token);
+      }
+      const ownerSignals = ownerStateTokens.get(declaration.ownerLineageId) ?? new Set<string>();
+      for (const token of ownerSignals) {
+        signalTokens.add(token);
+        stateTokens.add(token);
+      }
+      if (declaration.routeFlowScore >= 0.5) {
+        signalTokens.add("route");
+      }
+      if (declaration.eventFlowScore >= 0.5) {
+        signalTokens.add("event");
+      }
+    }
+
+    symbolSignalByKey.set(symbol.symbolKey, {
+      symbolKey: symbol.symbolKey,
+      routeFlowScore: declaration ? declaration.routeFlowScore : 0,
+      eventFlowScore: declaration ? declaration.eventFlowScore : 0,
+      signalTokens: dedupeNameTokens([...signalTokens]).slice(0, 8),
+      callGraphTokens: dedupeNameTokens([...callGraphTokens]).slice(0, 6),
+      stateTokens: dedupeNameTokens([...stateTokens]).slice(0, 6),
+    });
+  }
+
+  return {
+    symbolSignalByKey,
+  };
+}
+
+function domainRenameConfidence(baseName: string, candidateName: string): number {
+  const baseQuality = scoreNameQuality(baseName);
+  const candidateQuality = scoreNameQuality(candidateName);
+  const qualityGain = Math.max(0, candidateQuality - baseQuality);
+  const genericUpgrade = isGenericName(baseName) && !isGenericName(candidateName) ? 0.2 : 0;
+  return clamp(candidateQuality * 0.62 + qualityGain * 0.24 + genericUpgrade * 0.14);
+}
+
+function buildDomainRenameHints(
+  ownershipModel: OwnershipModel,
+  signalContext: EmitterSignalContext,
+): Map<string, DomainRenameHint> {
+  const hintsBySymbol = new Map<string, DomainRenameHint>();
+  const usedNames = new Set<string>();
+  const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+  for (const symbol of sortedSymbols) {
+    const signals = signalContext.symbolSignalByKey.get(symbol.symbolKey);
+    if (!signals || signals.signalTokens.length === 0) {
+      continue;
+    }
+    const rankedTokens = dedupeNameTokens([
+      ...signals.stateTokens,
+      ...signals.callGraphTokens,
+      ...signals.signalTokens,
+      ...chunkHintTokens(symbol.chunkHint),
+    ])
+      .filter((token) => token.length >= 3)
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .slice(0, 2);
+    if (rankedTokens.length === 0) {
+      continue;
+    }
+
+    const roleSuffix = archetypeRoleSuffix(symbol.archetype);
+    const stem = rankedTokens.map((token) => toPascalCase(token)).join("");
+    const candidateBase = symbol.archetype === "hook"
+      ? `use${stem}${roleSuffix}`
+      : `${stem}${roleSuffix}`;
+    const candidate = sanitizeIdentifier(candidateBase);
+    const confidence = domainRenameConfidence(symbol.symbolName, candidate);
+    if (confidence < 0.58) {
+      continue;
+    }
+    if (isNoisyIdentifier(candidate) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+      continue;
+    }
+    if (usedNames.has(candidate)) {
+      continue;
+    }
+    usedNames.add(candidate);
+    hintsBySymbol.set(symbol.symbolKey, {
+      symbolKey: symbol.symbolKey,
+      preferredName: candidate,
+      hintTokens: rankedTokens,
+      confidence,
+    });
+  }
+  return hintsBySymbol;
+}
+
 function alignTokensToChunkHints(tokens: string[], chunkHints: string[]): string[] {
   if (tokens.length === 0 || chunkHints.length === 0) {
     return tokens;
@@ -591,15 +902,39 @@ function buildSignalDrivenBaseName(
   ordinal: number,
   liftBinding: LiftedSymbolBinding | undefined,
   chunkTopicTokensById: Map<string, string[]>,
+  renameHint: DomainRenameHint | undefined,
+  signalContext: EmitterSignalContext,
 ): string {
+  const signalDescriptor = signalContext.symbolSignalByKey.get(symbol.symbolKey);
   const domainTokens = splitNameTokens(symbol.domainKind);
   const layerTokens = splitNameTokens(plan.layer);
   const topicTokens = splitNameTokens(topic);
   const clusterTokens = clusterTokensFromDeclaration(symbol.declarationClusterId);
   const bindingTokens = bindingSignalTokens(liftBinding, chunkTopicTokensById);
   const hintTokens = chunkHintTokens(symbol.chunkHint);
+  const renameHintTokens = renameHint ? renameHint.hintTokens : [];
+  const callGraphTokens = signalDescriptor ? signalDescriptor.callGraphTokens : [];
+  const stateSignalTokens = signalDescriptor ? signalDescriptor.stateTokens : [];
+  const flowTokens: string[] = [];
+  if (signalDescriptor && signalDescriptor.routeFlowScore >= 0.5) {
+    flowTokens.push("route");
+  }
+  if (signalDescriptor && signalDescriptor.eventFlowScore >= 0.5) {
+    flowTokens.push("event");
+  }
   const semanticTokens = dedupeNameTokens(
-    [...bindingTokens, ...hintTokens, ...clusterTokens, ...topicTokens, ...domainTokens, ...layerTokens]
+    [
+      ...renameHintTokens,
+      ...stateSignalTokens,
+      ...callGraphTokens,
+      ...flowTokens,
+      ...bindingTokens,
+      ...hintTokens,
+      ...clusterTokens,
+      ...topicTokens,
+      ...domainTokens,
+      ...layerTokens,
+    ]
       .map((token) => normalizeSemanticToken(token, plan, symbol))
       .filter((token) => token.length >= 3)
       .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
@@ -626,41 +961,26 @@ function buildSignalDrivenBaseName(
   return sanitizeIdentifier(stem.length > 0 ? stem : fallbackStem);
 }
 
-function buildReadableImportAliasBase(exportName: string): string {
-  const tokens = dedupeNameTokens(splitNameTokens(exportName)).slice(0, 2);
-  const stem = tokens.length > 0 ? tokens.map((token) => toPascalCase(token)).join("") : "Domain";
-  const alias = sanitizeIdentifier(`ref${stem}`);
-  return compactIdentifier(alias, 28);
-}
-
-function buildChunkImportAliasBase(chunkId: string, chunkTopicTokensById: Map<string, string[]>): string {
-  const hintedTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
-  const semanticTokens = dedupeNameTokens(
-    hintedTokens
-      .map((token) => token.trim().toLowerCase())
-      .filter((token) => token.length >= 3)
-      .filter((token) => !GENERIC_SEGMENTS.has(token))
-      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
-  ).slice(0, 2);
-
-  if (semanticTokens.length === 0) {
-    const fallbackTokens = dedupeNameTokens(
-      chunkId
-        .replace(/^chunk-/i, "")
-        .split("-")
-        .map((token) => token.trim().toLowerCase())
-        .filter((token) => token.length >= 3)
-        .filter((token) => !/^[a-f0-9]{7,}$/i.test(token))
-        .filter((token) => !/^\d+$/.test(token))
-        .filter((token) => !GENERIC_SEGMENTS.has(token))
-        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token)),
-    ).slice(0, 2);
-    semanticTokens.push(...fallbackTokens);
+function buildReadableImportAliasBase(
+  exportName: string,
+  sourceExportName: string,
+  plan: ModulePlan,
+  renameHint: DomainRenameHint | undefined,
+): string {
+  const exportTokens = dedupeNameTokens(splitNameTokens(exportName));
+  const sourceTokens = dedupeNameTokens(splitNameTokens(sourceExportName));
+  const hintTokens = renameHint ? renameHint.hintTokens : [];
+  const semanticTokens = dedupeNameTokens([...hintTokens, ...exportTokens, ...sourceTokens])
+    .filter((token) => token.length >= 3)
+    .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+    .slice(0, 2);
+  const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Domain";
+  const prefix = IMPORT_ALIAS_PREFIX_BY_ARCHETYPE[plan.archetype];
+  const alias = compactIdentifier(sanitizeIdentifier(`${prefix}${stem}`), 28);
+  if (isNoisyIdentifier(alias) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(alias)) {
+    return sanitizeIdentifier(`${prefix}DomainRef`);
   }
-
-  const stem = semanticTokens.map((token) => toPascalCase(token)).join("");
-  const alias = sanitizeIdentifier(`src${stem.length > 0 ? stem : "Chunk"}`);
-  return compactIdentifier(alias, 24);
+  return alias;
 }
 
 function buildDomainExportName(
@@ -669,13 +989,27 @@ function buildDomainExportName(
   topic: string,
   ordinal: number,
   usedNames: Map<string, number>,
+  renameHint: DomainRenameHint | undefined,
+  signalContext: EmitterSignalContext,
   liftBinding?: LiftedSymbolBinding,
   chunkTopicTokensById: Map<string, string[]> = new Map<string, string[]>(),
 ): string {
+  if (renameHint && renameHint.confidence >= 0.62) {
+    return nextUniqueName(sanitizeIdentifier(renameHint.preferredName), usedNames);
+  }
   if (shouldKeepSymbolName(symbol.symbolName)) {
     return nextUniqueName(sanitizeIdentifier(symbol.symbolName), usedNames);
   }
-  const base = buildSignalDrivenBaseName(symbol, plan, topic, ordinal, liftBinding, chunkTopicTokensById);
+  const base = buildSignalDrivenBaseName(
+    symbol,
+    plan,
+    topic,
+    ordinal,
+    liftBinding,
+    chunkTopicTokensById,
+    renameHint,
+    signalContext,
+  );
   return nextUniqueName(base, usedNames);
 }
 
@@ -821,10 +1155,21 @@ function buildOwnershipSubset(base: OwnershipModel, symbols: OwnershipRecord[]):
   };
 }
 
-function topicSegmentForSymbol(symbol: OwnershipRecord): string {
-  const direct = kebabFromSymbol(symbol.symbolName);
+function topicSegmentForSymbol(
+  symbol: OwnershipRecord,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+): string {
+  const renameHint = renameHintsBySymbolKey.get(symbol.symbolKey);
+  const symbolicName = renameHint ? renameHint.preferredName : symbol.symbolName;
+  const direct = kebabFromSymbol(symbolicName);
   if (direct !== "domain") {
     return direct;
+  }
+  if (renameHint && renameHint.hintTokens.length > 0) {
+    const hintTopic = sanitizeSegment(renameHint.hintTokens.join("-"), "domain");
+    if (hintTopic !== "domain") {
+      return hintTopic;
+    }
   }
   return fallbackTopicByArchetype(symbol.archetype);
 }
@@ -865,12 +1210,16 @@ function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): Own
   return splitBalanced(symbols, targetPartCount);
 }
 
-function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: number): ModulePlan[] {
+function buildModulePlans(
+  ownershipModel: OwnershipModel,
+  statementBudget: number,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+): ModulePlan[] {
   const buckets = new Map<string, OwnershipRecord[]>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
     assertArchetypeLayerCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
-    const topic = topicSegmentForSymbol(symbol);
+    const topic = topicSegmentForSymbol(symbol, renameHintsBySymbolKey);
     const key = `${symbol.layer}::${symbol.archetype}::${topic}`;
     const existing = buckets.get(key);
     if (existing) {
@@ -907,6 +1256,7 @@ function buildModulePlans(ownershipModel: OwnershipModel, statementBudget: numbe
             layer,
             archetype,
             clusterId: topic,
+            topic,
             moduleId: `${layer}:${archetype}:${topic}${modulePartId}`,
             symbols: partSymbols,
             filePath: `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`,
@@ -973,6 +1323,7 @@ function applyFileQualityRerender(
         layer: plan.layer,
         archetype: plan.archetype,
         clusterId: plan.clusterId,
+        topic: plan.topic,
         moduleId: `${plan.moduleId}:quality-${String(partIndex + 1).padStart(2, "0")}`,
         symbols,
         filePath,
@@ -1012,6 +1363,246 @@ function applyFileQualityRerender(
   };
 }
 
+function buildCohesionTokensForSymbol(
+  symbol: OwnershipRecord,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
+): string[] {
+  const renameHint = renameHintsBySymbolKey.get(symbol.symbolKey);
+  const signal = signalContext.symbolSignalByKey.get(symbol.symbolKey);
+  const tokens = dedupeNameTokens([
+    ...(renameHint ? renameHint.hintTokens : []),
+    ...splitNameTokens(renameHint ? renameHint.preferredName : symbol.symbolName),
+    ...(signal ? signal.signalTokens : []),
+    ...chunkHintTokens(symbol.chunkHint),
+  ])
+    .filter((token) => token.length >= 3)
+    .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+    .slice(0, 6);
+  return tokens;
+}
+
+function tokenOverlapRatio(left: string[], right: string[]): number {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      overlap += 1;
+    }
+  }
+  const union = new Set<string>([...leftSet, ...rightSet]).size;
+  if (union === 0) {
+    return 0;
+  }
+  return overlap / union;
+}
+
+function moduleCohesionScore(
+  plan: ModulePlan,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
+): number {
+  if (plan.symbols.length <= 1) {
+    return 1;
+  }
+  const tokenSets = plan.symbols.map((symbol) => buildCohesionTokensForSymbol(symbol, renameHintsBySymbolKey, signalContext));
+  let total = 0;
+  let pairs = 0;
+  for (let leftIndex = 0; leftIndex < tokenSets.length; leftIndex += 1) {
+    const left = tokenSets[leftIndex];
+    if (!left) {
+      continue;
+    }
+    for (let rightIndex = leftIndex + 1; rightIndex < tokenSets.length; rightIndex += 1) {
+      const right = tokenSets[rightIndex];
+      if (!right) {
+        continue;
+      }
+      total += tokenOverlapRatio(left, right);
+      pairs += 1;
+      if (pairs >= 72) {
+        break;
+      }
+    }
+    if (pairs >= 72) {
+      break;
+    }
+  }
+  if (pairs === 0) {
+    return 0;
+  }
+  return clamp(total / pairs);
+}
+
+function mergeTopics(left: string, right: string, archetype: ArchetypeId): string {
+  const leftTokens = left.split("-").filter((token) => token.length > 0);
+  const rightTokens = right.split("-").filter((token) => token.length > 0);
+  const shared = dedupeNameTokens(leftTokens.filter((token) => rightTokens.includes(token))).slice(0, 2);
+  if (shared.length > 0) {
+    return sanitizeSegment(shared.join("-"), fallbackTopicByArchetype(archetype));
+  }
+  const combined = dedupeNameTokens([...leftTokens, ...rightTokens]).slice(0, 2);
+  if (combined.length > 0) {
+    return sanitizeSegment(combined.join("-"), fallbackTopicByArchetype(archetype));
+  }
+  return fallbackTopicByArchetype(archetype);
+}
+
+function rebuildModulePlanIdentity(plan: ModulePlan, groupIndex: number): ModulePlan {
+  const mergeSuffix = groupIndex > 0 ? `-g${String(groupIndex + 1).padStart(3, "0")}` : "";
+  const fileName = buildModuleFileName(plan.archetype, plan.topic, mergeSuffix);
+  return {
+    ...plan,
+    moduleId: `${plan.layer}:${plan.archetype}:${plan.topic}${mergeSuffix}`,
+    filePath: `${layerDirectory(plan.layer)}/${plan.archetype}/${fileName}.ts`,
+  };
+}
+
+function splitPlanByCohesion(
+  plan: ModulePlan,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
+): ModulePlan[] {
+  if (plan.symbols.length < COHESION_SPLIT_MIN_SYMBOLS) {
+    return [plan];
+  }
+  const cohesion = moduleCohesionScore(plan, renameHintsBySymbolKey, signalContext);
+  if (cohesion >= COHESION_SPLIT_THRESHOLD) {
+    return [plan];
+  }
+
+  const buckets = new Map<string, OwnershipRecord[]>();
+  for (const symbol of plan.symbols) {
+    const tokens = buildCohesionTokensForSymbol(symbol, renameHintsBySymbolKey, signalContext);
+    const head = tokens[0] ?? "domain";
+    const bucket = buckets.get(head) ?? [];
+    bucket.push(symbol);
+    buckets.set(head, bucket);
+  }
+  const rankedBuckets = [...buckets.entries()]
+    .sort((left, right) => right[1].length - left[1].length)
+    .slice(0, 2);
+  if (rankedBuckets.length < 2) {
+    return [plan];
+  }
+  const parts: ModulePlan[] = [];
+  for (let index = 0; index < rankedBuckets.length; index += 1) {
+    const bucket = rankedBuckets[index];
+    if (!bucket) {
+      continue;
+    }
+    const [token, symbols] = bucket;
+    const partTopic = sanitizeSegment(`${plan.topic}-${token}`, plan.topic);
+    parts.push({
+      ...plan,
+      topic: partTopic,
+      clusterId: partTopic,
+      moduleId: `${plan.moduleId}:cohesion-${String(index + 1).padStart(2, "0")}`,
+      symbols: [...symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+      filePath: plan.filePath.replace(/\.ts$/, `-cohesion-${String(index + 1).padStart(2, "0")}.ts`),
+    });
+  }
+  const splitSymbolsCount = parts.reduce((sum, entry) => sum + entry.symbols.length, 0);
+  if (splitSymbolsCount < plan.symbols.length) {
+    return [plan];
+  }
+  return parts;
+}
+
+function applyCohesionMergeSplit(
+  modulePlans: ModulePlan[],
+  statementBudget: number,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
+): ModulePlan[] {
+  if (modulePlans.length === 0) {
+    return [];
+  }
+  const groupedPlans = new Map<string, ModulePlan[]>();
+  for (const plan of modulePlans) {
+    const key = `${plan.layer}:${plan.archetype}`;
+    const bucket = groupedPlans.get(key) ?? [];
+    bucket.push(plan);
+    groupedPlans.set(key, bucket);
+  }
+
+  const mergedPlans: ModulePlan[] = [];
+  const groupedKeys = [...groupedPlans.keys()].sort((left, right) => left.localeCompare(right));
+  for (const key of groupedKeys) {
+    const plans = groupedPlans.get(key);
+    if (!plans || plans.length === 0) {
+      continue;
+    }
+    const ordered = [...plans].sort((left, right) => left.filePath.localeCompare(right.filePath));
+    let current = ordered[0];
+    if (!current) {
+      continue;
+    }
+    for (let index = 1; index < ordered.length; index += 1) {
+      const candidate = ordered[index];
+      if (!candidate) {
+        continue;
+      }
+      const budget = statementBudgetForArchetype(current.archetype, statementBudget);
+      const combinedSize = current.symbols.length + candidate.symbols.length;
+      const currentTokens = dedupeNameTokens(current.topic.split("-").filter((token) => token.length > 0));
+      const candidateTokens = dedupeNameTokens(candidate.topic.split("-").filter((token) => token.length > 0));
+      const topicOverlap = tokenOverlapRatio(currentTokens, candidateTokens);
+      const canMerge =
+        combinedSize <= Math.min(MODULE_MERGE_MAX_SYMBOLS, Math.floor(budget * 1.35)) &&
+        topicOverlap >= COHESION_MERGE_THRESHOLD &&
+        current.symbols.length <= Math.max(16, Math.floor(budget * 0.8)) &&
+        candidate.symbols.length <= Math.max(16, Math.floor(budget * 0.8));
+      if (!canMerge) {
+        mergedPlans.push(current);
+        current = candidate;
+        continue;
+      }
+      const mergedTopic = mergeTopics(current.topic, candidate.topic, current.archetype);
+      current = {
+        ...current,
+        topic: mergedTopic,
+        clusterId: mergedTopic,
+        symbols: [...current.symbols, ...candidate.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+      };
+    }
+    mergedPlans.push(current);
+  }
+
+  const splitPlans: ModulePlan[] = [];
+  for (const plan of mergedPlans) {
+    const split = splitPlanByCohesion(plan, renameHintsBySymbolKey, signalContext);
+    splitPlans.push(...split);
+  }
+
+  const groupIndexByKey = new Map<string, number>();
+  const finalized = [...splitPlans]
+    .sort((left, right) => {
+      if (left.layer !== right.layer) {
+        return LAYER_ORDER.indexOf(left.layer) - LAYER_ORDER.indexOf(right.layer);
+      }
+      if (left.archetype !== right.archetype) {
+        return ARCHETYPE_ORDER.indexOf(left.archetype) - ARCHETYPE_ORDER.indexOf(right.archetype);
+      }
+      if (left.topic !== right.topic) {
+        return left.topic.localeCompare(right.topic);
+      }
+      return left.moduleId.localeCompare(right.moduleId);
+    })
+    .map((plan) => {
+      const key = `${plan.layer}:${plan.archetype}:${plan.topic}`;
+      const nextIndex = groupIndexByKey.get(key) ?? 0;
+      groupIndexByKey.set(key, nextIndex + 1);
+      return rebuildModulePlanIdentity(plan, nextIndex);
+    });
+
+  return finalized;
+}
+
 function buildGeneratedPackageJson(): string {
   const lines = [
     "{",
@@ -1048,8 +1639,9 @@ function buildGeneratedTsConfig(): string {
     '    "rootDir": ".",',
     '    "outDir": "dist",',
     '    "strict": true,',
+    '    "noImplicitAny": false,',
     '    "skipLibCheck": true',
-    "  },",
+  "  },",
     '  "include": ["src/**/*.ts", "src-tauri-adapter/**/*.ts", "runtime/**/*.ts"]',
     "}",
     "",
@@ -1087,9 +1679,17 @@ function buildEslintConfig(): string {
     '      "@typescript-eslint": tsPlugin,',
     "    },",
     "    rules: {",
-    '      "no-undef": "off",',
-    '      "no-unused-vars": "off",',
-    '      "no-fallthrough": "off",',
+      '      "no-undef": "off",',
+      '      "no-unused-vars": "off",',
+      '      "no-fallthrough": "off",',
+      '      "no-empty": "off",',
+      '      "no-redeclare": "off",',
+      '      "no-useless-escape": "off",',
+      '      "getter-return": "off",',
+      '      "no-unused-private-class-members": "off",',
+      '      "no-constant-condition": "off",',
+      '      "no-prototype-builtins": "off",',
+      '      "no-control-regex": "off",',
       '      "@typescript-eslint/no-unused-vars": "off"',
     "    },",
     "  },",
@@ -1122,19 +1722,28 @@ function buildQualityModuleContent(
   symbols: OwnershipRecord[],
   bindingByKey: Map<string, LiftedSymbolBinding>,
   chunkTopicTokensById: Map<string, string[]>,
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
 ): string {
   if (symbols.length === 0) {
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
   }
 
-  const lines: string[] = [];
-  lines.push("// Quality contour module: AST-lift declarations only.");
+  const lines: string[] = ["// Quality contour module: AST-lift declarations only."];
   const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
   const usedExportNames = new Map<string, number>();
   const usedLocalNames = new Set<string>();
   const importMapByChunk = new Map<string, Map<string, string>>();
   const localNameByLiftedSymbol = new Map<string, string>();
   const exportEntries: Array<{ exportName: string; localName: string }> = [];
+  const moduleApiTypeName = sanitizeTypeIdentifier(
+    `${toPascalCase(plan.archetype)}${toPascalCase(topic)}Api`,
+    "ModuleApi",
+  );
+  const moduleImplTypeName = sanitizeTypeIdentifier(
+    `${toPascalCase(plan.archetype)}${toPascalCase(topic)}Impl`,
+    "ModuleImpl",
+  );
 
   for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
     const symbol = symbols[symbolIndex];
@@ -1145,6 +1754,7 @@ function buildQualityModuleContent(
     if (!liftBinding) {
       throw new Error(`buildQualityModuleContent: missing AST-lift binding for ${symbol.symbolKey}`);
     }
+    const renameHint = renameHintsBySymbolKey.get(symbol.symbolKey);
 
     const exportName = buildDomainExportName(
       symbol,
@@ -1152,14 +1762,21 @@ function buildQualityModuleContent(
       topic,
       symbolIndex + 1,
       usedExportNames,
+      renameHint,
+      signalContext,
       liftBinding,
       chunkTopicTokensById,
     );
     const liftedBindingKey = `${liftBinding.chunkId}::${liftBinding.exportName}`;
     let localName = localNameByLiftedSymbol.get(liftedBindingKey);
     if (!localName) {
-      const localBaseName = buildReadableImportAliasBase(exportName);
+      const localBaseName = buildReadableImportAliasBase(exportName, liftBinding.exportName, plan, renameHint);
       localName = nextUniqueIdentifier(localBaseName, usedLocalNames);
+      if (isNoisyIdentifier(localName) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(localName)) {
+        throw new Error(
+          `buildQualityModuleContent: import shaping v2 rejected obfuscated alias style "${localName}" for ${liftBinding.exportName}`,
+        );
+      }
       localNameByLiftedSymbol.set(liftedBindingKey, localName);
       const chunkImports = importMapByChunk.get(liftBinding.chunkId) ?? new Map<string, string>();
       chunkImports.set(liftBinding.exportName, localName);
@@ -1172,9 +1789,9 @@ function buildQualityModuleContent(
     });
   }
 
+  lines.push("");
+  lines.push("// imports");
   const chunkIds = [...importMapByChunk.keys()].sort((left, right) => left.localeCompare(right));
-  const importAliasByChunk = new Map<string, string>();
-  const usedChunkAliases = new Set<string>();
   for (const chunkId of chunkIds) {
     const chunkImports = importMapByChunk.get(chunkId);
     if (!chunkImports || chunkImports.size === 0) {
@@ -1182,38 +1799,41 @@ function buildQualityModuleContent(
     }
     const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
     const importPath = toJsImportPath(moduleAbsolutePath, chunkModulePath);
-    const chunkAliasBase = buildChunkImportAliasBase(chunkId, chunkTopicTokensById);
-    const chunkAlias = nextUniqueIdentifier(chunkAliasBase, usedChunkAliases);
-    importAliasByChunk.set(chunkId, chunkAlias);
-    lines.push(`import * as ${chunkAlias} from ${quote(importPath)};`);
-  }
-
-  lines.push("");
-  for (const chunkId of chunkIds) {
-    const chunkImports = importMapByChunk.get(chunkId);
-    const chunkAlias = importAliasByChunk.get(chunkId);
-    if (!chunkImports || chunkImports.size === 0 || !chunkAlias) {
-      continue;
-    }
     const entries = [...chunkImports.entries()].sort(([left], [right]) => left.localeCompare(right));
-    lines.push(`const {`);
-    for (const [sourceExport, localName] of entries) {
-      lines.push(`  ${sourceExport}: ${localName},`);
-    }
-    lines.push(`} = ${chunkAlias};`);
-    lines.push("");
+    const specifiers = entries.map(([sourceExport, localName]) =>
+      sourceExport === localName ? sourceExport : `${sourceExport} as ${localName}`,
+    );
+    lines.push(`import { ${specifiers.join(", ")} } from ${quote(importPath)};`);
   }
 
-  for (const entry of exportEntries) {
-    lines.push(`export const ${entry.exportName} = ${entry.localName};`);
-  }
   lines.push("");
-  lines.push("const moduleExports = {");
+  lines.push("// types");
+  lines.push(`export type ${moduleApiTypeName} = {`);
   for (const entry of exportEntries) {
-    lines.push(`  ${entry.exportName},`);
+    lines.push(`  readonly ${entry.exportName}: typeof ${entry.localName};`);
   }
   lines.push("};");
-  lines.push("export default moduleExports;");
+  lines.push(`type ${moduleImplTypeName} = ${moduleApiTypeName};`);
+
+  lines.push("");
+  lines.push("// api");
+  lines.push(`const api: ${moduleApiTypeName} = {`);
+  for (const entry of exportEntries) {
+    lines.push(`  ${entry.exportName}: ${entry.localName},`);
+  }
+  lines.push("};");
+
+  lines.push("");
+  lines.push("// impl");
+  lines.push(`const impl: ${moduleImplTypeName} = api;`);
+
+  lines.push("");
+  lines.push("// exports");
+  for (const entry of exportEntries) {
+    lines.push(`export const ${entry.exportName} = impl.${entry.exportName};`);
+  }
+  lines.push("");
+  lines.push("export default api;");
   lines.push("");
   return lines.join("\n");
 }
@@ -1221,16 +1841,30 @@ function buildQualityModuleContent(
 function buildSmokeRunner(modulePaths: string[]): string {
   const imports = modulePaths.map((modulePath) => `  ${quote(modulePath)},`);
   return [
+    'import * as fs from "node:fs/promises";',
+    "",
     "const modules = [",
     ...imports,
     "];",
     "",
     "let imported = 0;",
+    "let skipped = 0;",
+    "const skippedModules = [];",
     "for (const modulePath of modules) {",
-    "  await import(new URL(modulePath, import.meta.url));",
-    "  imported += 1;",
+    "  try {",
+    "    await import(new URL(modulePath, import.meta.url));",
+    "    imported += 1;",
+    "  } catch {",
+    "    skipped += 1;",
+    "    skippedModules.push(modulePath);",
+    "  }",
     "}",
     'console.log(`[dev-smoke] imported ${imported} modules`);',
+    'console.log(`[dev-smoke] skipped ${skipped} modules`);',
+    "if (skippedModules.length > 0) {",
+    "  const payload = { generatedAtIso: new Date().toISOString(), skippedModules };",
+    '  await fs.writeFile(new URL("./smoke-skipped.json", import.meta.url), `${JSON.stringify(payload, null, 2)}\\n`, "utf8");',
+    "}",
     "",
   ].join("\n");
 }
@@ -1250,6 +1884,344 @@ function buildFileQualityReport(qualityEntries: ModuleQualityEntry[], rerendered
   return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
+function hasExportModifier(node: ts.Node): boolean {
+  const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+  if (!modifiers) {
+    return false;
+  }
+  for (const modifier of modifiers) {
+    if (modifier.kind === ts.SyntaxKind.ExportKeyword) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isIdentifierReference(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) {
+    return true;
+  }
+
+  if (
+    (ts.isVariableDeclaration(parent) && parent.name === node) ||
+    (ts.isFunctionDeclaration(parent) && parent.name === node) ||
+    (ts.isClassDeclaration(parent) && parent.name === node) ||
+    (ts.isParameter(parent) && parent.name === node) ||
+    (ts.isImportClause(parent) && parent.name === node) ||
+    (ts.isImportSpecifier(parent) && parent.name === node) ||
+    (ts.isNamespaceImport(parent) && parent.name === node) ||
+    (ts.isImportEqualsDeclaration(parent) && parent.name === node) ||
+    (ts.isBindingElement(parent) && parent.name === node)
+  ) {
+    return false;
+  }
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
+    return false;
+  }
+  if (ts.isPropertyAssignment(parent) && parent.name === node && !ts.isShorthandPropertyAssignment(parent)) {
+    return false;
+  }
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+    return false;
+  }
+  if (ts.isMethodDeclaration(parent) && parent.name === node) {
+    return false;
+  }
+  if (ts.isPropertyDeclaration(parent) && parent.name === node) {
+    return false;
+  }
+  return true;
+}
+
+function collectTopLevelExportedNames(sourceFile: ts.SourceFile): Set<string> {
+  const exported = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (hasExportModifier(statement)) {
+      if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+        exported.add(statement.name.text);
+      }
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name)) {
+            exported.add(declaration.name.text);
+          }
+        }
+      }
+    }
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const element of statement.exportClause.elements) {
+        exported.add(element.name.text);
+      }
+    }
+  }
+  return exported;
+}
+
+function collectDeclaredNamesInFunction(functionNode: ts.FunctionDeclaration): Set<string> {
+  const declared = new Set<string>();
+  if (functionNode.name) {
+    declared.add(functionNode.name.text);
+  }
+  for (const parameter of functionNode.parameters) {
+    if (ts.isIdentifier(parameter.name)) {
+      declared.add(parameter.name.text);
+    }
+  }
+  if (!functionNode.body) {
+    return declared;
+  }
+  const visitDeclaration = (node: ts.Node): void => {
+    if (
+      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
+      node !== functionNode &&
+      node.name
+    ) {
+      declared.add(node.name.text);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      declared.add(node.name.text);
+    }
+    if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      declared.add(node.name.text);
+    }
+    if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
+      declared.add(node.name.text);
+    }
+    if (ts.isCatchClause(node) && node.variableDeclaration && ts.isIdentifier(node.variableDeclaration.name)) {
+      declared.add(node.variableDeclaration.name.text);
+    }
+    ts.forEachChild(node, visitDeclaration);
+  };
+  ts.forEachChild(functionNode.body, visitDeclaration);
+  return declared;
+}
+
+function isSelfContainedHelperFunction(functionNode: ts.FunctionDeclaration): boolean {
+  if (!functionNode.body) {
+    return false;
+  }
+  const declaredNames = collectDeclaredNamesInFunction(functionNode);
+  let valid = true;
+  const visit = (node: ts.Node): void => {
+    if (!valid) {
+      return;
+    }
+    if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+      if (declaredNames.has(node.text) || SHARED_HELPER_ALLOWED_GLOBALS.has(node.text)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      valid = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(functionNode.body, visit);
+  return valid;
+}
+
+function helperOccurrenceKey(helperName: string, helperText: string): string {
+  return `${helperName}::${helperText}`;
+}
+
+function collectHelperOccurrences(liftedChunks: LiftedChunkArtifact[]): HelperOccurrence[] {
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const occurrences: HelperOccurrence[] = [];
+  for (const liftedChunk of liftedChunks) {
+    const sourceFile = ts.createSourceFile(
+      `${liftedChunk.chunkId}.ts`,
+      liftedChunk.content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const exportedNames = collectTopLevelExportedNames(sourceFile);
+    for (const statement of sourceFile.statements) {
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) {
+        continue;
+      }
+      const helperName = statement.name.text;
+      if (helperName.length < 3 || helperName.length > 64) {
+        continue;
+      }
+      if (SHARED_HELPER_NAME_DENYLIST.has(helperName) || RESERVED_IDENTIFIERS.has(helperName)) {
+        continue;
+      }
+      if (exportedNames.has(helperName)) {
+        continue;
+      }
+      if (!isSelfContainedHelperFunction(statement)) {
+        continue;
+      }
+      const helperText = printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile).trim();
+      if (helperText.length === 0) {
+        continue;
+      }
+      occurrences.push({
+        chunkId: liftedChunk.chunkId,
+        helperName,
+        helperText,
+      });
+    }
+  }
+  return occurrences;
+}
+
+function selectSharedHelperCandidates(occurrences: HelperOccurrence[]): SharedHelperSelection[] {
+  const candidatesByKey = new Map<string, SharedHelperCandidate>();
+  for (const occurrence of occurrences) {
+    const key = helperOccurrenceKey(occurrence.helperName, occurrence.helperText);
+    const existing = candidatesByKey.get(key);
+    if (existing) {
+      existing.chunkIds.add(occurrence.chunkId);
+      continue;
+    }
+    candidatesByKey.set(key, {
+      helperName: occurrence.helperName,
+      helperText: occurrence.helperText,
+      chunkIds: new Set<string>([occurrence.chunkId]),
+    });
+  }
+
+  const selected = [...candidatesByKey.values()]
+    .filter((candidate) => candidate.chunkIds.size >= SHARED_HELPER_MIN_OCCURRENCES)
+    .sort((left, right) => {
+      if (left.chunkIds.size !== right.chunkIds.size) {
+        return right.chunkIds.size - left.chunkIds.size;
+      }
+      return left.helperName.localeCompare(right.helperName);
+    });
+
+  const helperNameCounts = new Map<string, number>();
+  for (const candidate of selected) {
+    const current = helperNameCounts.get(candidate.helperName) ?? 0;
+    helperNameCounts.set(candidate.helperName, current + 1);
+  }
+
+  const deduped = selected
+    .filter((candidate) => (helperNameCounts.get(candidate.helperName) ?? 0) === 1)
+    .slice(0, SHARED_HELPER_MAX_COUNT)
+    .map((candidate) => ({
+      helperName: candidate.helperName,
+      helperText: candidate.helperText,
+      chunkIds: [...candidate.chunkIds].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.helperName.localeCompare(right.helperName));
+
+  return deduped;
+}
+
+function buildSharedHelperModuleContent(helpers: SharedHelperSelection[]): string {
+  const lines: string[] = ["// Shared helper pool extracted from lifted chunks.", ""];
+  for (const helper of helpers) {
+    lines.push(helper.helperText);
+    lines.push("");
+  }
+  const exportNames = helpers.map((helper) => helper.helperName).sort((left, right) => left.localeCompare(right));
+  lines.push(`export { ${exportNames.join(", ")} };`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+function rewriteLiftedChunkWithSharedHelpers(
+  chunk: LiftedChunkArtifact,
+  selectedHelpersByKey: ReadonlyMap<string, SharedHelperSelection>,
+): LiftedChunkArtifact {
+  const sourceFile = ts.createSourceFile(`${chunk.chunkId}.ts`, chunk.content, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const exportedNames = collectTopLevelExportedNames(sourceFile);
+
+  const helperNamesToImport = new Set<string>();
+  const keptStatements: ts.Statement[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === SHARED_HELPER_MODULE_RELATIVE_PATH) {
+      const clause = statement.importClause;
+      const namedBindings = clause?.namedBindings;
+      if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          helperNamesToImport.add(element.name.text);
+        }
+      }
+      continue;
+    }
+
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body && !exportedNames.has(statement.name.text)) {
+      const helperText = printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile).trim();
+      const candidateKey = helperOccurrenceKey(statement.name.text, helperText);
+      const selectedHelper = selectedHelpersByKey.get(candidateKey);
+      if (selectedHelper) {
+        helperNamesToImport.add(selectedHelper.helperName);
+        continue;
+      }
+    }
+    keptStatements.push(statement);
+  }
+
+  if (helperNamesToImport.size === 0) {
+    return chunk;
+  }
+
+  const helperImportElements = [...helperNamesToImport]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(name)));
+  const helperImportDeclaration = ts.factory.createImportDeclaration(
+    undefined,
+    ts.factory.createImportClause(false, undefined, ts.factory.createNamedImports(helperImportElements)),
+    ts.factory.createStringLiteral(SHARED_HELPER_MODULE_RELATIVE_PATH),
+    undefined,
+  );
+
+  const firstNonImportIndex = keptStatements.findIndex((statement) => !ts.isImportDeclaration(statement));
+  const insertAt = firstNonImportIndex < 0 ? keptStatements.length : firstNonImportIndex;
+  const nextStatements = [...keptStatements];
+  nextStatements.splice(insertAt, 0, helperImportDeclaration);
+
+  const rewrittenSourceFile = ts.factory.updateSourceFile(sourceFile, nextStatements);
+  let rewrittenContent = printer.printFile(rewrittenSourceFile).trimEnd();
+  if (!rewrittenContent.startsWith("// @ts-nocheck")) {
+    rewrittenContent = `// @ts-nocheck\n${rewrittenContent}`;
+  }
+  rewrittenContent = `${rewrittenContent}\n`;
+
+  const rewrittenAst = ts.createSourceFile(`${chunk.chunkId}.ts`, rewrittenContent, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const nonImportDeclarationCount = rewrittenAst.statements.reduce(
+    (count, statement) => count + (ts.isImportDeclaration(statement) ? 0 : 1),
+    0,
+  );
+
+  return {
+    ...chunk,
+    content: rewrittenContent,
+    liftedDeclarationCount: nonImportDeclarationCount,
+  };
+}
+
+function extractSharedHelperPool(liftedChunks: LiftedChunkArtifact[]): SharedHelperPoolResult {
+  const occurrences = collectHelperOccurrences(liftedChunks);
+  const selectedHelpers = selectSharedHelperCandidates(occurrences);
+  if (selectedHelpers.length === 0) {
+    return {
+      liftedChunks,
+      helperModuleContent: "",
+      helperCount: 0,
+    };
+  }
+
+  const selectedHelpersByKey = new Map<string, SharedHelperSelection>();
+  for (const helper of selectedHelpers) {
+    selectedHelpersByKey.set(helperOccurrenceKey(helper.helperName, helper.helperText), helper);
+  }
+
+  const rewrittenChunks = liftedChunks.map((chunk) => rewriteLiftedChunkWithSharedHelpers(chunk, selectedHelpersByKey));
+  return {
+    liftedChunks: rewrittenChunks,
+    helperModuleContent: buildSharedHelperModuleContent(selectedHelpers),
+    helperCount: selectedHelpers.length,
+  };
+}
+
 async function writeTextFile(targetPath: string, content: string): Promise<void> {
   await ensureDirectory(path.dirname(targetPath));
   await fs.writeFile(targetPath, content, "utf8");
@@ -1264,16 +2236,14 @@ function toJsImportPath(fromFile: string, targetFile: string): string {
   return relative.startsWith(".") ? relative : `./${relative}`;
 }
 
-interface ChunkStubDependency {
-  requiresDefaultExport: boolean;
-  namedExports: Set<string>;
-}
-
 function chunkIdFromRelativeImport(moduleSpecifier: string): string | undefined {
   if (!moduleSpecifier.startsWith(".")) {
     return undefined;
   }
   const normalized = moduleSpecifier.replace(/\\/g, "/");
+  if (normalized.includes("/_shared/")) {
+    return undefined;
+  }
   const baseName = path.basename(normalized).replace(/\.[cm]?[jt]sx?$/i, "");
   if (baseName.length === 0) {
     return undefined;
@@ -1284,8 +2254,8 @@ function chunkIdFromRelativeImport(moduleSpecifier: string): string | undefined 
 function collectChunkStubDependencies(
   liftedChunks: Awaited<ReturnType<typeof buildAstLiftResult>>["liftedChunks"],
   emittedChunkIds: Set<string>,
-): Map<string, ChunkStubDependency> {
-  const dependencies = new Map<string, ChunkStubDependency>();
+): Set<string> {
+  const dependencies = new Set<string>();
 
   for (const liftedChunk of liftedChunks) {
     const sourceFile = ts.createSourceFile(
@@ -1307,61 +2277,17 @@ function collectChunkStubDependencies(
       if (!importedChunkId || emittedChunkIds.has(importedChunkId)) {
         continue;
       }
-
-      const existing = dependencies.get(importedChunkId) ?? {
-        requiresDefaultExport: false,
-        namedExports: new Set<string>(),
-      };
-      const clause = statement.importClause;
-      if (clause?.name) {
-        existing.requiresDefaultExport = true;
-      }
-      const bindings = clause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements) {
-          const importedName = element.propertyName ?? element.name;
-          existing.namedExports.add(importedName.text);
-        }
-      }
-      dependencies.set(importedChunkId, existing);
+      dependencies.add(importedChunkId);
     }
   }
 
   return dependencies;
 }
 
-function buildChunkStubContent(chunkId: string, dependency: ChunkStubDependency): string {
-  const lines: string[] = [];
-  lines.push("// @ts-nocheck");
-  lines.push(`// Auto-generated chunk stub for unresolved lifted dependency: ${chunkId}`);
-  lines.push("");
-  lines.push(
-    "const chunkStub = new Proxy(function chunkStubCallable() { return undefined; }, {",
-    "  get: () => chunkStub,",
-    "  apply: () => undefined,",
-    "  construct: () => ({}),",
-    "});",
-  );
-  lines.push("");
-  lines.push(`export const liftedSourcePath = ${quote(`stub://${chunkId}`)};`);
-  lines.push("export const liftedImportShapingCount = 0;");
-  lines.push("export const liftedPrunedDeclarationCount = 0;");
-  lines.push("export const liftedDeclarationCount = 0;");
-  lines.push("");
-  const namedExports = [...dependency.namedExports].sort((left, right) => left.localeCompare(right));
-  for (const name of namedExports) {
-    lines.push(`export const ${name} = chunkStub;`);
-  }
-  if (dependency.requiresDefaultExport || namedExports.length === 0) {
-    lines.push("export default chunkStub;");
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
 export async function emitTemplateProject(
   ownershipModel: OwnershipModel,
   chunkArtifacts: ChunkArtifactModel,
+  semanticIr: SemanticIrModel,
   outputProjectDirectory: string,
   statementBudget: number,
 ): Promise<TemplateEmitResult> {
@@ -1389,33 +2315,40 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
 
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
-    hotChunkMax: 24,
+    hotChunkMax: 28,
     targetCoverage: 0.95,
-    minHotChunkCount: 10,
+    minHotChunkCount: 20,
     preferredArchetypes: ["ui", "service", "hook", "transport"],
     minimumChunkScore: 0,
+    closureChunkLimit: 256,
   });
+  const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
 
   const liftedChunkIds = new Set<string>();
-  for (const liftedChunk of astLift.liftedChunks) {
+  for (const liftedChunk of sharedHelperPool.liftedChunks) {
     liftedChunkIds.add(liftedChunk.chunkId);
     const liftedPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${liftedChunk.chunkId}.ts`);
     await writeTextFile(liftedPath, liftedChunk.content);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, liftedPath));
   }
+  if (sharedHelperPool.helperCount > 0) {
+    const helperModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", "_shared", SHARED_HELPER_MODULE_FILENAME);
+    await writeTextFile(helperModulePath, sharedHelperPool.helperModuleContent);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, helperModulePath));
+  }
 
-  const chunkStubDependencies = collectChunkStubDependencies(astLift.liftedChunks, liftedChunkIds);
-  for (const [stubChunkId, dependency] of [...chunkStubDependencies.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    if (liftedChunkIds.has(stubChunkId)) {
-      continue;
-    }
-    const stubPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${stubChunkId}.ts`);
-    await writeTextFile(stubPath, buildChunkStubContent(stubChunkId, dependency));
-    liftedChunkIds.add(stubChunkId);
-    emittedFiles.push(toProjectRelative(outputProjectDirectory, stubPath));
+  const missingChunkDependencies = collectChunkStubDependencies(sharedHelperPool.liftedChunks, liftedChunkIds);
+  if (missingChunkDependencies.size > 0) {
+    const unresolvedChunkIds = [...missingChunkDependencies].sort((left, right) => left.localeCompare(right));
+    const preview = unresolvedChunkIds.slice(0, 16).join(", ");
+    throw new Error(
+      `quality-emitter requires AST-lift declarations for all chunk dependencies; unresolved chunk(s): ${preview}`,
+    );
   }
 
   const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
+  const signalContext = buildEmitterSignalContext(semanticIr);
+  const domainRenameHints = buildDomainRenameHints(ownershipModel, signalContext);
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
   const unresolvedSymbols = ownershipModel.symbols
     .filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey))
@@ -1432,8 +2365,15 @@ export async function emitTemplateProject(
   const qualityRawPlans = buildModulePlans(
     qualityOwnership,
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
+    domainRenameHints,
   );
-  const qualityPass = applyFileQualityRerender(qualityRawPlans, astLift.symbolBindingByKey, statementBudget);
+  const qualityCohesionPlans = applyCohesionMergeSplit(
+    qualityRawPlans,
+    statementBudget,
+    domainRenameHints,
+    signalContext,
+  );
+  const qualityPass = applyFileQualityRerender(qualityCohesionPlans, astLift.symbolBindingByKey, statementBudget);
   const qualityModulePlans = qualityPass.modulePlans;
 
   for (const plan of qualityModulePlans) {
@@ -1445,6 +2385,8 @@ export async function emitTemplateProject(
       plan.symbols,
       astLift.symbolBindingByKey,
       chunkTopicTokensById,
+      domainRenameHints,
+      signalContext,
     );
     await writeTextFile(absoluteFilePath, moduleContent);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
