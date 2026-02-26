@@ -18,6 +18,8 @@ import {
   JavascriptDeobfuscatorStageOutput,
   MonolithCensusStageInput,
   MonolithCensusStageOutput,
+  MonolithPassStageInput,
+  MonolithPassStageOutput,
   NamingMemoryStageInput,
   NamingMemoryStageOutput,
   OutputProfile,
@@ -53,6 +55,7 @@ import { runStage } from "./stages/stage-runner";
 import { asarExtractStage } from "./stages/asar-extract-stage";
 import { webcrackStage } from "./stages/webcrack-stage";
 import { monolithCensusStage } from "./stages/monolith-census-stage";
+import { monolithPassStage } from "./stages/monolith-pass-stage";
 import { wakaruStage } from "./stages/wakaru-stage";
 import { javascriptDeobfuscatorStage } from "./stages/javascript-deobfuscator-stage";
 import { synchronyStage } from "./stages/synchrony-stage";
@@ -586,7 +589,7 @@ async function run(): Promise<void> {
   const effectiveEnableUnwebpackSourcemap = true;
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
-    manifestVersion: 8,
+    manifestVersion: 9,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
@@ -594,6 +597,7 @@ async function run(): Promise<void> {
       "asar-extract",
       "webcrack",
       "monolith-census",
+      "monolith-pass",
       "wakaru",
       "javascript-deobfuscator",
       "synchrony",
@@ -682,6 +686,22 @@ async function run(): Promise<void> {
   const monolithCensusOutput = await runStage<MonolithCensusStageInput, MonolithCensusStageOutput>(
     monolithCensusStage,
     monolithCensusInput,
+    runDirectory,
+    {
+      cacheEnabled: effectiveStageCacheEnabled,
+    },
+  );
+
+  const monolithPassInput: MonolithPassStageInput = {
+    symbolTablePath: monolithCensusOutput.symbolTablePath,
+    sourceJsPath: monolithCensusOutput.sourceJsPath,
+    pass2MonolithPath: monolithCensusOutput.pass2MonolithPath,
+    lineageId: monolithCensusOutput.lineageId,
+    outputFilePath: path.join(artifactsDirectory, "monolith-layout-hints.json"),
+  };
+  const monolithPassOutput = await runStage<MonolithPassStageInput, MonolithPassStageOutput>(
+    monolithPassStage,
+    monolithPassInput,
     runDirectory,
     {
       cacheEnabled: effectiveStageCacheEnabled,
@@ -980,6 +1000,7 @@ async function run(): Promise<void> {
     ownershipModelPath: qualityOwnershipModelPath,
     chunkArtifactsPath: chunkArtifactModelOutput.outputFilePath,
     semanticIrPath: namingMemoryOutput.qualityNamedSemanticIrPath,
+    monolithLayoutHintsPath: monolithPassOutput.outputFilePath,
     outputProjectDirectory: path.join(artifactsDirectory, "project"),
     statementBudget: cli.statementBudget,
     emittedFilesIndexPath: path.join(artifactsDirectory, "emitted-files.json"),
@@ -1073,6 +1094,7 @@ async function run(): Promise<void> {
       asarExtract: asarOutput,
       webcrack: webcrackOutput,
       monolithCensus: monolithCensusOutput,
+      monolithPass: monolithPassOutput,
       wakaru: wakaruOutput,
       javascriptDeobfuscator: javascriptDeobfuscatorOutput,
       synchrony: synchronyOutput,

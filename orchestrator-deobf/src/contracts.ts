@@ -2,6 +2,7 @@ export type StageId =
   | "asar-extract"
   | "webcrack"
   | "monolith-census"
+  | "monolith-pass"
   | "wakaru"
   | "javascript-deobfuscator"
   | "synchrony"
@@ -137,6 +138,23 @@ export interface MonolithCensusStageOutput {
   pass2MonolithPath: string;
   symbolTablePath: string;
   typingHintsPath: string;
+}
+
+export interface MonolithPassStageInput {
+  symbolTablePath: string;
+  sourceJsPath: string;
+  pass2MonolithPath: string;
+  lineageId: string;
+  outputFilePath: string;
+}
+
+export interface MonolithPassStageOutput {
+  outputFilePath: string;
+  entryCount: number;
+  parseCount: number;
+  sumCount: number;
+  stateCount: number;
+  orchestrateCount: number;
 }
 
 export interface WakaruStageInput {
@@ -321,6 +339,7 @@ export interface TemplateEmitterStageInput {
   ownershipModelPath: string;
   chunkArtifactsPath: string;
   semanticIrPath: string;
+  monolithLayoutHintsPath: string;
   outputProjectDirectory: string;
   statementBudget: number;
   emittedFilesIndexPath: string;
@@ -435,6 +454,7 @@ export interface RunSummary {
     asarExtract: AsarExtractStageOutput;
     webcrack: WebcrackStageOutput;
     monolithCensus: MonolithCensusStageOutput;
+    monolithPass: MonolithPassStageOutput;
     wakaru: WakaruStageOutput;
     javascriptDeobfuscator: JavascriptDeobfuscatorStageOutput;
     synchrony: SynchronyStageOutput;

@@ -7,6 +7,7 @@ import { OwnershipModel, OwnershipRecord } from "../ir/ownership-model";
 import { assertArchetypeLayerCompatibility } from "../ir/ownership-compatibility";
 import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { SemanticIrModel } from "../ir/semantic-ir";
+import { buildMonolithLayoutHintMaps, MonolithLayoutHintsModel } from "../ir/monolith-layout";
 import { buildAstLiftResult, LiftedChunkArtifact, LiftedSymbolBinding } from "../lift/ast-lift";
 import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
 
@@ -58,6 +59,21 @@ interface ModuleQualityEntry {
   averageNameQuality: number;
   liftedCoverage: number;
   rerendered: boolean;
+}
+
+interface MonolithTopicHints {
+  bySymbolKey: Map<string, string>;
+  bySymbolName: Map<string, string>;
+}
+
+interface EmittedAssetFile {
+  absolutePath: string;
+  content: string;
+}
+
+interface QualityModuleBuildResult {
+  content: string;
+  assetFiles: EmittedAssetFile[];
 }
 
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
@@ -125,6 +141,8 @@ const COHESION_MERGE_THRESHOLD = 0.44;
 const COHESION_SPLIT_THRESHOLD = 0.2;
 const COHESION_SPLIT_MIN_SYMBOLS = 22;
 const MODULE_MERGE_MAX_SYMBOLS = 320;
+const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
+const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
   "liftedSourcePath",
   "liftedImportResolutionCount",
@@ -1155,10 +1173,50 @@ function buildOwnershipSubset(base: OwnershipModel, symbols: OwnershipRecord[]):
   };
 }
 
+function buildMonolithTopicHints(monolithLayoutHints: MonolithLayoutHintsModel): MonolithTopicHints {
+  const hintMaps = buildMonolithLayoutHintMaps(monolithLayoutHints);
+  const bySymbolKey = new Map<string, string>();
+  const bySymbolName = new Map<string, string>();
+  for (const [symbolKey, entry] of hintMaps.bySymbolKey.entries()) {
+    const topic = sanitizeSegment(entry.topic, bucketTopicFallback(entry.semanticBucket));
+    bySymbolKey.set(symbolKey, topic);
+  }
+  for (const [symbolName, entry] of hintMaps.byFinalName.entries()) {
+    const topic = sanitizeSegment(entry.topic, bucketTopicFallback(entry.semanticBucket));
+    bySymbolName.set(symbolName, topic);
+  }
+  return {
+    bySymbolKey,
+    bySymbolName,
+  };
+}
+
+function bucketTopicFallback(bucket: string): string {
+  if (bucket === "parse") {
+    return "parser";
+  }
+  if (bucket === "sum") {
+    return "math";
+  }
+  if (bucket === "state") {
+    return "state";
+  }
+  return "flow";
+}
+
 function topicSegmentForSymbol(
   symbol: OwnershipRecord,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  monolithTopicHints: MonolithTopicHints,
 ): string {
+  const monolithByKey = monolithTopicHints.bySymbolKey.get(symbol.symbolKey);
+  if (monolithByKey) {
+    return monolithByKey;
+  }
+  const monolithByName = monolithTopicHints.bySymbolName.get(symbol.symbolName);
+  if (monolithByName) {
+    return monolithByName;
+  }
   const renameHint = renameHintsBySymbolKey.get(symbol.symbolKey);
   const symbolicName = renameHint ? renameHint.preferredName : symbol.symbolName;
   const direct = kebabFromSymbol(symbolicName);
@@ -1214,12 +1272,13 @@ function buildModulePlans(
   ownershipModel: OwnershipModel,
   statementBudget: number,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  monolithTopicHints: MonolithTopicHints,
 ): ModulePlan[] {
   const buckets = new Map<string, OwnershipRecord[]>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
     assertArchetypeLayerCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
-    const topic = topicSegmentForSymbol(symbol, renameHintsBySymbolKey);
+    const topic = topicSegmentForSymbol(symbol, renameHintsBySymbolKey, monolithTopicHints);
     const key = `${symbol.layer}::${symbol.archetype}::${topic}`;
     const existing = buckets.get(key);
     if (existing) {
@@ -1731,6 +1790,135 @@ function buildEslintConfig(): string {
   ].join("\n");
 }
 
+function shortStableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function unwrapLiteralExpression(expression: ts.Expression): ts.Expression {
+  if (ts.isParenthesizedExpression(expression)) {
+    return unwrapLiteralExpression(expression.expression);
+  }
+  if (ts.isAsExpression(expression)) {
+    return unwrapLiteralExpression(expression.expression);
+  }
+  if (ts.isTypeAssertionExpression(expression)) {
+    return unwrapLiteralExpression(expression.expression);
+  }
+  if (ts.isSatisfiesExpression(expression)) {
+    return unwrapLiteralExpression(expression.expression);
+  }
+  return expression;
+}
+
+function isStaticLiteralExpression(expression: ts.Expression): boolean {
+  const normalized = unwrapLiteralExpression(expression);
+  const isJsonParseCall = (node: ts.Expression): boolean => {
+    if (!ts.isCallExpression(node)) {
+      return false;
+    }
+    if (!ts.isPropertyAccessExpression(node.expression)) {
+      return false;
+    }
+    const objectRef = node.expression.expression;
+    const methodRef = node.expression.name;
+    if (!ts.isIdentifier(objectRef) || objectRef.text !== "JSON" || methodRef.text !== "parse") {
+      return false;
+    }
+    if (node.arguments.length !== 1) {
+      return false;
+    }
+    const [payloadArg] = node.arguments;
+    if (!payloadArg) {
+      return false;
+    }
+    const payloadExpression = unwrapLiteralExpression(payloadArg);
+    return ts.isStringLiteral(payloadExpression) || ts.isNoSubstitutionTemplateLiteral(payloadExpression);
+  };
+  const isObjectFreezeJsonParseCall = (node: ts.Expression): boolean => {
+    if (!ts.isCallExpression(node)) {
+      return false;
+    }
+    if (!ts.isPropertyAccessExpression(node.expression)) {
+      return false;
+    }
+    const objectRef = node.expression.expression;
+    const methodRef = node.expression.name;
+    if (!ts.isIdentifier(objectRef) || objectRef.text !== "Object" || methodRef.text !== "freeze") {
+      return false;
+    }
+    if (node.arguments.length !== 1) {
+      return false;
+    }
+    const [payloadArg] = node.arguments;
+    if (!payloadArg) {
+      return false;
+    }
+    return isJsonParseCall(unwrapLiteralExpression(payloadArg));
+  };
+
+  if (isObjectFreezeJsonParseCall(normalized) || isJsonParseCall(normalized)) {
+    return true;
+  }
+  if (
+    ts.isStringLiteral(normalized) ||
+    ts.isNumericLiteral(normalized) ||
+    ts.isBigIntLiteral(normalized) ||
+    normalized.kind === ts.SyntaxKind.TrueKeyword ||
+    normalized.kind === ts.SyntaxKind.FalseKeyword ||
+    normalized.kind === ts.SyntaxKind.NullKeyword ||
+    ts.isNoSubstitutionTemplateLiteral(normalized)
+  ) {
+    return true;
+  }
+  if (ts.isPrefixUnaryExpression(normalized)) {
+    const operand = unwrapLiteralExpression(normalized.operand);
+    return ts.isNumericLiteral(operand) || ts.isBigIntLiteral(operand);
+  }
+  if (ts.isArrayLiteralExpression(normalized)) {
+    for (const element of normalized.elements) {
+      if (ts.isSpreadElement(element)) {
+        return false;
+      }
+      if (!isStaticLiteralExpression(element)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (ts.isObjectLiteralExpression(normalized)) {
+    for (const property of normalized.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        if (!isStaticLiteralExpression(property.initializer)) {
+          return false;
+        }
+        continue;
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return false;
+      }
+      if (ts.isSpreadAssignment(property)) {
+        return false;
+      }
+      if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
+        return false;
+      }
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isThemeOrGrammarIdentifier(identifier: string): boolean {
+  const lower = identifier.toLowerCase();
+  return lower.includes("theme") || lower.includes("grammar");
+}
+
 function buildQualityModuleContent(
   plan: ModulePlan,
   moduleAbsolutePath: string,
@@ -1741,7 +1929,7 @@ function buildQualityModuleContent(
   chunkTopicTokensById: Map<string, string[]>,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   signalContext: EmitterSignalContext,
-): string {
+): QualityModuleBuildResult {
   if (symbols.length === 0) {
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
   }
@@ -1751,6 +1939,8 @@ function buildQualityModuleContent(
   const exportEntries: Array<{ exportName: string; chunkId: string; sourceIdentifier: string }> = [];
   const runtimeNamesByChunkId = new Map<string, string>();
   const dependencyImportsByPath = new Map<string, string>();
+  const assetImportsByPath = new Map<string, string>();
+  const assetFilesByPath = new Map<string, string>();
   const chunkRuntimes: string[] = [];
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
@@ -1932,6 +2122,86 @@ function buildQualityModuleContent(
     return bindings;
   };
 
+  const resolveAssetImportAlias = (modulePath: string): string => {
+    const existingAlias = assetImportsByPath.get(modulePath);
+    if (existingAlias) {
+      return existingAlias;
+    }
+    const usedAliases = new Set<string>([...dependencyImportsByPath.values(), ...assetImportsByPath.values()]);
+    const nextAlias = nextUniqueIdentifier("payloadAsset", usedAliases);
+    assetImportsByPath.set(modulePath, nextAlias);
+    return nextAlias;
+  };
+
+  const buildAssetModulePath = (chunkId: string, identifier: string, initializerText: string): string => {
+    const hash = shortStableHash(`${chunkId}:${identifier}:${initializerText}`);
+    const stem = sanitizeSegment(`${chunkId}-${identifier}-${hash}`, `payload-${hash}`);
+    return path.join(outputProjectDirectory, "assets", "payloads", `${stem}.ts`);
+  };
+
+  const extractStaticPayloadFromStatement = (
+    statement: ts.Statement,
+    chunkId: string,
+    sourceFile: ts.SourceFile,
+    printer: ts.Printer,
+  ): ts.Statement => {
+    if (!ts.isVariableStatement(statement)) {
+      return statement;
+    }
+
+    let changed = false;
+    const nextDeclarations: ts.VariableDeclaration[] = [];
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+        nextDeclarations.push(declaration);
+        continue;
+      }
+      const initializer = unwrapLiteralExpression(declaration.initializer);
+      if (!isStaticLiteralExpression(initializer)) {
+        nextDeclarations.push(declaration);
+        continue;
+      }
+      const initializerText = printer.printNode(ts.EmitHint.Unspecified, initializer, sourceFile).trim();
+      const minLength = isThemeOrGrammarIdentifier(declaration.name.text)
+        ? STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH
+        : STATIC_PAYLOAD_LITERAL_MIN_LENGTH;
+      if (initializerText.length < minLength) {
+        nextDeclarations.push(declaration);
+        continue;
+      }
+
+      const assetAbsolutePath = buildAssetModulePath(chunkId, declaration.name.text, initializerText);
+      const assetModulePath = toJsImportPath(moduleAbsolutePath, assetAbsolutePath);
+      const importAlias = resolveAssetImportAlias(assetModulePath);
+      const assetContent = `const payload = ${initializerText};\n\nexport default payload;\n`;
+      const existingAssetContent = assetFilesByPath.get(assetAbsolutePath);
+      if (existingAssetContent) {
+        if (existingAssetContent !== assetContent) {
+          throw new Error(`buildQualityModuleContent: static payload collision at ${assetAbsolutePath}`);
+        }
+      } else {
+        assetFilesByPath.set(assetAbsolutePath, assetContent);
+      }
+
+      const nextDeclaration = ts.factory.updateVariableDeclaration(
+        declaration,
+        declaration.name,
+        declaration.exclamationToken,
+        declaration.type,
+        ts.factory.createIdentifier(importAlias),
+      );
+      nextDeclarations.push(nextDeclaration);
+      changed = true;
+    }
+
+    if (!changed) {
+      return statement;
+    }
+
+    const nextDeclarationList = ts.factory.updateVariableDeclarationList(statement.declarationList, nextDeclarations);
+    return ts.factory.updateVariableStatement(statement, statement.modifiers, nextDeclarationList);
+  };
+
   const createChunkRuntime = (
     chunkId: string,
     requiredSourceIdentifiers: string[],
@@ -2012,7 +2282,8 @@ function buildQualityModuleContent(
       if (!selectedStatements.has(statement)) {
         continue;
       }
-      const stripped = stripExportModifiers(statement);
+      const withExtractedPayload = extractStaticPayloadFromStatement(statement, chunkId, sourceFile, printer);
+      const stripped = stripExportModifiers(withExtractedPayload);
       if (!stripped) {
         continue;
       }
@@ -2121,11 +2392,15 @@ function buildQualityModuleContent(
     "// Quality contour module: AST-lift declarations only.",
   ];
   const sortedDependencies = [...dependencyImportsByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
-  if (sortedDependencies.length > 0) {
+  const sortedAssetImports = [...assetImportsByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
+  if (sortedDependencies.length > 0 || sortedAssetImports.length > 0) {
     lines.push("");
     lines.push("// imports");
     for (const [importPath, alias] of sortedDependencies) {
       lines.push(`import * as ${alias} from ${quote(importPath)};`);
+    }
+    for (const [importPath, alias] of sortedAssetImports) {
+      lines.push(`import ${alias} from ${quote(importPath)};`);
     }
   }
 
@@ -2154,7 +2429,16 @@ function buildQualityModuleContent(
   lines.push("");
   lines.push("export default api;");
   lines.push("");
-  return lines.join("\n");
+  const assetFiles = [...assetFilesByPath.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([absolutePath, content]) => ({
+      absolutePath,
+      content,
+    }));
+  return {
+    content: lines.join("\n"),
+    assetFiles,
+  };
 }
 
 function buildSmokeRunner(modulePaths: string[]): string {
@@ -2607,6 +2891,7 @@ export async function emitTemplateProject(
   ownershipModel: OwnershipModel,
   chunkArtifacts: ChunkArtifactModel,
   semanticIr: SemanticIrModel,
+  monolithLayoutHints: MonolithLayoutHintsModel,
   outputProjectDirectory: string,
   statementBudget: number,
 ): Promise<TemplateEmitResult> {
@@ -2671,6 +2956,7 @@ export async function emitTemplateProject(
   const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
   const signalContext = buildEmitterSignalContext(semanticIr);
   const domainRenameHints = buildDomainRenameHints(ownershipModel, signalContext);
+  const monolithTopicHints = buildMonolithTopicHints(monolithLayoutHints);
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
   const unresolvedSymbols = ownershipModel.symbols
     .filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey))
@@ -2688,6 +2974,7 @@ export async function emitTemplateProject(
     qualityOwnership,
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
     domainRenameHints,
+    monolithTopicHints,
   );
   const qualityCohesionPlans = applyCohesionMergeSplit(
     qualityRawPlans,
@@ -2697,10 +2984,11 @@ export async function emitTemplateProject(
   );
   const qualityPass = applyFileQualityRerender(qualityCohesionPlans, astLift.symbolBindingByKey, statementBudget);
   const qualityModulePlans = qualityPass.modulePlans;
+  const emittedAssetContentByPath = new Map<string, string>();
 
   for (const plan of qualityModulePlans) {
     const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
-    const moduleContent = buildQualityModuleContent(
+    const moduleBuildResult = buildQualityModuleContent(
       plan,
       absoluteFilePath,
       outputProjectDirectory,
@@ -2711,8 +2999,24 @@ export async function emitTemplateProject(
       domainRenameHints,
       signalContext,
     );
-    await writeTextFile(absoluteFilePath, moduleContent);
+    await writeTextFile(absoluteFilePath, moduleBuildResult.content);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
+    for (const assetFile of moduleBuildResult.assetFiles) {
+      const existing = emittedAssetContentByPath.get(assetFile.absolutePath);
+      if (existing) {
+        if (existing !== assetFile.content) {
+          throw new Error(`emitTemplateProject: payload asset collision at ${assetFile.absolutePath}`);
+        }
+        continue;
+      }
+      emittedAssetContentByPath.set(assetFile.absolutePath, assetFile.content);
+    }
+  }
+
+  const sortedAssetFiles = [...emittedAssetContentByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
+  for (const [absolutePath, content] of sortedAssetFiles) {
+    await writeTextFile(absolutePath, content);
+    emittedFiles.push(toProjectRelative(outputProjectDirectory, absolutePath));
   }
 
   const pendingLiftPath = path.join(outputProjectDirectory, "artifacts", "pending-lift-symbols.json");

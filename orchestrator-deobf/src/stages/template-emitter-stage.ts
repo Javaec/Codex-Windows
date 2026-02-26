@@ -3,6 +3,7 @@ import { readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { OwnershipModel } from "../ir/ownership-model";
 import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { SemanticIrModel } from "../ir/semantic-ir";
+import { MonolithLayoutHintsModel } from "../ir/monolith-layout";
 import { emitTemplateProject } from "../emit/template-emitter";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
 
@@ -11,11 +12,13 @@ async function executeTemplateEmitter(request: StageExecutionRequest): Promise<v
   const ownershipModel = await readJsonFile<OwnershipModel>(input.ownershipModelPath);
   const chunkArtifacts = await readJsonFile<ChunkArtifactModel>(input.chunkArtifactsPath);
   const semanticIr = await readJsonFile<SemanticIrModel>(input.semanticIrPath);
+  const monolithLayoutHints = await readJsonFile<MonolithLayoutHintsModel>(input.monolithLayoutHintsPath);
 
   const emitResult = await emitTemplateProject(
     ownershipModel,
     chunkArtifacts,
     semanticIr,
+    monolithLayoutHints,
     input.outputProjectDirectory,
     input.statementBudget,
   );
