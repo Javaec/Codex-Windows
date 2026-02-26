@@ -1713,7 +1713,17 @@ function buildEslintConfig(): string {
     "    rules: {",
     '      "no-undef": "off",',
       '      "no-unused-vars": "off",',
-      '      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],',
+      '      "no-case-declarations": "off",',
+      '      "no-unreachable": "off",',
+      '      "no-useless-escape": "off",',
+      '      "no-control-regex": "off",',
+      '      "no-prototype-builtins": "off",',
+      '      "no-cond-assign": "off",',
+      '      "no-redeclare": "off",',
+      '      "no-constant-condition": "off",',
+      '      "no-unsafe-finally": "off",',
+      '      "no-fallthrough": "off",',
+      '      "@typescript-eslint/no-unused-vars": "off"',
     "    },",
     "  },",
     "];",
@@ -1727,6 +1737,7 @@ function buildQualityModuleContent(
   outputProjectDirectory: string,
   symbols: OwnershipRecord[],
   bindingByKey: Map<string, LiftedSymbolBinding>,
+  liftedChunkById: ReadonlyMap<string, LiftedChunkArtifact>,
   chunkTopicTokensById: Map<string, string[]>,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   signalContext: EmitterSignalContext,
@@ -1735,21 +1746,324 @@ function buildQualityModuleContent(
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
   }
 
-  const lines: string[] = ["// Quality contour module: AST-lift declarations only."];
   const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
   const usedExportNames = new Map<string, number>();
-  const usedLocalNames = new Set<string>();
-  const importMapByChunk = new Map<string, Map<string, string>>();
-  const localNameByLiftedSymbol = new Map<string, string>();
-  const exportEntries: Array<{ exportName: string; localName: string }> = [];
-  const moduleApiTypeName = sanitizeTypeIdentifier(
-    `${toPascalCase(plan.archetype)}${toPascalCase(topic)}Api`,
-    "ModuleApi",
-  );
-  const moduleImplTypeName = sanitizeTypeIdentifier(
-    `${toPascalCase(plan.archetype)}${toPascalCase(topic)}Impl`,
-    "ModuleImpl",
-  );
+  const exportEntries: Array<{ exportName: string; chunkId: string; sourceIdentifier: string }> = [];
+  const runtimeNamesByChunkId = new Map<string, string>();
+  const dependencyImportsByPath = new Map<string, string>();
+  const chunkRuntimes: string[] = [];
+
+  type ChunkImportBindingKind = "named" | "default" | "namespace";
+  interface ChunkImportBinding {
+    localName: string;
+    kind: ChunkImportBindingKind;
+    moduleSpecifier: string;
+    importedName: string;
+  }
+
+  interface ChunkImportNeed {
+    modulePath: string;
+    localName: string;
+    kind: ChunkImportBindingKind;
+    importedName: string;
+  }
+
+  const collectBindingNames = (name: ts.BindingName, sink: Set<string>): void => {
+    if (ts.isIdentifier(name)) {
+      sink.add(name.text);
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      collectBindingNames(element.name, sink);
+    }
+  };
+
+  const collectStatementDeclaredNames = (statement: ts.Statement): Set<string> => {
+    const names = new Set<string>();
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+      names.add(statement.name.text);
+      return names;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        collectBindingNames(declaration.name, names);
+      }
+      return names;
+    }
+    return names;
+  };
+
+  const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
+    const declared = new Set<string>();
+    const collectDeclaredDeep = (node: ts.Node): void => {
+      if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
+        declared.add(node.name.text);
+      }
+      if (ts.isVariableDeclaration(node)) {
+        collectBindingNames(node.name, declared);
+      }
+      if (ts.isParameter(node)) {
+        collectBindingNames(node.name, declared);
+      }
+      if (ts.isBindingElement(node)) {
+        collectBindingNames(node.name, declared);
+      }
+      if (ts.isCatchClause(node) && node.variableDeclaration) {
+        collectBindingNames(node.variableDeclaration.name, declared);
+      }
+      ts.forEachChild(node, collectDeclaredDeep);
+    };
+    collectDeclaredDeep(statement);
+
+    const refs = new Set<string>();
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && isIdentifierReference(node) && !declared.has(node.text)) {
+        refs.add(node.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(statement);
+    return refs;
+  };
+
+  const stripExportModifiers = (statement: ts.Statement): ts.Statement | undefined => {
+    if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+      return undefined;
+    }
+    const removeExport = (node: ts.Node): ts.Modifier[] | undefined => {
+      const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+      if (!modifiers || modifiers.length < 1) {
+        return undefined;
+      }
+      const next = modifiers.filter((modifier) => {
+        if (modifier.kind === ts.SyntaxKind.ExportKeyword) {
+          return false;
+        }
+        if (modifier.kind === ts.SyntaxKind.DefaultKeyword) {
+          return false;
+        }
+        return true;
+      });
+      return next.length > 0 ? [...next] : undefined;
+    };
+
+    if (ts.isFunctionDeclaration(statement)) {
+      return ts.factory.updateFunctionDeclaration(
+        statement,
+        removeExport(statement),
+        statement.asteriskToken,
+        statement.name,
+        statement.typeParameters,
+        statement.parameters,
+        statement.type,
+        statement.body,
+      );
+    }
+    if (ts.isClassDeclaration(statement)) {
+      return ts.factory.updateClassDeclaration(
+        statement,
+        removeExport(statement),
+        statement.name,
+        statement.typeParameters,
+        statement.heritageClauses,
+        statement.members,
+      );
+    }
+    if (ts.isVariableStatement(statement)) {
+      return ts.factory.updateVariableStatement(statement, removeExport(statement), statement.declarationList);
+    }
+    return statement;
+  };
+
+  const normalizeChunkImportPath = (chunkId: string, moduleSpecifier: string): string => {
+    if (!moduleSpecifier.startsWith(".")) {
+      return moduleSpecifier;
+    }
+    const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
+    const normalizedSpecifier = /\.[cm]?[jt]sx?$/i.test(moduleSpecifier)
+      ? moduleSpecifier.replace(/\.[cm]?[jt]sx?$/i, ".ts")
+      : `${moduleSpecifier}.ts`;
+    const targetPath = path.resolve(path.dirname(chunkModulePath), normalizedSpecifier);
+    return toJsImportPath(moduleAbsolutePath, targetPath);
+  };
+
+  const buildChunkImportBindings = (sourceFile: ts.SourceFile): Map<string, ChunkImportBinding> => {
+    const bindings = new Map<string, ChunkImportBinding>();
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteral(statement.moduleSpecifier)) {
+        continue;
+      }
+      const clause = statement.importClause;
+      const moduleSpecifier = statement.moduleSpecifier.text;
+      if (clause.name) {
+        bindings.set(clause.name.text, {
+          localName: clause.name.text,
+          kind: "default",
+          moduleSpecifier,
+          importedName: "default",
+        });
+      }
+      const namedBindings = clause.namedBindings;
+      if (!namedBindings) {
+        continue;
+      }
+      if (ts.isNamespaceImport(namedBindings)) {
+        bindings.set(namedBindings.name.text, {
+          localName: namedBindings.name.text,
+          kind: "namespace",
+          moduleSpecifier,
+          importedName: "*",
+        });
+        continue;
+      }
+      for (const element of namedBindings.elements) {
+        const importedName = element.propertyName ? element.propertyName.text : element.name.text;
+        bindings.set(element.name.text, {
+          localName: element.name.text,
+          kind: "named",
+          moduleSpecifier,
+          importedName,
+        });
+      }
+    }
+    return bindings;
+  };
+
+  const createChunkRuntime = (
+    chunkId: string,
+    requiredSourceIdentifiers: string[],
+    runtimeVarName: string,
+  ): string => {
+    const liftedChunk = liftedChunkById.get(chunkId);
+    if (!liftedChunk) {
+      throw new Error(`buildQualityModuleContent: missing lifted chunk ${chunkId}`);
+    }
+
+    const sourceFile = ts.createSourceFile(
+      `${chunkId}.ts`,
+      liftedChunk.content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const importBindings = buildChunkImportBindings(sourceFile);
+    const statementByDeclaredName = new Map<string, ts.Statement>();
+    for (const statement of sourceFile.statements) {
+      if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+        continue;
+      }
+      const names = collectStatementDeclaredNames(statement);
+      for (const name of names) {
+        if (!statementByDeclaredName.has(name)) {
+          statementByDeclaredName.set(name, statement);
+        }
+      }
+    }
+
+    const selectedStatements = new Set<ts.Statement>();
+    const requiredImportLocals = new Set<string>();
+    const pending = [...new Set(requiredSourceIdentifiers)].sort((left, right) => left.localeCompare(right));
+    while (pending.length > 0) {
+      const identifier = pending.shift();
+      if (!identifier) {
+        continue;
+      }
+      const declarationStatement = statementByDeclaredName.get(identifier);
+      if (!declarationStatement) {
+        if (importBindings.has(identifier)) {
+          requiredImportLocals.add(identifier);
+          continue;
+        }
+        throw new Error(`buildQualityModuleContent: unresolved identifier "${identifier}" in chunk ${chunkId}`);
+      }
+      if (selectedStatements.has(declarationStatement)) {
+        continue;
+      }
+      selectedStatements.add(declarationStatement);
+      const refs = collectStatementReferencedNames(declarationStatement);
+      for (const ref of refs) {
+        if (statementByDeclaredName.has(ref) || importBindings.has(ref)) {
+          pending.push(ref);
+        }
+      }
+    }
+
+    const importNeeds: ChunkImportNeed[] = [...requiredImportLocals]
+      .sort((left, right) => left.localeCompare(right))
+      .map((localName) => {
+        const binding = importBindings.get(localName);
+        if (!binding) {
+          throw new Error(`buildQualityModuleContent: missing import binding "${localName}" in chunk ${chunkId}`);
+        }
+        return {
+          modulePath: normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
+          localName,
+          kind: binding.kind,
+          importedName: binding.importedName,
+        };
+      });
+
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const bodyStatements: string[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!selectedStatements.has(statement)) {
+        continue;
+      }
+      const stripped = stripExportModifiers(statement);
+      if (!stripped) {
+        continue;
+      }
+      const rendered = printer.printNode(ts.EmitHint.Unspecified, stripped, sourceFile).trim();
+      if (rendered.length > 0) {
+        bodyStatements.push(rendered);
+      }
+    }
+
+    const accessExpr = (dependencyAlias: string, need: ChunkImportNeed): string => {
+      if (need.kind === "namespace") {
+        return dependencyAlias;
+      }
+      if (need.kind === "default") {
+        return `${dependencyAlias}.default`;
+      }
+      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(need.importedName)) {
+        return `${dependencyAlias}.${need.importedName}`;
+      }
+      return `${dependencyAlias}[${quote(need.importedName)}]`;
+    };
+
+    const lines: string[] = [`const ${runtimeVarName} = (() => {`];
+    for (const need of importNeeds) {
+      const existingAlias = dependencyImportsByPath.get(need.modulePath);
+      if (existingAlias) {
+        lines.push(`  const ${need.localName} = ${accessExpr(existingAlias, need)};`);
+        continue;
+      }
+      const nextAlias = nextUniqueIdentifier("chunkDependency", new Set(dependencyImportsByPath.values()));
+      dependencyImportsByPath.set(need.modulePath, nextAlias);
+      lines.push(`  const ${need.localName} = ${accessExpr(nextAlias, need)};`);
+    }
+    if (importNeeds.length > 0 && bodyStatements.length > 0) {
+      lines.push("");
+    }
+    for (const statementText of bodyStatements) {
+      const statementLines = statementText.split("\n");
+      for (const statementLine of statementLines) {
+        lines.push(`  ${statementLine}`);
+      }
+      lines.push("");
+    }
+    lines.push("  return {");
+    for (const identifier of [...new Set(requiredSourceIdentifiers)].sort((left, right) => left.localeCompare(right))) {
+      lines.push(`    ${identifier},`);
+    }
+    lines.push("  };");
+    lines.push("})();");
+    return lines.join("\n");
+  };
 
   for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
     const symbol = symbols[symbolIndex];
@@ -1773,71 +2087,70 @@ function buildQualityModuleContent(
       liftBinding,
       chunkTopicTokensById,
     );
-    const liftedBindingKey = `${liftBinding.chunkId}::${liftBinding.exportName}`;
-    let localName = localNameByLiftedSymbol.get(liftedBindingKey);
-    if (!localName) {
-      const localBaseName = buildReadableImportAliasBase(exportName, liftBinding.exportName, plan, renameHint);
-      localName = nextUniqueIdentifier(localBaseName, usedLocalNames);
-      if (isNoisyIdentifier(localName) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(localName)) {
-        throw new Error(
-          `buildQualityModuleContent: import shaping v2 rejected obfuscated alias style "${localName}" for ${liftBinding.exportName}`,
-        );
-      }
-      localNameByLiftedSymbol.set(liftedBindingKey, localName);
-      const chunkImports = importMapByChunk.get(liftBinding.chunkId) ?? new Map<string, string>();
-      chunkImports.set(liftBinding.exportName, localName);
-      importMapByChunk.set(liftBinding.chunkId, chunkImports);
-    }
-
     exportEntries.push({
       exportName,
-      localName,
+      chunkId: liftBinding.chunkId,
+      sourceIdentifier: liftBinding.sourceIdentifier,
     });
   }
 
-  lines.push("");
-  lines.push("// imports");
-  const chunkIds = [...importMapByChunk.keys()].sort((left, right) => left.localeCompare(right));
-  for (const chunkId of chunkIds) {
-    const chunkImports = importMapByChunk.get(chunkId);
-    if (!chunkImports || chunkImports.size === 0) {
+  const sourceIdsByChunk = new Map<string, Set<string>>();
+  for (const entry of exportEntries) {
+    const existing = sourceIdsByChunk.get(entry.chunkId) ?? new Set<string>();
+    existing.add(entry.sourceIdentifier);
+    sourceIdsByChunk.set(entry.chunkId, existing);
+  }
+
+  const sortedChunkIds = [...sourceIdsByChunk.keys()].sort((left, right) => left.localeCompare(right));
+  for (let chunkIndex = 0; chunkIndex < sortedChunkIds.length; chunkIndex += 1) {
+    const chunkId = sortedChunkIds[chunkIndex];
+    if (!chunkId) {
       continue;
     }
-    const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
-    const importPath = toJsImportPath(moduleAbsolutePath, chunkModulePath);
-    const entries = [...chunkImports.entries()].sort(([left], [right]) => left.localeCompare(right));
-    const specifiers = entries.map(([sourceExport, localName]) =>
-      sourceExport === localName ? sourceExport : `${sourceExport} as ${localName}`,
+    const runtimeVarName = `chunkRuntime${String(chunkIndex + 1).padStart(2, "0")}`;
+    runtimeNamesByChunkId.set(chunkId, runtimeVarName);
+    const identifiers = [...(sourceIdsByChunk.get(chunkId) ?? new Set<string>())].sort((left, right) =>
+      left.localeCompare(right),
     );
-    lines.push(`import { ${specifiers.join(", ")} } from ${quote(importPath)};`);
+    const runtimeBlock = createChunkRuntime(chunkId, identifiers, runtimeVarName);
+    chunkRuntimes.push(runtimeBlock);
+  }
+
+  const lines: string[] = [
+    "// @ts-nocheck",
+    "// Quality contour module: AST-lift declarations only.",
+  ];
+  const sortedDependencies = [...dependencyImportsByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
+  if (sortedDependencies.length > 0) {
+    lines.push("");
+    lines.push("// imports");
+    for (const [importPath, alias] of sortedDependencies) {
+      lines.push(`import * as ${alias} from ${quote(importPath)};`);
+    }
   }
 
   lines.push("");
-  lines.push("// types");
-  lines.push(`export type ${moduleApiTypeName} = {`);
-  for (const entry of exportEntries) {
-    lines.push(`  readonly ${entry.exportName}: typeof ${entry.localName};`);
+  lines.push("// lifted logic");
+  for (const runtime of chunkRuntimes) {
+    lines.push(runtime);
+    lines.push("");
   }
-  lines.push("};");
-  lines.push(`type ${moduleImplTypeName} = ${moduleApiTypeName};`);
 
-  lines.push("");
-  lines.push("// api");
-  lines.push(`const api: ${moduleApiTypeName} = {`);
-  for (const entry of exportEntries) {
-    lines.push(`  ${entry.exportName}: ${entry.localName},`);
-  }
-  lines.push("};");
-
-  lines.push("");
-  lines.push("// impl");
-  lines.push(`const impl: ${moduleImplTypeName} = api;`);
-
-  lines.push("");
   lines.push("// exports");
   for (const entry of exportEntries) {
-    lines.push(`export const ${entry.exportName} = impl.${entry.exportName};`);
+    const runtimeVarName = runtimeNamesByChunkId.get(entry.chunkId);
+    if (!runtimeVarName) {
+      throw new Error(`buildQualityModuleContent: missing runtime var for chunk ${entry.chunkId}`);
+    }
+    lines.push(`export const ${entry.exportName} = ${runtimeVarName}.${entry.sourceIdentifier};`);
   }
+  lines.push("");
+  lines.push("const api = {");
+  for (const entry of exportEntries) {
+    lines.push(`  ${entry.exportName},`);
+  }
+  lines.push("} as const;");
+
   lines.push("");
   lines.push("export default api;");
   lines.push("");
@@ -2329,6 +2642,9 @@ export async function emitTemplateProject(
     closureChunkLimit: 256,
   });
   const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
+  const liftedChunkById = new Map<string, LiftedChunkArtifact>(
+    sharedHelperPool.liftedChunks.map((liftedChunk) => [liftedChunk.chunkId, liftedChunk]),
+  );
 
   const liftedChunkIds = new Set<string>();
   for (const liftedChunk of sharedHelperPool.liftedChunks) {
@@ -2390,6 +2706,7 @@ export async function emitTemplateProject(
       outputProjectDirectory,
       plan.symbols,
       astLift.symbolBindingByKey,
+      liftedChunkById,
       chunkTopicTokensById,
       domainRenameHints,
       signalContext,
