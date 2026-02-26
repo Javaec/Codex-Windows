@@ -32,6 +32,14 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: coverage ownership now tracks full symbol set while quality emitter continues to consume strict quality names only.
 - Merged-evidence promotion now prioritizes `selected != currentName` upgrade candidates before insert-heavy picks.
   Verified reason: selection and monotonic fallback are tuned to increase `promotionUpdatedCount` per cycle while keeping anti-generic and quality guards.
+- Quality emitter now runs a heavier logic-first synthesis profile:
+  - aggressive chunk-index dependency inline (threshold `6`),
+  - expanded hot chunk full-lift window (`90`, min `40`, closure `768`),
+  - stronger module consolidation with guarded split/merge rebalancing,
+  - no redundant default `api` glue object in generated modules.
+  Verified reason: reduce import/proxy noise and keep more real lifted logic directly in `src/*`.
+- Quality emitter naming now applies anti-generic guards for `channelDispatch`/alphabet-run patterns and uses chunk/domain hints before route/event flow tokens.
+  Verified reason: generated exports shifted from synthetic `*ChannelDispatch*` to domain-oriented names (`*Asar*`, `*AngularHtml*`, `*ApacheEvent*`, etc.) while keeping quality gates green.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

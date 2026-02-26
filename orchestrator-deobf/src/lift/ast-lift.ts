@@ -108,7 +108,7 @@ const DEFAULT_LIFT_OPTIONS: AstLiftOptions = {
 };
 
 const GENERIC_IMPORT_TOKENS = new Set<string>(["index", "chunk", "main", "entry", "assets", "webview", "src"]);
-const LIFTED_SYMBOL_MIN_QUALITY = 0.74;
+const LIFTED_SYMBOL_MIN_QUALITY = 0.56;
 
 const RESERVED_WORDS = new Set<string>([
   "await",
@@ -224,7 +224,7 @@ function chunkTopicLabel(chunkId: string): string {
     .filter((token) => token.length >= 3)
     .filter((token) => !/^[a-f0-9]{7,}$/i.test(token))
     .filter((token) => !/^\d+$/.test(token))
-    .slice(0, 2);
+    .slice(0, 1);
   if (tokens.length === 0) {
     return "chunk";
   }
@@ -262,7 +262,8 @@ function buildLiftedSymbolBaseName(chunkId: string, symbol: OwnershipRecord, sou
   }
 
   const chunkTopic = chunkTopicLabel(chunkId);
-  return sanitizeIdentifier(`${symbol.archetype}${chunkTopic}Symbol${ordinal}`, "liftedSymbol");
+  const chunkStem = chunkTopic.charAt(0).toUpperCase() + chunkTopic.slice(1);
+  return sanitizeIdentifier(`${symbol.archetype}${chunkStem}Member${ordinal}`, "liftedSymbol");
 }
 
 function makeUniqueName(base: string, usedNames: Set<string>): string {

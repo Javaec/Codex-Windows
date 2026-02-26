@@ -46,13 +46,35 @@
       ]
     },
     {
-      "averageConfidence": 0.7353,
+      "averageConfidence": 0.7343,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7804,
-      "averageScore": 0.8093,
-      "averageSymbolCount": 311.5,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8088,
+      "averageSymbolCount": 159,
+      "filePath": "src/renderer/store/store-state.ts",
+      "minScore": 0.8088,
+      "moduleIds": [
+        "renderer:store:state"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 0,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7367,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7803,
+      "averageScore": 0.8098,
+      "averageSymbolCount": 324.5,
       "filePath": "src/services/store/store-state.ts",
-      "minScore": 0.8065,
+      "minScore": 0.807,
       "moduleIds": [
         "services:store:state",
         "services:store:state-store"
@@ -69,35 +91,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7368,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8098,
-      "averageSymbolCount": 151,
-      "filePath": "src/renderer/store/store-state.ts",
-      "minScore": 0.8098,
-      "moduleIds": [
-        "renderer:store:state"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7192,
+      "averageConfidence": 0.7188,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.8373,
-      "averageSymbolCount": 115,
+      "averageScore": 0.8371,
+      "averageSymbolCount": 118,
       "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
-      "minScore": 0.8373,
+      "minScore": 0.8371,
       "moduleIds": [
         "services:service:run-abcdefghijklmnopqrstuvwxyz-flow"
       ],
@@ -113,13 +113,13 @@
       ]
     },
     {
-      "averageConfidence": 0.8656,
+      "averageConfidence": 0.8654,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7855,
-      "averageScore": 0.8671,
-      "averageSymbolCount": 91,
+      "averageNameQuality": 0.7854,
+      "averageScore": 0.867,
+      "averageSymbolCount": 92,
       "filePath": "src/services/service/service-domain.ts",
-      "minScore": 0.8671,
+      "minScore": 0.867,
       "moduleIds": [
         "services:service:service"
       ],
@@ -179,6 +179,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T21:01:53.991Z",
-  "suiteRunId": "promo-upd-tune1-20260226-205153-c01"
+  "generatedAtIso": "2026-02-26T22:43:28.969Z",
+  "suiteRunId": "quality-radical-4-20260226-223205-c01"
 }

@@ -101,6 +101,13 @@ const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
   "webview",
   "src",
   "part",
+  "channel",
+  "dispatch",
+  "component",
+  "bridge",
+  "extends",
+  "inline",
+  "impl",
 ]);
 const TEMPLATE_FALLBACK_NAME_PATTERNS: RegExp[] = [
   /^stateStore(?:[A-Za-z]+)?\d*$/i,
@@ -109,6 +116,9 @@ const TEMPLATE_FALLBACK_NAME_PATTERNS: RegExp[] = [
   /^transportBridge(?:[A-Za-z]+)?\d*$/i,
   /^storeState(?:Store)?\d*$/i,
   /^serviceDomain(?:Service)?\d*$/i,
+  /^(?:store|service|ui|transport|hook)?ChannelDispatch(?:[A-Za-z]+)?\d*$/i,
+  /^renderAbcdefghijklmnopqrstuvwxyz(?:View)?\d*$/i,
+  /^[A-Za-z]*Abcdefghijklmnopqrstuvwxyz[A-Za-z0-9]*$/i,
 ];
 const ARCHETYPE_BUDGET_FACTOR: Record<ArchetypeId, number> = {
   hook: 0.7,
@@ -131,22 +141,22 @@ const ARCHETYPE_SYMBOL_BUDGET_FLOOR: Record<ArchetypeId, number> = {
   transport: 72,
   store: 240,
 };
-const QUALITY_PLAN_BUDGET_MULTIPLIER = 4;
-const QUALITY_PLAN_BUDGET_MIN = 128;
+const QUALITY_PLAN_BUDGET_MULTIPLIER = 5;
+const QUALITY_PLAN_BUDGET_MIN = 160;
 const SHARED_HELPER_MODULE_RELATIVE_PATH = "./_shared/helpers.js";
 const SHARED_HELPER_MODULE_FILENAME = "helpers.ts";
 const SHARED_HELPER_MIN_OCCURRENCES = 2;
 const SHARED_HELPER_MAX_COUNT = 64;
-const COHESION_MERGE_THRESHOLD = 0.36;
+const COHESION_MERGE_THRESHOLD = 0.3;
 const COHESION_SPLIT_THRESHOLD = 0.16;
 const COHESION_SPLIT_MIN_SYMBOLS = 26;
 const COHESION_FORCE_SPLIT_SYMBOLS = 420;
-const MODULE_MERGE_MAX_SYMBOLS = 420;
-const TINY_MODULE_SYMBOL_LIMIT = 30;
-const TINY_MODULE_MERGE_BUDGET_FACTOR = 1.6;
-const CHUNK_INDEX_INLINE_IMPORT_THRESHOLD = 24;
-const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK = 24;
-const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 72;
+const MODULE_MERGE_MAX_SYMBOLS = 520;
+const TINY_MODULE_SYMBOL_LIMIT = 48;
+const TINY_MODULE_MERGE_BUDGET_FACTOR = 2;
+const CHUNK_INDEX_INLINE_IMPORT_THRESHOLD = 6;
+const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK = 40;
+const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 120;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -470,6 +480,12 @@ function topicSegmentFromFilePath(filePath: string, archetype: ArchetypeId): str
 
 function shouldKeepSymbolName(symbolName: string): boolean {
   if (isTemplateFallbackName(symbolName)) {
+    return false;
+  }
+  if (/channeldispatch/i.test(symbolName)) {
+    return false;
+  }
+  if (/abcdefghijklmnopqrstuvwxyz/i.test(symbolName)) {
     return false;
   }
   if (isGenericName(symbolName)) {
@@ -949,13 +965,13 @@ function buildSignalDrivenBaseName(
   const semanticTokens = dedupeNameTokens(
     [
       ...renameHintTokens,
-      ...stateSignalTokens,
-      ...callGraphTokens,
-      ...flowTokens,
       ...bindingTokens,
       ...hintTokens,
       ...clusterTokens,
       ...topicTokens,
+      ...stateSignalTokens,
+      ...callGraphTokens,
+      ...flowTokens,
       ...domainTokens,
       ...layerTokens,
     ]
@@ -968,6 +984,30 @@ function buildSignalDrivenBaseName(
   const qualifierTokens = semanticTokens
     .filter((token) => token !== plan.archetype && token !== symbol.domainKind && token !== plan.layer)
     .slice(0, 2);
+  if (qualifierTokens.length > 0) {
+    const weakQualifierSet = new Set<string>(["event", "navigate", "route", "flow", "state", "dispatch"]);
+    const allWeak = qualifierTokens.every((token) => weakQualifierSet.has(token));
+    if (allWeak) {
+      const strongHintTokens = dedupeNameTokens([...bindingTokens, ...hintTokens, ...clusterTokens, ...topicTokens])
+        .filter((token) => token.length >= 3)
+        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+        .filter((token) => !GENERIC_SEGMENTS.has(token))
+        .filter((token) => !weakQualifierSet.has(token))
+        .slice(0, 2);
+      if (strongHintTokens.length > 0) {
+        qualifierTokens.splice(0, qualifierTokens.length, ...strongHintTokens);
+      }
+    }
+  }
+  if (qualifierTokens.length === 0 && liftBinding) {
+    const chunkTokens = chunkTopicTokensById.get(liftBinding.chunkId) ?? chunkTokensFromChunkId(liftBinding.chunkId);
+    const chunkQualifiers = dedupeNameTokens(chunkTokens)
+      .filter((token) => token.length >= 3)
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .slice(0, 1);
+    qualifierTokens.push(...chunkQualifiers);
+  }
   if (qualifierTokens.length === 0) {
     qualifierTokens.push(symbolOrdinalToken(symbol.symbolKey, ordinal));
   }
@@ -1230,27 +1270,62 @@ function topicSegmentForSymbol(
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   monolithTopicHints: MonolithTopicHints,
 ): string {
+  const genericTopicSeeds = new Set<string>([
+    "domain",
+    "flow",
+    "state",
+    "service",
+    "hooks",
+    "ui-components",
+    "transport-bridge",
+    "state-store",
+    "domain-service",
+    "parser",
+    "math",
+  ]);
+  const buildChunkHintTopic = (base: string): string | undefined => {
+    const chunkHints = chunkHintTokens(symbol.chunkHint)
+      .filter((token) => token.length >= 3)
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+    const firstHint = chunkHints[0];
+    if (!firstHint) {
+      return undefined;
+    }
+    const normalizedBase = sanitizeSegment(base, "domain");
+    if (genericTopicSeeds.has(normalizedBase) || /abcdefghijklmnopqrstuvwxyz/i.test(normalizedBase)) {
+      return sanitizeSegment(`${normalizedBase}-${firstHint}`, firstHint);
+    }
+    return undefined;
+  };
+
   const monolithByKey = monolithTopicHints.bySymbolKey.get(symbol.symbolKey);
   if (monolithByKey) {
-    return monolithByKey;
+    const hinted = buildChunkHintTopic(monolithByKey);
+    return hinted ?? monolithByKey;
   }
   const monolithByName = monolithTopicHints.bySymbolName.get(symbol.symbolName);
   if (monolithByName) {
-    return monolithByName;
+    const hinted = buildChunkHintTopic(monolithByName);
+    return hinted ?? monolithByName;
   }
   const renameHint = renameHintsBySymbolKey.get(symbol.symbolKey);
   const symbolicName = renameHint ? renameHint.preferredName : symbol.symbolName;
   const direct = kebabFromSymbol(symbolicName);
   if (direct !== "domain") {
-    return direct;
+    const hinted = buildChunkHintTopic(direct);
+    return hinted ?? direct;
   }
   if (renameHint && renameHint.hintTokens.length > 0) {
     const hintTopic = sanitizeSegment(renameHint.hintTokens.join("-"), "domain");
     if (hintTopic !== "domain") {
-      return hintTopic;
+      const hinted = buildChunkHintTopic(hintTopic);
+      return hinted ?? hintTopic;
     }
   }
-  return fallbackTopicByArchetype(symbol.archetype);
+  const fallback = fallbackTopicByArchetype(symbol.archetype);
+  const hinted = buildChunkHintTopic(fallback);
+  return hinted ?? fallback;
 }
 
 function splitBalanced<T>(items: T[], parts: number): T[][] {
@@ -3111,15 +3186,6 @@ function buildQualityModuleContent(
     lines.push(`export { ${entry.localIdentifier} as ${entry.exportName} };`);
   }
   lines.push("");
-  lines.push("const api = {");
-  for (const entry of exportEntries) {
-    lines.push(`  ${entry.exportName}: ${entry.localIdentifier},`);
-  }
-  lines.push("} as const;");
-
-  lines.push("");
-  lines.push("export default api;");
-  lines.push("");
   const assetFiles = [...assetFilesByPath.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([absolutePath, content]) => ({
@@ -3610,12 +3676,12 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
 
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
-    hotChunkMax: 50,
-    targetCoverage: 0.95,
-    minHotChunkCount: 30,
+    hotChunkMax: 90,
+    targetCoverage: 0.97,
+    minHotChunkCount: 40,
     preferredArchetypes: ["ui", "service", "hook", "transport"],
     minimumChunkScore: 0,
-    closureChunkLimit: 512,
+    closureChunkLimit: 768,
   });
   const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
   const liftedChunkById = new Map<string, LiftedChunkArtifact>(
