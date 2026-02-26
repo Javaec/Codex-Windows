@@ -6,7 +6,7 @@
     "devHealthAllGreen": true,
     "functionClassCoverageAverage": 1,
     "functionCoverageAverage": 1,
-    "highConfidenceSymbolsAverage": 553.75,
+    "highConfidenceSymbolsAverage": 553,
     "hotChunkAverage": 45,
     "lowQualityFileCountAverage": 0,
     "mappedFilesAverage": 48,
@@ -16,16 +16,16 @@
     "proxyInQualityAverage": 0,
     "rerenderedModuleAverage": 1,
     "variableCoverageAverage": 1,
-    "worstFileDecileScoreAverage": 0.8056
+    "worstFileDecileScoreAverage": 0.8043
   },
-  "generatedAtIso": "2026-02-26T20:16:44.160Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\merged-evidence.json",
+  "generatedAtIso": "2026-02-26T20:27:02.492Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 149148,
+      "durationMs": 146967,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 45,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -124,7 +124,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -156,10 +156,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-01-core-no-binary",
-      "runId": "reg-step4hardfix8-20260226-194542-c03-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-01-core-no-binary",
+      "runId": "reg-step4hardfix9-20260226-201732-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -169,14 +169,14 @@
         "total": 0.9626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-01-core-no-binary\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\adaptive-weights\\core-no-binary.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-01-core-no-binary\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\adaptive-weights\\core-no-binary.weights.json"
     },
     {
-      "durationMs": 150477,
+      "durationMs": 138839,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 45,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -275,7 +275,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\logs\\02-core-no-binary-no-pretty.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -307,10 +307,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-02-core-no-binary-no-pretty",
-      "runId": "reg-step4hardfix8-20260226-194542-c03-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-step4hardfix9-20260226-201732-c01-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -320,14 +320,14 @@
         "total": 0.9626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-02-core-no-binary-no-pretty\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-02-core-no-binary-no-pretty\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
     },
     {
-      "durationMs": 146012,
+      "durationMs": 139647,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 45,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -426,7 +426,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -458,10 +458,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-03-core-no-binary-top120",
-      "runId": "reg-step4hardfix8-20260226-194542-c03-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-03-core-no-binary-top120",
+      "runId": "reg-step4hardfix9-20260226-201732-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -471,113 +471,113 @@
         "total": 0.9626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-03-core-no-binary-top120\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\adaptive-weights\\core-no-binary-top120.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-03-core-no-binary-top120\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\adaptive-weights\\core-no-binary-top120.weights.json"
     },
     {
-      "durationMs": 144547,
+      "durationMs": 142651,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 45,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.8096,
+        "worstDecileAverageScore": 0.8043,
         "worstFiles": [
           {
-            "averageConfidence": 0.7363,
+            "averageConfidence": 0.7239,
             "averageNameQuality": 0.78,
             "filePath": "src/main/transport/transport-bridge-quality-01.ts",
             "liftedCoverage": 1,
             "moduleId": "main:transport:transport-bridge:quality-01",
             "rerendered": true,
-            "score": 0.8096,
+            "score": 0.8043,
             "symbolCount": 5
           },
           {
-            "averageConfidence": 0.7393,
+            "averageConfidence": 0.7288,
             "averageNameQuality": 0.78,
             "filePath": "src/services/store/store-state.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state",
             "rerendered": false,
-            "score": 0.8109,
+            "score": 0.8064,
             "symbolCount": 315
           },
           {
-            "averageConfidence": 0.7422,
+            "averageConfidence": 0.734,
             "averageNameQuality": 0.78,
             "filePath": "src/main/transport/transport-bridge-quality-02.ts",
             "liftedCoverage": 1,
             "moduleId": "main:transport:transport-bridge:quality-02",
             "rerendered": true,
-            "score": 0.8121,
+            "score": 0.8086,
             "symbolCount": 5
           },
           {
-            "averageConfidence": 0.7466,
+            "averageConfidence": 0.7368,
             "averageNameQuality": 0.78,
             "filePath": "src/renderer/store/store-state.ts",
             "liftedCoverage": 1,
             "moduleId": "renderer:store:state",
             "rerendered": false,
-            "score": 0.814,
+            "score": 0.8098,
             "symbolCount": 151
           },
           {
-            "averageConfidence": 0.7512,
+            "averageConfidence": 0.7416,
             "averageNameQuality": 0.7807,
             "filePath": "src/services/store/store-state.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state-store",
             "rerendered": false,
-            "score": 0.8162,
+            "score": 0.8121,
             "symbolCount": 307
           },
           {
-            "averageConfidence": 0.7365,
+            "averageConfidence": 0.7192,
             "averageNameQuality": 0.88,
             "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:run-abcdefghijklmnopqrstuvwxyz-flow",
             "rerendered": false,
-            "score": 0.8447,
+            "score": 0.8373,
             "symbolCount": 115
           },
           {
-            "averageConfidence": 0.8663,
+            "averageConfidence": 0.8656,
             "averageNameQuality": 0.7855,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:service",
             "rerendered": false,
-            "score": 0.8675,
+            "score": 0.8671,
             "symbolCount": 91
           },
           {
-            "averageConfidence": 0.9208,
+            "averageConfidence": 0.912,
             "averageNameQuality": 0.8229,
             "filePath": "src/renderer/hook/hook-hooks-render.ts",
             "liftedCoverage": 1,
             "moduleId": "renderer:hook:hooks-render",
             "rerendered": false,
-            "score": 0.904,
+            "score": 0.9002,
             "symbolCount": 7
           },
           {
-            "averageConfidence": 0.9404,
+            "averageConfidence": 0.9335,
             "averageNameQuality": 0.8133,
             "filePath": "src/renderer/ui/ui-components.ts",
             "liftedCoverage": 1,
             "moduleId": "renderer:ui:ui-components",
             "rerendered": false,
-            "score": 0.909,
+            "score": 0.9061,
             "symbolCount": 9
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -595,7 +595,7 @@
         "functionClassCoverage": 1,
         "functionCoverage": 1,
         "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 556,
+        "highConfidenceSymbols": 553,
         "layerCoverage": {
           "main": 12,
           "renderer": 181,
@@ -609,10 +609,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-04-core-runtime-probe-soft",
-      "runId": "reg-step4hardfix8-20260226-194542-c03-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-04-core-runtime-probe-soft",
+      "runId": "reg-step4hardfix9-20260226-201732-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -622,12 +622,12 @@
         "total": 0.9626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix8-20260226-194542-c03-04-core-runtime-probe-soft\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix8-20260226-194542-c03\\adaptive-weights\\core-runtime-probe-soft.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-step4hardfix9-20260226-201732-c01-04-core-runtime-probe-soft\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\step4hardfix9-20260226-201732-c01\\adaptive-weights\\core-runtime-probe-soft.weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "step4hardfix8-20260226-194542-c03",
+  "suiteRunId": "step4hardfix9-20260226-201732-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

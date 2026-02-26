@@ -2,10 +2,10 @@
   "candidateCount": 8,
   "candidates": [
     {
-      "averageConfidence": 0.727,
+      "averageConfidence": 0.7239,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8056,
+      "averageScore": 0.8043,
       "averageSymbolCount": 5,
       "filePath": "src/main/transport/transport-bridge-quality-01.ts",
       "minScore": 0.8043,
@@ -24,10 +24,10 @@
       ]
     },
     {
-      "averageConfidence": 0.736,
+      "averageConfidence": 0.734,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8095,
+      "averageScore": 0.8086,
       "averageSymbolCount": 5,
       "filePath": "src/main/transport/transport-bridge-quality-02.ts",
       "minScore": 0.8086,
@@ -46,10 +46,10 @@
       ]
     },
     {
-      "averageConfidence": 0.7377,
+      "averageConfidence": 0.7352,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7804,
-      "averageScore": 0.8103,
+      "averageScore": 0.8093,
       "averageSymbolCount": 311,
       "filePath": "src/services/store/store-state.ts",
       "minScore": 0.8064,
@@ -69,10 +69,10 @@
       ]
     },
     {
-      "averageConfidence": 0.7392,
+      "averageConfidence": 0.7368,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8108,
+      "averageScore": 0.8098,
       "averageSymbolCount": 151,
       "filePath": "src/renderer/store/store-state.ts",
       "minScore": 0.8098,
@@ -91,10 +91,10 @@
       ]
     },
     {
-      "averageConfidence": 0.7235,
+      "averageConfidence": 0.7192,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.8392,
+      "averageScore": 0.8373,
       "averageSymbolCount": 115,
       "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
       "minScore": 0.8373,
@@ -113,10 +113,10 @@
       ]
     },
     {
-      "averageConfidence": 0.8658,
+      "averageConfidence": 0.8656,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7855,
-      "averageScore": 0.8672,
+      "averageScore": 0.8671,
       "averageSymbolCount": 91,
       "filePath": "src/services/service/service-domain.ts",
       "minScore": 0.8671,
@@ -135,10 +135,10 @@
       ]
     },
     {
-      "averageConfidence": 0.9142,
+      "averageConfidence": 0.912,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.8229,
-      "averageScore": 0.9012,
+      "averageScore": 0.9002,
       "averageSymbolCount": 7,
       "filePath": "src/renderer/hook/hook-hooks-render.ts",
       "minScore": 0.9002,
@@ -157,10 +157,10 @@
       ]
     },
     {
-      "averageConfidence": 0.9352,
+      "averageConfidence": 0.9335,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.8133,
-      "averageScore": 0.9068,
+      "averageScore": 0.9061,
       "averageSymbolCount": 9,
       "filePath": "src/renderer/ui/ui-components.ts",
       "minScore": 0.9061,
@@ -179,6 +179,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T20:16:48.583Z",
-  "suiteRunId": "step4hardfix8-20260226-194542-c03"
+  "generatedAtIso": "2026-02-26T20:27:06.858Z",
+  "suiteRunId": "step4hardfix9-20260226-201732-c01"
 }
