@@ -247,7 +247,7 @@ function buildPromotionCandidates(
 function buildSyntheticSemanticIr(selected: PromotionCandidate[]): SemanticIrModel {
   const symbols = selected.map((candidate, index) => toSemanticSymbol(candidate, index));
   return {
-    version: 3,
+    version: 4,
     generatedAtIso: new Date().toISOString(),
     obfuscationProfile: {
       profileId: "profile-v1",
@@ -270,6 +270,15 @@ function buildSyntheticSemanticIr(selected: PromotionCandidate[]): SemanticIrMod
     exportContractGraph: {
       nodes: [],
       edges: [],
+    },
+    declarationFingerprints: [],
+    symbolRoleGraph: {
+      nodes: [],
+      edges: [],
+      resolutions: [],
+    },
+    evidenceLedger: {
+      entries: [],
     },
   };
 }

@@ -19,6 +19,9 @@ async function executeSemanticIr(request: StageExecutionRequest): Promise<void> 
     symbolCount: sweepResult.merged.symbols.length,
     callEdgeCount: sweepResult.merged.callEdges.length,
     stateKeyCount: sweepResult.merged.stateKeys.length,
+    declarationFingerprintCount: sweepResult.merged.declarationFingerprints.length,
+    symbolRoleResolutionCount: sweepResult.merged.symbolRoleGraph.resolutions.length,
+    evidenceLedgerEntryCount: sweepResult.merged.evidenceLedger.entries.length,
     profileCount: sweepResult.profileCount,
     anchorProfileId: sweepResult.anchorProfileId,
     mergedSymbolWinners: sweepResult.mergedSymbolWinners,
@@ -39,7 +42,7 @@ export const semanticIrStage: PipelineStage = {
   id: "semantic-ir",
   execute: executeSemanticIr,
   cachePlan: {
-    version: 3,
+    version: 4,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as SemanticIrStageInput;
       const digest = await hashFileSha256(input.evidenceStorePath);
@@ -64,6 +67,9 @@ export const semanticIrStage: PipelineStage = {
         symbolCount: semanticIr.symbols.length,
         callEdgeCount: semanticIr.callEdges.length,
         stateKeyCount: semanticIr.stateKeys.length,
+        declarationFingerprintCount: semanticIr.declarationFingerprints.length,
+        symbolRoleResolutionCount: semanticIr.symbolRoleGraph.resolutions.length,
+        evidenceLedgerEntryCount: semanticIr.evidenceLedger.entries.length,
         profileCount: profiles,
         anchorProfileId: firstProfile ? firstProfile.profileId : "base",
         mergedSymbolWinners: semanticIr.symbols.length,

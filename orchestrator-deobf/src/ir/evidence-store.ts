@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { EvidenceSourceFile, ToolId } from "../contracts";
 
-export type EvidenceKind = "file_hint" | "symbol_hint" | "call_edge" | "state_key" | "source_map";
+export type EvidenceKind = "file_hint" | "symbol_hint" | "call_edge" | "state_key" | "source_map" | "io_signature";
 
 export interface EvidenceProvenance {
   tool: string;
@@ -28,6 +28,7 @@ export interface EvidenceStats {
   callEdgeCount: number;
   stateKeyCount: number;
   sourceMapCount: number;
+  ioSignatureCount: number;
 }
 
 export interface EvidenceStoreModel {
@@ -59,6 +60,7 @@ interface MonolithTypingVariableHintEntry {
 interface MonolithTypingFunctionHintEntry {
   symbolKey: string;
   name: string;
+  parameterNames?: string[];
   parameterCount?: number;
   signature?: string;
   returnHint?: string;
@@ -569,6 +571,25 @@ function pushMonolithTypingHints(
         provenance,
       ),
     );
+    const parameterNames = Array.isArray(functionHint.parameterNames)
+      ? functionHint.parameterNames.filter((entry) => typeof entry === "string" && entry.length > 0)
+      : [];
+    const ioSignaturePayload = JSON.stringify({
+      parameterCount: typeof functionHint.parameterCount === "number" ? functionHint.parameterCount : parameterNames.length,
+      parameterNames,
+      signature: typeof functionHint.signature === "string" ? functionHint.signature : `${functionHint.name}()`,
+      returnHint: typeof functionHint.returnHint === "string" ? functionHint.returnHint : "unknown",
+    });
+    sink.push(
+      createRecord(
+        "io_signature",
+        owner,
+        anchor,
+        ioSignaturePayload,
+        baseConfidence * (0.84 + parameterBoost + returnBoost),
+        provenance,
+      ),
+    );
   }
 
   const variableHints = Array.isArray(parsed.variableHints) ? parsed.variableHints : [];
@@ -726,6 +747,7 @@ function buildStats(records: EvidenceRecord[]): EvidenceStats {
   let callEdgeCount = 0;
   let stateKeyCount = 0;
   let sourceMapCount = 0;
+  let ioSignatureCount = 0;
   for (const record of records) {
     if (record.kind === "file_hint") {
       fileHintCount += 1;
@@ -745,6 +767,10 @@ function buildStats(records: EvidenceRecord[]): EvidenceStats {
     }
     if (record.kind === "source_map") {
       sourceMapCount += 1;
+      continue;
+    }
+    if (record.kind === "io_signature") {
+      ioSignatureCount += 1;
     }
   }
 
@@ -755,6 +781,7 @@ function buildStats(records: EvidenceRecord[]): EvidenceStats {
     callEdgeCount,
     stateKeyCount,
     sourceMapCount,
+    ioSignatureCount,
   };
 }
 

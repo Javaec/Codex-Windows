@@ -2,10 +2,10 @@
   "candidateCount": 8,
   "candidates": [
     {
-      "averageConfidence": 0.7151,
+      "averageConfidence": 0.7126,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8005,
+      "averageScore": 0.7994,
       "averageSymbolCount": 4,
       "filePath": "src/main/transport/transport-bridge-quality-02.ts",
       "minScore": 0.7994,
@@ -24,10 +24,10 @@
       ]
     },
     {
-      "averageConfidence": 0.727,
+      "averageConfidence": 0.7239,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8056,
+      "averageScore": 0.8043,
       "averageSymbolCount": 5,
       "filePath": "src/main/transport/transport-bridge-quality-01.ts",
       "minScore": 0.8043,
@@ -46,13 +46,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7368,
+      "averageConfidence": 0.7361,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7752,
-      "averageScore": 0.8081,
+      "averageNameQuality": 0.7754,
+      "averageScore": 0.8079,
       "averageSymbolCount": 240,
       "filePath": "src/services/store/store-state.ts",
-      "minScore": 0.8072,
+      "minScore": 0.8079,
       "moduleIds": [
         "services:store:state-store"
       ],
@@ -68,13 +68,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7442,
+      "averageConfidence": 0.7402,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.813,
-      "averageSymbolCount": 164,
+      "averageScore": 0.8113,
+      "averageSymbolCount": 163,
       "filePath": "src/services/store/store-state-g002.ts",
-      "minScore": 0.8123,
+      "minScore": 0.8113,
       "moduleIds": [
         "services:store:state-store-g002"
       ],
@@ -90,13 +90,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7456,
+      "averageConfidence": 0.7427,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8136,
-      "averageSymbolCount": 100.5,
+      "averageScore": 0.8124,
+      "averageSymbolCount": 100,
       "filePath": "src/renderer/store/store-state.ts",
-      "minScore": 0.8127,
+      "minScore": 0.8124,
       "moduleIds": [
         "renderer:store:state-store"
       ],
@@ -112,10 +112,10 @@
       ]
     },
     {
-      "averageConfidence": 0.7916,
+      "averageConfidence": 0.7894,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7806,
-      "averageScore": 0.8337,
+      "averageScore": 0.8327,
       "averageSymbolCount": 154,
       "filePath": "src/services/service/service-domain.ts",
       "minScore": 0.8327,
@@ -134,10 +134,10 @@
       ]
     },
     {
-      "averageConfidence": 0.9128,
+      "averageConfidence": 0.9106,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8854,
+      "averageScore": 0.8845,
       "averageSymbolCount": 7,
       "filePath": "src/renderer/hook/hook-hooks.ts",
       "minScore": 0.8845,
@@ -156,10 +156,10 @@
       ]
     },
     {
-      "averageConfidence": 0.9282,
+      "averageConfidence": 0.9265,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8921,
+      "averageScore": 0.8914,
       "averageSymbolCount": 6,
       "filePath": "src/renderer/ui/ui-components.ts",
       "minScore": 0.8914,
@@ -178,6 +178,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T11:03:36.972Z",
-  "suiteRunId": "aggr7-20260226-103749-c03"
+  "generatedAtIso": "2026-02-26T11:32:06.079Z",
+  "suiteRunId": "ir4-20260226-112232-c01"
 }

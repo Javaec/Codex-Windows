@@ -244,6 +244,7 @@ export interface EvidenceStoreStageOutput {
   callEdgeCount: number;
   stateKeyCount: number;
   sourceMapCount: number;
+  ioSignatureCount: number;
 }
 
 export interface ToolWeights {
@@ -273,6 +274,9 @@ export interface SemanticIrStageOutput {
   symbolCount: number;
   callEdgeCount: number;
   stateKeyCount: number;
+  declarationFingerprintCount: number;
+  symbolRoleResolutionCount: number;
+  evidenceLedgerEntryCount: number;
   profileCount: number;
   anchorProfileId: string;
   mergedSymbolWinners: number;

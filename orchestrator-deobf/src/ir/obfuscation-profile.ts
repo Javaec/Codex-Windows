@@ -69,6 +69,7 @@ function buildEvidenceStats(records: EvidenceRecord[]): EvidenceStoreModel["stat
   let callEdgeCount = 0;
   let stateKeyCount = 0;
   let sourceMapCount = 0;
+  let ioSignatureCount = 0;
   for (const record of records) {
     if (record.kind === "file_hint") {
       fileHintCount += 1;
@@ -88,6 +89,10 @@ function buildEvidenceStats(records: EvidenceRecord[]): EvidenceStoreModel["stat
     }
     if (record.kind === "source_map") {
       sourceMapCount += 1;
+      continue;
+    }
+    if (record.kind === "io_signature") {
+      ioSignatureCount += 1;
     }
   }
   return {
@@ -97,6 +102,7 @@ function buildEvidenceStats(records: EvidenceRecord[]): EvidenceStoreModel["stat
     callEdgeCount,
     stateKeyCount,
     sourceMapCount,
+    ioSignatureCount,
   };
 }
 

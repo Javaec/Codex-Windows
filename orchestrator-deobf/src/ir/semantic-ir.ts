@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ToolWeights } from "../contracts";
 import { EvidenceRecord, EvidenceStoreModel } from "./evidence-store";
-import { isGenericName, scoreNameQuality } from "./name-quality";
+import { isGenericName, isIdentifierName, scoreNameQuality } from "./name-quality";
 import { ObfuscationProfileDescriptor } from "./obfuscation-profile";
 
 export type DomainKind = "service" | "usecase" | "store" | "hook" | "transport" | "ui";
@@ -145,6 +145,110 @@ export interface SemanticExportContractGraph {
   edges: SemanticExportContractEdge[];
 }
 
+export type SemanticSymbolRole = "orchestrator" | "parser" | "store" | "transport" | "ui";
+export type SemanticApiShape =
+  | "sync-function"
+  | "async-function"
+  | "class-constructor"
+  | "state-accessor"
+  | "event-handler"
+  | "factory";
+export type SemanticMutationProfile = "pure" | "local-mutation" | "state-mutation" | "io-mutation";
+
+export interface SemanticIoSignature {
+  symbolKey: string;
+  parameterCount: number;
+  parameterHints: string[];
+  returnHint: string;
+  apiShape: SemanticApiShape;
+}
+
+export interface SemanticSideEffects {
+  symbolKey: string;
+  mutatesState: boolean;
+  emitsEvents: boolean;
+  performsIo: boolean;
+  touchesUi: boolean;
+  invokesTransport: boolean;
+  tags: string[];
+}
+
+export interface SemanticCallGraphNeighborhood {
+  symbolKey: string;
+  incomingCount: number;
+  outgoingCount: number;
+  neighbourKeys: string[];
+  neighbourNames: string[];
+}
+
+export interface SemanticDeclarationFingerprint {
+  symbolKey: string;
+  symbolName: string;
+  role: SemanticSymbolRole;
+  roleSignalScores: Record<SemanticSymbolRole, number>;
+  roleConsensusSignals: string[];
+  ioSignature: SemanticIoSignature;
+  sideEffects: SemanticSideEffects;
+  stateKeys: string[];
+  callGraphNeighborhood: SemanticCallGraphNeighborhood;
+  mutationProfile: SemanticMutationProfile;
+  confidence: number;
+  evidenceIds: string[];
+}
+
+export type SemanticRoleGraphNodeType = "symbol" | "role";
+
+export interface SemanticRoleGraphNode {
+  nodeId: string;
+  nodeType: SemanticRoleGraphNodeType;
+  label: string;
+  confidence: number;
+}
+
+export interface SemanticRoleGraphEdge {
+  fromNodeId: string;
+  toNodeId: string;
+  role: SemanticSymbolRole;
+  confidence: number;
+  signals: string[];
+}
+
+export interface SemanticRoleResolution {
+  symbolKey: string;
+  resolvedRole: SemanticSymbolRole;
+  consensusScore: number;
+  signalScores: Record<SemanticSymbolRole, number>;
+  consensusSignals: string[];
+}
+
+export interface SemanticSymbolRoleGraph {
+  nodes: SemanticRoleGraphNode[];
+  edges: SemanticRoleGraphEdge[];
+  resolutions: SemanticRoleResolution[];
+}
+
+export interface SemanticEvidenceLedgerCandidate {
+  name: string;
+  score: number;
+  quality: number;
+  supportCount: number;
+  evidenceIds: string[];
+  provenance: string[];
+  conflictPenalty: number;
+}
+
+export interface SemanticEvidenceLedgerEntry {
+  symbolKey: string;
+  winnerName: string;
+  winnerScore: number;
+  conflictResolvedBy: string;
+  candidates: SemanticEvidenceLedgerCandidate[];
+}
+
+export interface SemanticEvidenceLedger {
+  entries: SemanticEvidenceLedgerEntry[];
+}
+
 export interface SemanticIrCoreModel {
   fileHints: SemanticFileHint[];
   symbols: SemanticSymbol[];
@@ -169,6 +273,9 @@ export interface SemanticIrModel {
   domainEntities: SemanticDomainEntity[];
   symbolProvenanceGraph: SemanticSymbolProvenanceGraph;
   exportContractGraph: SemanticExportContractGraph;
+  declarationFingerprints: SemanticDeclarationFingerprint[];
+  symbolRoleGraph: SemanticSymbolRoleGraph;
+  evidenceLedger: SemanticEvidenceLedger;
 }
 
 interface AggregatedCandidate {
@@ -191,6 +298,22 @@ interface ResolvedCallEdge {
   evidenceIds: string[];
 }
 
+interface ParsedIoSignatureHint {
+  parameterCount: number;
+  parameterHints: string[];
+  returnHint: string;
+  signature: string;
+  confidence: number;
+  evidenceId: string;
+}
+
+interface RoleConsensusResult {
+  resolvedRole: SemanticSymbolRole;
+  signalScores: Record<SemanticSymbolRole, number>;
+  consensusScore: number;
+  consensusSignals: string[];
+}
+
 const ROUTE_SIGNAL_TOKENS = new Set<string>(["route", "router", "path", "screen", "page", "navigate", "url"]);
 const EVENT_SIGNAL_TOKENS = new Set<string>([
   "event",
@@ -201,6 +324,44 @@ const EVENT_SIGNAL_TOKENS = new Set<string>([
   "publish",
   "dispatch",
   "channel",
+]);
+const PARSER_SIGNAL_TOKENS = new Set<string>([
+  "parse",
+  "decode",
+  "encode",
+  "serialize",
+  "deserialize",
+  "tokenize",
+  "scan",
+]);
+const STORE_SIGNAL_TOKENS = new Set<string>(["state", "store", "cache", "session", "snapshot", "persist"]);
+const TRANSPORT_SIGNAL_TOKENS = new Set<string>([
+  "ipc",
+  "rpc",
+  "transport",
+  "channel",
+  "bridge",
+  "socket",
+  "invoke",
+]);
+const UI_SIGNAL_TOKENS = new Set<string>([
+  "ui",
+  "view",
+  "render",
+  "component",
+  "screen",
+  "dialog",
+  "layout",
+]);
+const ORCHESTRATOR_SIGNAL_TOKENS = new Set<string>([
+  "orchestrate",
+  "bootstrap",
+  "initialize",
+  "handle",
+  "dispatch",
+  "process",
+  "run",
+  "execute",
 ]);
 
 function clamp(value: number): number {
@@ -1216,29 +1377,650 @@ function buildExportContractGraph(
   };
 }
 
+function normalizeProvenanceTool(tool: string): string {
+  const lower = tool.toLowerCase();
+  if (lower.includes("webcrack")) {
+    return "webcrack";
+  }
+  if (lower.includes("wakaru")) {
+    return "wakaru";
+  }
+  if (lower.includes("javascript-deobfuscator")) {
+    return "javascript-deobfuscator";
+  }
+  if (lower.includes("synchrony")) {
+    return "synchrony";
+  }
+  if (lower.includes("unwebpack")) {
+    return "unwebpack-sourcemap";
+  }
+  if (lower.includes("asar")) {
+    return "asar";
+  }
+  return "asar";
+}
+
+const LEDGER_PROVENANCE_WEIGHTS: Readonly<Record<string, number>> = {
+  asar: 0.78,
+  webcrack: 1,
+  wakaru: 0.96,
+  "javascript-deobfuscator": 0.9,
+  synchrony: 0.88,
+  "unwebpack-sourcemap": 0.92,
+};
+
+function buildIoHintBySymbolKey(evidenceStore: EvidenceStoreModel): ReadonlyMap<string, ParsedIoSignatureHint[]> {
+  const bySymbolKey = new Map<string, ParsedIoSignatureHint[]>();
+  for (const record of evidenceStore.records) {
+    if (record.kind !== "io_signature") {
+      continue;
+    }
+    const symbolKey = `${record.owner}:${record.anchor}`;
+    let parsed: { parameterCount?: unknown; parameterNames?: unknown; returnHint?: unknown; signature?: unknown } = {};
+    try {
+      parsed = JSON.parse(record.value) as { parameterCount?: unknown; parameterNames?: unknown; returnHint?: unknown; signature?: unknown };
+    } catch {
+      parsed = {};
+    }
+    const parameterNames = Array.isArray(parsed.parameterNames)
+      ? parsed.parameterNames.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      : [];
+    const parameterCountRaw = typeof parsed.parameterCount === "number" && Number.isFinite(parsed.parameterCount)
+      ? Math.trunc(parsed.parameterCount)
+      : parameterNames.length;
+    const parameterCount = Math.max(0, Math.min(24, parameterCountRaw));
+    const returnHint = typeof parsed.returnHint === "string" && parsed.returnHint.length > 0
+      ? parsed.returnHint
+      : "unknown";
+    const signature = typeof parsed.signature === "string" && parsed.signature.length > 0
+      ? parsed.signature
+      : `${record.value}()`;
+    const hint: ParsedIoSignatureHint = {
+      parameterCount,
+      parameterHints: parameterNames.slice(0, 8),
+      returnHint,
+      signature,
+      confidence: record.confidence,
+      evidenceId: record.id,
+    };
+    const existing = bySymbolKey.get(symbolKey);
+    if (existing) {
+      existing.push(hint);
+      continue;
+    }
+    bySymbolKey.set(symbolKey, [hint]);
+  }
+  for (const [symbolKey, hints] of bySymbolKey.entries()) {
+    bySymbolKey.set(symbolKey, [...hints].sort((left, right) => right.confidence - left.confidence));
+  }
+  return bySymbolKey;
+}
+
+function buildStateKeysByOwner(core: SemanticIrCoreModel): ReadonlyMap<string, string[]> {
+  const byOwner = new Map<string, Set<string>>();
+  for (const stateKey of core.stateKeys) {
+    for (const owner of stateKey.owners) {
+      const existing = byOwner.get(owner) ?? new Set<string>();
+      existing.add(stateKey.key);
+      byOwner.set(owner, existing);
+    }
+  }
+  const normalized = new Map<string, string[]>();
+  for (const [owner, keys] of byOwner.entries()) {
+    normalized.set(owner, [...keys].sort((left, right) => left.localeCompare(right)));
+  }
+  return normalized;
+}
+
+function buildCallGraphNeighborhoodBySymbol(
+  symbols: SemanticSymbol[],
+  resolvedCallEdges: ResolvedCallEdge[],
+): ReadonlyMap<string, SemanticCallGraphNeighborhood> {
+  const outgoingBySymbol = new Map<string, Set<string>>();
+  const incomingBySymbol = new Map<string, Set<string>>();
+  for (const edge of resolvedCallEdges) {
+    const outgoing = outgoingBySymbol.get(edge.callerKey) ?? new Set<string>();
+    outgoing.add(edge.calleeKey);
+    outgoingBySymbol.set(edge.callerKey, outgoing);
+
+    const incoming = incomingBySymbol.get(edge.calleeKey) ?? new Set<string>();
+    incoming.add(edge.callerKey);
+    incomingBySymbol.set(edge.calleeKey, incoming);
+  }
+  const symbolNameByKey = new Map(symbols.map((symbol) => [symbol.symbolKey, symbol.name]));
+  const neighborhoodBySymbol = new Map<string, SemanticCallGraphNeighborhood>();
+  for (const symbol of symbols) {
+    const outgoing = [...(outgoingBySymbol.get(symbol.symbolKey) ?? new Set<string>())].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const incoming = [...(incomingBySymbol.get(symbol.symbolKey) ?? new Set<string>())].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const mergedNeighbours = [...new Set<string>([...incoming, ...outgoing])].sort((left, right) => left.localeCompare(right));
+    const neighbourNames = mergedNeighbours
+      .map((symbolKey) => symbolNameByKey.get(symbolKey) ?? symbolKey)
+      .sort((left, right) => left.localeCompare(right))
+      .slice(0, 12);
+    neighborhoodBySymbol.set(symbol.symbolKey, {
+      symbolKey: symbol.symbolKey,
+      incomingCount: incoming.length,
+      outgoingCount: outgoing.length,
+      neighbourKeys: mergedNeighbours,
+      neighbourNames,
+    });
+  }
+  return neighborhoodBySymbol;
+}
+
+function inferApiShape(
+  symbolName: string,
+  role: SemanticSymbolRole,
+  returnHint: string,
+  parameterCount: number,
+): SemanticApiShape {
+  const lower = symbolName.toLowerCase();
+  if (/^[A-Z]/.test(symbolName)) {
+    return "class-constructor";
+  }
+  if (lower.startsWith("on") || lower.startsWith("handle") || lower.includes("listener")) {
+    return "event-handler";
+  }
+  if (role === "store" && (lower.startsWith("get") || lower.startsWith("set") || lower.includes("state"))) {
+    return "state-accessor";
+  }
+  if (lower.startsWith("create") || lower.startsWith("build") || lower.startsWith("make")) {
+    return "factory";
+  }
+  if (lower.startsWith("async") || returnHint.toLowerCase().includes("promise")) {
+    return "async-function";
+  }
+  if (parameterCount === 0 && role === "parser" && returnHint.toLowerCase() === "object") {
+    return "factory";
+  }
+  return "sync-function";
+}
+
+function inferSideEffects(
+  symbol: SemanticSymbol,
+  stateKeys: string[],
+  neighborhood: SemanticCallGraphNeighborhood,
+): SemanticSideEffects {
+  const lower = symbol.name.toLowerCase();
+  const mutatesState =
+    stateKeys.length > 0 &&
+    (symbol.domainKind === "store" || lower.includes("set") || lower.includes("update") || lower.includes("save"));
+  const emitsEvents = symbol.eventFlowScore >= 0.45 || lower.includes("emit") || lower.includes("dispatch") || lower.includes("publish");
+  const performsIo =
+    lower.includes("fetch") ||
+    lower.includes("request") ||
+    lower.includes("load") ||
+    lower.includes("read") ||
+    lower.includes("write") ||
+    lower.includes("http") ||
+    lower.includes("fs");
+  const touchesUi = symbol.domainKind === "ui" || symbol.domainKind === "hook" || lower.includes("render") || lower.includes("view");
+  const invokesTransport =
+    symbol.domainKind === "transport" ||
+    lower.includes("ipc") ||
+    lower.includes("rpc") ||
+    lower.includes("invoke") ||
+    lower.includes("channel");
+  const tags = [
+    mutatesState ? "mutates-state" : "",
+    emitsEvents ? "emits-events" : "",
+    performsIo ? "performs-io" : "",
+    touchesUi ? "touches-ui" : "",
+    invokesTransport ? "invokes-transport" : "",
+    neighborhood.outgoingCount > neighborhood.incomingCount + 1 ? "high-out-degree" : "",
+  ]
+    .filter((entry) => entry.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  return {
+    symbolKey: symbol.symbolKey,
+    mutatesState,
+    emitsEvents,
+    performsIo,
+    touchesUi,
+    invokesTransport,
+    tags,
+  };
+}
+
+function inferMutationProfile(sideEffects: SemanticSideEffects): SemanticMutationProfile {
+  if (sideEffects.invokesTransport || sideEffects.performsIo) {
+    return "io-mutation";
+  }
+  if (sideEffects.mutatesState) {
+    return "state-mutation";
+  }
+  if (sideEffects.emitsEvents || sideEffects.touchesUi) {
+    return "local-mutation";
+  }
+  return "pure";
+}
+
+function resolveRoleConsensus(
+  symbol: SemanticSymbol,
+  ioSignature: SemanticIoSignature,
+  sideEffects: SemanticSideEffects,
+  neighborhood: SemanticCallGraphNeighborhood,
+  stateKeys: string[],
+): RoleConsensusResult {
+  const tokens = tokenizeSignal(`${symbol.name} ${stateKeys.join(" ")}`);
+  const score: Record<SemanticSymbolRole, number> = {
+    orchestrator: 0.08,
+    parser: 0.08,
+    store: 0.08,
+    transport: 0.08,
+    ui: 0.08,
+  };
+  const consensusSignals: string[] = [];
+
+  if (tokens.some((token) => PARSER_SIGNAL_TOKENS.has(token))) {
+    score.parser += 0.52;
+    consensusSignals.push("parser-tokens");
+  }
+  if (tokens.some((token) => STORE_SIGNAL_TOKENS.has(token)) || stateKeys.length > 0) {
+    score.store += 0.56;
+    consensusSignals.push("state-signals");
+  }
+  if (tokens.some((token) => TRANSPORT_SIGNAL_TOKENS.has(token)) || sideEffects.invokesTransport) {
+    score.transport += 0.62;
+    consensusSignals.push("transport-signals");
+  }
+  if (tokens.some((token) => UI_SIGNAL_TOKENS.has(token)) || sideEffects.touchesUi || symbol.routeFlowScore >= 0.5) {
+    score.ui += 0.58;
+    consensusSignals.push("ui-signals");
+  }
+  if (
+    tokens.some((token) => ORCHESTRATOR_SIGNAL_TOKENS.has(token)) ||
+    neighborhood.outgoingCount > neighborhood.incomingCount + 1
+  ) {
+    score.orchestrator += 0.54;
+    consensusSignals.push("orchestration-flow");
+  }
+
+  if (symbol.domainKind === "store") {
+    score.store += 0.48;
+  }
+  if (symbol.domainKind === "transport") {
+    score.transport += 0.48;
+  }
+  if (symbol.domainKind === "ui" || symbol.domainKind === "hook") {
+    score.ui += 0.42;
+  }
+  if (symbol.domainKind === "service" || symbol.domainKind === "usecase") {
+    score.orchestrator += 0.24;
+  }
+
+  if (ioSignature.apiShape === "event-handler") {
+    score.orchestrator += 0.24;
+    score.ui += 0.12;
+  }
+  if (ioSignature.apiShape === "factory") {
+    score.parser += 0.2;
+  }
+  if (sideEffects.emitsEvents) {
+    score.orchestrator += 0.18;
+    score.transport += 0.12;
+  }
+
+  const ranked = (Object.keys(score) as SemanticSymbolRole[])
+    .map((role) => ({ role, score: score[role] }))
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return right.score - left.score;
+      }
+      return left.role.localeCompare(right.role);
+    });
+  const winner = ranked[0];
+  const second = ranked[1];
+  if (!winner) {
+    throw new Error(`resolveRoleConsensus: missing role scores for ${symbol.symbolKey}`);
+  }
+  const totalScore = ranked.reduce((sum, entry) => sum + entry.score, 0.0001);
+  const spread = second ? Math.max(0, winner.score - second.score) : winner.score;
+  const consensusScore = clamp((winner.score / totalScore) * 0.74 + Math.min(1, spread / 1.4) * 0.26);
+  return {
+    resolvedRole: winner.role,
+    signalScores: score,
+    consensusScore,
+    consensusSignals: [...new Set<string>(consensusSignals)].sort((left, right) => left.localeCompare(right)),
+  };
+}
+
+function buildDeclarationFingerprints(
+  core: SemanticIrCoreModel,
+  evidenceStore: EvidenceStoreModel,
+  resolvedCallEdges: ResolvedCallEdge[],
+): SemanticDeclarationFingerprint[] {
+  const declarationBySymbol = new Map(core.domainDeclarations.map((declaration) => [declaration.symbolKey, declaration]));
+  const ioHintsBySymbolKey = buildIoHintBySymbolKey(evidenceStore);
+  const stateKeysByOwner = buildStateKeysByOwner(core);
+  const neighborhoods = buildCallGraphNeighborhoodBySymbol(core.symbols, resolvedCallEdges);
+  const fingerprints: SemanticDeclarationFingerprint[] = [];
+
+  for (const symbol of [...core.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey))) {
+    const declaration = declarationBySymbol.get(symbol.symbolKey);
+    const ioHints = ioHintsBySymbolKey.get(symbol.symbolKey) ?? [];
+    const bestIo = ioHints[0];
+    const parameterCount = bestIo ? bestIo.parameterCount : 0;
+    const parameterHints = bestIo ? bestIo.parameterHints : [];
+    const returnHint = bestIo ? bestIo.returnHint : "unknown";
+    const initialRole: SemanticSymbolRole = symbol.domainKind === "store"
+      ? "store"
+      : symbol.domainKind === "transport"
+        ? "transport"
+        : symbol.domainKind === "ui" || symbol.domainKind === "hook"
+          ? "ui"
+          : "orchestrator";
+    const ioSignature: SemanticIoSignature = {
+      symbolKey: symbol.symbolKey,
+      parameterCount,
+      parameterHints,
+      returnHint,
+      apiShape: inferApiShape(symbol.name, initialRole, returnHint, parameterCount),
+    };
+    const neighborhood = neighborhoods.get(symbol.symbolKey) ?? {
+      symbolKey: symbol.symbolKey,
+      incomingCount: 0,
+      outgoingCount: 0,
+      neighbourKeys: [],
+      neighbourNames: [],
+    };
+    const ownerStateKeys = stateKeysByOwner.get(symbol.owner) ?? [];
+    const declarationSignals = declaration ? declaration.stateSignals : [];
+    const stateKeys = [...new Set<string>([...ownerStateKeys, ...declarationSignals])].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const sideEffects = inferSideEffects(symbol, stateKeys, neighborhood);
+    const roleConsensus = resolveRoleConsensus(symbol, ioSignature, sideEffects, neighborhood, stateKeys);
+    const resolvedIoSignature: SemanticIoSignature = {
+      ...ioSignature,
+      apiShape: inferApiShape(symbol.name, roleConsensus.resolvedRole, returnHint, parameterCount),
+    };
+    const evidenceIds = [...new Set<string>([...symbol.evidenceIds, ...(bestIo ? [bestIo.evidenceId] : [])])].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    fingerprints.push({
+      symbolKey: symbol.symbolKey,
+      symbolName: symbol.name,
+      role: roleConsensus.resolvedRole,
+      roleSignalScores: roleConsensus.signalScores,
+      roleConsensusSignals: roleConsensus.consensusSignals,
+      ioSignature: resolvedIoSignature,
+      sideEffects,
+      stateKeys: stateKeys.slice(0, 24),
+      callGraphNeighborhood: neighborhood,
+      mutationProfile: inferMutationProfile(sideEffects),
+      confidence: clamp(Math.max(symbol.confidence, roleConsensus.consensusScore * 0.88)),
+      evidenceIds,
+    });
+  }
+
+  return fingerprints;
+}
+
+function buildSymbolRoleGraph(fingerprints: SemanticDeclarationFingerprint[]): SemanticSymbolRoleGraph {
+  const roleNodes: SemanticRoleGraphNode[] = ([
+    "orchestrator",
+    "parser",
+    "store",
+    "transport",
+    "ui",
+  ] as SemanticSymbolRole[]).map((role) => ({
+    nodeId: `role:${role}`,
+    nodeType: "role",
+    label: role,
+    confidence: 1,
+  }));
+
+  const symbolNodes: SemanticRoleGraphNode[] = fingerprints.map((fingerprint) => ({
+    nodeId: `symbol:${fingerprint.symbolKey}`,
+    nodeType: "symbol",
+    label: fingerprint.symbolName,
+    confidence: fingerprint.confidence,
+  }));
+
+  const edges: SemanticRoleGraphEdge[] = [];
+  const resolutions: SemanticRoleResolution[] = [];
+  for (const fingerprint of fingerprints) {
+    for (const role of Object.keys(fingerprint.roleSignalScores) as SemanticSymbolRole[]) {
+      const score = clamp(fingerprint.roleSignalScores[role] / 2.2);
+      if (score < 0.12) {
+        continue;
+      }
+      edges.push({
+        fromNodeId: `symbol:${fingerprint.symbolKey}`,
+        toNodeId: `role:${role}`,
+        role,
+        confidence: score,
+        signals: fingerprint.roleConsensusSignals,
+      });
+    }
+    resolutions.push({
+      symbolKey: fingerprint.symbolKey,
+      resolvedRole: fingerprint.role,
+      consensusScore: fingerprint.confidence,
+      signalScores: fingerprint.roleSignalScores,
+      consensusSignals: fingerprint.roleConsensusSignals,
+    });
+  }
+
+  edges.sort((left, right) => {
+    if (left.fromNodeId !== right.fromNodeId) {
+      return left.fromNodeId.localeCompare(right.fromNodeId);
+    }
+    return left.toNodeId.localeCompare(right.toNodeId);
+  });
+  resolutions.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+
+  return {
+    nodes: [...roleNodes, ...symbolNodes].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
+    edges,
+    resolutions,
+  };
+}
+
+function buildEvidenceLedger(core: SemanticIrCoreModel, evidenceStore: EvidenceStoreModel): SemanticEvidenceLedger {
+  const recordsBySymbolKey = new Map<string, EvidenceRecord[]>();
+  for (const record of evidenceStore.records) {
+    if (record.kind !== "symbol_hint") {
+      continue;
+    }
+    const symbolKey = `${record.owner}:${record.anchor}`;
+    const existing = recordsBySymbolKey.get(symbolKey);
+    if (existing) {
+      existing.push(record);
+      continue;
+    }
+    recordsBySymbolKey.set(symbolKey, [record]);
+  }
+
+  const entries: SemanticEvidenceLedgerEntry[] = [];
+  for (const symbol of [...core.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey))) {
+    const records = recordsBySymbolKey.get(symbol.symbolKey) ?? [];
+    const candidateByName = new Map<string, {
+      score: number;
+      quality: number;
+      supportCount: number;
+      evidenceIds: Set<string>;
+      provenance: Set<string>;
+      conflictPenalty: number;
+    }>();
+
+    for (const record of records) {
+      const name = record.value;
+      const quality = scoreNameQuality(name);
+      const normalizedTool = normalizeProvenanceTool(record.provenance.tool);
+      const toolWeight = LEDGER_PROVENANCE_WEIGHTS[normalizedTool] ?? 0.78;
+      const genericPenalty = isGenericName(name) ? 0.14 : 0;
+      const increment = record.confidence * toolWeight + quality * 0.15 - genericPenalty;
+      const existing = candidateByName.get(name);
+      if (existing) {
+        existing.score += increment;
+        existing.supportCount += 1;
+        existing.quality = Math.max(existing.quality, quality);
+        existing.evidenceIds.add(record.id);
+        existing.provenance.add(normalizedTool);
+        existing.conflictPenalty = Math.max(existing.conflictPenalty, genericPenalty);
+        continue;
+      }
+      candidateByName.set(name, {
+        score: increment,
+        quality,
+        supportCount: 1,
+        evidenceIds: new Set<string>([record.id]),
+        provenance: new Set<string>([normalizedTool]),
+        conflictPenalty: genericPenalty,
+      });
+    }
+
+    const candidates: SemanticEvidenceLedgerCandidate[] = [...candidateByName.entries()]
+      .map(([name, candidate]) => {
+        const evidenceBoost = Math.min(0.12, candidate.evidenceIds.size * 0.012);
+        const provenanceBoost = Math.min(0.1, candidate.provenance.size * 0.02);
+        const normalizedScore = clamp(candidate.score * 0.62 + candidate.quality * 0.3 + evidenceBoost + provenanceBoost);
+        return {
+          name,
+          score: normalizedScore,
+          quality: candidate.quality,
+          supportCount: candidate.supportCount,
+          evidenceIds: [...candidate.evidenceIds].sort((left, right) => left.localeCompare(right)),
+          provenance: [...candidate.provenance].sort((left, right) => left.localeCompare(right)),
+          conflictPenalty: candidate.conflictPenalty,
+        };
+      })
+      .sort((left, right) => {
+        if (left.score !== right.score) {
+          return right.score - left.score;
+        }
+        if (left.quality !== right.quality) {
+          return right.quality - left.quality;
+        }
+        return left.name.localeCompare(right.name);
+      })
+      .slice(0, 12);
+
+    const winner = candidates[0];
+    if (!winner) {
+      entries.push({
+        symbolKey: symbol.symbolKey,
+        winnerName: symbol.name,
+        winnerScore: clamp(symbol.confidence * 0.7 + symbol.quality * 0.3),
+        conflictResolvedBy: "fallback:semantic-symbol-winner",
+        candidates: [
+          {
+            name: symbol.name,
+            score: clamp(symbol.confidence * 0.7 + symbol.quality * 0.3),
+            quality: symbol.quality,
+            supportCount: 1,
+            evidenceIds: [...symbol.evidenceIds].sort((left, right) => left.localeCompare(right)),
+            provenance: [...symbol.provenance].sort((left, right) => left.localeCompare(right)),
+            conflictPenalty: isGenericName(symbol.name) ? 0.14 : 0,
+          },
+        ],
+      });
+      continue;
+    }
+
+    entries.push({
+      symbolKey: symbol.symbolKey,
+      winnerName: winner.name,
+      winnerScore: winner.score,
+      conflictResolvedBy: "score>quality>lexicographic",
+      candidates,
+    });
+  }
+
+  return {
+    entries,
+  };
+}
+
+function applyEvidenceLedgerWinners(
+  symbols: SemanticSymbol[],
+  evidenceLedger: SemanticEvidenceLedger,
+): SemanticSymbol[] {
+  const ledgerBySymbolKey = new Map(evidenceLedger.entries.map((entry) => [entry.symbolKey, entry]));
+  const updated = symbols.map((symbol) => {
+    const ledgerEntry = ledgerBySymbolKey.get(symbol.symbolKey);
+    if (!ledgerEntry) {
+      return symbol;
+    }
+    if (ledgerEntry.winnerName === symbol.name || !isIdentifierName(ledgerEntry.winnerName)) {
+      return symbol;
+    }
+    const winnerQuality = scoreNameQuality(ledgerEntry.winnerName);
+    const currentQuality = scoreNameQuality(symbol.name);
+    const genericUpgrade = isGenericName(symbol.name) && !isGenericName(ledgerEntry.winnerName);
+    const qualityUpgrade = winnerQuality >= currentQuality + 0.04;
+    const scoreUpgrade = ledgerEntry.winnerScore >= symbol.confidence * 0.86;
+    if (!genericUpgrade && !qualityUpgrade && !scoreUpgrade) {
+      return symbol;
+    }
+    const alternatives = [
+      ...new Set<string>([
+        ...ledgerEntry.candidates.map((candidate) => candidate.name),
+        ...symbol.alternatives,
+        symbol.name,
+      ]),
+    ]
+      .filter((entry) => entry !== ledgerEntry.winnerName)
+      .sort((left, right) => left.localeCompare(right))
+      .slice(0, 8);
+    return {
+      ...symbol,
+      name: ledgerEntry.winnerName,
+      quality: Math.max(symbol.quality, winnerQuality),
+      confidence: clamp(Math.max(symbol.confidence, ledgerEntry.winnerScore)),
+      alternatives,
+    };
+  });
+  return updated.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+}
+
 export function finalizeSemanticIrModel(
   core: SemanticIrCoreModel,
   evidenceStore: EvidenceStoreModel,
   obfuscationProfile: ObfuscationProfileDescriptor,
 ): SemanticIrModel {
-  const resolvedCallEdges = resolveCallEdgesToSymbolKeys(core.symbols, core.callEdges);
-  const domainEntities = buildDomainEntities(core, resolvedCallEdges);
-  const symbolProvenanceGraph = buildSymbolProvenanceGraph(core, evidenceStore);
-  const exportContractGraph = buildExportContractGraph(core, resolvedCallEdges);
+  const evidenceLedger = buildEvidenceLedger(core, evidenceStore);
+  const ledgerSymbols = applyEvidenceLedgerWinners(core.symbols, evidenceLedger);
+  const symbolNameByKey = new Map(ledgerSymbols.map((symbol) => [symbol.symbolKey, symbol.name]));
+  const ledgerDeclarations = core.domainDeclarations.map((declaration) => ({
+    ...declaration,
+    symbolName: symbolNameByKey.get(declaration.symbolKey) ?? declaration.symbolName,
+  }));
+  const ledgerCore: SemanticIrCoreModel = {
+    ...core,
+    symbols: ledgerSymbols,
+    domainDeclarations: ledgerDeclarations,
+  };
+
+  const resolvedCallEdges = resolveCallEdgesToSymbolKeys(ledgerCore.symbols, ledgerCore.callEdges);
+  const domainEntities = buildDomainEntities(ledgerCore, resolvedCallEdges);
+  const symbolProvenanceGraph = buildSymbolProvenanceGraph(ledgerCore, evidenceStore);
+  const exportContractGraph = buildExportContractGraph(ledgerCore, resolvedCallEdges);
+  const declarationFingerprints = buildDeclarationFingerprints(ledgerCore, evidenceStore, resolvedCallEdges);
+  const symbolRoleGraph = buildSymbolRoleGraph(declarationFingerprints);
   return {
-    version: 3,
+    version: 4,
     generatedAtIso: new Date().toISOString(),
     obfuscationProfile,
-    fileHints: core.fileHints,
-    symbols: core.symbols,
-    callEdges: core.callEdges,
-    stateKeys: core.stateKeys,
-    sourceMaps: core.sourceMaps,
-    domainDeclarations: core.domainDeclarations,
-    declarationClusters: core.declarationClusters,
+    fileHints: ledgerCore.fileHints,
+    symbols: ledgerCore.symbols,
+    callEdges: ledgerCore.callEdges,
+    stateKeys: ledgerCore.stateKeys,
+    sourceMaps: ledgerCore.sourceMaps,
+    domainDeclarations: ledgerCore.domainDeclarations,
+    declarationClusters: ledgerCore.declarationClusters,
     domainEntities,
     symbolProvenanceGraph,
     exportContractGraph,
+    declarationFingerprints,
+    symbolRoleGraph,
+    evidenceLedger,
   };
 }
 

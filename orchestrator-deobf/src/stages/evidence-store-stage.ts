@@ -17,6 +17,7 @@ async function executeEvidenceStore(request: StageExecutionRequest): Promise<voi
     callEdgeCount: evidenceStore.stats.callEdgeCount,
     stateKeyCount: evidenceStore.stats.stateKeyCount,
     sourceMapCount: evidenceStore.stats.sourceMapCount,
+    ioSignatureCount: evidenceStore.stats.ioSignatureCount,
   };
   await writeJsonFile(request.outputPath, output);
 }
