@@ -46,13 +46,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7352,
+      "averageConfidence": 0.7353,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7804,
       "averageScore": 0.8093,
-      "averageSymbolCount": 311,
+      "averageSymbolCount": 311.5,
       "filePath": "src/services/store/store-state.ts",
-      "minScore": 0.8064,
+      "minScore": 0.8065,
       "moduleIds": [
         "services:store:state",
         "services:store:state-store"
@@ -179,6 +179,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T20:27:06.858Z",
-  "suiteRunId": "step4hardfix9-20260226-201732-c01"
+  "generatedAtIso": "2026-02-26T21:01:53.991Z",
+  "suiteRunId": "promo-upd-tune1-20260226-205153-c01"
 }

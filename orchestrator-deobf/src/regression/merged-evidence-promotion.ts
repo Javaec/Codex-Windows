@@ -10,6 +10,7 @@ interface PromotionCandidate {
   rankingScore: number;
   candidateQuality: number;
   candidateConfidence: number;
+  likelyUpdate: boolean;
 }
 
 export interface ApplyMergedEvidencePromotionOptions {
@@ -34,7 +35,7 @@ export interface ApplyMergedEvidencePromotionResult {
 
 const MIN_PROMOTION_CONFIDENCE = 0.28;
 const MIN_PROMOTION_QUALITY = 0.56;
-const MAX_MONOTONIC_UPDATES_PER_CYCLE = 100;
+const MIN_MONOTONIC_UPDATES_PER_CYCLE = 80;
 const PROVENANCE_SOURCE_WEIGHTS: Readonly<Record<string, number>> = {
   asar: 0.76,
   webcrack: 1,
@@ -184,8 +185,8 @@ function buildPromotionCandidates(
 ): PromotionCandidate[] {
   const candidates: PromotionCandidate[] = [];
   for (const symbol of report.symbolWinners) {
-    const currentName = currentNameBySymbolKey.get(symbol.symbolKey);
-    if (currentName && currentName === symbol.symbolName) {
+    const currentName = currentNameBySymbolKey.get(symbol.symbolKey) ?? "";
+    if (currentName === symbol.symbolName) {
       continue;
     }
     const quality = clamp(typeof symbol.quality === "number" ? symbol.quality : scoreNameQuality(symbol.symbolName));
@@ -201,11 +202,11 @@ function buildPromotionCandidates(
     if (quality < MIN_PROMOTION_QUALITY) {
       continue;
     }
-    const currentQuality = currentName ? scoreNameQuality(currentName) : 0;
+    const currentQuality = currentName.length > 0 ? scoreNameQuality(currentName) : 0;
     if (quality + 0.003 < currentQuality) {
       continue;
     }
-    if (currentName && isGenericName(symbol.symbolName) && !isGenericName(currentName)) {
+    if (currentName.length > 0 && isGenericName(symbol.symbolName) && !isGenericName(currentName)) {
       continue;
     }
     if (isGenericName(symbol.symbolName) && quality < 0.74) {
@@ -213,6 +214,21 @@ function buildPromotionCandidates(
     }
     const qualityGain = quality - currentQuality;
     const confidenceGain = candidateConfidence - currentScore;
+    const nonGenericUpgrade = currentName.length > 0 && isGenericName(currentName) && !isGenericName(symbol.symbolName);
+    const currentTokenCount = semanticTokenCount(currentName);
+    const candidateTokenCount = semanticTokenCount(symbol.symbolName);
+    const tokenGain = candidateTokenCount - currentTokenCount;
+    const lengthGain = symbol.symbolName.length - currentName.length;
+    const likelyUpdate = currentName.length > 0 && (
+      nonGenericUpgrade ||
+      qualityGain >= 0.004 ||
+      confidenceGain >= 0.006 ||
+      tokenGain >= 1 ||
+      lengthGain >= 2
+    );
+    if (currentName.length > 0 && !likelyUpdate && qualityGain < 0.0015 && confidenceGain < 0.0025) {
+      continue;
+    }
     const snapshotProfileBoost = symbol.snapshotProfileId === report.dominantSnapshotProfileId
       ? symbol.snapshotProfileConfidence
       : (1 - symbol.snapshotProfileConfidence) * 0.35;
@@ -223,13 +239,15 @@ function buildPromotionCandidates(
       sourceWeight * 0.1 +
       snapshotProfileBoost * 0.04 +
       Math.max(0, qualityGain) * 0.04 +
-      Math.max(0, confidenceGain) * 0.01
+      Math.max(0, confidenceGain) * 0.01 +
+      (likelyUpdate ? 0.035 : 0)
     ).toFixed(4));
     candidates.push({
       symbol,
       rankingScore,
       candidateQuality: quality,
       candidateConfidence,
+      likelyUpdate,
     });
   }
   candidates.sort((left, right) => {
@@ -242,6 +260,32 @@ function buildPromotionCandidates(
     return left.symbol.symbolKey.localeCompare(right.symbol.symbolKey);
   });
   return candidates;
+}
+
+function selectPromotionCandidates(candidates: PromotionCandidate[], promotionBudget: number): PromotionCandidate[] {
+  if (promotionBudget < 1) {
+    return [];
+  }
+  const selected: PromotionCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!candidate.likelyUpdate) {
+      continue;
+    }
+    selected.push(candidate);
+    if (selected.length >= promotionBudget) {
+      return selected;
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate.likelyUpdate) {
+      continue;
+    }
+    selected.push(candidate);
+    if (selected.length >= promotionBudget) {
+      return selected;
+    }
+  }
+  return selected;
 }
 
 function buildSyntheticSemanticIr(selected: PromotionCandidate[]): SemanticIrModel {
@@ -312,6 +356,7 @@ function applyMonotonicPromotionFallback(
   namingMemory: NamingMemoryModel,
   selected: PromotionCandidate[],
   runId: string,
+  maxMonotonicUpdatesPerCycle: number,
 ): { namingMemory: NamingMemoryModel; inserted: number; updated: number } {
   const byKey = new Map<string, NamingMemoryModel["entries"][number]>();
   for (const entry of namingMemory.entries) {
@@ -324,7 +369,7 @@ function applyMonotonicPromotionFallback(
 
   let inserted = 0;
   let updated = 0;
-  let remainingUpdateBudget = MAX_MONOTONIC_UPDATES_PER_CYCLE;
+  let remainingUpdateBudget = Math.max(1, maxMonotonicUpdatesPerCycle);
   for (const [index, candidate] of selected.entries()) {
     const symbol = candidate.symbol;
     const candidateName = symbol.symbolName;
@@ -371,14 +416,15 @@ function applyMonotonicPromotionFallback(
     if (isGenericName(candidateName) && !isGenericName(existing.currentName)) {
       continue;
     }
-    const qualityUpgrade = candidateQuality >= currentQuality + 0.0001;
+    const qualityUpgrade = candidateQuality >= currentQuality + 0.0005;
     const nonGenericUpgrade = isGenericName(existing.currentName) && !isGenericName(candidateName);
-    const longerName = candidateName.length >= existing.currentName.length + 2;
+    const longerName = candidateName.length >= existing.currentName.length + 1;
     const currentTokenCount = semanticTokenCount(existing.currentName);
     const candidateTokenCount = semanticTokenCount(candidateName);
     const richerTokenShape = candidateTokenCount >= currentTokenCount + 1;
-    const scoreLift = candidateScore >= existing.currentScore + 0.002;
-    if (!qualityUpgrade && !nonGenericUpgrade && !longerName && !richerTokenShape && !scoreLift) {
+    const scoreLift = candidateScore >= existing.currentScore + 0.001;
+    const rankingBoost = candidate.likelyUpdate && candidateScore >= existing.currentScore;
+    if (!qualityUpgrade && !nonGenericUpgrade && !longerName && !richerTokenShape && !scoreLift && !rankingBoost) {
       continue;
     }
 
@@ -427,28 +473,16 @@ export async function applyMergedEvidencePromotion(
     currentNameBySymbolKey,
     currentScoreBySymbolKey,
   );
-  const selectedPromotionCandidates = promotionCandidates.slice(0, options.promotionBudget);
+  const selectedPromotionCandidates = selectPromotionCandidates(promotionCandidates, options.promotionBudget);
   const selectedCandidates = selectedPromotionCandidates.map((entry) => entry.symbol);
-  const selectedCandidateByKey = new Map<string, PromotionCandidate>();
-  for (const candidate of selectedPromotionCandidates) {
-    selectedCandidateByKey.set(candidate.symbol.symbolKey, candidate);
-  }
-  const selectedForSyntheticIr: PromotionCandidate[] = [];
-  for (const selected of selectedCandidates) {
-    const candidate = selectedCandidateByKey.get(selected.symbolKey);
-    if (candidate) {
-      selectedForSyntheticIr.push(candidate);
-    }
-  }
-  if (selectedForSyntheticIr.length !== selectedCandidates.length) {
-    throw new Error("applyMergedEvidencePromotion: inconsistent selected candidate set");
-  }
-  const syntheticSemanticIr = buildSyntheticSemanticIr(selectedForSyntheticIr);
+  const syntheticSemanticIr = buildSyntheticSemanticIr(selectedPromotionCandidates);
   const updateResult = updateNamingMemory(namingMemory, syntheticSemanticIr, options.runId);
+  const monotonicUpdateBudget = Math.max(MIN_MONOTONIC_UPDATES_PER_CYCLE, options.promotionBudget);
   const fallbackPromotion = applyMonotonicPromotionFallback(
     updateResult.namingMemory,
     selectedPromotionCandidates,
     options.runId,
+    monotonicUpdateBudget,
   );
   const finalInserted = updateResult.insertedEntryCount + fallbackPromotion.inserted;
   const finalUpdated = updateResult.updatedEntryCount + fallbackPromotion.updated;
