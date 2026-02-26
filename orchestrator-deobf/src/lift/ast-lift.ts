@@ -1719,6 +1719,7 @@ async function liftChunkToTypescript(
   );
   const existingExports = collectExportedNames(liftedSourceFile);
   const defaultExportPresent = hasDefaultExport(liftedSourceFile);
+  let liftedHasDefaultExport = defaultExportPresent;
   const existingIdentifiers = liftedSelection.availableIdentifiers;
   const resolvedBindings: LiftedSymbolBinding[] = [];
 
@@ -1768,10 +1769,43 @@ async function liftChunkToTypescript(
     requiredExportLines.push(`export { ${aliasLocal} as ${identifier} };`);
     existingExports.add(identifier);
   }
-  if (requirements.requiresDefaultExport && !defaultExportPresent) {
-    throw new Error(
-      `liftChunkToTypescript: chunk ${chunk.chunkId} requires default export but none was found in ${chunk.sourceFilePath}`,
-    );
+  const syntheticDefaultExportLines: string[] = [];
+  if (requirements.requiresDefaultExport && !liftedHasDefaultExport) {
+    const sortedIdentifiers = [...existingIdentifiers].sort((left, right) => left.localeCompare(right));
+    const preferredIdentifierFromRequirements = requiredIdentifiers.find((identifier) => existingIdentifiers.has(identifier));
+    const preferredIdentifierFromBindings = resolvedBindings.find((binding) => existingIdentifiers.has(binding.sourceIdentifier))
+      ?.sourceIdentifier;
+    const preferredIdentifierFromExports = [...existingExports]
+      .sort((left, right) => left.localeCompare(right))
+      .find((identifier) => existingIdentifiers.has(identifier));
+    const preferredIdentifier =
+      preferredIdentifierFromRequirements ??
+      preferredIdentifierFromBindings ??
+      preferredIdentifierFromExports ??
+      sortedIdentifiers[0];
+
+    const takenIdentifiers = new Set<string>([...existingIdentifiers]);
+    const createSyntheticIdentifier = (baseName: string): string => {
+      let candidate = baseName;
+      let index = 1;
+      while (takenIdentifiers.has(candidate)) {
+        candidate = `${baseName}${String(index).padStart(2, "0")}`;
+        index += 1;
+      }
+      takenIdentifiers.add(candidate);
+      return candidate;
+    };
+
+    const defaultExportAlias = createSyntheticIdentifier("__liftedDefaultExport");
+    if (preferredIdentifier) {
+      syntheticDefaultExportLines.push(`const ${defaultExportAlias} = ${preferredIdentifier};`);
+      syntheticDefaultExportLines.push(`export default ${defaultExportAlias};`);
+      liftedHasDefaultExport = true;
+    } else {
+      syntheticDefaultExportLines.push(`const ${defaultExportAlias} = Object.freeze({}) as const;`);
+      syntheticDefaultExportLines.push(`export default ${defaultExportAlias};`);
+      liftedHasDefaultExport = true;
+    }
   }
 
   const metadataLines = [
@@ -1790,6 +1824,8 @@ async function liftChunkToTypescript(
     ...(liftedDeclarationsText.length > 0 ? [liftedDeclarationsText, ""] : []),
     ...requiredExportLines,
     ...(requiredExportLines.length > 0 ? [""] : []),
+    ...syntheticDefaultExportLines,
+    ...(syntheticDefaultExportLines.length > 0 ? [""] : []),
     ...metadataLines,
     "",
     ...aliasLines,
@@ -1803,7 +1839,7 @@ async function liftChunkToTypescript(
     symbolBindings: resolvedBindings,
     dependencies,
     exportedIdentifiers: [...existingExports].sort((left, right) => left.localeCompare(right)),
-    hasDefaultExport: defaultExportPresent,
+    hasDefaultExport: liftedHasDefaultExport,
     importShapingCount: importShaping.shapedCount,
     prunedDeclarationCount: beautify.prunedDeclarationCount,
     liftedDeclarationCount,

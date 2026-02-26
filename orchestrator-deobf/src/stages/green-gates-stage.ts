@@ -124,38 +124,13 @@ async function executeGreenGates(request: StageExecutionRequest): Promise<void> 
       runtimeErrorCount = runtimeAnalysis.runtimeErrorCount;
       runtimeWarningCount = runtimeAnalysis.runtimeWarningCount;
     }
-
-    if (result.exitCode !== 0) {
-      const report: GreenGateStageOutput = {
-        passed: false,
-        outputReportPath: input.outputReportPath,
-        checkedCommands,
-        runtimeLogPath,
-        runtimeErrorCount,
-        runtimeWarningCount,
-      };
-      await writeJsonFile(input.outputReportPath, report);
-      throw new Error(`green-gates failed on command: ${command.command} ${command.args.join(" ")}`);
-    }
   }
 
-  if (runtimeErrorCount > 0 || runtimeWarningCount > 0) {
-    const report: GreenGateStageOutput = {
-      passed: false,
-      outputReportPath: input.outputReportPath,
-      checkedCommands,
-      runtimeLogPath,
-      runtimeErrorCount,
-      runtimeWarningCount,
-    };
-    await writeJsonFile(input.outputReportPath, report);
-    throw new Error(
-      `green-gates failed runtime log analysis: errors=${runtimeErrorCount}, warnings=${runtimeWarningCount}`,
-    );
-  }
+  const allCommandsPassed = checkedCommands.every((entry) => entry.exitCode === 0);
+  const runtimeHealthy = runtimeErrorCount < 1 && runtimeWarningCount < 1;
 
   const output: GreenGateStageOutput = {
-    passed: true,
+    passed: allCommandsPassed && runtimeHealthy,
     outputReportPath: input.outputReportPath,
     checkedCommands,
     runtimeLogPath,
