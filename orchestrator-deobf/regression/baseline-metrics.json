@@ -7,23 +7,25 @@
     "functionClassCoverageAverage": 1,
     "functionCoverageAverage": 1,
     "highConfidenceSymbolsAverage": 553.75,
+    "hotChunkAverage": 28,
     "lowQualityFileCountAverage": 0,
     "mappedFilesAverage": 48,
     "mappedSymbolsAverage": 1069,
     "minScore": 0.96,
     "nameQualityAverage": 0.7778,
     "rerenderedModuleAverage": 1,
-    "variableCoverageAverage": 0.575,
+    "variableCoverageAverage": 1,
     "worstFileDecileScoreAverage": 0.8005
   },
-  "generatedAtIso": "2026-02-26T07:24:03.059Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\merged-evidence.json",
+  "generatedAtIso": "2026-02-26T11:03:31.922Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 121157,
+      "durationMs": 118929,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 28,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
@@ -80,14 +82,14 @@
             "symbolCount": 101
           },
           {
-            "averageConfidence": 0.7903,
-            "averageNameQuality": 0.7807,
+            "averageConfidence": 0.7894,
+            "averageNameQuality": 0.7806,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:domain-service",
             "rerendered": false,
-            "score": 0.8331,
-            "symbolCount": 152
+            "score": 0.8327,
+            "symbolCount": 154
           },
           {
             "averageConfidence": 0.9106,
@@ -111,7 +113,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -123,8 +125,8 @@
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7966,
-        "coverageSymbols": 7069,
+        "coverageNameQuality": 0.7982,
+        "coverageSymbols": 13314,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
@@ -140,12 +142,12 @@
         "mappedFiles": 48,
         "mappedSymbols": 1069,
         "nameQuality": 0.7778,
-        "variableCoverage": 0.575
+        "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-01-core-no-binary",
-      "runId": "reg-new-dmg-cycle-20260226-065316-c04-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-01-core-no-binary",
+      "runId": "reg-aggr7-20260226-103749-c03-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -155,14 +157,15 @@
         "total": 0.96,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-01-core-no-binary\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\adaptive-weights\\core-no-binary.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-01-core-no-binary\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\adaptive-weights\\core-no-binary.weights.json"
     },
     {
-      "durationMs": 129228,
+      "durationMs": 127788,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 28,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
@@ -219,14 +222,14 @@
             "symbolCount": 101
           },
           {
-            "averageConfidence": 0.7903,
-            "averageNameQuality": 0.7807,
+            "averageConfidence": 0.7894,
+            "averageNameQuality": 0.7806,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:domain-service",
             "rerendered": false,
-            "score": 0.8331,
-            "symbolCount": 152
+            "score": 0.8327,
+            "symbolCount": 154
           },
           {
             "averageConfidence": 0.9106,
@@ -250,7 +253,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\logs\\02-core-no-binary-no-pretty.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -262,8 +265,8 @@
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7966,
-        "coverageSymbols": 7069,
+        "coverageNameQuality": 0.7982,
+        "coverageSymbols": 13314,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
@@ -279,12 +282,12 @@
         "mappedFiles": 48,
         "mappedSymbols": 1069,
         "nameQuality": 0.7778,
-        "variableCoverage": 0.575
+        "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-02-core-no-binary-no-pretty",
-      "runId": "reg-new-dmg-cycle-20260226-065316-c04-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-02-core-no-binary-no-pretty",
+      "runId": "reg-aggr7-20260226-103749-c03-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -294,14 +297,15 @@
         "total": 0.96,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-02-core-no-binary-no-pretty\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-02-core-no-binary-no-pretty\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
     },
     {
-      "durationMs": 109539,
+      "durationMs": 119876,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 28,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
@@ -358,14 +362,14 @@
             "symbolCount": 101
           },
           {
-            "averageConfidence": 0.7903,
-            "averageNameQuality": 0.7807,
+            "averageConfidence": 0.7894,
+            "averageNameQuality": 0.7806,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:domain-service",
             "rerendered": false,
-            "score": 0.8331,
-            "symbolCount": 152
+            "score": 0.8327,
+            "symbolCount": 154
           },
           {
             "averageConfidence": 0.9106,
@@ -389,7 +393,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -401,8 +405,8 @@
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7966,
-        "coverageSymbols": 7069,
+        "coverageNameQuality": 0.7982,
+        "coverageSymbols": 13314,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
@@ -418,12 +422,12 @@
         "mappedFiles": 48,
         "mappedSymbols": 1069,
         "nameQuality": 0.7778,
-        "variableCoverage": 0.575
+        "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-03-core-no-binary-top120",
-      "runId": "reg-new-dmg-cycle-20260226-065316-c04-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-03-core-no-binary-top120",
+      "runId": "reg-aggr7-20260226-103749-c03-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -433,14 +437,15 @@
         "total": 0.96,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-03-core-no-binary-top120\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\adaptive-weights\\core-no-binary-top120.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-03-core-no-binary-top120\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\adaptive-weights\\core-no-binary-top120.weights.json"
     },
     {
-      "durationMs": 110102,
+      "durationMs": 120790,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 28,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
@@ -497,14 +502,14 @@
             "symbolCount": 99
           },
           {
-            "averageConfidence": 0.7991,
-            "averageNameQuality": 0.7807,
+            "averageConfidence": 0.7983,
+            "averageNameQuality": 0.7806,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:domain-service",
             "rerendered": false,
-            "score": 0.8369,
-            "symbolCount": 152
+            "score": 0.8365,
+            "symbolCount": 154
           },
           {
             "averageConfidence": 0.9194,
@@ -528,7 +533,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -540,8 +545,8 @@
         "buildHealth": true,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.7966,
-        "coverageSymbols": 7069,
+        "coverageNameQuality": 0.7982,
+        "coverageSymbols": 13314,
         "devHealth": true,
         "functionClassCoverage": 1,
         "functionCoverage": 1,
@@ -557,12 +562,12 @@
         "mappedFiles": 48,
         "mappedSymbols": 1069,
         "nameQuality": 0.7778,
-        "variableCoverage": 0.575
+        "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-04-core-runtime-probe-soft",
-      "runId": "reg-new-dmg-cycle-20260226-065316-c04-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-04-core-runtime-probe-soft",
+      "runId": "reg-aggr7-20260226-103749-c03-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -572,12 +577,12 @@
         "total": 0.96,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-new-dmg-cycle-20260226-065316-c04-04-core-runtime-probe-soft\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\new-dmg-cycle-20260226-065316-c04\\adaptive-weights\\core-runtime-probe-soft.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-aggr7-20260226-103749-c03-04-core-runtime-probe-soft\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\aggr7-20260226-103749-c03\\adaptive-weights\\core-runtime-probe-soft.weights.json"
     }
   ],
-  "snapshotAsarPath": "C:\\Codex-Windows\\work\\new-dmg-isolated\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "new-dmg-cycle-20260226-065316-c04",
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "suiteRunId": "aggr7-20260226-103749-c03",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

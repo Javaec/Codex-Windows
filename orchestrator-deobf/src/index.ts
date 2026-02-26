@@ -159,7 +159,7 @@ function parseCli(argv: string[]): CliOptions {
   let seed = 424242;
   let forceOverwriteOutputs = true;
   let wakaruConcurrency = 1;
-  let promotionBudget = 100;
+  let promotionBudget = 180;
   let enableJavascriptDeobfuscator = true;
   let enableSynchrony = true;
   let enableUnwebpackSourcemap = true;

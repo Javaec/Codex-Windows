@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { NamingMemoryStageInput, NamingMemoryStageOutput } from "../contracts";
 import { readJsonFile, writeJsonFile } from "../utils/fs-json";
-import { SemanticIrModel } from "../ir/semantic-ir";
+import { DomainArchetype, DomainKind, SemanticIrModel } from "../ir/semantic-ir";
 import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import {
   applyNamingMemory,
@@ -78,6 +78,13 @@ interface PromotionBudgetCandidate {
   priority: number;
 }
 
+const PROMOTION_MIN_QUALITY_GAIN = 0.001;
+const PROMOTION_MIN_SCORE_GAIN = 0.0005;
+const PROMOTION_PRIORITY_QUALITY_GAIN_WEIGHT = 0.42;
+const PROMOTION_PRIORITY_QUALITY_WEIGHT = 0.18;
+const PROMOTION_PRIORITY_SIGNAL_WEIGHT = 0.18;
+const PROMOTION_PRIORITY_SCORE_WEIGHT = 0.22;
+
 async function readNamingMemoryFromPath(namingMemoryPath: string): Promise<NamingMemoryModel> {
   const exists = await fs
     .stat(namingMemoryPath)
@@ -97,6 +104,55 @@ function clamp(value: number): number {
     return 1;
   }
   return Number(value.toFixed(4));
+}
+
+function isCoverageVariableSymbolKey(symbolKey: string): boolean {
+  return symbolKey.includes(":coverage:var:");
+}
+
+function ownerFromCoverageSymbolKey(symbolKey: string): string {
+  const marker = ":coverage:";
+  const markerIndex = symbolKey.indexOf(marker);
+  if (markerIndex < 1) {
+    throw new Error(`ownerFromCoverageSymbolKey: invalid coverage symbol key ${symbolKey}`);
+  }
+  return symbolKey.slice(0, markerIndex);
+}
+
+function inferDomainKindForCoverageName(symbolName: string): DomainKind {
+  const lower = symbolName.toLowerCase();
+  if (lower.startsWith("use") || lower.includes("hook")) {
+    return "hook";
+  }
+  if (lower.includes("store") || lower.includes("state")) {
+    return "store";
+  }
+  if (lower.includes("ipc") || lower.includes("rpc") || lower.includes("channel") || lower.includes("transport")) {
+    return "transport";
+  }
+  if (lower.includes("view") || lower.includes("component") || lower.includes("render") || lower.includes("ui")) {
+    return "ui";
+  }
+  if (lower.includes("service") || lower.includes("client")) {
+    return "service";
+  }
+  return "usecase";
+}
+
+function archetypeForDomainKind(domainKind: DomainKind): DomainArchetype {
+  if (domainKind === "hook") {
+    return "hook";
+  }
+  if (domainKind === "store") {
+    return "store";
+  }
+  if (domainKind === "transport") {
+    return "transport";
+  }
+  if (domainKind === "ui") {
+    return "ui";
+  }
+  return "service";
 }
 
 function isCoverageSymbolKey(symbolKey: string): boolean {
@@ -220,44 +276,50 @@ function averageQualityForSemanticSymbols(
 function selectPromotionSeeds(
   semanticIr: SemanticIrModel,
   namingMemory: NamingMemoryModel,
+  directBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
   promotionBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
   promotionBudget: number,
 ): PromotionSelectionSummary {
   const symbolByKey = buildSemanticSymbolMap(semanticIr);
   const memoryByKey = buildMemoryEntryMap(namingMemory);
-  const candidates: PromotionBudgetCandidate[] = [];
+  const candidatesBySymbolKey = new Map<string, PromotionBudgetCandidate>();
 
-  for (const [symbolKey, seed] of promotionBySymbolKey) {
+  const registerCandidate = (symbolKey: string, seed: NamingSeedCandidate, sourceBoost: number): void => {
     const symbol = symbolByKey.get(symbolKey);
     if (!symbol) {
-      continue;
-    }
-    if (seed.source !== "promotion") {
-      continue;
+      return;
     }
 
     const memoryEntry = memoryByKey.get(symbolKey);
     const baselineName = memoryEntry ? memoryEntry.currentName : symbol.name;
+    if (seed.name === baselineName) {
+      return;
+    }
     const baselineQuality = scoreNameQuality(baselineName);
     const candidateQuality = scoreNameQuality(seed.name);
-    if (candidateQuality < baselineQuality + 0.035) {
-      continue;
+    if (candidateQuality < baselineQuality + PROMOTION_MIN_QUALITY_GAIN) {
+      return;
     }
     if (isGenericName(seed.name) && !isGenericName(baselineName)) {
-      continue;
+      return;
     }
 
     const baselineScore = memoryEntry ? memoryEntry.currentScore : candidateScoreFromSymbol(symbol, undefined);
-    const candidateScore = candidateScoreFromSymbol(symbol, seed.confidence);
-    if (candidateScore + 0.015 < baselineScore) {
-      continue;
+    const candidateScore = clamp(candidateScoreFromSymbol(symbol, seed.confidence) * 0.86 + seed.signalScore * 0.14);
+    if (candidateScore < baselineScore + PROMOTION_MIN_SCORE_GAIN) {
+      return;
     }
     const qualityGain = Number((candidateQuality - baselineQuality).toFixed(4));
     if (qualityGain <= 0) {
-      continue;
+      return;
     }
-    const priority = Number((qualityGain * 0.5 + candidateQuality * 0.2 + seed.signalScore * 0.2 + candidateScore * 0.1).toFixed(4));
-    candidates.push({
+    const priority = Number((
+      qualityGain * PROMOTION_PRIORITY_QUALITY_GAIN_WEIGHT +
+      candidateQuality * PROMOTION_PRIORITY_QUALITY_WEIGHT +
+      seed.signalScore * PROMOTION_PRIORITY_SIGNAL_WEIGHT +
+      candidateScore * PROMOTION_PRIORITY_SCORE_WEIGHT
+    ).toFixed(4)) + sourceBoost;
+    const candidate: PromotionBudgetCandidate = {
       symbolKey,
       seed,
       baselineQuality,
@@ -266,8 +328,56 @@ function selectPromotionSeeds(
       candidateScore,
       qualityGain,
       priority,
-    });
+    };
+    const existing = candidatesBySymbolKey.get(symbolKey);
+    if (!existing) {
+      candidatesBySymbolKey.set(symbolKey, candidate);
+      return;
+    }
+    if (candidate.priority > existing.priority) {
+      candidatesBySymbolKey.set(symbolKey, candidate);
+      return;
+    }
+    if (candidate.priority === existing.priority && candidate.qualityGain > existing.qualityGain) {
+      candidatesBySymbolKey.set(symbolKey, candidate);
+      return;
+    }
+    if (
+      candidate.priority === existing.priority &&
+      candidate.qualityGain === existing.qualityGain &&
+      candidate.candidateScore > existing.candidateScore
+    ) {
+      candidatesBySymbolKey.set(symbolKey, candidate);
+    }
+  };
+
+  for (const [symbolKey, seed] of promotionBySymbolKey) {
+    if (seed.source !== "promotion") {
+      continue;
+    }
+    registerCandidate(symbolKey, seed, 0.03);
   }
+
+  if (candidatesBySymbolKey.size < promotionBudget) {
+    for (const [symbolKey, seed] of directBySymbolKey) {
+      registerCandidate(symbolKey, seed, 0.015);
+    }
+  }
+
+  if (candidatesBySymbolKey.size < promotionBudget) {
+    const symbolKeys = [...symbolByKey.keys()].sort((left, right) => left.localeCompare(right));
+    for (const symbolKey of symbolKeys) {
+      const symbol = symbolByKey.get(symbolKey);
+      if (!symbol) {
+        continue;
+      }
+      for (const alternative of symbol.alternatives.slice(0, 4)) {
+        registerCandidate(symbolKey, candidateFromAlternative(symbol.confidence, alternative), 0);
+      }
+    }
+  }
+
+  const candidates = [...candidatesBySymbolKey.values()];
 
   candidates.sort((left, right) => {
     if (left.priority !== right.priority) {
@@ -376,6 +486,75 @@ function applyCoverageNaming(
   };
 }
 
+function augmentCoverageSemanticIrWithMonolithVariables(
+  semanticIr: SemanticIrModel,
+  directBySymbolKey: ReadonlyMap<string, NamingSeedCandidate>,
+): SemanticIrModel {
+  const existingSymbolKeys = new Set<string>(semanticIr.symbols.map((symbol) => symbol.symbolKey));
+  const symbols = [...semanticIr.symbols];
+  const declarations = [...semanticIr.domainDeclarations];
+  let injectedCount = 0;
+
+  for (const [symbolKey, seed] of directBySymbolKey) {
+    if (!isCoverageVariableSymbolKey(symbolKey)) {
+      continue;
+    }
+    if (existingSymbolKeys.has(symbolKey)) {
+      continue;
+    }
+    const owner = ownerFromCoverageSymbolKey(symbolKey);
+    const domainKind = inferDomainKindForCoverageName(seed.name);
+    const preferredArchetype = archetypeForDomainKind(domainKind);
+    const declarationClusterId = `cluster:${owner}:coverage:${domainKind}`;
+    const confidence = clamp(Math.max(seed.confidence, 0.54));
+    const quality = clamp(Math.max(scoreNameQuality(seed.name), 0.56));
+
+    symbols.push({
+      symbolKey,
+      owner,
+      name: seed.name,
+      confidence,
+      quality,
+      alternatives: [],
+      evidenceIds: [`coverage-seed:${symbolKey}`],
+      provenance: ["monolith-census"],
+      domainKind,
+      preferredArchetype,
+      declarationClusterId,
+      routeFlowScore: 0,
+      eventFlowScore: 0,
+    });
+
+    declarations.push({
+      declarationId: `${symbolKey}::${domainKind}`,
+      symbolKey,
+      symbolName: seed.name,
+      ownerLineageId: owner,
+      domainKind,
+      preferredArchetype,
+      clusterId: declarationClusterId,
+      callNeighbours: [],
+      stateSignals: [],
+      routeFlowScore: 0,
+      eventFlowScore: 0,
+      confidence,
+    });
+
+    existingSymbolKeys.add(symbolKey);
+    injectedCount += 1;
+  }
+
+  if (injectedCount < 1) {
+    return semanticIr;
+  }
+
+  return {
+    ...semanticIr,
+    symbols: symbols.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+    domainDeclarations: declarations.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+  };
+}
+
 async function readSeedMap(symbolTablePath: string, typingHints: TypingHintMaps): Promise<SeedMapSplit> {
   const symbolTable = await readJsonFile<MonolithSymbolTableModel>(symbolTablePath);
   const directBySymbolKey = new Map<string, NamingSeedCandidate>();
@@ -432,9 +611,16 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
   const namingMemory = await readNamingMemoryFromPath(input.namingMemoryPath);
   const typingHints = await readTypingHintMaps(input.monolithTypingHintsPath);
   const seedMap = await readSeedMap(input.monolithSymbolTablePath, typingHints);
-  const coverageSeedMap = buildCoverageSeedMap(semanticIr, seedMap.directBySymbolKey, seedMap.promotionBySymbolKey);
-  const coverageNamedSemanticIr = applyCoverageNaming(semanticIr, coverageSeedMap);
-  const promotionSelection = selectPromotionSeeds(semanticIr, namingMemory, seedMap.promotionBySymbolKey, input.promotionBudget);
+  const coverageSemanticIr = augmentCoverageSemanticIrWithMonolithVariables(semanticIr, seedMap.directBySymbolKey);
+  const coverageSeedMap = buildCoverageSeedMap(coverageSemanticIr, seedMap.directBySymbolKey, seedMap.promotionBySymbolKey);
+  const coverageNamedSemanticIr = applyCoverageNaming(coverageSemanticIr, coverageSeedMap);
+  const promotionSelection = selectPromotionSeeds(
+    semanticIr,
+    namingMemory,
+    seedMap.directBySymbolKey,
+    seedMap.promotionBySymbolKey,
+    input.promotionBudget,
+  );
   const seedBySymbolKey = new Map<string, NamingSeedCandidate>();
   for (const [symbolKey, candidate] of seedMap.directBySymbolKey) {
     seedBySymbolKey.set(symbolKey, pickStrongerSeed(seedBySymbolKey.get(symbolKey), candidate));

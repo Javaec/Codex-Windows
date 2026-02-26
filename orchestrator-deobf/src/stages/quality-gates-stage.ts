@@ -11,6 +11,9 @@ interface EmittedFilesIndex {
 }
 
 const GENERIC_PATH_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
+const ARCHETYPE_SEGMENTS = new Set<string>(["hook", "service", "ui", "transport", "store"]);
+const INLINE_LITERAL_PAYLOAD_THRESHOLD = 4096;
+const INLINE_JSON_PAYLOAD_THRESHOLD = 1800;
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
@@ -95,6 +98,70 @@ function isQualitySourceModule(relativePath: string): boolean {
   return false;
 }
 
+function validateArchetypePathDiscipline(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    if (!isQualitySourceModule(relativePath)) {
+      continue;
+    }
+    const normalized = relativePath.replace(/\\/g, "/");
+    if (normalized.startsWith("src/")) {
+      const segments = normalized.split("/");
+      if (segments.length < 4) {
+        violations.push(`quality module path is too short: ${relativePath}`);
+        continue;
+      }
+      const layer = segments[1];
+      const archetype = segments[2];
+      if (!layer || !archetype) {
+        violations.push(`quality module path is malformed: ${relativePath}`);
+        continue;
+      }
+      if (layer !== "main" && layer !== "renderer" && layer !== "services") {
+        violations.push(`unexpected quality layer in path: ${relativePath}`);
+        continue;
+      }
+      if (!ARCHETYPE_SEGMENTS.has(archetype)) {
+        violations.push(`quality module must be under archetype directory: ${relativePath}`);
+      }
+      continue;
+    }
+    if (normalized.startsWith("src-tauri-adapter/")) {
+      const segments = normalized.split("/");
+      if (segments.length < 3) {
+        violations.push(`tauri quality module path is too short: ${relativePath}`);
+        continue;
+      }
+      const archetype = segments[1];
+      if (!archetype) {
+        violations.push(`tauri quality module path is malformed: ${relativePath}`);
+        continue;
+      }
+      if (!ARCHETYPE_SEGMENTS.has(archetype)) {
+        violations.push(`tauri module must be under archetype directory: ${relativePath}`);
+      }
+    }
+  }
+  return violations;
+}
+
+async function validateStaticPayloadExtraction(outputProjectDirectory: string, files: string[]): Promise<string[]> {
+  const violations: string[] = [];
+  const oversizedLiteralPattern = new RegExp(`(["'\`])(?:\\\\.|(?!\\\\1)[\\\\s\\\\S]){${INLINE_LITERAL_PAYLOAD_THRESHOLD},}\\\\1`, "m");
+  const oversizedJsonParsePattern = new RegExp(`JSON\\\\.parse\\\\(\\\\s*(["'\`])(?:\\\\.|(?!\\\\1)[\\\\s\\\\S]){${INLINE_JSON_PAYLOAD_THRESHOLD},}\\\\1\\\\s*\\\\)`, "m");
+  for (const relativePath of files) {
+    if (!isQualitySourceModule(relativePath)) {
+      continue;
+    }
+    const absolutePath = path.join(outputProjectDirectory, relativePath);
+    const content = await fs.readFile(absolutePath, "utf8");
+    if (oversizedLiteralPattern.test(content) || oversizedJsonParsePattern.test(content)) {
+      violations.push(`quality module contains oversized inline payload (move to assets/payloads): ${relativePath}`);
+    }
+  }
+  return violations;
+}
+
 async function validateNoProxyInQuality(outputProjectDirectory: string, files: string[]): Promise<string[]> {
   const violations: string[] = [];
   const proxyPatterns = [
@@ -162,7 +229,9 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
+  violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
   violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
+  violations.push(...(await validateStaticPayloadExtraction(input.outputProjectDirectory, emittedFilesIndex.files)));
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 
   const stableProfileDirectory = path.join(input.stableOutputRoot, input.stableOutputProfile);

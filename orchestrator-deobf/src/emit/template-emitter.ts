@@ -141,6 +141,8 @@ const COHESION_MERGE_THRESHOLD = 0.44;
 const COHESION_SPLIT_THRESHOLD = 0.2;
 const COHESION_SPLIT_MIN_SYMBOLS = 22;
 const MODULE_MERGE_MAX_SYMBOLS = 320;
+const TINY_MODULE_SYMBOL_LIMIT = 22;
+const TINY_MODULE_MERGE_BUDGET_FACTOR = 1.2;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -1166,10 +1168,25 @@ function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, Lifted
 }
 
 function buildOwnershipSubset(base: OwnershipModel, symbols: OwnershipRecord[]): OwnershipModel {
+  const bySymbolKey = new Map<string, OwnershipRecord>();
+  for (const symbol of symbols) {
+    const existing = bySymbolKey.get(symbol.symbolKey);
+    if (existing) {
+      if (existing.layer !== symbol.layer || existing.archetype !== symbol.archetype) {
+        throw new Error(
+          `buildOwnershipSubset: symbol ownership conflict for ${symbol.symbolKey}: ` +
+          `${existing.layer}/${existing.archetype} vs ${symbol.layer}/${symbol.archetype}`,
+        );
+      }
+      continue;
+    }
+    assertArchetypeLayerCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
+    bySymbolKey.set(symbol.symbolKey, symbol);
+  }
   return {
     ...base,
     generatedAtIso: new Date().toISOString(),
-    symbols: [...symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+    symbols: [...bySymbolKey.values()].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
   };
 }
 
@@ -1521,6 +1538,77 @@ function rebuildModulePlanIdentity(plan: ModulePlan, groupIndex: number): Module
   };
 }
 
+function dedupeSymbolsByKey(symbols: OwnershipRecord[]): OwnershipRecord[] {
+  const byKey = new Map<string, OwnershipRecord>();
+  for (const symbol of symbols) {
+    const existing = byKey.get(symbol.symbolKey);
+    if (existing) {
+      if (existing.layer !== symbol.layer || existing.archetype !== symbol.archetype) {
+        throw new Error(
+          `dedupeSymbolsByKey: ownership mismatch for ${symbol.symbolKey}: ` +
+          `${existing.layer}/${existing.archetype} vs ${symbol.layer}/${symbol.archetype}`,
+        );
+      }
+      continue;
+    }
+    byKey.set(symbol.symbolKey, symbol);
+  }
+  return [...byKey.values()].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
+}
+
+function collapseTinyModulePlans(modulePlans: ModulePlan[], statementBudget: number): ModulePlan[] {
+  if (modulePlans.length <= 1) {
+    return modulePlans;
+  }
+  const grouped = new Map<string, ModulePlan[]>();
+  for (const plan of modulePlans) {
+    const key = `${plan.layer}:${plan.archetype}`;
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(plan);
+    grouped.set(key, bucket);
+  }
+
+  const collapsed: ModulePlan[] = [];
+  const keys = [...grouped.keys()].sort((left, right) => left.localeCompare(right));
+  for (const key of keys) {
+    const group = grouped.get(key);
+    if (!group || group.length === 0) {
+      continue;
+    }
+    const ordered = [...group].sort((left, right) => left.filePath.localeCompare(right.filePath));
+    let current = ordered[0];
+    if (!current) {
+      continue;
+    }
+    for (let index = 1; index < ordered.length; index += 1) {
+      const candidate = ordered[index];
+      if (!candidate) {
+        continue;
+      }
+      const budget = statementBudgetForArchetype(current.archetype, statementBudget);
+      const mergeBudget = Math.min(MODULE_MERGE_MAX_SYMBOLS, Math.floor(budget * TINY_MODULE_MERGE_BUDGET_FACTOR));
+      const combinedSize = current.symbols.length + candidate.symbols.length;
+      const hasTinySide =
+        current.symbols.length <= TINY_MODULE_SYMBOL_LIMIT || candidate.symbols.length <= TINY_MODULE_SYMBOL_LIMIT;
+      const compatible = current.layer === candidate.layer && current.archetype === candidate.archetype;
+      if (!compatible || !hasTinySide || combinedSize > mergeBudget) {
+        collapsed.push(current);
+        current = candidate;
+        continue;
+      }
+      const mergedTopic = mergeTopics(current.topic, candidate.topic, current.archetype);
+      current = {
+        ...current,
+        topic: mergedTopic,
+        clusterId: mergedTopic,
+        symbols: dedupeSymbolsByKey([...current.symbols, ...candidate.symbols]),
+      };
+    }
+    collapsed.push(current);
+  }
+  return collapsed;
+}
+
 function splitPlanByCohesion(
   plan: ModulePlan,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
@@ -1637,9 +1725,10 @@ function applyCohesionMergeSplit(
     const split = splitPlanByCohesion(plan, renameHintsBySymbolKey, signalContext);
     splitPlans.push(...split);
   }
+  const collapsedPlans = collapseTinyModulePlans(splitPlans, statementBudget);
 
   const groupIndexByKey = new Map<string, number>();
-  const finalized = [...splitPlans]
+  const finalized = [...collapsedPlans]
     .sort((left, right) => {
       if (left.layer !== right.layer) {
         return LAYER_ORDER.indexOf(left.layer) - LAYER_ORDER.indexOf(right.layer);

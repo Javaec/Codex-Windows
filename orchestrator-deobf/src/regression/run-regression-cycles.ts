@@ -43,6 +43,7 @@ interface CycleExecutionSummary {
   worstFileDecileScoreAverage: number;
   lowQualityFileCountAverage: number;
   rerenderedModuleAverage: number;
+  hotChunkAverage: number;
   promotionSelectedCount: number;
   promotionUpdatedCount: number;
   promotionInsertedCount: number;
@@ -74,6 +75,9 @@ interface CycleReport {
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
     fileQualityNoRegression: boolean;
+    hotChunkMin: number;
+    hotChunkMax: number;
+    rerenderedModuleAverageMin: number;
   };
   completedCycles: number;
   stopReason: string;
@@ -117,6 +121,15 @@ const KPI_TARGET_FUNCTION_COVERAGE = 1;
 const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 1;
 const KPI_TARGET_VARIABLE_COVERAGE = 0.5;
 const FILE_QUALITY_BASELINE_DELTA_FLOOR = -0.005;
+const KPI_TARGET_HOT_CHUNK_MIN = 20;
+const KPI_TARGET_HOT_CHUNK_MAX = 30;
+const KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN = 1;
+const FIXED_REGRESSION_PROFILE_IDS = [
+  "core-no-binary",
+  "core-no-binary-no-pretty",
+  "core-no-binary-top120",
+  "core-runtime-probe-soft",
+] as const;
 
 function buildRunId(prefix: string): string {
   const now = new Date();
@@ -147,6 +160,23 @@ function clampWeight(value: number): number {
   return clamp(value, 0.5, 2.6);
 }
 
+function validateFixedRegressionProfiles(suite: RegressionSuite): void {
+  if (suite.profiles.length !== FIXED_REGRESSION_PROFILE_IDS.length) {
+    throw new Error(
+      `regression-suite must contain exactly ${FIXED_REGRESSION_PROFILE_IDS.length} fixed profiles, got ${suite.profiles.length}`,
+    );
+  }
+  const sortedActual = [...suite.profiles.map((profile) => profile.id)].sort((left, right) => left.localeCompare(right));
+  const sortedExpected = [...FIXED_REGRESSION_PROFILE_IDS].sort((left, right) => left.localeCompare(right));
+  for (let index = 0; index < sortedExpected.length; index += 1) {
+    if (sortedActual[index] !== sortedExpected[index]) {
+      throw new Error(
+        `regression-suite profile mismatch; expected [${sortedExpected.join(", ")}], got [${sortedActual.join(", ")}]`,
+      );
+    }
+  }
+}
+
 function parseIntegerOption(token: string, value: string, minimum: number): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < minimum) {
@@ -174,7 +204,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let stagnationLimit = 3;
   let minQualityDelta = 0.02;
   let suiteRunPrefix = "cycle";
-  let promotionBudgetPerCycle = 100;
+  let promotionBudgetPerCycle = 140;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -492,6 +522,21 @@ function summarizeCycle(
   if (!execution.aggregate.devHealthAllGreen) {
     kpiViolations.push("devHealthAllGreen is false");
   }
+  if (execution.aggregate.hotChunkAverage < KPI_TARGET_HOT_CHUNK_MIN) {
+    kpiViolations.push(
+      `hotChunkAverage ${execution.aggregate.hotChunkAverage} < ${KPI_TARGET_HOT_CHUNK_MIN}`,
+    );
+  }
+  if (execution.aggregate.hotChunkAverage > KPI_TARGET_HOT_CHUNK_MAX) {
+    kpiViolations.push(
+      `hotChunkAverage ${execution.aggregate.hotChunkAverage} > ${KPI_TARGET_HOT_CHUNK_MAX}`,
+    );
+  }
+  if (execution.aggregate.rerenderedModuleAverage < KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN) {
+    kpiViolations.push(
+      `rerenderedModuleAverage ${execution.aggregate.rerenderedModuleAverage} < ${KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN}`,
+    );
+  }
   if (previous && execution.aggregate.nameQualityAverage < previous.nameQualityAverage) {
     kpiViolations.push(`nameQualityAverage regressed: ${execution.aggregate.nameQualityAverage} < ${previous.nameQualityAverage}`);
   }
@@ -515,6 +560,7 @@ function summarizeCycle(
     worstFileDecileScoreAverage: execution.aggregate.worstFileDecileScoreAverage,
     lowQualityFileCountAverage: execution.aggregate.lowQualityFileCountAverage,
     rerenderedModuleAverage: execution.aggregate.rerenderedModuleAverage,
+    hotChunkAverage: execution.aggregate.hotChunkAverage,
     promotionSelectedCount: promotion.selectedCount,
     promotionUpdatedCount: promotion.updatedEntryCount,
     promotionInsertedCount: promotion.insertedEntryCount,
@@ -628,6 +674,7 @@ async function run(): Promise<void> {
   await ensureDirectory(path.dirname(cli.baselinePath));
 
   const suite = await loadRegressionSuite(cli.suiteConfigPath);
+  validateFixedRegressionProfiles(suite);
   const baseWeights = await loadToolWeights(cli.weightsConfigPath);
   const snapshotDigest = await hashFileSha256(cli.snapshotAsarPath);
   const snapshotKey = snapshotDigest.sha256.slice(0, 12);
@@ -723,6 +770,9 @@ async function run(): Promise<void> {
       buildHealthAllGreen: true,
       devHealthAllGreen: true,
       fileQualityNoRegression: true,
+      hotChunkMin: KPI_TARGET_HOT_CHUNK_MIN,
+      hotChunkMax: KPI_TARGET_HOT_CHUNK_MAX,
+      rerenderedModuleAverageMin: KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN,
     },
     completedCycles: cycleSummaries.length,
     stopReason,

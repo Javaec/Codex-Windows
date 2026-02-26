@@ -112,13 +112,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7925,
+      "averageConfidence": 0.7916,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7807,
-      "averageScore": 0.834,
-      "averageSymbolCount": 152,
+      "averageNameQuality": 0.7806,
+      "averageScore": 0.8337,
+      "averageSymbolCount": 154,
       "filePath": "src/services/service/service-domain.ts",
-      "minScore": 0.8331,
+      "minScore": 0.8327,
       "moduleIds": [
         "services:service:domain-service"
       ],
@@ -178,6 +178,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T07:24:07.305Z",
-  "suiteRunId": "new-dmg-cycle-20260226-065316-c04"
+  "generatedAtIso": "2026-02-26T11:03:36.972Z",
+  "suiteRunId": "aggr7-20260226-103749-c03"
 }

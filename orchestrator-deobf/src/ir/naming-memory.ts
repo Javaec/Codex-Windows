@@ -158,9 +158,9 @@ function pickBestRerankVariant(
   const scoreGain = winner.score - baseline.score;
   const genericUpgrade = isGenericName(symbol.name) && !isGenericName(winner.variant.name);
   const shouldAdopt =
-    qualityGain >= 0.03 ||
-    (genericUpgrade && scoreGain >= -0.02) ||
-    (scoreGain >= 0.045 && winner.quality >= baseline.quality);
+    qualityGain >= 0.02 ||
+    (genericUpgrade && scoreGain >= -0.03) ||
+    (scoreGain >= 0.028 && winner.quality >= baseline.quality);
   if (!shouldAdopt) {
     return symbol;
   }
@@ -227,14 +227,14 @@ function buildSeededCandidate(
   const isPromotion = seed.source === "promotion";
   const shouldUseDirectSeed =
     !isPromotion &&
-    (isGenericName(symbol.name) || currentQuality < 0.56) &&
-    seedQuality >= currentQuality + 0.03 &&
-    seed.signalScore >= 0.45;
+    (isGenericName(symbol.name) || currentQuality < 0.62) &&
+    seedQuality >= currentQuality + 0.015 &&
+    seed.signalScore >= 0.4;
   const shouldUsePromotionSeed =
     isPromotion &&
-    (isGenericName(symbol.name) || currentQuality < 0.74) &&
-    seedQuality >= currentQuality + 0.04 &&
-    seed.signalScore >= 0.68;
+    (isGenericName(symbol.name) || currentQuality < 0.8) &&
+    seedQuality >= currentQuality + 0.02 &&
+    seed.signalScore >= 0.58;
 
   if (!shouldUseDirectSeed && !shouldUsePromotionSeed) {
     return pickBestRerankVariant(symbol, undefined);
@@ -255,25 +255,25 @@ function shouldUpgrade(entry: NamingMemoryEntry, symbol: SemanticSymbol, candida
   if (!isGenericName(entry.currentName) && isGenericName(symbol.name)) {
     return false;
   }
-  if (candidateQuality + 0.01 < currentQuality) {
+  if (candidateQuality + 0.004 < currentQuality) {
     return false;
   }
-  if (candidateQuality >= currentQuality + 0.08 && candidateScore >= entry.currentScore * 0.9) {
+  if (candidateQuality >= currentQuality + 0.05 && candidateScore >= entry.currentScore * 0.86) {
     return true;
   }
-  if (candidateQuality >= currentQuality + 0.12 && candidateScore >= entry.currentScore * 0.78) {
+  if (candidateQuality >= currentQuality + 0.08 && candidateScore >= entry.currentScore * 0.72) {
     return true;
   }
   if (candidateQuality > currentQuality && candidateScore >= entry.currentScore && symbol.name.length <= entry.currentName.length + 12) {
     return true;
   }
-  if (candidateScore > entry.currentScore + 0.01) {
+  if (candidateScore > entry.currentScore + 0.004) {
     return true;
   }
-  if (!isGenericName(symbol.name) && isGenericName(entry.currentName) && candidateScore >= entry.currentScore * 0.72) {
+  if (!isGenericName(symbol.name) && isGenericName(entry.currentName) && candidateScore >= entry.currentScore * 0.66) {
     return true;
   }
-  if (isGenericName(entry.currentName) && !isGenericName(symbol.name) && candidateScore >= entry.currentScore * 0.9) {
+  if (isGenericName(entry.currentName) && !isGenericName(symbol.name) && candidateScore >= entry.currentScore * 0.84) {
     return true;
   }
   if (candidateScore === entry.currentScore && entry.currentName !== symbol.name) {

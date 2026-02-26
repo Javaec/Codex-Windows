@@ -24,6 +24,7 @@ interface RunSummarySnapshot {
     };
     templateEmitter: {
       fileQualityReportPath: string;
+      hotChunkCount: number;
     };
     qualityGates: {
       stableProjectDirectory: string;
@@ -58,6 +59,8 @@ export interface MergedSymbolEvidence {
   profileId: string;
   runId: string;
   provenance: string[];
+  snapshotProfileId: string;
+  snapshotProfileConfidence: number;
 }
 
 export interface MergedFileEvidence {
@@ -71,6 +74,8 @@ export interface MergedFileEvidence {
 export interface MergedEvidenceReport {
   generatedAtIso: string;
   suiteRunId: string;
+  dominantSnapshotProfileId: string;
+  dominantSnapshotProfileWeight: number;
   symbolWinnerCount: number;
   fileWinnerCount: number;
   symbolWinners: MergedSymbolEvidence[];
@@ -95,6 +100,7 @@ export interface RegressionProfileExecution {
     worstDecileAverageScore: number;
     lowQualityFileCount: number;
     rerenderedModuleCount: number;
+    hotChunkCount: number;
     worstFiles: Array<{
       moduleId: string;
       filePath: string;
@@ -130,6 +136,7 @@ export interface RegressionSuiteExecution {
     worstFileDecileScoreAverage: number;
     lowQualityFileCountAverage: number;
     rerenderedModuleAverage: number;
+    hotChunkAverage: number;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
   };
@@ -240,6 +247,80 @@ function clamp(value: number): number {
   return Number(value.toFixed(4));
 }
 
+const PROVENANCE_SOURCE_WEIGHTS: Readonly<Record<string, number>> = {
+  asar: 0.76,
+  webcrack: 1,
+  wakaru: 0.96,
+  "javascript-deobfuscator": 0.9,
+  synchrony: 0.88,
+  "unwebpack-sourcemap": 0.93,
+};
+
+function normalizeProvenanceTool(token: string): string {
+  const lower = token.toLowerCase();
+  if (lower.includes("webcrack")) {
+    return "webcrack";
+  }
+  if (lower.includes("wakaru")) {
+    return "wakaru";
+  }
+  if (lower.includes("javascript-deobfuscator")) {
+    return "javascript-deobfuscator";
+  }
+  if (lower.includes("synchrony")) {
+    return "synchrony";
+  }
+  if (lower.includes("unwebpack")) {
+    return "unwebpack-sourcemap";
+  }
+  if (lower.includes("asar")) {
+    return "asar";
+  }
+  return "asar";
+}
+
+function provenanceWeight(provenance: string[]): number {
+  if (provenance.length === 0) {
+    return 0.72;
+  }
+  const weights = provenance.map((entry) => {
+    const normalized = normalizeProvenanceTool(entry);
+    return PROVENANCE_SOURCE_WEIGHTS[normalized] ?? 0.76;
+  });
+  const averageWeight = weights.reduce((sum, value) => sum + value, 0) / Math.max(1, weights.length);
+  return clamp(averageWeight);
+}
+
+const MERGED_SYMBOL_WINNER_MIN = 3600;
+const MERGED_SYMBOL_WINNER_MAX = 8000;
+const MERGED_FILE_WINNER_MIN = 640;
+const MERGED_FILE_WINNER_MAX = 960;
+
+function rerankedSymbolScore(candidate: MergedSymbolEvidence, dominantSnapshotProfileId: string): number {
+  const sourceWeight = provenanceWeight(candidate.provenance);
+  const isDominantSnapshotProfile = candidate.snapshotProfileId === dominantSnapshotProfileId;
+  const snapshotWeight = isDominantSnapshotProfile
+    ? candidate.snapshotProfileConfidence
+    : (1 - candidate.snapshotProfileConfidence) * 0.42;
+  return Number((
+    candidate.mergedScore * 0.66 +
+    candidate.quality * 0.14 +
+    candidate.confidence * 0.06 +
+    sourceWeight * 0.08 +
+    snapshotWeight * 0.06
+  ).toFixed(4));
+}
+
+function resolveMergedSymbolWinnerCap(totalSymbols: number): number {
+  const scaled = Math.round(totalSymbols * 0.92);
+  return Math.max(MERGED_SYMBOL_WINNER_MIN, Math.min(MERGED_SYMBOL_WINNER_MAX, scaled));
+}
+
+function resolveMergedFileWinnerCap(totalFiles: number): number {
+  const scaled = Math.round(totalFiles * 0.9);
+  return Math.max(MERGED_FILE_WINNER_MIN, Math.min(MERGED_FILE_WINNER_MAX, scaled));
+}
+
 function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProfileExecution["fileQuality"] {
   const ordered = [...report.files].sort((left, right) => {
     if (left.score !== right.score) {
@@ -275,6 +356,7 @@ function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProf
     worstDecileAverageScore,
     lowQualityFileCount,
     rerenderedModuleCount: report.rerenderedModuleCount,
+    hotChunkCount: 0,
     worstFiles,
   };
 }
@@ -323,6 +405,7 @@ async function executeProfile(
       ...fileQualitySummary,
       fileQualityReportPath: summary.stageOutputs.templateEmitter.fileQualityReportPath,
       stableProjectDirectory: summary.stageOutputs.qualityGates.stableProjectDirectory,
+      hotChunkCount: summary.stageOutputs.templateEmitter.hotChunkCount,
     },
   };
 }
@@ -342,28 +425,10 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     worstFileDecileScoreAverage: average(executions.map((entry) => entry.fileQuality.worstDecileAverageScore)),
     lowQualityFileCountAverage: average(executions.map((entry) => entry.fileQuality.lowQualityFileCount)),
     rerenderedModuleAverage: average(executions.map((entry) => entry.fileQuality.rerenderedModuleCount)),
+    hotChunkAverage: average(executions.map((entry) => entry.fileQuality.hotChunkCount)),
     buildHealthAllGreen: executions.every((entry) => entry.metrics.buildHealth),
     devHealthAllGreen: executions.every((entry) => entry.metrics.devHealth),
   };
-}
-
-function mergeSymbolEvidence(
-  existing: MergedSymbolEvidence | undefined,
-  candidate: MergedSymbolEvidence,
-): MergedSymbolEvidence {
-  if (!existing) {
-    return candidate;
-  }
-  if (candidate.mergedScore !== existing.mergedScore) {
-    return candidate.mergedScore > existing.mergedScore ? candidate : existing;
-  }
-  if (candidate.quality !== existing.quality) {
-    return candidate.quality > existing.quality ? candidate : existing;
-  }
-  if (candidate.confidence !== existing.confidence) {
-    return candidate.confidence > existing.confidence ? candidate : existing;
-  }
-  return candidate.symbolName.localeCompare(existing.symbolName) < 0 ? candidate : existing;
 }
 
 function mergeFileEvidence(
@@ -386,8 +451,9 @@ async function buildMergedEvidenceReport(
   suiteRunId: string,
   executions: RegressionProfileExecution[],
 ): Promise<MergedEvidenceReport> {
-  const symbolByKey = new Map<string, MergedSymbolEvidence>();
+  const symbolCandidatesByKey = new Map<string, MergedSymbolEvidence[]>();
   const fileByPath = new Map<string, MergedFileEvidence>();
+  const snapshotProfileWeightById = new Map<string, number>();
 
   for (const execution of executions) {
     const summary = await readJsonFile<RunSummarySnapshot>(execution.summaryPath);
@@ -397,10 +463,15 @@ async function buildMergedEvidenceReport(
       summary.stageOutputs.namingMemory.namedSemanticIrPath;
     const semanticIr = await readJsonFile<SemanticIrModel>(semanticIrPath);
     const profileScore = execution.score.total;
+    const snapshotProfileId = semanticIr.obfuscationProfile.profileId;
+    const snapshotProfileConfidence = clamp(semanticIr.obfuscationProfile.confidence);
+    const snapshotProfileWeight = (snapshotProfileWeightById.get(snapshotProfileId) ?? 0) + snapshotProfileConfidence * profileScore;
+    snapshotProfileWeightById.set(snapshotProfileId, Number(snapshotProfileWeight.toFixed(4)));
 
     for (const symbol of semanticIr.symbols) {
       const quality = scoreNameQuality(symbol.name);
-      const mergedScore = Number((symbol.confidence * quality * Math.max(0.1, profileScore)).toFixed(4));
+      const sourceWeight = provenanceWeight(symbol.provenance);
+      const mergedScore = Number((symbol.confidence * quality * Math.max(0.1, profileScore) * (0.9 + sourceWeight * 0.1)).toFixed(4));
       const candidate: MergedSymbolEvidence = {
         symbolKey: symbol.symbolKey,
         symbolName: symbol.name,
@@ -410,8 +481,15 @@ async function buildMergedEvidenceReport(
         profileId: execution.profileId,
         runId: execution.runId,
         provenance: [...symbol.provenance].sort((left, right) => left.localeCompare(right)),
+        snapshotProfileId,
+        snapshotProfileConfidence,
       };
-      symbolByKey.set(symbol.symbolKey, mergeSymbolEvidence(symbolByKey.get(symbol.symbolKey), candidate));
+      const existing = symbolCandidatesByKey.get(symbol.symbolKey);
+      if (existing) {
+        existing.push(candidate);
+      } else {
+        symbolCandidatesByKey.set(symbol.symbolKey, [candidate]);
+      }
     }
 
     for (const fileHint of semanticIr.fileHints) {
@@ -427,8 +505,46 @@ async function buildMergedEvidenceReport(
     }
   }
 
-  const symbolWinners = [...symbolByKey.values()]
+  const dominantSnapshotProfile = [...snapshotProfileWeightById.entries()].sort((left, right) => {
+    if (left[1] !== right[1]) {
+      return right[1] - left[1];
+    }
+    return left[0].localeCompare(right[0]);
+  })[0];
+  const dominantSnapshotProfileId = dominantSnapshotProfile ? dominantSnapshotProfile[0] : "profile-v1";
+  const dominantSnapshotProfileWeight = dominantSnapshotProfile ? Number(dominantSnapshotProfile[1].toFixed(4)) : 0;
+
+  const symbolWinners = [...symbolCandidatesByKey.entries()]
+    .map((entry) => {
+      const candidates = entry[1];
+      if (!candidates || candidates.length < 1) {
+        throw new Error(`buildMergedEvidenceReport: missing symbol candidates for ${entry[0]}`);
+      }
+      const winner = [...candidates].sort((left, right) => {
+        const leftScore = rerankedSymbolScore(left, dominantSnapshotProfileId);
+        const rightScore = rerankedSymbolScore(right, dominantSnapshotProfileId);
+        if (leftScore !== rightScore) {
+          return rightScore - leftScore;
+        }
+        if (left.mergedScore !== right.mergedScore) {
+          return right.mergedScore - left.mergedScore;
+        }
+        if (left.quality !== right.quality) {
+          return right.quality - left.quality;
+        }
+        return left.symbolName.localeCompare(right.symbolName);
+      })[0];
+      if (!winner) {
+        throw new Error(`buildMergedEvidenceReport: unable to select symbol winner for ${entry[0]}`);
+      }
+      return winner;
+    })
     .sort((left, right) => {
+      const leftScore = rerankedSymbolScore(left, dominantSnapshotProfileId);
+      const rightScore = rerankedSymbolScore(right, dominantSnapshotProfileId);
+      if (leftScore !== rightScore) {
+        return rightScore - leftScore;
+      }
       if (left.mergedScore !== right.mergedScore) {
         return right.mergedScore - left.mergedScore;
       }
@@ -437,7 +553,7 @@ async function buildMergedEvidenceReport(
       }
       return left.symbolKey.localeCompare(right.symbolKey);
     })
-    .slice(0, 2400);
+    .slice(0, resolveMergedSymbolWinnerCap(symbolCandidatesByKey.size));
 
   const fileWinners = [...fileByPath.values()]
     .sort((left, right) => {
@@ -446,11 +562,13 @@ async function buildMergedEvidenceReport(
       }
       return left.pathHint.localeCompare(right.pathHint);
     })
-    .slice(0, 640);
+    .slice(0, resolveMergedFileWinnerCap(fileByPath.size));
 
   return {
     generatedAtIso: new Date().toISOString(),
     suiteRunId,
+    dominantSnapshotProfileId,
+    dominantSnapshotProfileWeight,
     symbolWinnerCount: symbolWinners.length,
     fileWinnerCount: fileWinners.length,
     symbolWinners,
