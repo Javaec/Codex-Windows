@@ -88,10 +88,12 @@ function getFileSha256(filePath) {
 function getFileDescriptorWithCache(filePath, previous) {
     if (!(0, exec_1.fileExists)(filePath))
         throw new Error(`File not found: ${filePath}`);
+    const resolvedPath = path.resolve(filePath);
     const stat = fs.statSync(filePath);
     const size = stat.size;
     const lastWriteUtc = new Date(stat.mtimeMs).toISOString();
     const sha256 = previous &&
+        previous.path === resolvedPath &&
         previous.size === size &&
         previous.lastWriteUtc === lastWriteUtc &&
         typeof previous.sha256 === "string" &&
@@ -99,7 +101,7 @@ function getFileDescriptorWithCache(filePath, previous) {
         ? previous.sha256
         : getFileSha256(filePath);
     return {
-        path: path.resolve(filePath),
+        path: resolvedPath,
         size,
         lastWriteUtc,
         sha256,

@@ -16,6 +16,7 @@ import { extractAsarArchive } from "./asar";
 import {
   setManifestStepState,
   StateManifest,
+  testManifestStepCurrent,
   writeStateManifest,
 } from "./manifest";
 
@@ -96,9 +97,11 @@ export function invokeExtractionStage(
   const appDir = path.join(workDir, "app");
 
   const appPackage = path.join(appDir, "package.json");
-  const canReuse = reuse && fileExists(appPackage);
+  const extractCurrent = testManifestStepCurrent(manifest, "extract", extractSignature);
+  const canReuse = reuse && fileExists(appPackage) && (extractCurrent || allowFallbackReuse);
   if (canReuse) {
-    writeSuccess("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
+    if (extractCurrent) writeSuccess("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
+    else writeWarn("Extraction reuse fallback applied from legacy manifest state.");
     return { sevenZip, extractedDir, electronDir, appDir, performed: false };
   }
 

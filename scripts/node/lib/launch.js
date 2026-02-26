@@ -1073,12 +1073,16 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
     if (!(0, exec_1.fileExists)(mainJs))
         return;
     let raw = fs.readFileSync(mainJs, "utf8");
-    const runtimeStart = raw.match(/(["'])use strict\1;require\(["']electron["']\);[\s\S]*/) ??
-        raw.match(/require\(["']electron["']\);[\s\S]*/);
-    if (runtimeStart)
-        raw = runtimeStart[0];
     raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V\d+ \*\/[\s\S]*?\}\)\(\);\s*/g, "");
-    raw = raw.replace(/\n\s*const parts = \[\];[\s\S]*?if \(!process\.env\.NODE_ENV\) process\.env\.NODE_ENV = "production";\s*\}\s*catch \{\s*\/\/ no-op\s*\}\s*\}\)\(\);\s*/g, "\n");
+    raw = raw.replace(/\(function codeXWindowsEnvironmentShim\(\)\s*\{[\s\S]*?\}\)\(\);\s*/g, "");
+    const runtimeStart = raw.match(/(["'])use strict\1;\s*[\s\S]*/);
+    if (!runtimeStart) {
+        throw new Error(`Unable to locate runtime entry in ${mainJs}. Expected '"use strict";' prefix.`);
+    }
+    raw = runtimeStart[0];
+    if (!/require\(["']electron["']\)/.test(raw)) {
+        throw new Error(`Unable to locate electron bootstrap require in ${mainJs}.`);
+    }
     const shim = buildWindowsRuntimeShim(buildNumber, buildFlavor);
     fs.writeFileSync(mainJs, `${shim}\n${raw}`, "utf8");
 }

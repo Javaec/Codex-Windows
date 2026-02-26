@@ -98,9 +98,13 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     const electronDir = path.join(workDir, "electron");
     const appDir = path.join(workDir, "app");
     const appPackage = path.join(appDir, "package.json");
-    const canReuse = reuse && (0, exec_1.fileExists)(appPackage);
+    const extractCurrent = (0, manifest_1.testManifestStepCurrent)(manifest, "extract", extractSignature);
+    const canReuse = reuse && (0, exec_1.fileExists)(appPackage) && (extractCurrent || allowFallbackReuse);
     if (canReuse) {
-        (0, exec_1.writeSuccess)("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
+        if (extractCurrent)
+            (0, exec_1.writeSuccess)("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
+        else
+            (0, exec_1.writeWarn)("Extraction reuse fallback applied from legacy manifest state.");
         return { sevenZip, extractedDir, electronDir, appDir, performed: false };
     }
     (0, exec_1.writeHeader)("Extracting DMG");
