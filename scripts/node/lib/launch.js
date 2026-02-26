@@ -392,10 +392,10 @@ function escapeJsString(value) {
 function buildWindowsRuntimeShim(buildNumber, buildFlavor) {
     const safeBuildNumber = escapeJsString(buildNumber);
     const safeBuildFlavor = escapeJsString(buildFlavor);
-    const shim = String.raw `/* CODEX-WINDOWS-ENV-SHIM-V5 */
+    const shim = String.raw `/* CODEX-WINDOWS-ENV-SHIM-V6 */
 (function () {
-  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V5__) return;
-  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V5__ = true;
+  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V6__) return;
+  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V6__ = true;
   try {
     const fs = require("node:fs");
     const path = require("node:path");
@@ -485,6 +485,86 @@ function buildWindowsRuntimeShim(buildNumber, buildFlavor) {
         return path.resolve(cleaned);
       }
       return "";
+    }
+
+    function resolveCodexHomeDir() {
+      const configured = normalizePathString(process.env.CODEX_HOME || "");
+      if (configured) return path.resolve(configured);
+      const profileDir = normalizePathString(process.env.USERPROFILE || process.env.HOME || "");
+      if (!profileDir) return "";
+      return path.join(profileDir, ".codex");
+    }
+
+    function listStateDatabasePaths(codexHomeDir) {
+      if (!codexHomeDir || !fs.existsSync(codexHomeDir)) return [];
+      let entries = [];
+      try {
+        entries = fs.readdirSync(codexHomeDir, { withFileTypes: true });
+      } catch {
+        return [];
+      }
+      const out = [];
+      for (const entry of entries) {
+        if (!entry || !entry.isFile()) continue;
+        if (!/^state(?:_\d+)?\.sqlite$/i.test(String(entry.name || ""))) continue;
+        out.push(path.join(codexHomeDir, entry.name));
+      }
+      out.sort((a, b) => String(a).localeCompare(String(b)));
+      return out;
+    }
+
+    function migrateThreadCwdPrefixInSqlite(codexHomeDir) {
+      const report = {
+        codexHomeDir: codexHomeDir || "",
+        scannedDatabases: 0,
+        updatedDatabases: 0,
+        updatedRows: 0
+      };
+
+      const databasePaths = listStateDatabasePaths(codexHomeDir);
+      if (databasePaths.length === 0) return report;
+
+      let DatabaseCtor;
+      try {
+        DatabaseCtor = require("better-sqlite3");
+      } catch {
+        console.warn("[sqlite-cwd-migration] skipped reason=missing-better-sqlite3");
+        return report;
+      }
+      if (typeof DatabaseCtor !== "function") {
+        console.warn("[sqlite-cwd-migration] skipped reason=invalid-better-sqlite3-export");
+        return report;
+      }
+
+      const updateQuery = "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND length(cwd) > 4 AND substr(hex(cwd), 1, 8)='5C5C3F5C'";
+      const hasThreadsTableQuery = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads' LIMIT 1";
+
+      for (const databasePath of databasePaths) {
+        let db;
+        try {
+          db = new DatabaseCtor(databasePath, { fileMustExist: true });
+          report.scannedDatabases += 1;
+          const hasThreadsTable = db.prepare(hasThreadsTableQuery).get();
+          if (!hasThreadsTable) continue;
+          const result = db.prepare(updateQuery).run();
+          const changedRows = Number(result && result.changes ? result.changes : 0);
+          if (changedRows > 0) {
+            report.updatedDatabases += 1;
+            report.updatedRows += changedRows;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("[sqlite-cwd-migration] failed db=" + databasePath + " message=" + message);
+        } finally {
+          try {
+            if (db && typeof db.close === "function") db.close();
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return report;
     }
 
     function isPathLike(value) {
@@ -939,6 +1019,10 @@ function buildWindowsRuntimeShim(buildNumber, buildFlavor) {
     }
 
     const userDataDir = resolveUserDataDir();
+    const sqliteMigrationReport = migrateThreadCwdPrefixInSqlite(resolveCodexHomeDir());
+    if (sqliteMigrationReport.updatedRows > 0) {
+      console.info("[sqlite-cwd-migration] codexHomeDir=" + sqliteMigrationReport.codexHomeDir + " scannedDatabases=" + sqliteMigrationReport.scannedDatabases + " updatedDatabases=" + sqliteMigrationReport.updatedDatabases + " updatedRows=" + sqliteMigrationReport.updatedRows);
+    }
     const workspaceSanitizerReport = sanitizeWorkspaceRegistry(userDataDir);
     if (workspaceSanitizerReport && workspaceSanitizerReport.reportPath) {
       process.env.CODEX_WORKSPACE_SANITIZER_REPORT = workspaceSanitizerReport.reportPath;
