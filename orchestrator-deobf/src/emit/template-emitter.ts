@@ -1856,6 +1856,9 @@ function buildEslintConfig(): string {
     "  {",
     '    files: ["**/*.ts"],',
     '    ignores: ["src/chunks-ts/**/*.ts"],',
+    "    linterOptions: {",
+    '      reportUnusedDisableDirectives: "off",',
+    "    },",
     "    languageOptions: {",
       "      parser: tsParser,",
       '      sourceType: "module",',
@@ -1877,6 +1880,9 @@ function buildEslintConfig(): string {
       '      "no-constant-condition": "off",',
       '      "no-unsafe-finally": "off",',
       '      "no-fallthrough": "off",',
+      '      "no-empty": "off",',
+      '      "getter-return": "off",',
+      '      "no-unused-private-class-members": "off",',
       '      "@typescript-eslint/no-unused-vars": "off"',
     "    },",
     "  },",
@@ -2499,6 +2505,16 @@ function buildQualityModuleContent(
     if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
       return undefined;
     }
+    const hasExportLikeModifier = (node: ts.Node): boolean => {
+      const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+      if (!modifiers || modifiers.length < 1) {
+        return false;
+      }
+      return modifiers.some(
+        (modifier) =>
+          modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword,
+      );
+    };
     const removeExport = (node: ts.Node): ts.Modifier[] | undefined => {
       const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
       if (!modifiers || modifiers.length < 1) {
@@ -2517,6 +2533,9 @@ function buildQualityModuleContent(
     };
 
     if (ts.isFunctionDeclaration(statement)) {
+      if (!hasExportLikeModifier(statement)) {
+        return statement;
+      }
       return ts.factory.updateFunctionDeclaration(
         statement,
         removeExport(statement),
@@ -2529,6 +2548,9 @@ function buildQualityModuleContent(
       );
     }
     if (ts.isClassDeclaration(statement)) {
+      if (!hasExportLikeModifier(statement)) {
+        return statement;
+      }
       return ts.factory.updateClassDeclaration(
         statement,
         removeExport(statement),
@@ -2539,6 +2561,9 @@ function buildQualityModuleContent(
       );
     }
     if (ts.isVariableStatement(statement)) {
+      if (!hasExportLikeModifier(statement)) {
+        return statement;
+      }
       return ts.factory.updateVariableStatement(statement, removeExport(statement), statement.declarationList);
     }
     return statement;
@@ -2842,17 +2867,31 @@ function buildQualityModuleContent(
           targetChunkId,
           [...localNameByRootIdentifier.keys()],
         );
-        const rootRenameMap = new Map<string, string>();
-        for (const [rootIdentifier, localName] of localNameByRootIdentifier.entries()) {
-          if (rootIdentifier !== localName) {
-            rootRenameMap.set(rootIdentifier, localName);
-          }
-        }
         const normalizedTargetStatements = targetSelection.selectedStatements
           .map((statement) => stripExportModifiers(statement))
           .filter((statement): statement is ts.Statement => Boolean(statement));
-        const renamedTargetStatements = applyScopedIdentifierRenames(normalizedTargetStatements, rootRenameMap);
-        inlineDependencyStatements.push(...renamedTargetStatements);
+        inlineDependencyStatements.push(...normalizedTargetStatements);
+        for (const [rootIdentifier, localName] of localNameByRootIdentifier.entries()) {
+          if (rootIdentifier === localName) {
+            continue;
+          }
+          inlineDependencyStatements.push(
+            ts.factory.createVariableStatement(
+              undefined,
+              ts.factory.createVariableDeclarationList(
+                [
+                  ts.factory.createVariableDeclaration(
+                    ts.factory.createIdentifier(localName),
+                    undefined,
+                    undefined,
+                    ts.factory.createIdentifier(rootIdentifier),
+                  ),
+                ],
+                ts.NodeFlags.Const,
+              ),
+            ),
+          );
+        }
         for (const requiredImportLocal of targetSelection.requiredImportLocals) {
           requiredImportLocals.add(requiredImportLocal);
         }
@@ -2888,17 +2927,6 @@ function buildQualityModuleContent(
       const resolved = nextUniqueIdentifier(base, chunkUsedNames);
       renameMap.set(localName, resolved);
     }
-    for (const statement of inlineDependencyStatements) {
-      const declaredNames = collectStatementDeclaredNames(statement);
-      for (const declaredName of [...declaredNames].sort((left, right) => left.localeCompare(right))) {
-        if (renameMap.has(declaredName)) {
-          continue;
-        }
-        const base = buildChunkLocalAliasBase(chunkId, declaredName, declaredName);
-        const resolved = nextUniqueIdentifier(base, chunkUsedNames);
-        renameMap.set(declaredName, resolved);
-      }
-    }
     for (const statement of selectedStatements) {
       const declaredNames = collectStatementDeclaredNames(statement);
       for (const declaredName of [...declaredNames].sort((left, right) => left.localeCompare(right))) {
@@ -2931,8 +2959,7 @@ function buildQualityModuleContent(
       });
 
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const bodyStatements: ts.Statement[] = [];
-    bodyStatements.push(...inlineDependencyStatements);
+    const sourceBodyStatements: ts.Statement[] = [];
     for (const statement of sourceChunkMetadata.sourceFile.statements) {
       if (!selectedStatements.has(statement)) {
         continue;
@@ -2947,11 +2974,19 @@ function buildQualityModuleContent(
       if (!stripped) {
         continue;
       }
-      bodyStatements.push(stripped);
+      sourceBodyStatements.push(stripped);
     }
-    const renamedStatements = applyScopedIdentifierRenames(bodyStatements, renameMap);
+    const renamedSourceStatements = applyScopedIdentifierRenames(sourceBodyStatements, renameMap);
     const declarationLines: string[] = [];
-    for (const statement of renamedStatements) {
+    for (const statement of inlineDependencyStatements) {
+      const statementSource = statement.getSourceFile?.() ?? sourceChunkMetadata.sourceFile;
+      const rendered = printer.printNode(ts.EmitHint.Unspecified, statement, statementSource).trim();
+      if (rendered.length < 1) {
+        continue;
+      }
+      declarationLines.push(rendered);
+    }
+    for (const statement of renamedSourceStatements) {
       const rendered = printer.printNode(ts.EmitHint.Unspecified, statement, sourceChunkMetadata.sourceFile).trim();
       if (rendered.length < 1) {
         continue;

@@ -2,13 +2,35 @@
   "candidateCount": 8,
   "candidates": [
     {
-      "averageConfidence": 0.7126,
+      "averageConfidence": 0.727,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.7994,
-      "averageSymbolCount": 4,
+      "averageScore": 0.8056,
+      "averageSymbolCount": 5,
+      "filePath": "src/main/transport/transport-bridge-quality-01.ts",
+      "minScore": 0.8043,
+      "moduleIds": [
+        "main:transport:transport-bridge:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.736,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8095,
+      "averageSymbolCount": 5,
       "filePath": "src/main/transport/transport-bridge-quality-02.ts",
-      "minScore": 0.7994,
+      "minScore": 0.8086,
       "moduleIds": [
         "main:transport:transport-bridge:quality-02"
       ],
@@ -24,13 +46,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7366,
+      "averageConfidence": 0.7377,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7802,
-      "averageScore": 0.8098,
-      "averageSymbolCount": 204,
+      "averageNameQuality": 0.7804,
+      "averageScore": 0.8103,
+      "averageSymbolCount": 311,
       "filePath": "src/services/store/store-state.ts",
-      "minScore": 0.8073,
+      "minScore": 0.8064,
       "moduleIds": [
         "services:store:state",
         "services:store:state-store"
@@ -47,37 +69,15 @@
       ]
     },
     {
-      "averageConfidence": 0.7399,
+      "averageConfidence": 0.7392,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8111,
-      "averageSymbolCount": 4,
-      "filePath": "src/main/transport/transport-bridge-quality-01.ts",
-      "minScore": 0.8111,
-      "moduleIds": [
-        "main:transport:transport-bridge:quality-01"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 4,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7426,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8123,
-      "averageSymbolCount": 98,
+      "averageScore": 0.8108,
+      "averageSymbolCount": 151,
       "filePath": "src/renderer/store/store-state.ts",
-      "minScore": 0.8123,
+      "minScore": 0.8098,
       "moduleIds": [
-        "renderer:store:state-store"
+        "renderer:store:state"
       ],
       "profiles": [
         "core-no-binary",
@@ -91,13 +91,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7181,
+      "averageConfidence": 0.7235,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.8368,
-      "averageSymbolCount": 83,
+      "averageScore": 0.8392,
+      "averageSymbolCount": 115,
       "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
-      "minScore": 0.8368,
+      "minScore": 0.8373,
       "moduleIds": [
         "services:service:run-abcdefghijklmnopqrstuvwxyz-flow"
       ],
@@ -113,15 +113,15 @@
       ]
     },
     {
-      "averageConfidence": 0.8673,
+      "averageConfidence": 0.8658,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7855,
-      "averageScore": 0.8678,
-      "averageSymbolCount": 73,
+      "averageScore": 0.8672,
+      "averageSymbolCount": 91,
       "filePath": "src/services/service/service-domain.ts",
-      "minScore": 0.8678,
+      "minScore": 0.8671,
       "moduleIds": [
-        "services:service:domain-service"
+        "services:service:service"
       ],
       "profiles": [
         "core-no-binary",
@@ -135,10 +135,10 @@
       ]
     },
     {
-      "averageConfidence": 0.912,
+      "averageConfidence": 0.9142,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.8229,
-      "averageScore": 0.9002,
+      "averageScore": 0.9012,
       "averageSymbolCount": 7,
       "filePath": "src/renderer/hook/hook-hooks-render.ts",
       "minScore": 0.9002,
@@ -157,13 +157,13 @@
       ]
     },
     {
-      "averageConfidence": 0.9419,
+      "averageConfidence": 0.9352,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8086,
-      "averageScore": 0.908,
-      "averageSymbolCount": 7,
+      "averageNameQuality": 0.8133,
+      "averageScore": 0.9068,
+      "averageSymbolCount": 9,
       "filePath": "src/renderer/ui/ui-components.ts",
-      "minScore": 0.908,
+      "minScore": 0.9061,
       "moduleIds": [
         "renderer:ui:ui-components"
       ],
@@ -179,6 +179,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-26T11:53:39.275Z",
-  "suiteRunId": "step2b-20260226-114416-c01"
+  "generatedAtIso": "2026-02-26T19:39:41.080Z",
+  "suiteRunId": "step4hardfix7-20260226-190528-c03"
 }

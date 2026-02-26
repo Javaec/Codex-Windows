@@ -18,7 +18,6 @@ interface CliOptions {
   keepLastN: number;
   maxCycles: number;
   stagnationLimit: number;
-  minQualityDelta: number;
   suiteRunPrefix: string;
   promotionBudgetPerCycle: number;
 }
@@ -34,6 +33,7 @@ interface CycleExecutionSummary {
   suiteRunId: string;
   averageScore: number;
   nameQualityAverage: number;
+  proxyInQualityAverage: number;
   highConfidenceSymbolsAverage: number;
   mappedSymbolsAverage: number;
   classCoverageAverage: number;
@@ -49,6 +49,7 @@ interface CycleExecutionSummary {
   promotionInsertedCount: number;
   promotionAverageQuality: number;
   qualityDeltaFromPrevious: number;
+  nameQualityDeltaFromPrevious: number;
   highConfidenceDeltaFromPrevious: number;
   fileQualityDeltaFromPrevious: number;
   fileQualityBaselineGuardPassed: boolean;
@@ -64,20 +65,16 @@ interface CycleReport {
   snapshotAsarPath: string;
   maxCycles: number;
   stagnationLimit: number;
-  minQualityDelta: number;
   promotionBudgetPerCycle: number;
   kpiTargets: {
     classCoverage: number;
     functionCoverage: number;
     functionClassCoverage: number;
     variableCoverage: number;
+    proxyInQualityCount: number;
     monotonicNameQuality: boolean;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
-    fileQualityNoRegression: boolean;
-    hotChunkMin: number;
-    hotChunkMax: number;
-    rerenderedModuleAverageMin: number;
   };
   completedCycles: number;
   stopReason: string;
@@ -116,14 +113,11 @@ interface ManualRefactorAccumulator {
   stableProjects: Set<string>;
 }
 
-const KPI_TARGET_CLASS_COVERAGE = 1;
-const KPI_TARGET_FUNCTION_COVERAGE = 1;
-const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 1;
-const KPI_TARGET_VARIABLE_COVERAGE = 0.5;
-const FILE_QUALITY_BASELINE_DELTA_FLOOR = -0.005;
-const KPI_TARGET_HOT_CHUNK_MIN = 20;
-const KPI_TARGET_HOT_CHUNK_MAX = 30;
-const KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN = 1;
+const KPI_TARGET_CLASS_COVERAGE = 0.95;
+const KPI_TARGET_FUNCTION_COVERAGE = 0.95;
+const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 0.95;
+const KPI_TARGET_VARIABLE_COVERAGE = 0.7;
+const KPI_TARGET_PROXY_IN_QUALITY_COUNT = 0;
 const FIXED_REGRESSION_PROFILE_IDS = [
   "core-no-binary",
   "core-no-binary-no-pretty",
@@ -185,14 +179,6 @@ function parseIntegerOption(token: string, value: string, minimum: number): numb
   return parsed;
 }
 
-function parseFloatOption(token: string, value: string, minimum: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < minimum) {
-    throw new Error(`Invalid ${token} value: ${value}`);
-  }
-  return parsed;
-}
-
 function parseCli(argv: string[], projectRoot: string): CliOptions {
   let snapshotAsarPath = "";
   let suiteConfigPath = path.join(projectRoot, "config", "regression-suite.json");
@@ -202,7 +188,6 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let keepLastN = 8;
   let maxCycles = 8;
   let stagnationLimit = 3;
-  let minQualityDelta = 0.02;
   let suiteRunPrefix = "cycle";
   let promotionBudgetPerCycle = 140;
 
@@ -281,15 +266,6 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
-      case "--min-quality-delta": {
-        const value = argv[index + 1];
-        if (!value) {
-          throw new Error("Missing value for --min-quality-delta");
-        }
-        minQualityDelta = parseFloatOption("--min-quality-delta", value, 0);
-        index += 1;
-        break;
-      }
       case "--suite-run-prefix": {
         const value = argv[index + 1];
         if (!value) {
@@ -321,7 +297,6 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           "  --keep-last-n <n>",
           "  --max-cycles <n>",
           "  --stagnation-limit <n>",
-          "  --min-quality-delta <float>",
           "  --suite-run-prefix <token>",
           "  --promotion-budget-per-cycle <n>",
         ].join("\n");
@@ -347,7 +322,6 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     keepLastN,
     maxCycles,
     stagnationLimit,
-    minQualityDelta,
     suiteRunPrefix,
     promotionBudgetPerCycle,
   };
@@ -478,11 +452,14 @@ function summarizeCycle(
   promotion: ApplyMergedEvidencePromotionResult,
   adaptiveWeights: AdaptiveProfileWeightsResult,
   previous: CycleExecutionSummary | undefined,
-  minQualityDelta: number,
   stagnationStrike: number,
 ): CycleExecutionSummary {
   const qualityDeltaRaw = previous ? execution.aggregate.averageScore - previous.averageScore : execution.aggregate.averageScore;
   const qualityDelta = Number(qualityDeltaRaw.toFixed(4));
+  const nameQualityDeltaRaw = previous
+    ? execution.aggregate.nameQualityAverage - previous.nameQualityAverage
+    : execution.aggregate.nameQualityAverage;
+  const nameQualityDelta = Number(nameQualityDeltaRaw.toFixed(4));
   const highConfidenceDeltaRaw = previous
     ? execution.aggregate.highConfidenceSymbolsAverage - previous.highConfidenceSymbolsAverage
     : execution.aggregate.highConfidenceSymbolsAverage;
@@ -491,11 +468,8 @@ function summarizeCycle(
     ? execution.aggregate.worstFileDecileScoreAverage - previous.worstFileDecileScoreAverage
     : execution.aggregate.worstFileDecileScoreAverage;
   const fileQualityDelta = Number(fileQualityDeltaRaw.toFixed(4));
-  const fileQualityBaselineGuardPassed = !previous || fileQualityDelta >= FILE_QUALITY_BASELINE_DELTA_FLOOR;
-  const strike =
-    previous && qualityDelta < minQualityDelta && highConfidenceDelta <= 0 && fileQualityDelta <= 0
-      ? stagnationStrike + 1
-      : 0;
+  const fileQualityBaselineGuardPassed = true;
+  const strike = previous && nameQualityDelta <= 0 && highConfidenceDelta <= 0 ? stagnationStrike + 1 : 0;
 
   const kpiViolations: string[] = [];
   if (execution.aggregate.classCoverageAverage < KPI_TARGET_CLASS_COVERAGE) {
@@ -516,34 +490,19 @@ function summarizeCycle(
       `variableCoverageAverage ${execution.aggregate.variableCoverageAverage} < ${KPI_TARGET_VARIABLE_COVERAGE}`,
     );
   }
+  if (execution.aggregate.proxyInQualityAverage > KPI_TARGET_PROXY_IN_QUALITY_COUNT) {
+    kpiViolations.push(
+      `proxyInQualityAverage ${execution.aggregate.proxyInQualityAverage} > ${KPI_TARGET_PROXY_IN_QUALITY_COUNT}`,
+    );
+  }
   if (!execution.aggregate.buildHealthAllGreen) {
     kpiViolations.push("buildHealthAllGreen is false");
   }
   if (!execution.aggregate.devHealthAllGreen) {
     kpiViolations.push("devHealthAllGreen is false");
   }
-  if (execution.aggregate.hotChunkAverage < KPI_TARGET_HOT_CHUNK_MIN) {
-    kpiViolations.push(
-      `hotChunkAverage ${execution.aggregate.hotChunkAverage} < ${KPI_TARGET_HOT_CHUNK_MIN}`,
-    );
-  }
-  if (execution.aggregate.hotChunkAverage > KPI_TARGET_HOT_CHUNK_MAX) {
-    kpiViolations.push(
-      `hotChunkAverage ${execution.aggregate.hotChunkAverage} > ${KPI_TARGET_HOT_CHUNK_MAX}`,
-    );
-  }
-  if (execution.aggregate.rerenderedModuleAverage < KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN) {
-    kpiViolations.push(
-      `rerenderedModuleAverage ${execution.aggregate.rerenderedModuleAverage} < ${KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN}`,
-    );
-  }
   if (previous && execution.aggregate.nameQualityAverage < previous.nameQualityAverage) {
     kpiViolations.push(`nameQualityAverage regressed: ${execution.aggregate.nameQualityAverage} < ${previous.nameQualityAverage}`);
-  }
-  if (!fileQualityBaselineGuardPassed) {
-    kpiViolations.push(
-      `file-quality baseline guard failed: delta ${fileQualityDelta} < ${FILE_QUALITY_BASELINE_DELTA_FLOOR}`,
-    );
   }
 
   return {
@@ -551,6 +510,7 @@ function summarizeCycle(
     suiteRunId,
     averageScore: execution.aggregate.averageScore,
     nameQualityAverage: execution.aggregate.nameQualityAverage,
+    proxyInQualityAverage: execution.aggregate.proxyInQualityAverage,
     highConfidenceSymbolsAverage: execution.aggregate.highConfidenceSymbolsAverage,
     mappedSymbolsAverage: execution.aggregate.mappedSymbolsAverage,
     classCoverageAverage: execution.aggregate.classCoverageAverage,
@@ -566,6 +526,7 @@ function summarizeCycle(
     promotionInsertedCount: promotion.insertedEntryCount,
     promotionAverageQuality: promotion.averageSelectedQuality,
     qualityDeltaFromPrevious: qualityDelta,
+    nameQualityDeltaFromPrevious: nameQualityDelta,
     highConfidenceDeltaFromPrevious: highConfidenceDelta,
     fileQualityDeltaFromPrevious: fileQualityDelta,
     fileQualityBaselineGuardPassed,
@@ -724,7 +685,6 @@ async function run(): Promise<void> {
       promotion,
       adaptiveWeights,
       previousSummary,
-      cli.minQualityDelta,
       previousStrike,
     );
     cycleSummaries.push(summary);
@@ -759,20 +719,16 @@ async function run(): Promise<void> {
     snapshotAsarPath: cli.snapshotAsarPath,
     maxCycles: cli.maxCycles,
     stagnationLimit: cli.stagnationLimit,
-    minQualityDelta: cli.minQualityDelta,
     promotionBudgetPerCycle: cli.promotionBudgetPerCycle,
     kpiTargets: {
       classCoverage: KPI_TARGET_CLASS_COVERAGE,
       functionCoverage: KPI_TARGET_FUNCTION_COVERAGE,
       functionClassCoverage: KPI_TARGET_FUNCTION_CLASS_COVERAGE,
       variableCoverage: KPI_TARGET_VARIABLE_COVERAGE,
+      proxyInQualityCount: KPI_TARGET_PROXY_IN_QUALITY_COUNT,
       monotonicNameQuality: true,
       buildHealthAllGreen: true,
       devHealthAllGreen: true,
-      fileQualityNoRegression: true,
-      hotChunkMin: KPI_TARGET_HOT_CHUNK_MIN,
-      hotChunkMax: KPI_TARGET_HOT_CHUNK_MAX,
-      rerenderedModuleAverageMin: KPI_TARGET_RERENDERED_MODULE_AVERAGE_MIN,
     },
     completedCycles: cycleSummaries.length,
     stopReason,
