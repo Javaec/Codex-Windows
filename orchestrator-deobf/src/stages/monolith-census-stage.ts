@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as ts from "typescript";
 import { MonolithCensusStageInput, MonolithCensusStageOutput } from "../contracts";
 import { hashFileSha256 } from "../utils/hash";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
@@ -82,6 +83,9 @@ interface SymbolTableEntry {
   signature?: string;
   returnHint?: TypeHintKind;
   inferredType?: TypeHintKind;
+  occurrenceCount?: number;
+  referenceCount?: number;
+  occurrenceSpans?: Array<{ start: number; end: number }>;
 }
 
 interface SymbolTableModel {
@@ -125,10 +129,10 @@ interface SignalPattern {
   weight: number;
 }
 
-const CLASS_REGEX = /\bclass\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\b/g;
-const FUNCTION_REGEX = /\bfunction\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\s*\(/g;
+const CLASS_REGEX = /\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
+const FUNCTION_REGEX = /\bfunction\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
 const CALLABLE_VARIABLE_REGEX =
-  /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]{2,})\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/g;
+  /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/g;
 const VARIABLE_DECLARATION_WITH_INIT_REGEX =
   /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=\s*([^;\n]+))?/g;
 
@@ -413,6 +417,84 @@ function applySourceReplacements(source: string, replacements: SourceReplacement
   return output;
 }
 
+function applyIdentifierRenameMap(source: string, renameByIdentifier: ReadonlyMap<string, string>): string {
+  if (renameByIdentifier.size === 0) {
+    return source;
+  }
+  const scanner = ts.createScanner(ts.ScriptTarget.ES2022, false, ts.LanguageVariant.Standard, source);
+  const replacements: SourceReplacement[] = [];
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.Identifier) {
+      const identifier = scanner.getTokenText();
+      const replacement = renameByIdentifier.get(identifier);
+      if (replacement && replacement !== identifier) {
+        replacements.push({
+          start: scanner.getTokenPos(),
+          end: scanner.getTextPos(),
+          replacement,
+        });
+      }
+    }
+    token = scanner.scan();
+  }
+  return applySourceReplacements(source, replacements);
+}
+
+function buildRenameMap(
+  declarations: NamedOccurrence[],
+  variables: VariableCoverageEntry[],
+  mode: "pass1" | "pass2",
+): Map<string, string> {
+  const byIdentifier = new Map<string, string>();
+  const addMapping = (from: string, to: string): void => {
+    if (from.length === 0 || to.length === 0) {
+      return;
+    }
+    if (from === to) {
+      return;
+    }
+    if (byIdentifier.has(from)) {
+      return;
+    }
+    byIdentifier.set(from, to);
+  };
+  for (const declaration of declarations) {
+    if (mode === "pass1") {
+      addMapping(declaration.originalName, declaration.pass1Name);
+      continue;
+    }
+    addMapping(declaration.pass1Name, declaration.replacementName);
+  }
+  for (const variable of variables) {
+    if (mode === "pass1") {
+      addMapping(variable.originalName, variable.pass1Name);
+      continue;
+    }
+    addMapping(variable.pass1Name, variable.pass2Name);
+  }
+  return byIdentifier;
+}
+
+function buildIdentifierTokenIndex(source: string): Map<string, Array<{ start: number; end: number }>> {
+  const byIdentifier = new Map<string, Array<{ start: number; end: number }>>();
+  const scanner = ts.createScanner(ts.ScriptTarget.ES2022, false, ts.LanguageVariant.Standard, source);
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.Identifier) {
+      const identifier = scanner.getTokenText();
+      const bucket = byIdentifier.get(identifier) ?? [];
+      bucket.push({
+        start: scanner.getTokenPos(),
+        end: scanner.getTextPos(),
+      });
+      byIdentifier.set(identifier, bucket);
+    }
+    token = scanner.scan();
+  }
+  return byIdentifier;
+}
+
 function buildPassReplacements(
   namedRenames: NamedOccurrence[],
   variableCoverage: VariableCoverageEntry[],
@@ -673,18 +755,21 @@ function buildVariableCoverage(source: string, namedRenames: NamedOccurrence[]):
 
 function buildSymbolTable(
   source: string,
+  pass2Source: string,
   sourceJsPath: string,
   unifiedMonolithPath: string,
   lineageId: string,
   namedRenames: NamedOccurrence[],
   variableCoverage: VariableCoverageEntry[],
 ): SymbolTableModel {
+  const tokenIndexByIdentifier = buildIdentifierTokenIndex(pass2Source);
   const declarationEntries: SymbolTableEntry[] = namedRenames.map((entry, index) => {
     const symbolKey = `${lineageId}:symbol:${index}`;
     const parameterNames = extractFunctionParameters(source, entry);
     const signatureBase = entry.kind === "class" ? `new ${entry.replacementName}` : entry.replacementName;
     const signature = `${signatureBase}(${parameterNames.join(", ")})`;
     const returnHint = inferReturnHintFromSnippet(snippetAt(source, entry.start));
+    const occurrenceSpans = tokenIndexByIdentifier.get(entry.replacementName) ?? [];
     return {
       symbolKey,
       anchor: `symbol:${index}`,
@@ -702,23 +787,32 @@ function buildSymbolTable(
       parameterCount: parameterNames.length,
       signature,
       returnHint,
+      occurrenceCount: occurrenceSpans.length,
+      referenceCount: Math.max(0, occurrenceSpans.length - 1),
+      occurrenceSpans,
     };
   });
-  const variableEntries: SymbolTableEntry[] = variableCoverage.map((entry) => ({
-    symbolKey: `${lineageId}:${entry.anchor}`,
-    anchor: entry.anchor,
-    kind: "variable",
-    originalName: entry.originalName,
-    pass1Name: entry.pass1Name,
-    finalName: entry.pass2Name,
-    start: entry.start,
-    end: entry.end,
-    signalTags: [entry.semanticBucket],
-    signalScore: entry.signalScore,
-    semanticBucket: entry.semanticBucket,
-    promoteToQuality: entry.promoteToQuality,
-    inferredType: entry.inferredType,
-  }));
+  const variableEntries: SymbolTableEntry[] = variableCoverage.map((entry) => {
+    const occurrenceSpans = tokenIndexByIdentifier.get(entry.pass2Name) ?? [];
+    return {
+      symbolKey: `${lineageId}:${entry.anchor}`,
+      anchor: entry.anchor,
+      kind: "variable",
+      originalName: entry.originalName,
+      pass1Name: entry.pass1Name,
+      finalName: entry.pass2Name,
+      start: entry.start,
+      end: entry.end,
+      signalTags: [entry.semanticBucket],
+      signalScore: entry.signalScore,
+      semanticBucket: entry.semanticBucket,
+      promoteToQuality: entry.promoteToQuality,
+      inferredType: entry.inferredType,
+      occurrenceCount: occurrenceSpans.length,
+      referenceCount: Math.max(0, occurrenceSpans.length - 1),
+      occurrenceSpans,
+    };
+  });
   const entries = [...declarationEntries, ...variableEntries].sort((left, right) => left.anchor.localeCompare(right.anchor));
   return {
     version: 2,
@@ -780,8 +874,12 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
   const namedRenames = assignNames(source, renames);
   const variableCoverage = buildVariableCoverage(source, namedRenames);
 
-  const pass1Source = applySourceReplacements(source, buildPassReplacements(namedRenames, variableCoverage, "pass1"));
-  const pass2Source = applySourceReplacements(source, buildPassReplacements(namedRenames, variableCoverage, "pass2"));
+  const pass1DeclarationSource = applySourceReplacements(source, buildPassReplacements(namedRenames, variableCoverage, "pass1"));
+  const pass1RenameMap = buildRenameMap(namedRenames, variableCoverage, "pass1");
+  const pass1Source = applyIdentifierRenameMap(pass1DeclarationSource, pass1RenameMap);
+
+  const pass2RenameMap = buildRenameMap(namedRenames, variableCoverage, "pass2");
+  const pass2Source = applyIdentifierRenameMap(pass1Source, pass2RenameMap);
 
   const seedEntries = buildSeedEntries(input.lineageId, namedRenames, variableCoverage);
   const qualityPromotionCandidateCount = seedEntries.filter((entry) => entry.promoteToQuality).length;
@@ -796,6 +894,7 @@ async function executeMonolithCensus(request: StageExecutionRequest): Promise<vo
 
   const symbolTable = buildSymbolTable(
     source,
+    pass2Source,
     input.sourceJsPath,
     unifiedMonolithPath,
     input.lineageId,
@@ -848,7 +947,7 @@ export const monolithCensusStage: PipelineStage = {
   id: "monolith-census",
   execute: executeMonolithCensus,
   cachePlan: {
-    version: 6,
+    version: 7,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as MonolithCensusStageInput;
       const digest = await hashFileSha256(input.sourceJsPath);
