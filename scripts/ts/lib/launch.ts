@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { ensureDir, fileExists, runCommand } from "./exec";
 
 const AUTOSCROLL_SCRIPT_FILE = "codex-windows-autoscroll.js";
+const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 
 export function patchPreload(appDir: string): void {
   const preload = path.join(appDir, ".vite", "build", "preload.js");
@@ -351,6 +352,49 @@ export function patchWebviewAutoScroll(appDir: string): void {
   fs.writeFileSync(indexPath, html, "utf8");
 }
 
+export function patchWebviewCwdNormalization(appDir: string): void {
+  const assetsDir = path.join(appDir, "webview", "assets");
+  if (!fileExists(assetsDir)) return;
+
+  const bundles = fs
+    .readdirSync(assetsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
+    .map((entry) => path.join(assetsDir, entry.name));
+
+  if (bundles.length === 0) {
+    throw new Error("webview index bundle not found for cwd normalization patch.");
+  }
+
+  const helperPairPattern =
+    /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
+
+  let patchedFileCount = 0;
+  let alreadyPatchedFileCount = 0;
+
+  for (const bundlePath of bundles) {
+    let raw = fs.readFileSync(bundlePath, "utf8");
+    if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
+      alreadyPatchedFileCount += 1;
+      continue;
+    }
+
+    let changed = false;
+    raw = raw.replace(helperPairPattern, (_full, lowerFn, lowerArg, normalizeFn, normalizeArg) => {
+      changed = true;
+      return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){const __codexWindowsPathRaw=${normalizeArg}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath}`;
+    });
+
+    if (!changed) continue;
+
+    fs.writeFileSync(bundlePath, raw, "utf8");
+    patchedFileCount += 1;
+  }
+
+  if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
+    throw new Error("webview cwd normalization patch point not found.");
+  }
+}
+
 function escapeJsString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -503,7 +547,12 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
         return report;
       }
 
-      const updateQuery = "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND length(cwd) > 4 AND substr(hex(cwd), 1, 8)='5C5C3F5C'";
+      const updateQueries = [
+        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND length(cwd) > 4 AND substr(hex(cwd), 1, 8)='5C5C3F5C'",
+        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND cwd LIKE '//?/%'",
+        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND cwd LIKE '/??/%'",
+        "UPDATE threads SET cwd = substr(cwd, 2) WHERE typeof(cwd)='text' AND cwd GLOB '/[A-Za-z]:/*'"
+      ];
       const hasThreadsTableQuery = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads' LIMIT 1";
 
       for (const databasePath of databasePaths) {
@@ -513,8 +562,11 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
           report.scannedDatabases += 1;
           const hasThreadsTable = db.prepare(hasThreadsTableQuery).get();
           if (!hasThreadsTable) continue;
-          const result = db.prepare(updateQuery).run();
-          const changedRows = Number(result && result.changes ? result.changes : 0);
+          let changedRows = 0;
+          for (const updateQuery of updateQueries) {
+            const result = db.prepare(updateQuery).run();
+            changedRows += Number(result && result.changes ? result.changes : 0);
+          }
           if (changedRows > 0) {
             report.updatedDatabases += 1;
             report.updatedRows += changedRows;

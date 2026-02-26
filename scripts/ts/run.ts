@@ -23,6 +23,7 @@ import {
   ensureGitOnPath,
   patchMainForWindowsEnvironment,
   patchPreload,
+  patchWebviewCwdNormalization,
   patchWebviewAutoScroll,
   startCodexDirectLaunch,
 } from "./lib/launch";
@@ -93,6 +94,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   patchPreload(appDir);
   writeHeader("Patching webview auto-scroll");
   patchWebviewAutoScroll(appDir);
+  writeHeader("Patching webview cwd normalization");
+  patchWebviewCwdNormalization(appDir);
 
   writeHeader("Reading app metadata");
   const pkgPath = path.join(appDir, "package.json");
