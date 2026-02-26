@@ -137,12 +137,13 @@ const SHARED_HELPER_MODULE_RELATIVE_PATH = "./_shared/helpers.js";
 const SHARED_HELPER_MODULE_FILENAME = "helpers.ts";
 const SHARED_HELPER_MIN_OCCURRENCES = 2;
 const SHARED_HELPER_MAX_COUNT = 64;
-const COHESION_MERGE_THRESHOLD = 0.44;
-const COHESION_SPLIT_THRESHOLD = 0.2;
-const COHESION_SPLIT_MIN_SYMBOLS = 22;
-const MODULE_MERGE_MAX_SYMBOLS = 320;
-const TINY_MODULE_SYMBOL_LIMIT = 22;
-const TINY_MODULE_MERGE_BUDGET_FACTOR = 1.2;
+const COHESION_MERGE_THRESHOLD = 0.36;
+const COHESION_SPLIT_THRESHOLD = 0.16;
+const COHESION_SPLIT_MIN_SYMBOLS = 26;
+const COHESION_FORCE_SPLIT_SYMBOLS = 420;
+const MODULE_MERGE_MAX_SYMBOLS = 420;
+const TINY_MODULE_SYMBOL_LIMIT = 30;
+const TINY_MODULE_MERGE_BUDGET_FACTOR = 1.6;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -1617,8 +1618,9 @@ function splitPlanByCohesion(
   if (plan.symbols.length < COHESION_SPLIT_MIN_SYMBOLS) {
     return [plan];
   }
+  const forceSplit = plan.symbols.length >= COHESION_FORCE_SPLIT_SYMBOLS;
   const cohesion = moduleCohesionScore(plan, renameHintsBySymbolKey, signalContext);
-  if (cohesion >= COHESION_SPLIT_THRESHOLD) {
+  if (!forceSplit && cohesion >= COHESION_SPLIT_THRESHOLD) {
     return [plan];
   }
 
@@ -1630,9 +1632,10 @@ function splitPlanByCohesion(
     bucket.push(symbol);
     buckets.set(head, bucket);
   }
+  const maxBucketCount = forceSplit ? 3 : 2;
   const rankedBuckets = [...buckets.entries()]
     .sort((left, right) => right[1].length - left[1].length)
-    .slice(0, 2);
+    .slice(0, maxBucketCount);
   if (rankedBuckets.length < 2) {
     return [plan];
   }
@@ -2025,12 +2028,30 @@ function buildQualityModuleContent(
 
   const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
   const usedExportNames = new Map<string, number>();
-  const exportEntries: Array<{ exportName: string; chunkId: string; sourceIdentifier: string }> = [];
-  const runtimeNamesByChunkId = new Map<string, string>();
-  const dependencyImportsByPath = new Map<string, string>();
+  const exportEntries: Array<{ exportName: string; chunkId: string; sourceIdentifier: string; localIdentifier: string }> = [];
+  const dependencyImportLines = new Set<string>();
+  const dependencyAliasNames = new Set<string>();
   const assetImportsByPath = new Map<string, string>();
   const assetFilesByPath = new Map<string, string>();
-  const chunkRuntimes: string[] = [];
+  const chunkDeclarationBlocks: string[] = [];
+  const usedTopLevelNames = new Set<string>();
+  const IMPORT_CHAIN_NOISE_TOKENS = new Set<string>([
+    "symbol",
+    "symbols",
+    "lifted",
+    "chunk",
+    "chunks",
+    "runtime",
+    "module",
+    "modules",
+    "entry",
+    "main",
+    "renderer",
+    "service",
+    "services",
+    "store",
+    "stores",
+  ]);
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
   interface ChunkImportBinding {
@@ -2045,6 +2066,12 @@ function buildQualityModuleContent(
     localName: string;
     kind: ChunkImportBindingKind;
     importedName: string;
+  }
+
+  interface RenameScopeFrame {
+    node: ts.Node;
+    declarations: Set<string>;
+    parent?: RenameScopeFrame;
   }
 
   const collectBindingNames = (name: ts.BindingName, sink: Set<string>): void => {
@@ -2073,6 +2100,219 @@ function buildQualityModuleContent(
       return names;
     }
     return names;
+  };
+
+  const applyTopLevelDeclarationRenames = (statements: ts.Statement[], renameMap: Map<string, string>): ts.Statement[] => {
+    if (renameMap.size === 0) {
+      return statements;
+    }
+    const renamed: ts.Statement[] = [];
+    for (const statement of statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name) {
+        const replacement = renameMap.get(statement.name.text);
+        if (replacement) {
+          renamed.push(
+            ts.factory.updateFunctionDeclaration(
+              statement,
+              statement.modifiers,
+              statement.asteriskToken,
+              ts.factory.createIdentifier(replacement),
+              statement.typeParameters,
+              statement.parameters,
+              statement.type,
+              statement.body,
+            ),
+          );
+          continue;
+        }
+      }
+      if (ts.isClassDeclaration(statement) && statement.name) {
+        const replacement = renameMap.get(statement.name.text);
+        if (replacement) {
+          renamed.push(
+            ts.factory.updateClassDeclaration(
+              statement,
+              statement.modifiers,
+              ts.factory.createIdentifier(replacement),
+              statement.typeParameters,
+              statement.heritageClauses,
+              statement.members,
+            ),
+          );
+          continue;
+        }
+      }
+      if (ts.isVariableStatement(statement)) {
+        let changed = false;
+        const nextDeclarations = statement.declarationList.declarations.map((declaration) => {
+          if (!ts.isIdentifier(declaration.name)) {
+            return declaration;
+          }
+          const replacement = renameMap.get(declaration.name.text);
+          if (!replacement) {
+            return declaration;
+          }
+          changed = true;
+          return ts.factory.updateVariableDeclaration(
+            declaration,
+            ts.factory.createIdentifier(replacement),
+            declaration.exclamationToken,
+            declaration.type,
+            declaration.initializer,
+          );
+        });
+        if (changed) {
+          renamed.push(
+            ts.factory.updateVariableStatement(
+              statement,
+              statement.modifiers,
+              ts.factory.updateVariableDeclarationList(statement.declarationList, nextDeclarations),
+            ),
+          );
+          continue;
+        }
+      }
+      renamed.push(statement);
+    }
+    return renamed;
+  };
+
+  const collectDirectDeclarations = (scopeNode: ts.Node): Set<string> => {
+    const declarations = new Set<string>();
+
+    if (ts.isSourceFile(scopeNode)) {
+      for (const statement of scopeNode.statements) {
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+          declarations.add(statement.name.text);
+          continue;
+        }
+        if (ts.isVariableStatement(statement)) {
+          for (const declaration of statement.declarationList.declarations) {
+            collectBindingNames(declaration.name, declarations);
+          }
+        }
+      }
+      return declarations;
+    }
+
+    if (ts.isFunctionLike(scopeNode)) {
+      if ((ts.isFunctionDeclaration(scopeNode) || ts.isFunctionExpression(scopeNode)) && scopeNode.name) {
+        declarations.add(scopeNode.name.text);
+      }
+      for (const parameter of scopeNode.parameters) {
+        collectBindingNames(parameter.name, declarations);
+      }
+      return declarations;
+    }
+
+    if (ts.isCatchClause(scopeNode)) {
+      if (scopeNode.variableDeclaration) {
+        collectBindingNames(scopeNode.variableDeclaration.name, declarations);
+      }
+      return declarations;
+    }
+
+    if (ts.isBlock(scopeNode)) {
+      for (const statement of scopeNode.statements) {
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+          declarations.add(statement.name.text);
+          continue;
+        }
+        if (ts.isVariableStatement(statement)) {
+          for (const declaration of statement.declarationList.declarations) {
+            collectBindingNames(declaration.name, declarations);
+          }
+        }
+      }
+    }
+
+    return declarations;
+  };
+
+  const isScopeNode = (node: ts.Node): boolean => {
+    if (ts.isSourceFile(node)) {
+      return true;
+    }
+    if (ts.isBlock(node)) {
+      return true;
+    }
+    if (ts.isFunctionLike(node)) {
+      return true;
+    }
+    if (ts.isCatchClause(node)) {
+      return true;
+    }
+    return false;
+  };
+
+  const identifierCanBeRenamed = (name: string, scope: RenameScopeFrame | undefined): boolean => {
+    let cursor = scope;
+    while (cursor) {
+      if (cursor.declarations.has(name)) {
+        if (ts.isSourceFile(cursor.node)) {
+          cursor = cursor.parent;
+          continue;
+        }
+        return false;
+      }
+      cursor = cursor.parent;
+    }
+    return true;
+  };
+
+  const applyScopedReferenceRenames = (statements: ts.Statement[], renameMap: Map<string, string>): ts.Statement[] => {
+    if (renameMap.size === 0) {
+      return statements;
+    }
+    const syntheticFile = ts.factory.createSourceFile(
+      statements,
+      ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+      ts.NodeFlags.None,
+    );
+    const transformerFactory: ts.TransformerFactory<ts.SourceFile> = (context) => {
+      const visit = (node: ts.Node, scope: RenameScopeFrame | undefined): ts.VisitResult<ts.Node> => {
+        const nextScope = isScopeNode(node)
+          ? {
+              node,
+              declarations: collectDirectDeclarations(node),
+              parent: scope,
+            }
+          : scope;
+
+        if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+          const replacement = renameMap.get(node.text);
+          if (replacement && identifierCanBeRenamed(node.text, nextScope)) {
+            return ts.factory.createIdentifier(replacement);
+          }
+        }
+
+        return ts.visitEachChild(
+          node,
+          (child) => visit(child, nextScope),
+          context,
+        );
+      };
+
+      return (sourceFile) => ts.visitNode(sourceFile, (node) => visit(node, undefined)) as ts.SourceFile;
+    };
+
+    const result = ts.transform(syntheticFile, [transformerFactory]);
+    const transformed = result.transformed[0];
+    if (!transformed) {
+      result.dispose();
+      throw new Error("buildQualityModuleContent: missing transformed source");
+    }
+    const nextStatements = [...transformed.statements];
+    result.dispose();
+    return nextStatements;
+  };
+
+  const applyScopedIdentifierRenames = (statements: ts.Statement[], renameMap: Map<string, string>): ts.Statement[] => {
+    if (renameMap.size === 0) {
+      return statements;
+    }
+    const declarationsRenamed = applyTopLevelDeclarationRenames(statements, renameMap);
+    return applyScopedReferenceRenames(declarationsRenamed, renameMap);
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
@@ -2216,7 +2456,7 @@ function buildQualityModuleContent(
     if (existingAlias) {
       return existingAlias;
     }
-    const usedAliases = new Set<string>([...dependencyImportsByPath.values(), ...assetImportsByPath.values()]);
+    const usedAliases = new Set<string>([...dependencyAliasNames, ...assetImportsByPath.values()]);
     const nextAlias = nextUniqueIdentifier("payloadAsset", usedAliases);
     assetImportsByPath.set(modulePath, nextAlias);
     return nextAlias;
@@ -2291,11 +2531,98 @@ function buildQualityModuleContent(
     return ts.factory.updateVariableStatement(statement, statement.modifiers, nextDeclarationList);
   };
 
-  const createChunkRuntime = (
+  const buildChunkLocalAliasBase = (
+    chunkId: string,
+    sourceIdentifier: string,
+    preferredName: string,
+  ): string => {
+    const sanitizeAliasTokens = (tokens: string[]): string[] =>
+      tokens
+        .filter((token) => token.length >= 3)
+        .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+        .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+        .filter((token) => !/\d/.test(token))
+        .filter((token) => !GENERIC_SEGMENTS.has(token))
+        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+
+    const preferredTokens = sanitizeAliasTokens(splitNameTokens(preferredName));
+    const sourceTokens = sanitizeAliasTokens(splitNameTokens(sourceIdentifier));
+    const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
+    const semanticTokens = dedupeNameTokens([
+      ...preferredTokens,
+      ...sourceTokens,
+      ...sanitizeAliasTokens(chunkTokens),
+    ]).slice(0, 2);
+    const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Domain";
+    const base = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}Impl`), 42);
+    if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
+      return base;
+    }
+    const fallbackChunk = toPascalCase(chunkTokens[0] ?? "domain");
+    return compactIdentifier(sanitizeIdentifier(`${plan.archetype}${fallbackChunk}Member`), 36);
+  };
+
+  const buildChunkImportAliasBase = (
+    chunkId: string,
+    modulePath: string,
+    importedName: string,
+  ): string => {
+    const sanitizeAliasTokens = (tokens: string[]): string[] =>
+      tokens
+        .filter((token) => token.length >= 3)
+        .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+        .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+        .filter((token) => !/\d/.test(token))
+        .filter((token) => !GENERIC_SEGMENTS.has(token))
+        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+
+    const moduleTokens = sanitizeAliasTokens(splitNameTokens(path.basename(modulePath)));
+    const importedTokens = sanitizeAliasTokens(splitNameTokens(importedName));
+    const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
+    const semanticTokens = dedupeNameTokens([
+      ...moduleTokens,
+      ...importedTokens,
+      ...sanitizeAliasTokens(chunkTokens),
+    ]).slice(0, 2);
+    const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Dependency";
+    const prefix = IMPORT_ALIAS_PREFIX_BY_ARCHETYPE[plan.archetype];
+    const base = compactIdentifier(sanitizeIdentifier(`${prefix}${stem}`), 34);
+    if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
+      return base;
+    }
+    return compactIdentifier(sanitizeIdentifier(`${prefix}Dependency`), 24);
+  };
+
+  const registerDependencyImportNeed = (need: ChunkImportNeed): void => {
+    const moduleSpecifier = quote(need.modulePath);
+    if (need.kind === "namespace") {
+      dependencyAliasNames.add(need.localName);
+      dependencyImportLines.add(`import * as ${need.localName} from ${moduleSpecifier};`);
+      return;
+    }
+    if (need.kind === "default") {
+      dependencyAliasNames.add(need.localName);
+      dependencyImportLines.add(`import ${need.localName} from ${moduleSpecifier};`);
+      return;
+    }
+    if (need.importedName === need.localName) {
+      dependencyAliasNames.add(need.localName);
+      dependencyImportLines.add(`import { ${need.importedName} } from ${moduleSpecifier};`);
+      return;
+    }
+    dependencyAliasNames.add(need.localName);
+    dependencyImportLines.add(`import { ${need.importedName} as ${need.localName} } from ${moduleSpecifier};`);
+  };
+
+  const createChunkLiftedDeclarations = (
     chunkId: string,
     requiredSourceIdentifiers: string[],
-    runtimeVarName: string,
-  ): string => {
+    preferredLocalNameBySourceIdentifier: ReadonlyMap<string, string>,
+  ): {
+    declarationText: string;
+    sourceIdentifierByOriginal: Map<string, string>;
+    importNeeds: ChunkImportNeed[];
+  } => {
     const liftedChunk = liftedChunkById.get(chunkId);
     if (!liftedChunk) {
       throw new Error(`buildQualityModuleContent: missing lifted chunk ${chunkId}`);
@@ -2350,6 +2677,47 @@ function buildQualityModuleContent(
       }
     }
 
+    const sourceIdentifierByOriginal = new Map<string, string>();
+    const chunkUsedNames = new Set<string>(usedTopLevelNames);
+    const renameMap = new Map<string, string>();
+    const sortedRequiredSourceIdentifiers = [...new Set(requiredSourceIdentifiers)].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    for (const sourceIdentifier of sortedRequiredSourceIdentifiers) {
+      const preferredName = preferredLocalNameBySourceIdentifier.get(sourceIdentifier) ?? sourceIdentifier;
+      const base = buildChunkLocalAliasBase(chunkId, sourceIdentifier, preferredName);
+      const resolved = nextUniqueIdentifier(base, chunkUsedNames);
+      renameMap.set(sourceIdentifier, resolved);
+      sourceIdentifierByOriginal.set(sourceIdentifier, resolved);
+    }
+    for (const localName of [...requiredImportLocals].sort((left, right) => left.localeCompare(right))) {
+      if (renameMap.has(localName)) {
+        continue;
+      }
+      const binding = importBindings.get(localName);
+      if (!binding) {
+        throw new Error(`buildQualityModuleContent: missing import binding "${localName}" in chunk ${chunkId}`);
+      }
+      const modulePath = normalizeChunkImportPath(chunkId, binding.moduleSpecifier);
+      const base = buildChunkImportAliasBase(chunkId, modulePath, binding.importedName);
+      const resolved = nextUniqueIdentifier(base, chunkUsedNames);
+      renameMap.set(localName, resolved);
+    }
+    for (const statement of selectedStatements) {
+      const declaredNames = collectStatementDeclaredNames(statement);
+      for (const declaredName of [...declaredNames].sort((left, right) => left.localeCompare(right))) {
+        if (renameMap.has(declaredName)) {
+          continue;
+        }
+        const base = buildChunkLocalAliasBase(chunkId, declaredName, declaredName);
+        const resolved = nextUniqueIdentifier(base, chunkUsedNames);
+        renameMap.set(declaredName, resolved);
+      }
+    }
+    for (const name of chunkUsedNames) {
+      usedTopLevelNames.add(name);
+    }
+
     const importNeeds: ChunkImportNeed[] = [...requiredImportLocals]
       .sort((left, right) => left.localeCompare(right))
       .map((localName) => {
@@ -2357,16 +2725,17 @@ function buildQualityModuleContent(
         if (!binding) {
           throw new Error(`buildQualityModuleContent: missing import binding "${localName}" in chunk ${chunkId}`);
         }
+        const resolvedLocalName = renameMap.get(localName) ?? localName;
         return {
           modulePath: normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
-          localName,
+          localName: resolvedLocalName,
           kind: binding.kind,
           importedName: binding.importedName,
         };
       });
 
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const bodyStatements: string[] = [];
+    const bodyStatements: ts.Statement[] = [];
     for (const statement of sourceFile.statements) {
       if (!selectedStatements.has(statement)) {
         continue;
@@ -2376,53 +2745,23 @@ function buildQualityModuleContent(
       if (!stripped) {
         continue;
       }
-      const rendered = printer.printNode(ts.EmitHint.Unspecified, stripped, sourceFile).trim();
-      if (rendered.length > 0) {
-        bodyStatements.push(rendered);
-      }
+      bodyStatements.push(stripped);
     }
-
-    const accessExpr = (dependencyAlias: string, need: ChunkImportNeed): string => {
-      if (need.kind === "namespace") {
-        return dependencyAlias;
-      }
-      if (need.kind === "default") {
-        return `${dependencyAlias}.default`;
-      }
-      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(need.importedName)) {
-        return `${dependencyAlias}.${need.importedName}`;
-      }
-      return `${dependencyAlias}[${quote(need.importedName)}]`;
-    };
-
-    const lines: string[] = [`const ${runtimeVarName} = (() => {`];
-    for (const need of importNeeds) {
-      const existingAlias = dependencyImportsByPath.get(need.modulePath);
-      if (existingAlias) {
-        lines.push(`  const ${need.localName} = ${accessExpr(existingAlias, need)};`);
+    const renamedStatements = applyScopedIdentifierRenames(bodyStatements, renameMap);
+    const declarationLines: string[] = [];
+    for (const statement of renamedStatements) {
+      const rendered = printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile).trim();
+      if (rendered.length < 1) {
         continue;
       }
-      const nextAlias = nextUniqueIdentifier("chunkDependency", new Set(dependencyImportsByPath.values()));
-      dependencyImportsByPath.set(need.modulePath, nextAlias);
-      lines.push(`  const ${need.localName} = ${accessExpr(nextAlias, need)};`);
+      declarationLines.push(rendered);
     }
-    if (importNeeds.length > 0 && bodyStatements.length > 0) {
-      lines.push("");
-    }
-    for (const statementText of bodyStatements) {
-      const statementLines = statementText.split("\n");
-      for (const statementLine of statementLines) {
-        lines.push(`  ${statementLine}`);
-      }
-      lines.push("");
-    }
-    lines.push("  return {");
-    for (const identifier of [...new Set(requiredSourceIdentifiers)].sort((left, right) => left.localeCompare(right))) {
-      lines.push(`    ${identifier},`);
-    }
-    lines.push("  };");
-    lines.push("})();");
-    return lines.join("\n");
+
+    return {
+      declarationText: declarationLines.join("\n\n"),
+      sourceIdentifierByOriginal,
+      importNeeds,
+    };
   };
 
   for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
@@ -2451,42 +2790,65 @@ function buildQualityModuleContent(
       exportName,
       chunkId: liftBinding.chunkId,
       sourceIdentifier: liftBinding.sourceIdentifier,
+      localIdentifier: "",
     });
+    usedTopLevelNames.add(exportName);
   }
 
   const sourceIdsByChunk = new Map<string, Set<string>>();
+  const preferredLocalNameByChunk = new Map<string, Map<string, string>>();
   for (const entry of exportEntries) {
     const existing = sourceIdsByChunk.get(entry.chunkId) ?? new Set<string>();
     existing.add(entry.sourceIdentifier);
     sourceIdsByChunk.set(entry.chunkId, existing);
+    const bySource = preferredLocalNameByChunk.get(entry.chunkId) ?? new Map<string, string>();
+    if (!bySource.has(entry.sourceIdentifier)) {
+      bySource.set(entry.sourceIdentifier, entry.exportName);
+    }
+    preferredLocalNameByChunk.set(entry.chunkId, bySource);
   }
 
   const sortedChunkIds = [...sourceIdsByChunk.keys()].sort((left, right) => left.localeCompare(right));
-  for (let chunkIndex = 0; chunkIndex < sortedChunkIds.length; chunkIndex += 1) {
-    const chunkId = sortedChunkIds[chunkIndex];
+  for (const chunkId of sortedChunkIds) {
     if (!chunkId) {
       continue;
     }
-    const runtimeVarName = `chunkRuntime${String(chunkIndex + 1).padStart(2, "0")}`;
-    runtimeNamesByChunkId.set(chunkId, runtimeVarName);
     const identifiers = [...(sourceIdsByChunk.get(chunkId) ?? new Set<string>())].sort((left, right) =>
       left.localeCompare(right),
     );
-    const runtimeBlock = createChunkRuntime(chunkId, identifiers, runtimeVarName);
-    chunkRuntimes.push(runtimeBlock);
+    const preferredLocalNameBySourceIdentifier = preferredLocalNameByChunk.get(chunkId) ?? new Map<string, string>();
+    const liftedDeclarations = createChunkLiftedDeclarations(chunkId, identifiers, preferredLocalNameBySourceIdentifier);
+    for (const importNeed of liftedDeclarations.importNeeds) {
+      registerDependencyImportNeed(importNeed);
+    }
+    if (liftedDeclarations.declarationText.length > 0) {
+      chunkDeclarationBlocks.push(`// chunk: ${chunkId}\n${liftedDeclarations.declarationText}`);
+    }
+    for (const entry of exportEntries) {
+      if (entry.chunkId !== chunkId) {
+        continue;
+      }
+      const localIdentifier = liftedDeclarations.sourceIdentifierByOriginal.get(entry.sourceIdentifier);
+      if (!localIdentifier) {
+        throw new Error(
+          `buildQualityModuleContent: missing lifted identifier "${entry.sourceIdentifier}" in chunk ${chunkId}`,
+        );
+      }
+      entry.localIdentifier = localIdentifier;
+    }
   }
 
   const lines: string[] = [
     "// @ts-nocheck",
     "// Quality contour module: AST-lift declarations only.",
   ];
-  const sortedDependencies = [...dependencyImportsByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const sortedDependencies = [...dependencyImportLines].sort((left, right) => left.localeCompare(right));
   const sortedAssetImports = [...assetImportsByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
   if (sortedDependencies.length > 0 || sortedAssetImports.length > 0) {
     lines.push("");
     lines.push("// imports");
-    for (const [importPath, alias] of sortedDependencies) {
-      lines.push(`import * as ${alias} from ${quote(importPath)};`);
+    for (const importLine of sortedDependencies) {
+      lines.push(importLine);
     }
     for (const [importPath, alias] of sortedAssetImports) {
       lines.push(`import ${alias} from ${quote(importPath)};`);
@@ -2494,24 +2856,27 @@ function buildQualityModuleContent(
   }
 
   lines.push("");
-  lines.push("// lifted logic");
-  for (const runtime of chunkRuntimes) {
-    lines.push(runtime);
+  lines.push("// lifted declarations");
+  for (const declarationBlock of chunkDeclarationBlocks) {
+    lines.push(declarationBlock);
     lines.push("");
   }
 
   lines.push("// exports");
   for (const entry of exportEntries) {
-    const runtimeVarName = runtimeNamesByChunkId.get(entry.chunkId);
-    if (!runtimeVarName) {
-      throw new Error(`buildQualityModuleContent: missing runtime var for chunk ${entry.chunkId}`);
+    if (entry.localIdentifier.length < 1) {
+      throw new Error(`buildQualityModuleContent: unresolved local identifier for ${entry.exportName}`);
     }
-    lines.push(`export const ${entry.exportName} = ${runtimeVarName}.${entry.sourceIdentifier};`);
+    if (entry.localIdentifier === entry.exportName) {
+      lines.push(`export { ${entry.localIdentifier} };`);
+      continue;
+    }
+    lines.push(`export { ${entry.localIdentifier} as ${entry.exportName} };`);
   }
   lines.push("");
   lines.push("const api = {");
   for (const entry of exportEntries) {
-    lines.push(`  ${entry.exportName},`);
+    lines.push(`  ${entry.exportName}: ${entry.localIdentifier},`);
   }
   lines.push("} as const;");
 
@@ -3008,12 +3373,12 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
 
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
-    hotChunkMax: 28,
+    hotChunkMax: 50,
     targetCoverage: 0.95,
-    minHotChunkCount: 20,
+    minHotChunkCount: 30,
     preferredArchetypes: ["ui", "service", "hook", "transport"],
     minimumChunkScore: 0,
-    closureChunkLimit: 256,
+    closureChunkLimit: 512,
   });
   const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
   const liftedChunkById = new Map<string, LiftedChunkArtifact>(
