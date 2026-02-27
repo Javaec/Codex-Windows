@@ -1,21 +1,79 @@
 {
-  "candidateCount": 12,
+  "candidateCount": 13,
   "candidates": [
     {
-      "averageConfidence": 0.6153,
+      "averageConfidence": 0.6306,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.7576,
-      "averageSymbolCount": 3,
+      "averageScore": 0.7642,
+      "averageSymbolCount": 97,
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "minScore": 0.7636,
+      "moduleIds": [
+        "services:store:state:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120"
+      ],
+      "rerenderedHits": 3,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7216,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8033,
+      "averageSymbolCount": 6,
+      "filePath": "src/main/transport/transport-bridge-quality-02.ts",
+      "minScore": 0.8033,
+      "moduleIds": [
+        "main:transport:transport-bridge:quality-02"
+      ],
+      "profiles": [
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 1,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7308,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8072,
+      "averageSymbolCount": 12,
       "filePath": "src/main/transport/transport-bridge.ts",
-      "minScore": 0.7576,
+      "minScore": 0.8072,
       "moduleIds": [
         "main:transport:transport-bridge"
       ],
       "profiles": [
         "core-no-binary",
         "core-no-binary-no-pretty",
-        "core-no-binary-top120",
+        "core-no-binary-top120"
+      ],
+      "rerenderedHits": 0,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7309,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8073,
+      "averageSymbolCount": 362,
+      "filePath": "src/services/store/store-state.ts",
+      "minScore": 0.8073,
+      "moduleIds": [
+        "services:store:state"
+      ],
+      "profiles": [
         "core-runtime-probe-soft"
       ],
       "rerenderedHits": 0,
@@ -24,35 +82,13 @@
       ]
     },
     {
-      "averageConfidence": 0.6248,
+      "averageConfidence": 0.7357,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.7616,
-      "averageSymbolCount": 97,
-      "filePath": "src/services/store/store-state-quality-01.ts",
-      "minScore": 0.7575,
-      "moduleIds": [
-        "services:store:state:quality-01"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 4,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7287,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8064,
-      "averageSymbolCount": 197,
+      "averageScore": 0.8093,
+      "averageSymbolCount": 165,
       "filePath": "src/renderer/store/store-state.ts",
-      "minScore": 0.8064,
+      "minScore": 0.8093,
       "moduleIds": [
         "renderer:store:state"
       ],
@@ -68,21 +104,38 @@
       ]
     },
     {
-      "averageConfidence": 0.7377,
+      "averageConfidence": 0.7399,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8102,
-      "averageSymbolCount": 255,
+      "averageScore": 0.8111,
+      "averageSymbolCount": 6,
+      "filePath": "src/main/transport/transport-bridge-quality-01.ts",
+      "minScore": 0.8111,
+      "moduleIds": [
+        "main:transport:transport-bridge:quality-01"
+      ],
+      "profiles": [
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 1,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7418,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.812,
+      "averageSymbolCount": 240,
       "filePath": "src/services/store/store-state-g003.ts",
-      "minScore": 0.8099,
+      "minScore": 0.812,
       "moduleIds": [
         "services:store:state-store-g002:g003"
       ],
       "profiles": [
         "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
+        "core-no-binary-no-pretty"
       ],
       "rerenderedHits": 0,
       "stableProjects": [
@@ -90,13 +143,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7425,
+      "averageConfidence": 0.7416,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7808,
-      "averageScore": 0.8125,
-      "averageSymbolCount": 255,
+      "averageNameQuality": 0.7807,
+      "averageScore": 0.8122,
+      "averageSymbolCount": 281.75,
       "filePath": "src/services/store/store-state-g002.ts",
-      "minScore": 0.8117,
+      "minScore": 0.8118,
       "moduleIds": [
         "services:store:state-store:g002"
       ],
@@ -112,103 +165,55 @@
       ]
     },
     {
-      "averageConfidence": 0.7245,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.88,
-      "averageScore": 0.8395,
-      "averageSymbolCount": 117,
-      "filePath": "src/services/service/service-run-flow.ts",
-      "minScore": 0.8395,
-      "moduleIds": [
-        "services:service:run-flow"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.8181,
+      "averageConfidence": 0.7849,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8448,
-      "averageSymbolCount": 1,
-      "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
-      "minScore": 0.8448,
-      "moduleIds": [
-        "tauri:transport:transport-bridge"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.8231,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8469,
-      "averageSymbolCount": 97,
+      "averageScore": 0.8305,
+      "averageSymbolCount": 96.67,
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "minScore": 0.846,
+      "minScore": 0.8042,
       "moduleIds": [
         "services:store:state:quality-02"
       ],
       "profiles": [
         "core-no-binary",
         "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
+        "core-no-binary-top120"
       ],
-      "rerenderedHits": 4,
+      "rerenderedHits": 3,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
     },
     {
-      "averageConfidence": 0.7632,
+      "averageConfidence": 0.8284,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.86,
+      "averageNameQuality": 0.78,
       "averageScore": 0.8492,
-      "averageSymbolCount": 10,
-      "filePath": "src/main/service/service-domain.ts",
+      "averageSymbolCount": 106,
+      "filePath": "src/services/store/store-state-quality-03.ts",
       "minScore": 0.8492,
       "moduleIds": [
-        "main:service:domain-service"
+        "services:store:state:quality-03"
       ],
       "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
+        "core-no-binary-top120"
       ],
-      "rerenderedHits": 0,
+      "rerenderedHits": 1,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
     },
     {
-      "averageConfidence": 0.8539,
+      "averageConfidence": 0.7822,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7811,
-      "averageScore": 0.8606,
-      "averageSymbolCount": 87,
-      "filePath": "src/services/service/service-domain.ts",
-      "minScore": 0.8606,
+      "averageNameQuality": 0.839,
+      "averageScore": 0.85,
+      "averageSymbolCount": 212,
+      "filePath": "src/services/service/service-run.ts",
+      "minScore": 0.85,
       "moduleIds": [
-        "services:service:service"
+        "services:service:service-run"
       ],
       "profiles": [
         "core-no-binary",
@@ -222,11 +227,11 @@
       ]
     },
     {
-      "averageConfidence": 0.9144,
+      "averageConfidence": 0.912,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.82,
+      "averageNameQuality": 0.8229,
       "averageScore": 0.9002,
-      "averageSymbolCount": 10,
+      "averageSymbolCount": 7,
       "filePath": "src/renderer/hook/hook-hooks-render.ts",
       "minScore": 0.9002,
       "moduleIds": [
@@ -244,13 +249,13 @@
       ]
     },
     {
-      "averageConfidence": 0.9248,
+      "averageConfidence": 0.9335,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.8133,
-      "averageScore": 0.9023,
-      "averageSymbolCount": 6,
+      "averageScore": 0.9061,
+      "averageSymbolCount": 9,
       "filePath": "src/renderer/ui/ui-components.ts",
-      "minScore": 0.9023,
+      "minScore": 0.9061,
       "moduleIds": [
         "renderer:ui:ui-components"
       ],
@@ -266,6 +271,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-02-27T06:56:53.201Z",
-  "suiteRunId": "quality-radical-9-20260227-064413-c01"
+  "generatedAtIso": "2026-02-27T07:33:24.987Z",
+  "suiteRunId": "radical-quality-20260227-071741-c01"
 }

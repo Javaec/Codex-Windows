@@ -79,9 +79,9 @@ interface QualityModuleBuildResult {
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
-const MAX_PARTS_PER_TOPIC = 3;
-const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 5;
-const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
+const MAX_PARTS_PER_TOPIC = 2;
+const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
+const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
@@ -157,7 +157,7 @@ const ARCHETYPE_SYMBOL_BUDGET_FLOOR: Record<ArchetypeId, number> = {
   transport: 72,
   store: 240,
 };
-const QUALITY_PLAN_BUDGET_MULTIPLIER = 5;
+const QUALITY_PLAN_BUDGET_MULTIPLIER = 6;
 const QUALITY_PLAN_BUDGET_MIN = 160;
 const SHARED_HELPER_MODULE_RELATIVE_PATH = "./_shared/helpers.js";
 const SHARED_HELPER_MODULE_FILENAME = "helpers.ts";
@@ -165,21 +165,21 @@ const SHARED_HELPER_MIN_OCCURRENCES = 2;
 const SHARED_HELPER_MAX_COUNT = 64;
 const COHESION_MERGE_THRESHOLD = 0.3;
 const COHESION_SPLIT_THRESHOLD = 0.16;
-const COHESION_SPLIT_MIN_SYMBOLS = 26;
-const COHESION_FORCE_SPLIT_SYMBOLS = 320;
-const MODULE_MERGE_MAX_SYMBOLS = 520;
-const TINY_MODULE_SYMBOL_LIMIT = 48;
-const TINY_MODULE_MERGE_BUDGET_FACTOR = 2;
-const CHUNK_INDEX_INLINE_IMPORT_THRESHOLD = 6;
+const COHESION_SPLIT_MIN_SYMBOLS = 42;
+const COHESION_FORCE_SPLIT_SYMBOLS = 420;
+const MODULE_MERGE_MAX_SYMBOLS = 680;
+const TINY_MODULE_SYMBOL_LIMIT = 96;
+const TINY_MODULE_MERGE_BUDGET_FACTOR = 3;
+const CHUNK_INDEX_INLINE_IMPORT_THRESHOLD = 4;
 const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK = 40;
 const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 120;
-const HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD = 48;
-const HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD = 18;
-const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 14;
-const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK = 5;
-const TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS = 12;
-const TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS = 9000;
-const TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS = 16;
+const HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD = 96;
+const HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD = 36;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 24;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK = 8;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS = 20;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS = 14000;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS = 24;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -3105,11 +3105,11 @@ function buildQualityModuleContent(
     const selection = selectChunkStatementsByRoots(sourceChunkMetadata, chunkId, requiredSourceIdentifiers);
     const selectedStatements = new Set<ts.Statement>(selection.selectedStatements);
     const requiredImportLocals = new Set<string>(selection.requiredImportLocals);
-    const heavyChunkSelection =
+    const extremeChunkSelection =
       selection.selectedStatements.length >= HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD ||
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
     const preferChunkImportFallback =
-      (plan.archetype === "service" || plan.archetype === "store") && heavyChunkSelection;
+      (plan.archetype === "service" || plan.archetype === "store") && extremeChunkSelection;
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     const inlineDependencyStatements: ts.Statement[] = [];
@@ -3406,6 +3406,7 @@ function buildQualityModuleContent(
     }
 
     const sourceIdentifierByOriginal = new Map<string, string>();
+    const requiredSourceIdentifierSet = new Set<string>(requiredSourceIdentifiers);
     const chunkUsedNames = new Set<string>(usedTopLevelNames);
     const renameMap = new Map<string, string>();
     const sortedRequiredSourceIdentifiers = [...new Set(requiredSourceIdentifiers)].sort((left, right) =>
@@ -3465,6 +3466,24 @@ function buildQualityModuleContent(
     const sourceBodyStatements: ts.Statement[] = [];
     for (const statement of sourceChunkMetadata.sourceFile.statements) {
       if (!selectedStatements.has(statement)) {
+        continue;
+      }
+      const declaredNames = collectStatementDeclaredNames(statement);
+      let containsRequiredRoot = false;
+      for (const declaredName of declaredNames) {
+        if (requiredSourceIdentifierSet.has(declaredName)) {
+          containsRequiredRoot = true;
+          break;
+        }
+      }
+      if (!containsRequiredRoot && hasChunkRuntimeBootstrapPattern(statement, sourceChunkMetadata.sourceFile)) {
+        continue;
+      }
+      if (
+        !containsRequiredRoot &&
+        (plan.archetype === "service" || plan.archetype === "store") &&
+        hasUnsafeStaticPayloadStatement(statement, sourceChunkMetadata.sourceFile)
+      ) {
         continue;
       }
       const withExtractedPayload = extractStaticPayloadFromStatement(
@@ -3614,6 +3633,10 @@ function buildQualityModuleContent(
       }
       entry.localIdentifier = localIdentifier;
     }
+  }
+
+  if (chunkDeclarationBlocks.length < 1) {
+    throw new Error(`buildQualityModuleContent: module ${plan.moduleId} produced no lifted declarations`);
   }
 
   const lines: string[] = [

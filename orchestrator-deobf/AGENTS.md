@@ -59,6 +59,12 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: removes obfuscated `aA as ...` style from import clauses and centralizes low-level symbol keys in one shaping block while preserving module behavior and green gates.
 - Targeted full-lift for noisy chunk-index imports is enabled with strict guardrails (max statements/imports/chars, payload/bootstrap deny checks, collision checks).
   Verified reason: allows selective inlining of useful chunk-index declarations into quality modules to shrink import-shaping noise incrementally without reintroducing giant module bloat or breaking green gates.
+- Quality emitter now enforces logic-first density:
+  - module split pressure reduced (fewer tiny part files),
+  - targeted chunk-index inline limits raised for fuller declaration lift,
+  - fallback to import-only behavior only for extreme service/store chunk selections,
+  - fail-fast if a quality module would emit with zero lifted declaration blocks.
+  Verified reason: keep `src/*` centered on lifted logic instead of proxy-style glue and reduce noisy file proliferation.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.
