@@ -2264,8 +2264,8 @@ function buildQualityModuleContent(
   const exportEntries: ExportEntry[] = [];
   const dependencyImportLines = new Set<string>();
   const dependencyAliasNames = new Set<string>();
-  const chunkNamespaceAliasByModulePath = new Map<string, string>();
-  const chunkNamespaceLocalAliasLines = new Set<string>();
+  const moduleNamespaceAliasByModulePath = new Map<string, string>();
+  const moduleNamespaceBindingsByAlias = new Map<string, Map<string, string>>();
   const assetImportsByPath = new Map<string, string>();
   const assetFilesByPath = new Map<string, string>();
   const chunkDeclarationBlocks: string[] = [];
@@ -3000,8 +3000,8 @@ function buildQualityModuleContent(
     return compactIdentifier(sanitizeIdentifier(`${prefix}Dependency`), 24);
   };
 
-  const resolveChunkNamespaceAlias = (modulePath: string): string => {
-    const existingAlias = chunkNamespaceAliasByModulePath.get(modulePath);
+  const resolveModuleNamespaceAlias = (modulePath: string): string => {
+    const existingAlias = moduleNamespaceAliasByModulePath.get(modulePath);
     if (existingAlias) {
       return existingAlias;
     }
@@ -3023,13 +3023,36 @@ function buildQualityModuleContent(
     const usedAliases = new Set<string>([
       ...dependencyAliasNames,
       ...assetImportsByPath.values(),
-      ...chunkNamespaceAliasByModulePath.values(),
+      ...moduleNamespaceAliasByModulePath.values(),
     ]);
     const resolvedAlias = nextUniqueIdentifier(aliasBase, usedAliases);
-    chunkNamespaceAliasByModulePath.set(modulePath, resolvedAlias);
+    moduleNamespaceAliasByModulePath.set(modulePath, resolvedAlias);
     dependencyAliasNames.add(resolvedAlias);
     dependencyImportLines.add(`import * as ${resolvedAlias} from ${quote(modulePath)};`);
     return resolvedAlias;
+  };
+
+  const isChunkTsModulePath = (modulePath: string): boolean => modulePath.includes("/chunks-ts/");
+  const shouldUseNamespaceImportShaping = (modulePath: string, importedName: string): boolean => {
+    if (isChunkTsModulePath(modulePath)) {
+      return true;
+    }
+    if (isChunkIndexModulePath(modulePath)) {
+      return true;
+    }
+    if (!isChunkTsModulePath(modulePath)) {
+      return false;
+    }
+    if (OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName)) {
+      return true;
+    }
+    if (importedName.includes("$")) {
+      return true;
+    }
+    if (/^[a-z][A-Z]$/.test(importedName)) {
+      return true;
+    }
+    return false;
   };
 
   const registerDependencyImportNeed = (need: ChunkImportNeed): void => {
@@ -3040,16 +3063,24 @@ function buildQualityModuleContent(
       return;
     }
     if (need.kind === "default") {
+      if (isChunkTsModulePath(need.modulePath)) {
+        const namespaceAlias = resolveModuleNamespaceAlias(need.modulePath);
+        dependencyAliasNames.add(need.localName);
+        const bindings = moduleNamespaceBindingsByAlias.get(namespaceAlias) ?? new Map<string, string>();
+        bindings.set(need.localName, "default");
+        moduleNamespaceBindingsByAlias.set(namespaceAlias, bindings);
+        return;
+      }
       dependencyAliasNames.add(need.localName);
       dependencyImportLines.add(`import ${need.localName} from ${moduleSpecifier};`);
       return;
     }
-    if (isChunkIndexModulePath(need.modulePath)) {
-      const namespaceAlias = resolveChunkNamespaceAlias(need.modulePath);
+    if (shouldUseNamespaceImportShaping(need.modulePath, need.importedName)) {
+      const namespaceAlias = resolveModuleNamespaceAlias(need.modulePath);
       dependencyAliasNames.add(need.localName);
-      chunkNamespaceLocalAliasLines.add(
-        `const ${need.localName} = ${namespaceAlias}[${quote(need.importedName)}];`,
-      );
+      const bindings = moduleNamespaceBindingsByAlias.get(namespaceAlias) ?? new Map<string, string>();
+      bindings.set(need.localName, need.importedName);
+      moduleNamespaceBindingsByAlias.set(namespaceAlias, bindings);
       return;
     }
     if (need.importedName === need.localName) {
@@ -3601,12 +3632,21 @@ function buildQualityModuleContent(
       lines.push(`import ${alias} from ${quote(importPath)};`);
     }
   }
-  const sortedChunkNamespaceAliases = [...chunkNamespaceLocalAliasLines].sort((left, right) => left.localeCompare(right));
-  if (sortedChunkNamespaceAliases.length > 0) {
+  const sortedNamespaceAliases = [...moduleNamespaceBindingsByAlias.keys()].sort((left, right) => left.localeCompare(right));
+  if (sortedNamespaceAliases.length > 0) {
     lines.push("");
     lines.push("// import shaping");
-    for (const aliasLine of sortedChunkNamespaceAliases) {
-      lines.push(aliasLine);
+    for (const namespaceAlias of sortedNamespaceAliases) {
+      const bindings = moduleNamespaceBindingsByAlias.get(namespaceAlias);
+      if (!bindings || bindings.size < 1) {
+        continue;
+      }
+      const entries = [...bindings.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+      lines.push("const {");
+      for (const [localName, importedName] of entries) {
+        lines.push(`  ${quote(importedName)}: ${localName},`);
+      }
+      lines.push(`} = ${namespaceAlias};`);
     }
   }
 
