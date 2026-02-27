@@ -3513,6 +3513,109 @@ function buildQualityModuleContent(
     }
     return rewritten;
   };
+  const inferTargetedCoreLocalFamily = (statementText: string): string => {
+    const normalized = statementText.toLowerCase();
+    if (
+      normalized.includes("modulepreload") ||
+      normalized.includes("vite:preloaderror") ||
+      normalized.includes("new url(") ||
+      normalized.includes("document.")
+    ) {
+      return "Preload";
+    }
+    if (
+      normalized.includes("react") ||
+      normalized.includes("__client_internals") ||
+      normalized.includes("jsx") ||
+      normalized.includes("usestate") ||
+      normalized.includes("useeffect")
+    ) {
+      return "React";
+    }
+    if (
+      normalized.includes("__core-js_shared__") ||
+      normalized.includes("symbol(src)_1") ||
+      normalized.includes("hasownproperty") ||
+      normalized.includes("object.prototype")
+    ) {
+      return "Runtime";
+    }
+    if (
+      normalized.includes("atom") ||
+      normalized.includes("weakmap") ||
+      normalized.includes("cache") ||
+      normalized.includes("query")
+    ) {
+      return "State";
+    }
+    if (
+      normalized.includes("json.parse") ||
+      normalized.includes("scopename") ||
+      normalized.includes("language")
+    ) {
+      return "Language";
+    }
+    if (
+      normalized.includes("cytoscape") ||
+      normalized.includes("treemap") ||
+      normalized.includes("diagram")
+    ) {
+      return "Diagram";
+    }
+    return "Core";
+  };
+  const applyTargetedHotCoreFamilySweep = (content: string): string => {
+    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const coreLocalPattern = /^(store|service)CoreLocal([A-Za-z0-9]{2,})$/;
+    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+    const renameMap = new Map<string, string>();
+    for (const statement of sourceFile.statements) {
+      const declaredNames = collectStatementDeclaredNames(statement);
+      if (declaredNames.size < 1) {
+        continue;
+      }
+      const statementText = statement.getText(sourceFile);
+      const family = inferTargetedCoreLocalFamily(statementText);
+      if (family === "Core") {
+        continue;
+      }
+      for (const declaredName of declaredNames) {
+        const match = declaredName.match(coreLocalPattern);
+        if (!match) {
+          continue;
+        }
+        const prefix = match[1];
+        const suffix = match[2];
+        if (!prefix || !suffix) {
+          continue;
+        }
+        const candidate = normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${family}Local${suffix}`));
+        const resolved = nextUniqueIdentifier(compactIdentifier(candidate, 40), usedNames);
+        if (resolved === declaredName) {
+          continue;
+        }
+        renameMap.set(declaredName, resolved);
+      }
+    }
+    if (renameMap.size < 1) {
+      return content;
+    }
+    const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let rewritten = content;
+    for (const [from, to] of [...renameMap.entries()].sort((left, right) => right[0].length - left[0].length)) {
+      rewritten = rewritten.replace(new RegExp(`\\b${escaped(from)}\\b`, "g"), to);
+    }
+    return rewritten;
+  };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
     const declared = new Set<string>();
@@ -4916,7 +5019,9 @@ function buildQualityModuleContent(
       absolutePath,
       content,
     }));
-  const moduleContent = applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n")));
+  const moduleContent = applyTargetedHotCoreFamilySweep(
+    applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+  );
   return {
     content: moduleContent,
     assetFiles,

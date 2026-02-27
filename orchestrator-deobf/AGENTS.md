@@ -108,3 +108,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: `storeSaeSieLocal*` and follow-up synthetic stem series were removed from `src/services/store/store-state-g002.ts` via targeted runs (`targeted-store-saesie-v11`, `targeted-store-synthetic-v12`) while keeping quality/dev gates green and generic-path noise at zero.
 - Hot store top-level `*Qe*` alias names are now included in the same safe canonicalizer (`eQe...`, `aQe...`, etc.).
   Verified reason: obfuscated function-name tail series dropped to zero in `src/services/store/store-state-g002.ts` on run `targeted-store-qe-v13`, preserving deterministic output and green quality/dev gates.
+- Hot store canonicalizer now has contextual core-family routing (`React`, `Runtime`, `Preload`, `State`, `Language`, `Diagram`) for `storeCoreLocal*` series.
+  Verified reason: large undifferentiated `storeCoreLocal*` pool is now partitioned by declaration context in `src/services/store/store-state-g002.ts` (run `targeted-store-core-family-v14`) while keeping deterministic output and zero regression on quality/dev gates.
