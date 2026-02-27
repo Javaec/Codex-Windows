@@ -40,6 +40,14 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduce import/proxy noise and keep more real lifted logic directly in `src/*`.
 - Quality emitter naming now applies anti-generic guards for `channelDispatch`/alphabet-run patterns and uses chunk/domain hints before route/event flow tokens.
   Verified reason: generated exports shifted from synthetic `*ChannelDispatch*` to domain-oriented names (`*Asar*`, `*AngularHtml*`, `*ApacheEvent*`, etc.) while keeping quality gates green.
+- Quality emitter enforces unique module output paths after cohesion merge/split.
+  Verified reason: avoided `filePath` collisions where multiple module plans were overwriting the same `src/*` target (`state` vs `state-store`), preserving deterministic one-plan-per-file output.
+- Quality emitter deduplicates exports by lifted source (`chunkId + sourceIdentifier`) and keeps the highest-quality alias only.
+  Verified reason: reduced alias noise in generated module export surfaces without reducing lifted coverage.
+- Topic splitting now uses chunk-hint buckets before budget split when a topic is too dense.
+  Verified reason: reduces random mixed-domain buckets and keeps giant store/service topics more coherent before emitter merge/split passes.
+- Global cross-chunk import alias reuse was intentionally rolled back.
+  Verified reason: this optimization caused syntax corruption in heavy lifted modules; current stable path keeps green gates (`npm install`, `typecheck`, `lint`, `build`, `dev:smoke`) green on latest snapshot.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

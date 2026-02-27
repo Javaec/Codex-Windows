@@ -79,8 +79,8 @@ interface QualityModuleBuildResult {
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
-const MAX_PARTS_PER_TOPIC = 2;
-const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
+const MAX_PARTS_PER_TOPIC = 3;
+const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
@@ -150,7 +150,7 @@ const SHARED_HELPER_MAX_COUNT = 64;
 const COHESION_MERGE_THRESHOLD = 0.3;
 const COHESION_SPLIT_THRESHOLD = 0.16;
 const COHESION_SPLIT_MIN_SYMBOLS = 26;
-const COHESION_FORCE_SPLIT_SYMBOLS = 420;
+const COHESION_FORCE_SPLIT_SYMBOLS = 320;
 const MODULE_MERGE_MAX_SYMBOLS = 520;
 const TINY_MODULE_SYMBOL_LIMIT = 48;
 const TINY_MODULE_MERGE_BUDGET_FACTOR = 2;
@@ -1349,6 +1349,43 @@ function splitBalanced<T>(items: T[], parts: number): T[][] {
 }
 
 function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): OwnershipRecord[][] {
+  const chunkHintBuckets = new Map<string, OwnershipRecord[]>();
+  for (const symbol of symbols) {
+    const bucketToken = chunkHintTokens(symbol.chunkHint)[0] ?? "domain";
+    const bucket = chunkHintBuckets.get(bucketToken) ?? [];
+    bucket.push(symbol);
+    chunkHintBuckets.set(bucketToken, bucket);
+  }
+  if (chunkHintBuckets.size >= 2 && symbols.length >= Math.max(chunkBudget, 48)) {
+    const rankedBuckets = [...chunkHintBuckets.entries()]
+      .sort((left, right) => {
+        if (left[1].length !== right[1].length) {
+          return right[1].length - left[1].length;
+        }
+        return left[0].localeCompare(right[0]);
+      });
+    const parts: OwnershipRecord[][] = rankedBuckets
+      .slice(0, MAX_PARTS_PER_TOPIC)
+      .map(([, bucket]) => [...bucket].sort((left, right) => left.symbolName.localeCompare(right.symbolName)));
+    const overflowBuckets = rankedBuckets.slice(MAX_PARTS_PER_TOPIC);
+    if (parts.length > 0) {
+      let partIndex = 0;
+      for (const [, overflow] of overflowBuckets) {
+        const targetPart = parts[partIndex];
+        if (targetPart) {
+          targetPart.push(...overflow);
+        }
+        partIndex = (partIndex + 1) % parts.length;
+      }
+    }
+    const normalizedParts = parts
+      .map((part) => part.sort((left, right) => left.symbolName.localeCompare(right.symbolName)))
+      .filter((part) => part.length > 0);
+    if (normalizedParts.length >= 2) {
+      return normalizedParts;
+    }
+  }
+
   const initial = splitByBudget(symbols, chunkBudget);
   if (initial.length <= 1) {
     return initial;
@@ -1617,6 +1654,37 @@ function rebuildModulePlanIdentity(plan: ModulePlan, groupIndex: number): Module
   };
 }
 
+function ensureUniqueModulePlanPaths(modulePlans: ModulePlan[]): ModulePlan[] {
+  if (modulePlans.length < 2) {
+    return modulePlans;
+  }
+  const usedPaths = new Set<string>();
+  const collisionCountByBasePath = new Map<string, number>();
+  return modulePlans.map((plan) => {
+    let candidatePath = plan.filePath;
+    if (!usedPaths.has(candidatePath)) {
+      usedPaths.add(candidatePath);
+      return plan;
+    }
+    const baseCount = collisionCountByBasePath.get(plan.filePath) ?? 1;
+    let suffixIndex = baseCount + 1;
+    while (true) {
+      const suffix = `-g${String(suffixIndex).padStart(3, "0")}`;
+      candidatePath = plan.filePath.replace(/\.ts$/, `${suffix}.ts`);
+      if (!usedPaths.has(candidatePath)) {
+        usedPaths.add(candidatePath);
+        collisionCountByBasePath.set(plan.filePath, suffixIndex);
+        return {
+          ...plan,
+          moduleId: `${plan.moduleId}:g${String(suffixIndex).padStart(3, "0")}`,
+          filePath: candidatePath,
+        };
+      }
+      suffixIndex += 1;
+    }
+  });
+}
+
 function dedupeSymbolsByKey(symbols: OwnershipRecord[]): OwnershipRecord[] {
   const byKey = new Map<string, OwnershipRecord>();
   for (const symbol of symbols) {
@@ -1829,7 +1897,7 @@ function applyCohesionMergeSplit(
       return rebuildModulePlanIdentity(plan, nextIndex);
     });
 
-  return finalized;
+  return ensureUniqueModulePlanPaths(finalized);
 }
 
 function buildGeneratedPackageJson(): string {
@@ -2110,9 +2178,16 @@ function buildQualityModuleContent(
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
   }
 
+  interface ExportEntry {
+    exportName: string;
+    chunkId: string;
+    sourceIdentifier: string;
+    localIdentifier: string;
+  }
+
   const topic = topicSegmentFromFilePath(plan.filePath, plan.archetype);
   const usedExportNames = new Map<string, number>();
-  const exportEntries: Array<{ exportName: string; chunkId: string; sourceIdentifier: string; localIdentifier: string }> = [];
+  const exportEntries: ExportEntry[] = [];
   const dependencyImportLines = new Set<string>();
   const dependencyAliasNames = new Set<string>();
   const assetImportsByPath = new Map<string, string>();
@@ -3076,6 +3151,42 @@ function buildQualityModuleContent(
     };
   };
 
+  const exportEntryScore = (entry: ExportEntry): number => {
+    const quality = scoreNameQuality(entry.exportName);
+    const genericPenalty = isGenericName(entry.exportName) ? 0.22 : 0;
+    const noisyPenalty = isNoisyIdentifier(entry.exportName) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(entry.exportName) ? 0.18 : 0;
+    const numericSuffixPenalty = /\d{2,}$/.test(entry.exportName) ? 0.12 : 0;
+    const chainPenalty = entry.exportName.toLowerCase().includes("channeldispatch") ? 0.16 : 0;
+    return clamp(quality - genericPenalty - noisyPenalty - numericSuffixPenalty - chainPenalty);
+  };
+
+  const dedupeExportEntriesByLiftedSource = (entries: ExportEntry[]): ExportEntry[] => {
+    const bestBySourceKey = new Map<string, { entry: ExportEntry; score: number }>();
+    for (const entry of entries) {
+      const sourceKey = `${entry.chunkId}::${entry.sourceIdentifier}`;
+      const score = exportEntryScore(entry);
+      const existing = bestBySourceKey.get(sourceKey);
+      if (!existing || score > existing.score) {
+        bestBySourceKey.set(sourceKey, { entry, score });
+      }
+    }
+    const deduped = [...bestBySourceKey.values()]
+      .map((record) => record.entry)
+      .sort((left, right) => {
+        if (left.chunkId !== right.chunkId) {
+          return left.chunkId.localeCompare(right.chunkId);
+        }
+        if (left.exportName !== right.exportName) {
+          return left.exportName.localeCompare(right.exportName);
+        }
+        return left.sourceIdentifier.localeCompare(right.sourceIdentifier);
+      });
+    if (deduped.length < 1) {
+      throw new Error(`buildQualityModuleContent: module ${plan.moduleId} lost all exports after dedupe`);
+    }
+    return deduped;
+  };
+
   for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
     const symbol = symbols[symbolIndex];
     if (!symbol) {
@@ -3107,9 +3218,11 @@ function buildQualityModuleContent(
     usedTopLevelNames.add(exportName);
   }
 
+  const dedupedExportEntries = dedupeExportEntriesByLiftedSource(exportEntries);
+
   const sourceIdsByChunk = new Map<string, Set<string>>();
   const preferredLocalNameByChunk = new Map<string, Map<string, string>>();
-  for (const entry of exportEntries) {
+  for (const entry of dedupedExportEntries) {
     const existing = sourceIdsByChunk.get(entry.chunkId) ?? new Set<string>();
     existing.add(entry.sourceIdentifier);
     sourceIdsByChunk.set(entry.chunkId, existing);
@@ -3136,7 +3249,7 @@ function buildQualityModuleContent(
     if (liftedDeclarations.declarationText.length > 0) {
       chunkDeclarationBlocks.push(`// chunk: ${chunkId}\n${liftedDeclarations.declarationText}`);
     }
-    for (const entry of exportEntries) {
+    for (const entry of dedupedExportEntries) {
       if (entry.chunkId !== chunkId) {
         continue;
       }
@@ -3175,7 +3288,7 @@ function buildQualityModuleContent(
   }
 
   lines.push("// exports");
-  for (const entry of exportEntries) {
+  for (const entry of dedupedExportEntries) {
     if (entry.localIdentifier.length < 1) {
       throw new Error(`buildQualityModuleContent: unresolved local identifier for ${entry.exportName}`);
     }
