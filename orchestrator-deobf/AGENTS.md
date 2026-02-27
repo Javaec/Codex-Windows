@@ -48,6 +48,17 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduces random mixed-domain buckets and keeps giant store/service topics more coherent before emitter merge/split passes.
 - Global cross-chunk import alias reuse was intentionally rolled back.
   Verified reason: this optimization caused syntax corruption in heavy lifted modules; current stable path keeps green gates (`npm install`, `typecheck`, `lint`, `build`, `dev:smoke`) green on latest snapshot.
+- Heavy `store/service` readability tuning is now applied before emit:
+  - chunk-index inline is disabled for heavy selections (statement/import-local thresholds) and falls back to direct chunk imports,
+  - service/store topics can split up to 5 parts (`maxPartsForArchetype`) to avoid giant 2-5MB single files,
+  - domain alias rename pass drops alphabet-run/weak tokens (`run`, `impl`, etc.) to prevent names like `*Abcdefghijklmnopqrstuvwxyz*`.
+  Verified reason: reduced top service/store module sizes from multi-megabyte outliers and removed noisy fallback naming while keeping green gates and zero proxy-in-quality.
+- AST-lift hot-chunk prioritization now explicitly boosts `store` ownership and expands lift window (`hotChunkMax 120`, target coverage `0.985`, min hot chunks `56`).
+  Verified reason: keeps quality emit anchored to lifted declarations for service/store-heavy snapshots without reopening generic-path noise.
+- Chunk-index import shaping is now namespace-based in quality modules (`import * as ...Chunk`) with generated local alias lines (`const serviceX = chunk["aA"]`).
+  Verified reason: removes obfuscated `aA as ...` style from import clauses and centralizes low-level symbol keys in one shaping block while preserving module behavior and green gates.
+- Targeted full-lift for noisy chunk-index imports is enabled with strict guardrails (max statements/imports/chars, payload/bootstrap deny checks, collision checks).
+  Verified reason: allows selective inlining of useful chunk-index declarations into quality modules to shrink import-shaping noise incrementally without reintroducing giant module bloat or breaking green gates.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

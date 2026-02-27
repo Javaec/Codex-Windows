@@ -80,6 +80,7 @@ const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
 const MAX_PARTS_PER_TOPIC = 3;
+const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 5;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 420;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
@@ -108,6 +109,21 @@ const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
   "extends",
   "inline",
   "impl",
+]);
+const DOMAIN_ALIAS_WEAK_TOKENS = new Set<string>([
+  "run",
+  "impl",
+  "entry",
+  "default",
+  "value",
+  "member",
+  "node",
+  "domain",
+  "service",
+  "store",
+  "hook",
+  "transport",
+  "ui",
 ]);
 const TEMPLATE_FALLBACK_NAME_PATTERNS: RegExp[] = [
   /^stateStore(?:[A-Za-z]+)?\d*$/i,
@@ -157,6 +173,13 @@ const TINY_MODULE_MERGE_BUDGET_FACTOR = 2;
 const CHUNK_INDEX_INLINE_IMPORT_THRESHOLD = 6;
 const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK = 40;
 const CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 120;
+const HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD = 48;
+const HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD = 18;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE = 14;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK = 5;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS = 12;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS = 9000;
+const TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS = 16;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -398,19 +421,43 @@ function statementBudgetForArchetype(archetype: ArchetypeId, baseBudget: number)
   return Math.max(minimum, floor, scaled);
 }
 
+function maxPartsForArchetype(archetype: ArchetypeId): number {
+  if (archetype === "service" || archetype === "store") {
+    return MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC;
+  }
+  return MAX_PARTS_PER_TOPIC;
+}
+
 function sanitizeSegment(candidate: string, fallback: string): string {
   const normalized = candidate
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
-  if (normalized.length < 3) {
+  const tokens = normalized
+    .split("-")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+    .filter((token) => !/^[a-z]{20,}$/.test(token))
+    .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
+    .filter((token) => !/^[a-f0-9]{10,}$/i.test(token))
+    .filter((token) => !/^g\d{3}$/i.test(token));
+  const cleaned = tokens.join("-");
+  const fallbackNormalized = fallback
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+  if (cleaned.length < 3) {
     return fallback;
   }
-  if (GENERIC_SEGMENTS.has(normalized)) {
+  if (GENERIC_SEGMENTS.has(cleaned)) {
     return fallback;
   }
-  return normalized;
+  if (cleaned.includes("abcdefghijklmnopqrstuvwxyz")) {
+    return fallbackNormalized.length >= 3 ? fallbackNormalized : fallback;
+  }
+  return cleaned;
 }
 
 function kebabFromSymbol(symbolName: string): string {
@@ -1058,11 +1105,31 @@ function buildDomainExportName(
   liftBinding?: LiftedSymbolBinding,
   chunkTopicTokensById: Map<string, string[]> = new Map<string, string[]>(),
 ): string {
+  const hasNoisyPattern = (name: string): boolean => {
+    const normalized = name.toLowerCase();
+    if (normalized.includes("abcdefghijklmnopqrstuvwxyz")) {
+      return true;
+    }
+    if (/^[a-z]{20,}$/.test(normalized)) {
+      return true;
+    }
+    if (/^run[A-Z]/.test(name) && /[a-z]{10,}/.test(normalized)) {
+      return true;
+    }
+    return false;
+  };
+
   if (renameHint && renameHint.confidence >= 0.62) {
-    return nextUniqueName(sanitizeIdentifier(renameHint.preferredName), usedNames);
+    const preferred = sanitizeIdentifier(renameHint.preferredName);
+    if (!hasNoisyPattern(preferred)) {
+      return nextUniqueName(preferred, usedNames);
+    }
   }
   if (shouldKeepSymbolName(symbol.symbolName)) {
-    return nextUniqueName(sanitizeIdentifier(symbol.symbolName), usedNames);
+    const kept = sanitizeIdentifier(symbol.symbolName);
+    if (!hasNoisyPattern(kept)) {
+      return nextUniqueName(kept, usedNames);
+    }
   }
   const base = buildSignalDrivenBaseName(
     symbol,
@@ -1074,6 +1141,12 @@ function buildDomainExportName(
     renameHint,
     signalContext,
   );
+  if (hasNoisyPattern(base)) {
+    const fallbackBase = sanitizeIdentifier(
+      `${plan.archetype}${toPascalCase(topic)}${archetypeRoleSuffix(plan.archetype)}${ordinal}`,
+    );
+    return nextUniqueName(fallbackBase, usedNames);
+  }
   return nextUniqueName(base, usedNames);
 }
 
@@ -1348,7 +1421,8 @@ function splitBalanced<T>(items: T[], parts: number): T[][] {
   return result.filter((part) => part.length > 0);
 }
 
-function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): OwnershipRecord[][] {
+function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number, archetype: ArchetypeId): OwnershipRecord[][] {
+  const maxParts = maxPartsForArchetype(archetype);
   const chunkHintBuckets = new Map<string, OwnershipRecord[]>();
   for (const symbol of symbols) {
     const bucketToken = chunkHintTokens(symbol.chunkHint)[0] ?? "domain";
@@ -1365,9 +1439,9 @@ function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): Own
         return left[0].localeCompare(right[0]);
       });
     const parts: OwnershipRecord[][] = rankedBuckets
-      .slice(0, MAX_PARTS_PER_TOPIC)
+      .slice(0, maxParts)
       .map(([, bucket]) => [...bucket].sort((left, right) => left.symbolName.localeCompare(right.symbolName)));
-    const overflowBuckets = rankedBuckets.slice(MAX_PARTS_PER_TOPIC);
+    const overflowBuckets = rankedBuckets.slice(maxParts);
     if (parts.length > 0) {
       let partIndex = 0;
       for (const [, overflow] of overflowBuckets) {
@@ -1393,7 +1467,7 @@ function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number): Own
   const minPartCountByHardLimit = Math.max(1, Math.ceil(symbols.length / HARD_SYMBOL_LIMIT_PER_MODULE));
   const targetPartCount = Math.max(
     minPartCountByHardLimit,
-    Math.min(MAX_PARTS_PER_TOPIC, initial.length),
+    Math.min(maxParts, initial.length),
   );
   if (targetPartCount >= initial.length) {
     return initial;
@@ -1434,7 +1508,7 @@ function buildModulePlans(
         const topic = topicKey.split("::")[2] ?? fallbackTopicByArchetype(archetype);
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
         const chunkBudget = statementBudgetForArchetype(archetype, statementBudget);
-        const chunks = splitTopicSymbols(byName, chunkBudget);
+        const chunks = splitTopicSymbols(byName, chunkBudget, archetype);
         for (let partIndex = 0; partIndex < chunks.length; partIndex += 1) {
           const partSymbols = chunks[partIndex];
           if (!partSymbols || partSymbols.length === 0) {
@@ -1499,7 +1573,7 @@ function applyFileQualityRerender(
     if (targetPartCount <= 1 || plan.symbols.length <= 1) {
       continue;
     }
-    const parts = splitBalanced(plan.symbols, Math.min(MAX_PARTS_PER_TOPIC, targetPartCount));
+    const parts = splitBalanced(plan.symbols, Math.min(maxPartsForArchetype(plan.archetype), targetPartCount));
     if (parts.length <= 1) {
       continue;
     }
@@ -1778,7 +1852,7 @@ function splitPlanByCohesion(
     bucket.push(symbol);
     buckets.set(head, bucket);
   }
-  const maxBucketCount = forceSplit ? 3 : 2;
+  const maxBucketCount = forceSplit ? Math.min(5, maxPartsForArchetype(plan.archetype)) : 2;
   const rankedBuckets = [...buckets.entries()]
     .sort((left, right) => right[1].length - left[1].length)
     .slice(0, maxBucketCount);
@@ -2190,6 +2264,8 @@ function buildQualityModuleContent(
   const exportEntries: ExportEntry[] = [];
   const dependencyImportLines = new Set<string>();
   const dependencyAliasNames = new Set<string>();
+  const chunkNamespaceAliasByModulePath = new Map<string, string>();
+  const chunkNamespaceLocalAliasLines = new Set<string>();
   const assetImportsByPath = new Map<string, string>();
   const assetFilesByPath = new Map<string, string>();
   const chunkDeclarationBlocks: string[] = [];
@@ -2862,7 +2938,10 @@ function buildQualityModuleContent(
       tokens
         .filter((token) => token.length >= 3)
         .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+        .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
         .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+        .filter((token) => !/^[a-z]{18,}$/.test(token))
+        .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
         .filter((token) => !/\d/.test(token))
         .filter((token) => !GENERIC_SEGMENTS.has(token))
         .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
@@ -2876,11 +2955,12 @@ function buildQualityModuleContent(
       ...sanitizeAliasTokens(chunkTokens),
     ]).slice(0, 2);
     const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Domain";
-    const base = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}Impl`), 42);
+    const base = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}Node`), 42);
     if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
       return base;
     }
-    const fallbackChunk = toPascalCase(chunkTokens[0] ?? "domain");
+    const fallbackTokens = sanitizeAliasTokens([plan.topic, ...chunkTokens]);
+    const fallbackChunk = toPascalCase(fallbackTokens[0] ?? fallbackTopicByArchetype(plan.archetype));
     return compactIdentifier(sanitizeIdentifier(`${plan.archetype}${fallbackChunk}Member`), 36);
   };
 
@@ -2893,12 +2973,17 @@ function buildQualityModuleContent(
       tokens
         .filter((token) => token.length >= 3)
         .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+        .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
         .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+        .filter((token) => !/^[a-z]{18,}$/.test(token))
+        .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
         .filter((token) => !/\d/.test(token))
         .filter((token) => !GENERIC_SEGMENTS.has(token))
         .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
 
-    const moduleTokens = sanitizeAliasTokens(splitNameTokens(path.basename(modulePath)));
+    const moduleTokens = isChunkIndexModulePath(modulePath)
+      ? []
+      : sanitizeAliasTokens(splitNameTokens(path.basename(modulePath)));
     const importedTokens = sanitizeAliasTokens(splitNameTokens(importedName));
     const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
     const semanticTokens = dedupeNameTokens([
@@ -2915,6 +3000,38 @@ function buildQualityModuleContent(
     return compactIdentifier(sanitizeIdentifier(`${prefix}Dependency`), 24);
   };
 
+  const resolveChunkNamespaceAlias = (modulePath: string): string => {
+    const existingAlias = chunkNamespaceAliasByModulePath.get(modulePath);
+    if (existingAlias) {
+      return existingAlias;
+    }
+    const basename = path.basename(modulePath).replace(/\.[cm]?[jt]sx?$/i, "");
+    const tokens = splitNameTokens(basename)
+      .filter((token) => token.length >= 3)
+      .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+      .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
+      .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+      .filter((token) => !/^[a-z]{18,}$/.test(token))
+      .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
+      .filter((token) => !/\d/.test(token))
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
+      .slice(0, 2);
+    const prefix = IMPORT_ALIAS_PREFIX_BY_ARCHETYPE[plan.archetype];
+    const suffix = tokens.length > 0 ? tokens.map((token) => toPascalCase(token)).join("") : "ChunkIndex";
+    const aliasBase = compactIdentifier(sanitizeIdentifier(`${prefix}${suffix}Chunk`), 32);
+    const usedAliases = new Set<string>([
+      ...dependencyAliasNames,
+      ...assetImportsByPath.values(),
+      ...chunkNamespaceAliasByModulePath.values(),
+    ]);
+    const resolvedAlias = nextUniqueIdentifier(aliasBase, usedAliases);
+    chunkNamespaceAliasByModulePath.set(modulePath, resolvedAlias);
+    dependencyAliasNames.add(resolvedAlias);
+    dependencyImportLines.add(`import * as ${resolvedAlias} from ${quote(modulePath)};`);
+    return resolvedAlias;
+  };
+
   const registerDependencyImportNeed = (need: ChunkImportNeed): void => {
     const moduleSpecifier = quote(need.modulePath);
     if (need.kind === "namespace") {
@@ -2925,6 +3042,14 @@ function buildQualityModuleContent(
     if (need.kind === "default") {
       dependencyAliasNames.add(need.localName);
       dependencyImportLines.add(`import ${need.localName} from ${moduleSpecifier};`);
+      return;
+    }
+    if (isChunkIndexModulePath(need.modulePath)) {
+      const namespaceAlias = resolveChunkNamespaceAlias(need.modulePath);
+      dependencyAliasNames.add(need.localName);
+      chunkNamespaceLocalAliasLines.add(
+        `const ${need.localName} = ${namespaceAlias}[${quote(need.importedName)}];`,
+      );
       return;
     }
     if (need.importedName === need.localName) {
@@ -2949,8 +3074,38 @@ function buildQualityModuleContent(
     const selection = selectChunkStatementsByRoots(sourceChunkMetadata, chunkId, requiredSourceIdentifiers);
     const selectedStatements = new Set<ts.Statement>(selection.selectedStatements);
     const requiredImportLocals = new Set<string>(selection.requiredImportLocals);
+    const heavyChunkSelection =
+      selection.selectedStatements.length >= HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD ||
+      requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
+    const preferChunkImportFallback =
+      (plan.archetype === "service" || plan.archetype === "store") && heavyChunkSelection;
+    const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     const inlineDependencyStatements: ts.Statement[] = [];
+    const inlinedTargetStatementKeys = new Set<string>();
+    const hasUnsafeStaticPayloadStatement = (statement: ts.Statement, sourceFile: ts.SourceFile): boolean => {
+      if (!ts.isVariableStatement(statement)) {
+        return false;
+      }
+      for (const declaration of statement.declarationList.declarations) {
+        if (!declaration.initializer) {
+          continue;
+        }
+        const initializer = unwrapLiteralExpression(declaration.initializer);
+        if (!isStaticLiteralExpression(initializer)) {
+          continue;
+        }
+        const initializerText = plannerPrinter.printNode(ts.EmitHint.Unspecified, initializer, sourceFile).trim();
+        if (initializerText.length >= STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH) {
+          return true;
+        }
+      }
+      return false;
+    };
+    const hasChunkRuntimeBootstrapPattern = (statement: ts.Statement, sourceFile: ts.SourceFile): boolean => {
+      const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, sourceFile);
+      return rendered.includes("__vite__mapDeps") || rendered.includes("modulepreload");
+    };
     const chunkIndexImportLocals = [...requiredImportLocals]
       .map((localName) => {
         const binding = sourceChunkMetadata.importBindings.get(localName);
@@ -2968,7 +3123,7 @@ function buildQualityModuleContent(
         };
       })
       .filter((entry): entry is { localName: string; modulePath: string; importedName: string } => Boolean(entry));
-    if (chunkIndexImportLocals.length >= CHUNK_INDEX_INLINE_IMPORT_THRESHOLD) {
+    if (!preferChunkImportFallback && chunkIndexImportLocals.length >= CHUNK_INDEX_INLINE_IMPORT_THRESHOLD) {
       const selectedChunkIndexImportLocals = chunkIndexImportLocals
         .sort((left, right) => {
           const leftScore =
@@ -3051,6 +3206,174 @@ function buildQualityModuleContent(
       }
     }
 
+    const remainingChunkIndexImportLocals = [...requiredImportLocals]
+      .map((localName) => {
+        const binding = sourceChunkMetadata.importBindings.get(localName);
+        if (!binding || binding.kind !== "named") {
+          return undefined;
+        }
+        const modulePath = normalizeChunkImportPath(chunkId, binding.moduleSpecifier);
+        if (!isChunkIndexModulePath(modulePath)) {
+          return undefined;
+        }
+        return {
+          localName,
+          modulePath,
+          importedName: binding.importedName,
+        };
+      })
+      .filter((entry): entry is { localName: string; modulePath: string; importedName: string } => Boolean(entry));
+
+    const targetedChunkIndexCandidates = new Map<
+      string,
+      Array<{ localName: string; importedName: string }>
+    >();
+    for (const need of remainingChunkIndexImportLocals) {
+      const targetChunkId = chunkIdFromChunkModulePath(need.modulePath);
+      const bucket = targetedChunkIndexCandidates.get(targetChunkId) ?? [];
+      bucket.push({
+        localName: need.localName,
+        importedName: need.importedName,
+      });
+      targetedChunkIndexCandidates.set(targetChunkId, bucket);
+    }
+    if (targetedChunkIndexCandidates.size > 0) {
+      const selectedTargetedInlines: Array<{
+        targetChunkId: string;
+        localName: string;
+        rootIdentifier: string;
+        statements: ts.Statement[];
+        requiredImportLocals: Set<string>;
+        sourceFile: ts.SourceFile;
+        score: number;
+      }> = [];
+      for (const [targetChunkId, rawNeeds] of targetedChunkIndexCandidates.entries()) {
+        const targetChunkMetadata = resolveLiftedChunkMetadata(targetChunkId);
+        const needs = [...rawNeeds]
+          .sort((left, right) => left.localName.localeCompare(right.localName))
+          .slice(0, TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK);
+        for (const need of needs) {
+          const rootIdentifier =
+            targetChunkMetadata.exportLocalByExportedName.get(need.importedName) ??
+            (targetChunkMetadata.statementByDeclaredName.has(need.importedName) ? need.importedName : undefined);
+          if (!rootIdentifier) {
+            continue;
+          }
+          const targetedSelection = selectChunkStatementsByRoots(targetChunkMetadata, targetChunkId, [rootIdentifier]);
+          if (targetedSelection.selectedStatements.length < 1) {
+            continue;
+          }
+          if (targetedSelection.selectedStatements.length > TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS) {
+            continue;
+          }
+          if (targetedSelection.requiredImportLocals.size > TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS) {
+            continue;
+          }
+          const normalizedTargetStatements = targetedSelection.selectedStatements
+            .map((statement) => stripExportModifiers(statement))
+            .filter((statement): statement is ts.Statement => Boolean(statement));
+          if (normalizedTargetStatements.length < 1) {
+            continue;
+          }
+          let declarationChars = 0;
+          let unsafePayload = false;
+          let runtimeBootstrap = false;
+          const declaredNames = new Set<string>();
+          for (const statement of normalizedTargetStatements) {
+            declarationChars += plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, targetChunkMetadata.sourceFile).length;
+            if (hasUnsafeStaticPayloadStatement(statement, targetChunkMetadata.sourceFile)) {
+              unsafePayload = true;
+              break;
+            }
+            if (hasChunkRuntimeBootstrapPattern(statement, targetChunkMetadata.sourceFile)) {
+              runtimeBootstrap = true;
+              break;
+            }
+            const names = collectStatementDeclaredNames(statement);
+            for (const name of names) {
+              declaredNames.add(name);
+            }
+          }
+          if (unsafePayload || runtimeBootstrap) {
+            continue;
+          }
+          if (declarationChars > TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS) {
+            continue;
+          }
+          let hasCollision = false;
+          for (const declaredName of declaredNames) {
+            if (sourceChunkMetadata.statementByDeclaredName.has(declaredName)) {
+              hasCollision = true;
+              break;
+            }
+          }
+          if (hasCollision) {
+            continue;
+          }
+          const score =
+            (OBFUSCATED_ALIAS_STYLE_PATTERN.test(need.importedName) ? 0.4 : 0) +
+            (need.importedName.length <= 2 ? 0.2 : 0) +
+            Math.max(0, 1 - declarationChars / TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS);
+          selectedTargetedInlines.push({
+            targetChunkId,
+            localName: need.localName,
+            rootIdentifier,
+            statements: normalizedTargetStatements,
+            requiredImportLocals: targetedSelection.requiredImportLocals,
+            sourceFile: targetChunkMetadata.sourceFile,
+            score,
+          });
+        }
+      }
+      selectedTargetedInlines
+        .sort((left, right) => {
+          if (left.score !== right.score) {
+            return right.score - left.score;
+          }
+          if (left.targetChunkId !== right.targetChunkId) {
+            return left.targetChunkId.localeCompare(right.targetChunkId);
+          }
+          return left.localName.localeCompare(right.localName);
+        })
+        .slice(0, TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE)
+        .forEach((candidate) => {
+          for (const statement of candidate.statements) {
+            const statementKey = plannerPrinter.printNode(
+              ts.EmitHint.Unspecified,
+              statement,
+              candidate.sourceFile,
+            );
+            if (inlinedTargetStatementKeys.has(statementKey)) {
+              continue;
+            }
+            inlinedTargetStatementKeys.add(statementKey);
+            inlineDependencyStatements.push(statement);
+          }
+          if (candidate.rootIdentifier !== candidate.localName) {
+            inlineDependencyStatements.push(
+              ts.factory.createVariableStatement(
+                undefined,
+                ts.factory.createVariableDeclarationList(
+                  [
+                    ts.factory.createVariableDeclaration(
+                      ts.factory.createIdentifier(candidate.localName),
+                      undefined,
+                      undefined,
+                      ts.factory.createIdentifier(candidate.rootIdentifier),
+                    ),
+                  ],
+                  ts.NodeFlags.Const,
+                ),
+              ),
+            );
+          }
+          for (const requiredImportLocal of candidate.requiredImportLocals) {
+            requiredImportLocals.add(requiredImportLocal);
+          }
+          requiredImportLocals.delete(candidate.localName);
+        });
+    }
+
     const sourceIdentifierByOriginal = new Map<string, string>();
     const chunkUsedNames = new Set<string>(usedTopLevelNames);
     const renameMap = new Map<string, string>();
@@ -3108,7 +3431,6 @@ function buildQualityModuleContent(
         };
       });
 
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
     const sourceBodyStatements: ts.Statement[] = [];
     for (const statement of sourceChunkMetadata.sourceFile.statements) {
       if (!selectedStatements.has(statement)) {
@@ -3118,7 +3440,7 @@ function buildQualityModuleContent(
         statement,
         chunkId,
         sourceChunkMetadata.sourceFile,
-        printer,
+        plannerPrinter,
       );
       const stripped = stripExportModifiers(withExtractedPayload);
       if (!stripped) {
@@ -3130,14 +3452,14 @@ function buildQualityModuleContent(
     const declarationLines: string[] = [];
     for (const statement of inlineDependencyStatements) {
       const statementSource = statement.getSourceFile?.() ?? sourceChunkMetadata.sourceFile;
-      const rendered = printer.printNode(ts.EmitHint.Unspecified, statement, statementSource).trim();
+      const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, statementSource).trim();
       if (rendered.length < 1) {
         continue;
       }
       declarationLines.push(rendered);
     }
     for (const statement of renamedSourceStatements) {
-      const rendered = printer.printNode(ts.EmitHint.Unspecified, statement, sourceChunkMetadata.sourceFile).trim();
+      const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, sourceChunkMetadata.sourceFile).trim();
       if (rendered.length < 1) {
         continue;
       }
@@ -3277,6 +3599,14 @@ function buildQualityModuleContent(
     }
     for (const [importPath, alias] of sortedAssetImports) {
       lines.push(`import ${alias} from ${quote(importPath)};`);
+    }
+  }
+  const sortedChunkNamespaceAliases = [...chunkNamespaceLocalAliasLines].sort((left, right) => left.localeCompare(right));
+  if (sortedChunkNamespaceAliases.length > 0) {
+    lines.push("");
+    lines.push("// import shaping");
+    for (const aliasLine of sortedChunkNamespaceAliases) {
+      lines.push(aliasLine);
     }
   }
 
@@ -3789,12 +4119,12 @@ export async function emitTemplateProject(
   emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
 
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
-    hotChunkMax: 90,
-    targetCoverage: 0.97,
-    minHotChunkCount: 40,
-    preferredArchetypes: ["ui", "service", "hook", "transport"],
+    hotChunkMax: 120,
+    targetCoverage: 0.985,
+    minHotChunkCount: 56,
+    preferredArchetypes: ["ui", "service", "store", "hook", "transport"],
     minimumChunkScore: 0,
-    closureChunkLimit: 768,
+    closureChunkLimit: 960,
   });
   const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
   const liftedChunkById = new Map<string, LiftedChunkArtifact>(

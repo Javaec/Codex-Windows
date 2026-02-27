@@ -1455,6 +1455,9 @@ function archetypeHotWeight(archetype: ArchetypeId): number {
   if (archetype === "service") {
     return 1.45;
   }
+  if (archetype === "store") {
+    return 1.3;
+  }
   if (archetype === "hook") {
     return 1.25;
   }

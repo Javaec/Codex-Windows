@@ -7,7 +7,7 @@
     "functionClassCoverageAverage": 1,
     "functionCoverageAverage": 1,
     "highConfidenceSymbolsAverage": 591,
-    "hotChunkAverage": 47,
+    "hotChunkAverage": 56,
     "lowQualityFileCountAverage": 0,
     "mappedFilesAverage": 47,
     "mappedSymbolsAverage": 1139,
@@ -16,443 +16,443 @@
     "proxyInQualityAverage": 0,
     "rerenderedModuleAverage": 1,
     "variableCoverageAverage": 1,
-    "worstFileDecileScoreAverage": 0.7605
+    "worstFileDecileScoreAverage": 0.7596
   },
-  "generatedAtIso": "2026-02-27T05:12:56.403Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\merged-evidence.json",
+  "generatedAtIso": "2026-02-27T06:56:47.258Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 225577,
+      "durationMs": 192139,
       "fileQuality": {
         "fileCount": 12,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
-        "hotChunkCount": 47,
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.7613,
+        "worstDecileAverageScore": 0.7605,
         "worstFiles": [
           {
-            "averageConfidence": 0.6202,
+            "averageConfidence": 0.6153,
             "averageNameQuality": 0.78,
             "filePath": "src/main/transport/transport-bridge.ts",
             "liftedCoverage": 1,
             "moduleId": "main:transport:transport-bridge",
             "rerendered": false,
-            "score": 0.7597,
-            "symbolCount": 2
-          },
-          {
-            "averageConfidence": 0.6277,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-quality-01.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state:quality-01",
-            "rerendered": true,
-            "score": 0.7629,
-            "symbolCount": 107
-          },
-          {
-            "averageConfidence": 0.7277,
-            "averageNameQuality": 0.78,
-            "filePath": "src/renderer/store/store-state.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:store:state",
-            "rerendered": false,
-            "score": 0.8059,
-            "symbolCount": 193
-          },
-          {
-            "averageConfidence": 0.7367,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-g002-g002.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state-store-g002:g002",
-            "rerendered": false,
-            "score": 0.8098,
-            "symbolCount": 240
-          },
-          {
-            "averageConfidence": 0.7426,
-            "averageNameQuality": 0.7808,
-            "filePath": "src/services/store/store-state-g002.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state-store:g002",
-            "rerendered": false,
-            "score": 0.8126,
-            "symbolCount": 240
-          },
-          {
-            "averageConfidence": 0.7237,
-            "averageNameQuality": 0.88,
-            "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:service:run-abcdefghijklmnopqrstuvwxyz-flow",
-            "rerendered": false,
-            "score": 0.8392,
-            "symbolCount": 115
-          },
-          {
-            "averageConfidence": 0.8181,
-            "averageNameQuality": 0.78,
-            "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
-            "liftedCoverage": 1,
-            "moduleId": "tauri:transport:transport-bridge",
-            "rerendered": false,
-            "score": 0.8448,
-            "symbolCount": 1
-          },
-          {
-            "averageConfidence": 0.7478,
-            "averageNameQuality": 0.8675,
-            "filePath": "src/main/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "main:service:domain-service",
-            "rerendered": false,
-            "score": 0.8452,
-            "symbolCount": 8
-          },
-          {
-            "averageConfidence": 0.8239,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-quality-02.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state:quality-02",
-            "rerendered": true,
-            "score": 0.8473,
-            "symbolCount": 107
-          },
-          {
-            "averageConfidence": 0.8536,
-            "averageNameQuality": 0.7812,
-            "filePath": "src/services/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:service:service",
-            "rerendered": false,
-            "score": 0.8605,
-            "symbolCount": 86
-          },
-          {
-            "averageConfidence": 0.9144,
-            "averageNameQuality": 0.82,
-            "filePath": "src/renderer/hook/hook-hooks-render.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:hook:hooks-render",
-            "rerendered": false,
-            "score": 0.9002,
-            "symbolCount": 10
-          },
-          {
-            "averageConfidence": 0.9248,
-            "averageNameQuality": 0.8133,
-            "filePath": "src/renderer/ui/ui-components.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:ui:ui-components",
-            "rerendered": false,
-            "score": 0.9023,
-            "symbolCount": 6
-          }
-        ]
-      },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\logs\\01-core-no-binary.log",
-      "metrics": {
-        "archetypeCoverage": {
-          "hook": 10,
-          "service": 215,
-          "store": 904,
-          "transport": 4,
-          "ui": 6
-        },
-        "buildHealth": true,
-        "classCoverage": 1,
-        "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.8359,
-        "coverageSymbols": 13555,
-        "devHealth": true,
-        "functionClassCoverage": 1,
-        "functionCoverage": 1,
-        "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 591,
-        "layerCoverage": {
-          "main": 14,
-          "renderer": 213,
-          "services": 911,
-          "tauri": 1
-        },
-        "lowQualitySymbolCount": 0,
-        "mappedFiles": 47,
-        "mappedSymbols": 1139,
-        "nameQuality": 0.7919,
-        "proxyInQualityCount": 0,
-        "variableCoverage": 1
-      },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-01-core-no-binary\\run-metrics.json",
-      "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-01-core-no-binary",
-      "runId": "reg-quality-radical-6-20260227-045849-c01-01-core-no-binary",
-      "score": {
-        "buildScore": 1,
-        "devScore": 1,
-        "mappedFilesScore": 1,
-        "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7919,
-        "total": 0.9625,
-        "variableCoverageScore": 1
-      },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-01-core-no-binary\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\adaptive-weights\\core-no-binary.weights.json"
-    },
-    {
-      "durationMs": 213662,
-      "fileQuality": {
-        "fileCount": 12,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
-        "hotChunkCount": 47,
-        "lowQualityFileCount": 0,
-        "rerenderedModuleCount": 1,
-        "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.7613,
-        "worstFiles": [
-          {
-            "averageConfidence": 0.6202,
-            "averageNameQuality": 0.78,
-            "filePath": "src/main/transport/transport-bridge.ts",
-            "liftedCoverage": 1,
-            "moduleId": "main:transport:transport-bridge",
-            "rerendered": false,
-            "score": 0.7597,
-            "symbolCount": 2
-          },
-          {
-            "averageConfidence": 0.6277,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-quality-01.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state:quality-01",
-            "rerendered": true,
-            "score": 0.7629,
-            "symbolCount": 107
-          },
-          {
-            "averageConfidence": 0.7277,
-            "averageNameQuality": 0.78,
-            "filePath": "src/renderer/store/store-state.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:store:state",
-            "rerendered": false,
-            "score": 0.8059,
-            "symbolCount": 193
-          },
-          {
-            "averageConfidence": 0.7367,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-g002-g002.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state-store-g002:g002",
-            "rerendered": false,
-            "score": 0.8098,
-            "symbolCount": 240
-          },
-          {
-            "averageConfidence": 0.7426,
-            "averageNameQuality": 0.7808,
-            "filePath": "src/services/store/store-state-g002.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state-store:g002",
-            "rerendered": false,
-            "score": 0.8126,
-            "symbolCount": 240
-          },
-          {
-            "averageConfidence": 0.7237,
-            "averageNameQuality": 0.88,
-            "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:service:run-abcdefghijklmnopqrstuvwxyz-flow",
-            "rerendered": false,
-            "score": 0.8392,
-            "symbolCount": 115
-          },
-          {
-            "averageConfidence": 0.8181,
-            "averageNameQuality": 0.78,
-            "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
-            "liftedCoverage": 1,
-            "moduleId": "tauri:transport:transport-bridge",
-            "rerendered": false,
-            "score": 0.8448,
-            "symbolCount": 1
-          },
-          {
-            "averageConfidence": 0.7478,
-            "averageNameQuality": 0.8675,
-            "filePath": "src/main/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "main:service:domain-service",
-            "rerendered": false,
-            "score": 0.8452,
-            "symbolCount": 8
-          },
-          {
-            "averageConfidence": 0.8239,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-quality-02.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state:quality-02",
-            "rerendered": true,
-            "score": 0.8473,
-            "symbolCount": 107
-          },
-          {
-            "averageConfidence": 0.8536,
-            "averageNameQuality": 0.7812,
-            "filePath": "src/services/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:service:service",
-            "rerendered": false,
-            "score": 0.8605,
-            "symbolCount": 86
-          },
-          {
-            "averageConfidence": 0.9144,
-            "averageNameQuality": 0.82,
-            "filePath": "src/renderer/hook/hook-hooks-render.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:hook:hooks-render",
-            "rerendered": false,
-            "score": 0.9002,
-            "symbolCount": 10
-          },
-          {
-            "averageConfidence": 0.9248,
-            "averageNameQuality": 0.8133,
-            "filePath": "src/renderer/ui/ui-components.ts",
-            "liftedCoverage": 1,
-            "moduleId": "renderer:ui:ui-components",
-            "rerendered": false,
-            "score": 0.9023,
-            "symbolCount": 6
-          }
-        ]
-      },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\logs\\02-core-no-binary-no-pretty.log",
-      "metrics": {
-        "archetypeCoverage": {
-          "hook": 10,
-          "service": 215,
-          "store": 904,
-          "transport": 4,
-          "ui": 6
-        },
-        "buildHealth": true,
-        "classCoverage": 1,
-        "coverageLowQualitySymbolCount": 0,
-        "coverageNameQuality": 0.8359,
-        "coverageSymbols": 13555,
-        "devHealth": true,
-        "functionClassCoverage": 1,
-        "functionCoverage": 1,
-        "genericPathNoiseCount": 0,
-        "highConfidenceSymbols": 591,
-        "layerCoverage": {
-          "main": 14,
-          "renderer": 213,
-          "services": 911,
-          "tauri": 1
-        },
-        "lowQualitySymbolCount": 0,
-        "mappedFiles": 47,
-        "mappedSymbols": 1139,
-        "nameQuality": 0.7919,
-        "proxyInQualityCount": 0,
-        "variableCoverage": 1
-      },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-02-core-no-binary-no-pretty\\run-metrics.json",
-      "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-02-core-no-binary-no-pretty",
-      "runId": "reg-quality-radical-6-20260227-045849-c01-02-core-no-binary-no-pretty",
-      "score": {
-        "buildScore": 1,
-        "devScore": 1,
-        "mappedFilesScore": 1,
-        "mappedSymbolsScore": 1,
-        "nameQualityScore": 0.7919,
-        "total": 0.9625,
-        "variableCoverageScore": 1
-      },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-02-core-no-binary-no-pretty\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
-    },
-    {
-      "durationMs": 204252,
-      "fileQuality": {
-        "fileCount": 12,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
-        "hotChunkCount": 47,
-        "lowQualityFileCount": 0,
-        "rerenderedModuleCount": 1,
-        "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.7587,
-        "worstFiles": [
-          {
-            "averageConfidence": 0.6154,
-            "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-quality-01.ts",
-            "liftedCoverage": 1,
-            "moduleId": "services:store:state:quality-01",
-            "rerendered": true,
             "score": 0.7576,
-            "symbolCount": 59
+            "symbolCount": 3
           },
           {
-            "averageConfidence": 0.6202,
+            "averageConfidence": 0.6287,
             "averageNameQuality": 0.78,
-            "filePath": "src/main/transport/transport-bridge.ts",
+            "filePath": "src/services/store/store-state-quality-01.ts",
             "liftedCoverage": 1,
-            "moduleId": "main:transport:transport-bridge",
-            "rerendered": false,
-            "score": 0.7597,
-            "symbolCount": 2
+            "moduleId": "services:store:state:quality-01",
+            "rerendered": true,
+            "score": 0.7633,
+            "symbolCount": 112
           },
           {
-            "averageConfidence": 0.7277,
+            "averageConfidence": 0.7287,
             "averageNameQuality": 0.78,
             "filePath": "src/renderer/store/store-state.ts",
             "liftedCoverage": 1,
             "moduleId": "renderer:store:state",
             "rerendered": false,
-            "score": 0.8059,
-            "symbolCount": 193
+            "score": 0.8064,
+            "symbolCount": 197
           },
           {
-            "averageConfidence": 0.7366,
+            "averageConfidence": 0.7383,
             "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-g002-g002.ts",
+            "filePath": "src/services/store/store-state-g003.ts",
             "liftedCoverage": 1,
-            "moduleId": "services:store:state-store-g002:g002",
+            "moduleId": "services:store:state-store-g002:g003",
             "rerendered": false,
-            "score": 0.8097,
+            "score": 0.8105,
+            "symbolCount": 240
+          },
+          {
+            "averageConfidence": 0.7433,
+            "averageNameQuality": 0.7808,
+            "filePath": "src/services/store/store-state-g002.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state-store:g002",
+            "rerendered": false,
+            "score": 0.8129,
+            "symbolCount": 240
+          },
+          {
+            "averageConfidence": 0.7245,
+            "averageNameQuality": 0.88,
+            "filePath": "src/services/service/service-run-flow.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:service:run-flow",
+            "rerendered": false,
+            "score": 0.8395,
+            "symbolCount": 117
+          },
+          {
+            "averageConfidence": 0.8181,
+            "averageNameQuality": 0.78,
+            "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
+            "liftedCoverage": 1,
+            "moduleId": "tauri:transport:transport-bridge",
+            "rerendered": false,
+            "score": 0.8448,
+            "symbolCount": 1
+          },
+          {
+            "averageConfidence": 0.8209,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-quality-02.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state:quality-02",
+            "rerendered": true,
+            "score": 0.846,
+            "symbolCount": 112
+          },
+          {
+            "averageConfidence": 0.7632,
+            "averageNameQuality": 0.86,
+            "filePath": "src/main/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:service:domain-service",
+            "rerendered": false,
+            "score": 0.8492,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.8539,
+            "averageNameQuality": 0.7811,
+            "filePath": "src/services/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:service:service",
+            "rerendered": false,
+            "score": 0.8606,
+            "symbolCount": 87
+          },
+          {
+            "averageConfidence": 0.9144,
+            "averageNameQuality": 0.82,
+            "filePath": "src/renderer/hook/hook-hooks-render.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:hook:hooks-render",
+            "rerendered": false,
+            "score": 0.9002,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.9248,
+            "averageNameQuality": 0.8133,
+            "filePath": "src/renderer/ui/ui-components.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:ui:ui-components",
+            "rerendered": false,
+            "score": 0.9023,
+            "symbolCount": 6
+          }
+        ]
+      },
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\logs\\01-core-no-binary.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 10,
+          "service": 215,
+          "store": 904,
+          "transport": 4,
+          "ui": 6
+        },
+        "buildHealth": true,
+        "classCoverage": 1,
+        "coverageLowQualitySymbolCount": 0,
+        "coverageNameQuality": 0.8359,
+        "coverageSymbols": 13555,
+        "devHealth": true,
+        "functionClassCoverage": 1,
+        "functionCoverage": 1,
+        "genericPathNoiseCount": 0,
+        "highConfidenceSymbols": 591,
+        "layerCoverage": {
+          "main": 14,
+          "renderer": 213,
+          "services": 911,
+          "tauri": 1
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 1139,
+        "nameQuality": 0.7919,
+        "proxyInQualityCount": 0,
+        "variableCoverage": 1
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-01-core-no-binary\\run-metrics.json",
+      "profileId": "core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-01-core-no-binary",
+      "runId": "reg-quality-radical-9-20260227-064413-c01-01-core-no-binary",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7919,
+        "total": 0.9625,
+        "variableCoverageScore": 1
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-01-core-no-binary\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\adaptive-weights\\core-no-binary.weights.json"
+    },
+    {
+      "durationMs": 185405,
+      "fileQuality": {
+        "fileCount": 12,
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 56,
+        "lowQualityFileCount": 0,
+        "rerenderedModuleCount": 1,
+        "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+        "worstDecileAverageScore": 0.7605,
+        "worstFiles": [
+          {
+            "averageConfidence": 0.6153,
+            "averageNameQuality": 0.78,
+            "filePath": "src/main/transport/transport-bridge.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:transport:transport-bridge",
+            "rerendered": false,
+            "score": 0.7576,
+            "symbolCount": 3
+          },
+          {
+            "averageConfidence": 0.6287,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-quality-01.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state:quality-01",
+            "rerendered": true,
+            "score": 0.7633,
+            "symbolCount": 112
+          },
+          {
+            "averageConfidence": 0.7287,
+            "averageNameQuality": 0.78,
+            "filePath": "src/renderer/store/store-state.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:store:state",
+            "rerendered": false,
+            "score": 0.8064,
+            "symbolCount": 197
+          },
+          {
+            "averageConfidence": 0.7383,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-g003.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state-store-g002:g003",
+            "rerendered": false,
+            "score": 0.8105,
+            "symbolCount": 240
+          },
+          {
+            "averageConfidence": 0.7433,
+            "averageNameQuality": 0.7808,
+            "filePath": "src/services/store/store-state-g002.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state-store:g002",
+            "rerendered": false,
+            "score": 0.8129,
+            "symbolCount": 240
+          },
+          {
+            "averageConfidence": 0.7245,
+            "averageNameQuality": 0.88,
+            "filePath": "src/services/service/service-run-flow.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:service:run-flow",
+            "rerendered": false,
+            "score": 0.8395,
+            "symbolCount": 117
+          },
+          {
+            "averageConfidence": 0.8181,
+            "averageNameQuality": 0.78,
+            "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
+            "liftedCoverage": 1,
+            "moduleId": "tauri:transport:transport-bridge",
+            "rerendered": false,
+            "score": 0.8448,
+            "symbolCount": 1
+          },
+          {
+            "averageConfidence": 0.8209,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-quality-02.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state:quality-02",
+            "rerendered": true,
+            "score": 0.846,
+            "symbolCount": 112
+          },
+          {
+            "averageConfidence": 0.7632,
+            "averageNameQuality": 0.86,
+            "filePath": "src/main/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:service:domain-service",
+            "rerendered": false,
+            "score": 0.8492,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.8539,
+            "averageNameQuality": 0.7811,
+            "filePath": "src/services/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:service:service",
+            "rerendered": false,
+            "score": 0.8606,
+            "symbolCount": 87
+          },
+          {
+            "averageConfidence": 0.9144,
+            "averageNameQuality": 0.82,
+            "filePath": "src/renderer/hook/hook-hooks-render.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:hook:hooks-render",
+            "rerendered": false,
+            "score": 0.9002,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.9248,
+            "averageNameQuality": 0.8133,
+            "filePath": "src/renderer/ui/ui-components.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:ui:ui-components",
+            "rerendered": false,
+            "score": 0.9023,
+            "symbolCount": 6
+          }
+        ]
+      },
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\logs\\02-core-no-binary-no-pretty.log",
+      "metrics": {
+        "archetypeCoverage": {
+          "hook": 10,
+          "service": 215,
+          "store": 904,
+          "transport": 4,
+          "ui": 6
+        },
+        "buildHealth": true,
+        "classCoverage": 1,
+        "coverageLowQualitySymbolCount": 0,
+        "coverageNameQuality": 0.8359,
+        "coverageSymbols": 13555,
+        "devHealth": true,
+        "functionClassCoverage": 1,
+        "functionCoverage": 1,
+        "genericPathNoiseCount": 0,
+        "highConfidenceSymbols": 591,
+        "layerCoverage": {
+          "main": 14,
+          "renderer": 213,
+          "services": 911,
+          "tauri": 1
+        },
+        "lowQualitySymbolCount": 0,
+        "mappedFiles": 47,
+        "mappedSymbols": 1139,
+        "nameQuality": 0.7919,
+        "proxyInQualityCount": 0,
+        "variableCoverage": 1
+      },
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-02-core-no-binary-no-pretty\\run-metrics.json",
+      "profileId": "core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-quality-radical-9-20260227-064413-c01-02-core-no-binary-no-pretty",
+      "score": {
+        "buildScore": 1,
+        "devScore": 1,
+        "mappedFilesScore": 1,
+        "mappedSymbolsScore": 1,
+        "nameQualityScore": 0.7919,
+        "total": 0.9625,
+        "variableCoverageScore": 1
+      },
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-02-core-no-binary-no-pretty\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
+    },
+    {
+      "durationMs": 183968,
+      "fileQuality": {
+        "fileCount": 12,
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 56,
+        "lowQualityFileCount": 0,
+        "rerenderedModuleCount": 1,
+        "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+        "worstDecileAverageScore": 0.7575,
+        "worstFiles": [
+          {
+            "averageConfidence": 0.6152,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-quality-01.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state:quality-01",
+            "rerendered": true,
+            "score": 0.7575,
+            "symbolCount": 64
+          },
+          {
+            "averageConfidence": 0.6153,
+            "averageNameQuality": 0.78,
+            "filePath": "src/main/transport/transport-bridge.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:transport:transport-bridge",
+            "rerendered": false,
+            "score": 0.7576,
+            "symbolCount": 3
+          },
+          {
+            "averageConfidence": 0.7287,
+            "averageNameQuality": 0.78,
+            "filePath": "src/renderer/store/store-state.ts",
+            "liftedCoverage": 1,
+            "moduleId": "renderer:store:state",
+            "rerendered": false,
+            "score": 0.8064,
+            "symbolCount": 197
+          },
+          {
+            "averageConfidence": 0.7373,
+            "averageNameQuality": 0.78,
+            "filePath": "src/services/store/store-state-g003.ts",
+            "liftedCoverage": 1,
+            "moduleId": "services:store:state-store-g002:g003",
+            "rerendered": false,
+            "score": 0.81,
             "symbolCount": 288
           },
           {
-            "averageConfidence": 0.7399,
+            "averageConfidence": 0.7405,
             "averageNameQuality": 0.7807,
             "filePath": "src/services/store/store-state-g002.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state-store:g002",
             "rerendered": false,
-            "score": 0.8114,
+            "score": 0.8117,
             "symbolCount": 288
           },
           {
-            "averageConfidence": 0.7237,
+            "averageConfidence": 0.7245,
             "averageNameQuality": 0.88,
-            "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
+            "filePath": "src/services/service/service-run-flow.ts",
             "liftedCoverage": 1,
-            "moduleId": "services:service:run-abcdefghijklmnopqrstuvwxyz-flow",
+            "moduleId": "services:service:run-flow",
             "rerendered": false,
-            "score": 0.8392,
-            "symbolCount": 115
+            "score": 0.8395,
+            "symbolCount": 117
           },
           {
             "averageConfidence": 0.8181,
@@ -465,34 +465,34 @@
             "symbolCount": 1
           },
           {
-            "averageConfidence": 0.7478,
-            "averageNameQuality": 0.8675,
-            "filePath": "src/main/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "main:service:domain-service",
-            "rerendered": false,
-            "score": 0.8452,
-            "symbolCount": 8
-          },
-          {
-            "averageConfidence": 0.8276,
+            "averageConfidence": 0.8272,
             "averageNameQuality": 0.78,
             "filePath": "src/services/store/store-state-quality-02.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state:quality-02",
             "rerendered": true,
-            "score": 0.8489,
-            "symbolCount": 59
+            "score": 0.8487,
+            "symbolCount": 64
           },
           {
-            "averageConfidence": 0.8536,
-            "averageNameQuality": 0.7812,
+            "averageConfidence": 0.7632,
+            "averageNameQuality": 0.86,
+            "filePath": "src/main/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:service:domain-service",
+            "rerendered": false,
+            "score": 0.8492,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.8539,
+            "averageNameQuality": 0.7811,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:service",
             "rerendered": false,
-            "score": 0.8605,
-            "symbolCount": 86
+            "score": 0.8606,
+            "symbolCount": 87
           },
           {
             "averageConfidence": 0.9144,
@@ -516,7 +516,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 10,
@@ -548,10 +548,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-03-core-no-binary-top120",
-      "runId": "reg-quality-radical-6-20260227-045849-c01-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-03-core-no-binary-top120",
+      "runId": "reg-quality-radical-9-20260227-064413-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -561,79 +561,79 @@
         "total": 0.9625,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-03-core-no-binary-top120\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\adaptive-weights\\core-no-binary-top120.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-03-core-no-binary-top120\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\adaptive-weights\\core-no-binary-top120.weights.json"
     },
     {
-      "durationMs": 202075,
+      "durationMs": 190638,
       "fileQuality": {
         "fileCount": 12,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
-        "hotChunkCount": 47,
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.7608,
+        "worstDecileAverageScore": 0.7601,
         "worstFiles": [
           {
-            "averageConfidence": 0.6202,
+            "averageConfidence": 0.6153,
             "averageNameQuality": 0.78,
             "filePath": "src/main/transport/transport-bridge.ts",
             "liftedCoverage": 1,
             "moduleId": "main:transport:transport-bridge",
             "rerendered": false,
-            "score": 0.7597,
-            "symbolCount": 2
+            "score": 0.7576,
+            "symbolCount": 3
           },
           {
-            "averageConfidence": 0.6254,
+            "averageConfidence": 0.6267,
             "averageNameQuality": 0.78,
             "filePath": "src/services/store/store-state-quality-01.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state:quality-01",
             "rerendered": true,
-            "score": 0.7619,
-            "symbolCount": 95
+            "score": 0.7625,
+            "symbolCount": 100
           },
           {
-            "averageConfidence": 0.7277,
+            "averageConfidence": 0.7287,
             "averageNameQuality": 0.78,
             "filePath": "src/renderer/store/store-state.ts",
             "liftedCoverage": 1,
             "moduleId": "renderer:store:state",
             "rerendered": false,
-            "score": 0.8059,
-            "symbolCount": 193
+            "score": 0.8064,
+            "symbolCount": 197
           },
           {
-            "averageConfidence": 0.7371,
+            "averageConfidence": 0.737,
             "averageNameQuality": 0.78,
-            "filePath": "src/services/store/store-state-g002-g002.ts",
+            "filePath": "src/services/store/store-state-g003.ts",
             "liftedCoverage": 1,
-            "moduleId": "services:store:state-store-g002:g002",
+            "moduleId": "services:store:state-store-g002:g003",
             "rerendered": false,
             "score": 0.8099,
             "symbolCount": 252
           },
           {
-            "averageConfidence": 0.7422,
+            "averageConfidence": 0.7429,
             "averageNameQuality": 0.7808,
             "filePath": "src/services/store/store-state-g002.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state-store:g002",
             "rerendered": false,
-            "score": 0.8124,
+            "score": 0.8127,
             "symbolCount": 252
           },
           {
-            "averageConfidence": 0.7237,
+            "averageConfidence": 0.7245,
             "averageNameQuality": 0.88,
-            "filePath": "src/services/service/service-run-abcdefghijklmnopqrstuvwxyz-flow.ts",
+            "filePath": "src/services/service/service-run-flow.ts",
             "liftedCoverage": 1,
-            "moduleId": "services:service:run-abcdefghijklmnopqrstuvwxyz-flow",
+            "moduleId": "services:service:run-flow",
             "rerendered": false,
-            "score": 0.8392,
-            "symbolCount": 115
+            "score": 0.8395,
+            "symbolCount": 117
           },
           {
             "averageConfidence": 0.8181,
@@ -646,34 +646,34 @@
             "symbolCount": 1
           },
           {
-            "averageConfidence": 0.7478,
-            "averageNameQuality": 0.8675,
-            "filePath": "src/main/service/service-domain.ts",
-            "liftedCoverage": 1,
-            "moduleId": "main:service:domain-service",
-            "rerendered": false,
-            "score": 0.8452,
-            "symbolCount": 8
-          },
-          {
-            "averageConfidence": 0.8228,
+            "averageConfidence": 0.8233,
             "averageNameQuality": 0.78,
             "filePath": "src/services/store/store-state-quality-02.ts",
             "liftedCoverage": 1,
             "moduleId": "services:store:state:quality-02",
             "rerendered": true,
-            "score": 0.8468,
-            "symbolCount": 95
+            "score": 0.847,
+            "symbolCount": 100
           },
           {
-            "averageConfidence": 0.8536,
-            "averageNameQuality": 0.7812,
+            "averageConfidence": 0.7632,
+            "averageNameQuality": 0.86,
+            "filePath": "src/main/service/service-domain.ts",
+            "liftedCoverage": 1,
+            "moduleId": "main:service:domain-service",
+            "rerendered": false,
+            "score": 0.8492,
+            "symbolCount": 10
+          },
+          {
+            "averageConfidence": 0.8539,
+            "averageNameQuality": 0.7811,
             "filePath": "src/services/service/service-domain.ts",
             "liftedCoverage": 1,
             "moduleId": "services:service:service",
             "rerendered": false,
-            "score": 0.8605,
-            "symbolCount": 86
+            "score": 0.8606,
+            "symbolCount": 87
           },
           {
             "averageConfidence": 0.9144,
@@ -697,7 +697,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 10,
@@ -729,10 +729,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-04-core-runtime-probe-soft",
-      "runId": "reg-quality-radical-6-20260227-045849-c01-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-04-core-runtime-probe-soft",
+      "runId": "reg-quality-radical-9-20260227-064413-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -742,12 +742,12 @@
         "total": 0.9625,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-6-20260227-045849-c01-04-core-runtime-probe-soft\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-6-20260227-045849-c01\\adaptive-weights\\core-runtime-probe-soft.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-quality-radical-9-20260227-064413-c01-04-core-runtime-probe-soft\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\quality-radical-9-20260227-064413-c01\\adaptive-weights\\core-runtime-probe-soft.weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "quality-radical-6-20260227-045849-c01",
+  "suiteRunId": "quality-radical-9-20260227-064413-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }
