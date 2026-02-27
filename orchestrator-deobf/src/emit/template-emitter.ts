@@ -2403,8 +2403,9 @@ function buildQualityModuleContent(
   const sanitizeImportAliasTokens = (tokens: string[]): string[] =>
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
-  const targetedHotStoreModule = /(?:^|\/)store-state-g002\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotStoreModule = /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
   const targetedHotServiceModule = /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotWorstStoreServiceModule = /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
     (targetedHotStoreModule || targetedHotServiceModule);
@@ -3347,7 +3348,7 @@ function buildQualityModuleContent(
   const applyTargetedHotLocalIdentifierPass = (
     statements: ts.Statement[],
   ): { statements: ts.Statement[]; renameMap: Map<string, string> } => {
-    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || statements.length < 1) {
+    if (!targetedHotLocalRenameEnabled || statements.length < 1) {
       return {
         statements,
         renameMap: new Map<string, string>(),
@@ -3428,7 +3429,7 @@ function buildQualityModuleContent(
   };
 
   const applyTargetedHotFinalContentPass = (content: string): string => {
-    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+    if (!targetedHotLocalRenameEnabled || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -3484,7 +3485,7 @@ function buildQualityModuleContent(
     return rewritten;
   };
   const applyTargetedHotResidualLocalNoiseSweep = (content: string): string => {
-    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+    if (!targetedHotLocalRenameEnabled || content.length < 1) {
       return content;
     }
     const residualPattern = /\b(?:store|service)(?:Iae[A-Za-z]{2,}|(?:[A-Z][a-z]{2}){2,})Local[A-Za-z0-9]{2,}\b/g;
@@ -3513,59 +3514,100 @@ function buildQualityModuleContent(
     }
     return rewritten;
   };
-  const inferTargetedCoreLocalFamily = (statementText: string): string => {
+  type TargetedCoreFamily = "Core" | "Preload" | "React" | "Runtime" | "State" | "Language" | "Diagram";
+  const TARGETED_CORE_FAMILY_ORDER: TargetedCoreFamily[] = [
+    "Preload",
+    "React",
+    "Runtime",
+    "State",
+    "Language",
+    "Diagram",
+    "Core",
+  ];
+  const inferTargetedCoreLocalFamily = (statementText: string): TargetedCoreFamily => {
     const normalized = statementText.toLowerCase();
-    if (
-      normalized.includes("modulepreload") ||
-      normalized.includes("vite:preloaderror") ||
-      normalized.includes("new url(") ||
-      normalized.includes("document.")
-    ) {
-      return "Preload";
+    const scoreByFamily = new Map<TargetedCoreFamily, number>();
+    const add = (family: TargetedCoreFamily, signal: string, weight = 1): void => {
+      if (!normalized.includes(signal)) {
+        return;
+      }
+      scoreByFamily.set(family, (scoreByFamily.get(family) ?? 0) + weight);
+    };
+
+    add("Preload", "modulepreload", 3);
+    add("Preload", "vite:preloaderror", 3);
+    add("Preload", "document.", 2);
+    add("Preload", "stylesheet", 2);
+    add("Preload", "link", 1);
+    add("Preload", "new url(", 2);
+
+    add("React", "react", 2);
+    add("React", "__client_internals", 3);
+    add("React", "jsx", 2);
+    add("React", "createcontext", 2);
+    add("React", "usestate", 2);
+    add("React", "useeffect", 2);
+    add("React", "usereducer", 2);
+    add("React", "usecontext", 2);
+    add("React", "forwardref", 2);
+    add("React", "memo", 1);
+    add("React", "suspense", 2);
+    add("React", "createelement", 2);
+
+    add("Runtime", "__core-js_shared__", 3);
+    add("Runtime", "symbol(src)_1", 3);
+    add("Runtime", "symbol.for(", 2);
+    add("Runtime", "object.prototype", 2);
+    add("Runtime", "function.prototype", 2);
+    add("Runtime", "hasownproperty", 2);
+    add("Runtime", "tostringtag", 2);
+    add("Runtime", "typeof globalthis", 2);
+    add("Runtime", "__esmodule", 2);
+    add("Runtime", "regexp(", 1);
+
+    add("State", "atom", 2);
+    add("State", "weakmap", 2);
+    add("State", "weakset", 2);
+    add("State", "cache", 1);
+    add("State", "query", 2);
+    add("State", "listener", 2);
+    add("State", "subscribe", 2);
+    add("State", "dispatch", 2);
+    add("State", "set(", 1);
+    add("State", "get(", 1);
+
+    add("Language", "json.parse", 2);
+    add("Language", "scopename", 3);
+    add("Language", "injectionselector", 3);
+    add("Language", "embeddedlangs", 2);
+    add("Language", "repository", 2);
+    add("Language", "patterns", 1);
+    add("Language", "template.", 1);
+    add("Language", "language", 1);
+
+    add("Diagram", "cytoscape", 3);
+    add("Diagram", "treemap", 3);
+    add("Diagram", "diagram", 2);
+    add("Diagram", "layout", 1);
+    add("Diagram", "node", 1);
+    add("Diagram", "edge", 1);
+
+    let bestFamily: TargetedCoreFamily = "Core";
+    let bestScore = 0;
+    for (const family of TARGETED_CORE_FAMILY_ORDER) {
+      if (family === "Core") {
+        continue;
+      }
+      const score = scoreByFamily.get(family) ?? 0;
+      if (score > bestScore) {
+        bestScore = score;
+        bestFamily = family;
+      }
     }
-    if (
-      normalized.includes("react") ||
-      normalized.includes("__client_internals") ||
-      normalized.includes("jsx") ||
-      normalized.includes("usestate") ||
-      normalized.includes("useeffect")
-    ) {
-      return "React";
-    }
-    if (
-      normalized.includes("__core-js_shared__") ||
-      normalized.includes("symbol(src)_1") ||
-      normalized.includes("hasownproperty") ||
-      normalized.includes("object.prototype")
-    ) {
-      return "Runtime";
-    }
-    if (
-      normalized.includes("atom") ||
-      normalized.includes("weakmap") ||
-      normalized.includes("cache") ||
-      normalized.includes("query")
-    ) {
-      return "State";
-    }
-    if (
-      normalized.includes("json.parse") ||
-      normalized.includes("scopename") ||
-      normalized.includes("language")
-    ) {
-      return "Language";
-    }
-    if (
-      normalized.includes("cytoscape") ||
-      normalized.includes("treemap") ||
-      normalized.includes("diagram")
-    ) {
-      return "Diagram";
-    }
-    return "Core";
+    return bestScore >= 2 ? bestFamily : "Core";
   };
   const applyTargetedHotCoreFamilySweep = (content: string): string => {
-    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+    if (!targetedHotLocalRenameEnabled || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -3576,19 +3618,150 @@ function buildQualityModuleContent(
       ts.ScriptKind.TS,
     );
     const coreLocalPattern = /^(store|service)CoreLocal([A-Za-z0-9]{2,})$/;
-    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
-    const renameMap = new Map<string, string>();
+    interface TargetedCoreEntry {
+      declaredCoreNames: string[];
+      referencedNames: Set<string>;
+      statementText: string;
+      resolvedFamily: TargetedCoreFamily;
+    }
+    const entries: TargetedCoreEntry[] = [];
     for (const statement of sourceFile.statements) {
       const declaredNames = collectStatementDeclaredNames(statement);
       if (declaredNames.size < 1) {
         continue;
       }
-      const statementText = statement.getText(sourceFile);
-      const family = inferTargetedCoreLocalFamily(statementText);
-      if (family === "Core") {
+      const declaredCoreNames = [...declaredNames].filter((declaredName) => coreLocalPattern.test(declaredName));
+      if (declaredCoreNames.length < 1) {
         continue;
       }
-      for (const declaredName of declaredNames) {
+      const referencedNames = collectStatementReferencedNames(statement);
+      const statementText = statement.getText(sourceFile);
+      entries.push({
+        declaredCoreNames,
+        referencedNames,
+        statementText,
+        resolvedFamily: inferTargetedCoreLocalFamily(statementText),
+      });
+    }
+    if (entries.length < 1) {
+      return content;
+    }
+    const ownerByDeclaredName = new Map<string, number>();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (!entry) {
+        continue;
+      }
+      for (const declaredCoreName of entry.declaredCoreNames) {
+        if (!ownerByDeclaredName.has(declaredCoreName)) {
+          ownerByDeclaredName.set(declaredCoreName, index);
+        }
+      }
+    }
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      let changed = false;
+      for (const entry of entries) {
+        if (entry.resolvedFamily !== "Core") {
+          continue;
+        }
+        const supportScores = new Map<TargetedCoreFamily, number>();
+        for (const referencedName of entry.referencedNames) {
+          const ownerIndex = ownerByDeclaredName.get(referencedName);
+          if (ownerIndex === undefined) {
+            continue;
+          }
+          const owner = entries[ownerIndex];
+          if (!owner || owner.resolvedFamily === "Core") {
+            continue;
+          }
+          supportScores.set(owner.resolvedFamily, (supportScores.get(owner.resolvedFamily) ?? 0) + 2);
+        }
+        let bestFamily: TargetedCoreFamily = "Core";
+        let bestScore = 0;
+        for (const family of TARGETED_CORE_FAMILY_ORDER) {
+          if (family === "Core") {
+            continue;
+          }
+          const score = supportScores.get(family) ?? 0;
+          if (score > bestScore) {
+            bestScore = score;
+            bestFamily = family;
+          }
+        }
+        if (bestFamily !== "Core" && bestScore >= 2) {
+          entry.resolvedFamily = bestFamily;
+          changed = true;
+        }
+      }
+      if (!changed) {
+        break;
+      }
+    }
+    for (const entry of entries) {
+      if (entry.resolvedFamily !== "Core") {
+        continue;
+      }
+      const supportScores = new Map<TargetedCoreFamily, number>();
+      for (const referencedName of entry.referencedNames) {
+        const ownerIndex = ownerByDeclaredName.get(referencedName);
+        if (ownerIndex === undefined) {
+          continue;
+        }
+        const owner = entries[ownerIndex];
+        if (!owner || owner.resolvedFamily === "Core") {
+          continue;
+        }
+        supportScores.set(owner.resolvedFamily, (supportScores.get(owner.resolvedFamily) ?? 0) + 1);
+      }
+      let bestFamily: TargetedCoreFamily = "Core";
+      let bestScore = 0;
+      for (const family of TARGETED_CORE_FAMILY_ORDER) {
+        if (family === "Core") {
+          continue;
+        }
+        const score = supportScores.get(family) ?? 0;
+        if (score > bestScore) {
+          bestScore = score;
+          bestFamily = family;
+        }
+      }
+      if (bestFamily !== "Core" && bestScore >= 1) {
+        entry.resolvedFamily = bestFamily;
+        continue;
+      }
+      const normalized = entry.statementText.toLowerCase();
+      const runtimeLikely =
+        normalized.includes("object.prototype") ||
+        normalized.includes("function.prototype") ||
+        normalized.includes("symbol.for(") ||
+        normalized.includes("tostringtag") ||
+        normalized.includes("__esmodule") ||
+        normalized.includes("typeof globalthis") ||
+        normalized.includes("regexp(") ||
+        normalized.includes("__core-js_shared__");
+      if (runtimeLikely) {
+        entry.resolvedFamily = "Runtime";
+        continue;
+      }
+      const stateLikely =
+        normalized.includes("weakmap") ||
+        normalized.includes("weakset") ||
+        normalized.includes("atom") ||
+        normalized.includes("subscribe") ||
+        normalized.includes("listener") ||
+        normalized.includes("dispatch") ||
+        normalized.includes("query");
+      if (stateLikely) {
+        entry.resolvedFamily = "State";
+      }
+    }
+    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+    const renameMap = new Map<string, string>();
+    for (const entry of entries) {
+      if (entry.resolvedFamily === "Core") {
+        continue;
+      }
+      for (const declaredName of entry.declaredCoreNames) {
         const match = declaredName.match(coreLocalPattern);
         if (!match) {
           continue;
@@ -3598,7 +3771,7 @@ function buildQualityModuleContent(
         if (!prefix || !suffix) {
           continue;
         }
-        const candidate = normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${family}Local${suffix}`));
+        const candidate = normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${entry.resolvedFamily}Local${suffix}`));
         const resolved = nextUniqueIdentifier(compactIdentifier(candidate, 40), usedNames);
         if (resolved === declaredName) {
           continue;
@@ -4065,7 +4238,8 @@ function buildQualityModuleContent(
     const extremeChunkSelection =
       selection.selectedStatements.length >= HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD ||
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
-    const targetedHotFullLiftEnabled = targetedHotStoreModule || targetedHotServiceModule;
+    const targetedHotFullLiftEnabled = targetedHotWorstStoreServiceModule;
+    const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const preferChunkImportFallback =
       (plan.archetype === "service" || plan.archetype === "store") &&
@@ -4073,22 +4247,37 @@ function buildQualityModuleContent(
       !targetedHotFullLiftEnabled;
     const allowChunkIndexInline =
       targetedHotFullLiftEnabled || plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
+    const chunkIndexInlineImportThreshold = targetedHotAggressiveFullLift ? 2 : CHUNK_INDEX_INLINE_IMPORT_THRESHOLD;
     const chunkIndexInlineMaxNeedsPerModule = targetedHotFullLiftEnabled
-      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE, 72)
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE, targetedHotAggressiveFullLift ? 104 : 72)
       : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
     const chunkIndexInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled
-      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK, 16)
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK, targetedHotAggressiveFullLift ? 24 : 16)
       : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK;
-    const targetedInlineMaxNeedsPerModule = targetedHotFullLiftEnabled ? 48 : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
-    const targetedInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled ? 16 : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK;
+    const targetedInlineMaxNeedsPerModule = targetedHotFullLiftEnabled
+      ? targetedHotAggressiveFullLift
+        ? 76
+        : 48
+      : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
+    const targetedInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled
+      ? targetedHotAggressiveFullLift
+        ? 24
+        : 16
+      : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK;
     const targetedInlineMaxSelectedStatements = targetedHotFullLiftEnabled
-      ? 36
+      ? targetedHotAggressiveFullLift
+        ? 56
+        : 36
       : TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS;
     const targetedInlineMaxDeclarationChars = targetedHotFullLiftEnabled
-      ? 42000
+      ? targetedHotAggressiveFullLift
+        ? 64000
+        : 42000
       : TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS;
     const targetedInlineMaxRequiredImports = targetedHotFullLiftEnabled
-      ? 40
+      ? targetedHotAggressiveFullLift
+        ? 64
+        : 40
       : TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS;
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
@@ -4187,7 +4376,7 @@ function buildQualityModuleContent(
         };
       })
       .filter((entry): entry is { localName: string; modulePath: string; importedName: string } => Boolean(entry));
-    if (allowChunkIndexInline && !preferChunkImportFallback && chunkIndexImportLocals.length >= CHUNK_INDEX_INLINE_IMPORT_THRESHOLD) {
+    if (allowChunkIndexInline && !preferChunkImportFallback && chunkIndexImportLocals.length >= chunkIndexInlineImportThreshold) {
       const selectedChunkIndexImportLocals = chunkIndexImportLocals
         .sort((left, right) => {
           const leftScore =

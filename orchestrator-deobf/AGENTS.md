@@ -110,3 +110,11 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: obfuscated function-name tail series dropped to zero in `src/services/store/store-state-g002.ts` on run `targeted-store-qe-v13`, preserving deterministic output and green quality/dev gates.
 - Hot store canonicalizer now has contextual core-family routing (`React`, `Runtime`, `Preload`, `State`, `Language`, `Diagram`) for `storeCoreLocal*` series.
   Verified reason: large undifferentiated `storeCoreLocal*` pool is now partitioned by declaration context in `src/services/store/store-state-g002.ts` (run `targeted-store-core-family-v14`) while keeping deterministic output and zero regression on quality/dev gates.
+- Core-family inference for hot store/service modules now runs in two stages:
+  - direct statement-level weighted signals,
+  - dependency-propagation + fallback classification for unresolved entries.
+  Verified reason: `storeCoreLocal*` occurrences in `src/services/store/store-state-g002.ts` were reduced significantly while preserving deterministic output and green quality/dev gates (runs `targeted-store-family-full-lift-v15` to `v18`).
+- Targeted full-lift scope is now explicit and bounded:
+  - aggressive full-lift only for `store-state-g*` and `service-run.ts`,
+  - `store-state-quality-*` keeps canonicalization without aggressive inline lift to prevent module bloat.
+  Verified reason: this keeps heavy hot modules on logic-first path while avoiding large readability regressions in quality shards (run `targeted-store-family-full-lift-v18`).
