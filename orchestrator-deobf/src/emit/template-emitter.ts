@@ -2344,18 +2344,88 @@ function buildQualityModuleContent(
     "member",
     "dependency",
   ]);
+  const targetedHotLocalRenameEnabled =
+    (plan.archetype === "service" || plan.archetype === "store") &&
+    /(?:^|\/)(store-state-g002|service-run)\.ts$/i.test(plan.filePath.replace(/\\/g, "/"));
+  const targetedHotWeakTokenSet = new Set<string>([
+    "event",
+    "events",
+    "state",
+    "states",
+    "navigate",
+    "route",
+    "flow",
+    "node",
+    "nodes",
+    "page",
+    "service",
+    "store",
+    "domain",
+    "member",
+    "dependency",
+    "default",
+    "value",
+    "values",
+  ]);
+  const targetedHotNoiseSuffixPattern = /(?:Event|State)[A-Za-z]{0,3}\d+$/;
   const buildStableAliasTag = (rawValue: string, fallbackPrefix: string): string => {
     const normalized = rawValue.replace(/[^A-Za-z0-9]+/g, "");
-    if (normalized.length > 0) {
+    const shouldUseRaw =
+      normalized.length >= 3 &&
+      !/\d/.test(normalized) &&
+      !OBFUSCATED_ALIAS_STYLE_PATTERN.test(normalized) &&
+      !/^[a-z]\d+$/i.test(normalized);
+    if (shouldUseRaw) {
       return toPascalCase(normalized.length <= 8 ? normalized : normalized.slice(0, 8));
     }
-    return toPascalCase(`${fallbackPrefix}${shortStableHash(rawValue).slice(0, 4)}`);
+    return toPascalCase(`${fallbackPrefix}${alphabeticStableSuffix(`${fallbackPrefix}:${rawValue}`, 3)}`);
   };
   const isWeakAliasStem = (tokens: string[]): boolean => {
     if (tokens.length < 1) {
       return true;
     }
     return tokens.every((token) => weakAliasStemTokenSet.has(token));
+  };
+  const buildTargetedHotLocalAliasBase = (
+    currentName: string,
+    originalName: string,
+    chunkId: string,
+    kind: "import" | "local",
+  ): string => {
+    if (!targetedHotLocalRenameEnabled) {
+      return currentName;
+    }
+    if (
+      !targetedHotNoiseSuffixPattern.test(currentName) &&
+      !/StateState/i.test(currentName) &&
+      !/Node\d+$/i.test(currentName)
+    ) {
+      return currentName;
+    }
+    const chunkTokens = sanitizeAliasTokens(chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId));
+    const originalTokens = sanitizeAliasTokens(splitNameTokens(originalName));
+    const currentTokens = sanitizeAliasTokens(splitNameTokens(currentName));
+    const stemTokens = dedupeNameTokens([
+      ...originalTokens,
+      ...currentTokens,
+      ...chunkTokens,
+      ...planAliasDomainTokens,
+    ])
+      .filter((token) => !targetedHotWeakTokenSet.has(token))
+      .slice(0, 2);
+    const stem =
+      stemTokens.length > 0
+        ? stemTokens.map((token) => toPascalCase(token)).join("")
+        : toPascalCase(fallbackTopicByArchetype(plan.archetype));
+    const suffix = kind === "import" ? "Ref" : "Node";
+    const candidate = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}${suffix}`), 42);
+    if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+      return candidate;
+    }
+    return compactIdentifier(
+      sanitizeIdentifier(`${plan.archetype}${toPascalCase(fallbackTopicByArchetype(plan.archetype))}${suffix}`),
+      36,
+    );
   };
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
@@ -3252,6 +3322,16 @@ function buildQualityModuleContent(
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     const inlineDependencyStatements: ts.Statement[] = [];
+    const inlineDependencyStatementSources: ts.SourceFile[] = [];
+    const pushInlineDependencyStatement = (statement: ts.Statement, sourceFile: ts.SourceFile): void => {
+      inlineDependencyStatements.push(statement);
+      inlineDependencyStatementSources.push(sourceFile);
+    };
+    const pushInlineDependencyStatements = (statements: readonly ts.Statement[], sourceFile: ts.SourceFile): void => {
+      for (const statement of statements) {
+        pushInlineDependencyStatement(statement, sourceFile);
+      }
+    };
     const inlinedTargetStatementKeys = new Set<string>();
     const hasUnsafeStaticPayloadStatement = (statement: ts.Statement, sourceFile: ts.SourceFile): boolean => {
       if (!ts.isVariableStatement(statement)) {
@@ -3345,12 +3425,12 @@ function buildQualityModuleContent(
         const normalizedTargetStatements = targetSelection.selectedStatements
           .map((statement) => stripExportModifiers(statement))
           .filter((statement): statement is ts.Statement => Boolean(statement));
-        inlineDependencyStatements.push(...normalizedTargetStatements);
+        pushInlineDependencyStatements(normalizedTargetStatements, targetChunkMetadata.sourceFile);
         for (const [rootIdentifier, localName] of localNameByRootIdentifier.entries()) {
           if (rootIdentifier === localName) {
             continue;
           }
-          inlineDependencyStatements.push(
+          pushInlineDependencyStatement(
             ts.factory.createVariableStatement(
               undefined,
               ts.factory.createVariableDeclarationList(
@@ -3365,6 +3445,7 @@ function buildQualityModuleContent(
                 ts.NodeFlags.Const,
               ),
             ),
+            sourceChunkMetadata.sourceFile,
           );
         }
         for (const requiredImportLocal of targetSelection.requiredImportLocals) {
@@ -3517,10 +3598,10 @@ function buildQualityModuleContent(
               continue;
             }
             inlinedTargetStatementKeys.add(statementKey);
-            inlineDependencyStatements.push(statement);
+            pushInlineDependencyStatement(statement, candidate.sourceFile);
           }
           if (candidate.rootIdentifier !== candidate.localName) {
-            inlineDependencyStatements.push(
+            pushInlineDependencyStatement(
               ts.factory.createVariableStatement(
                 undefined,
                 ts.factory.createVariableDeclarationList(
@@ -3535,6 +3616,7 @@ function buildQualityModuleContent(
                   ts.NodeFlags.Const,
                 ),
               ),
+              sourceChunkMetadata.sourceFile,
             );
           }
           for (const requiredImportLocal of candidate.requiredImportLocals) {
@@ -3582,7 +3664,39 @@ function buildQualityModuleContent(
         renameMap.set(declaredName, resolved);
       }
     }
-    for (const name of chunkUsedNames) {
+    for (const statement of inlineDependencyStatements) {
+      const declaredNames = collectStatementDeclaredNames(statement);
+      for (const declaredName of [...declaredNames].sort((left, right) => left.localeCompare(right))) {
+        if (renameMap.has(declaredName)) {
+          continue;
+        }
+        const base = targetedHotLocalRenameEnabled
+          ? buildTargetedHotLocalAliasBase(declaredName, declaredName, chunkId, "local")
+          : buildChunkLocalAliasBase(chunkId, declaredName, declaredName);
+        const resolved = nextUniqueIdentifier(base, chunkUsedNames);
+        renameMap.set(declaredName, resolved);
+      }
+    }
+
+    let finalRenameMap = renameMap;
+    if (targetedHotLocalRenameEnabled) {
+      const remapped = new Map<string, string>();
+      const remapUsedNames = new Set<string>(usedTopLevelNames);
+      for (const originalName of [...renameMap.keys()].sort((left, right) => left.localeCompare(right))) {
+        const currentName = renameMap.get(originalName) ?? originalName;
+        const binding = sourceChunkMetadata.importBindings.get(originalName);
+        const aliasKind: "import" | "local" = binding ? "import" : "local";
+        const base = buildTargetedHotLocalAliasBase(currentName, originalName, chunkId, aliasKind);
+        const resolved = nextUniqueIdentifier(base, remapUsedNames);
+        remapped.set(originalName, resolved);
+      }
+      finalRenameMap = remapped;
+    }
+    for (const sourceIdentifier of sortedRequiredSourceIdentifiers) {
+      const resolved = finalRenameMap.get(sourceIdentifier) ?? sourceIdentifier;
+      sourceIdentifierByOriginal.set(sourceIdentifier, resolved);
+    }
+    for (const name of finalRenameMap.values()) {
       usedTopLevelNames.add(name);
     }
 
@@ -3593,7 +3707,7 @@ function buildQualityModuleContent(
         if (!binding) {
           throw new Error(`buildQualityModuleContent: missing import binding "${localName}" in chunk ${chunkId}`);
         }
-        const resolvedLocalName = renameMap.get(localName) ?? localName;
+        const resolvedLocalName = finalRenameMap.get(localName) ?? localName;
         return {
           modulePath: normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
           localName: resolvedLocalName,
@@ -3637,10 +3751,15 @@ function buildQualityModuleContent(
       }
       sourceBodyStatements.push(stripped);
     }
-    const renamedSourceStatements = applyScopedIdentifierRenames(sourceBodyStatements, renameMap);
+    const renamedInlineStatements = applyScopedIdentifierRenames(inlineDependencyStatements, finalRenameMap);
+    const renamedSourceStatements = applyScopedIdentifierRenames(sourceBodyStatements, finalRenameMap);
     const declarationLines: string[] = [];
-    for (const statement of inlineDependencyStatements) {
-      const statementSource = statement.getSourceFile?.() ?? sourceChunkMetadata.sourceFile;
+    for (let statementIndex = 0; statementIndex < renamedInlineStatements.length; statementIndex += 1) {
+      const statement = renamedInlineStatements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      const statementSource = inlineDependencyStatementSources[statementIndex] ?? sourceChunkMetadata.sourceFile;
       const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, statementSource).trim();
       if (rendered.length < 1) {
         continue;

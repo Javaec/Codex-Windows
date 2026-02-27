@@ -77,6 +77,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: rewrites weak export tails (`storeStateStateNN`, `...EventD5`-style suffix exports) into domain-based `*State/*Service` names before final export emission while preserving green/quality gates.
 - Export canonicalizer now applies semantic collision disambiguation from local/source identifiers (`...LState`, `...SState`) before hash fallback.
   Verified reason: avoids opaque collision suffixes and keeps grouped store/service exports human-readable under heavy symbol density.
+- Hot-module local canonicalizer now also renames inline lifted declarations/references (not only export aliases) for `store-state-g002.ts` and `service-run.ts`.
+  Verified reason: removed `...EventD5/StateNN/NodeNN` identifier noise inside heavy store/service function bodies while keeping quality and green gates green.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.
