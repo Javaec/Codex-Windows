@@ -95,8 +95,6 @@ async function runPipeline(options) {
     const gitCapabilityCachePath = (0, git_capability_cache_1.ensureGitCapabilityCachePath)(workDir, effectiveProfile);
     (0, exec_1.writeHeader)("Patching preload");
     (0, launch_1.patchPreload)(appDir);
-    (0, exec_1.writeHeader)("Patching webview auto-scroll");
-    (0, launch_1.patchWebviewAutoScroll)(appDir);
     (0, exec_1.writeHeader)("Patching webview app sunset gate");
     (0, launch_1.patchWebviewAppSunsetGate)(appDir);
     (0, exec_1.writeHeader)("Patching webview cwd normalization");
