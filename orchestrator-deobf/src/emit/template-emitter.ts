@@ -2402,9 +2402,12 @@ function buildQualityModuleContent(
   ]);
   const sanitizeImportAliasTokens = (tokens: string[]): string[] =>
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
+  const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
+  const targetedHotStoreModule = /(?:^|\/)store-state-g002\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotServiceModule = /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
-    /(?:^|\/)(store-state-g002|service-run)\.ts$/i.test(plan.filePath.replace(/\\/g, "/"));
+    (targetedHotStoreModule || targetedHotServiceModule);
   const targetedHotWeakTokenSet = new Set<string>([
     "event",
     "events",
@@ -2548,6 +2551,72 @@ function buildQualityModuleContent(
       return candidate;
     }
     return compactIdentifier(sanitizeIdentifier(`${prefix}${toPascalCase(pickPlanDomainToken(chunkId))}Dep${shortTag}`), 30);
+  };
+  const resolveTargetedImportFamilyToken = (modulePath: string): string => {
+    const normalized = modulePath.replace(/\\/g, "/").toLowerCase();
+    if (normalized.includes("/chunk-index-") || normalized.includes("/chunk-chunk-")) {
+      return "core";
+    }
+    if (normalized.includes("/chunk-channel-")) {
+      return "channel";
+    }
+    if (
+      normalized.includes("diagram") ||
+      normalized.includes("treemap") ||
+      normalized.includes("cytoscape") ||
+      normalized.includes("architecture")
+    ) {
+      return "diagram";
+    }
+    if (
+      normalized.includes("angular") ||
+      normalized.includes("html") ||
+      normalized.includes("css") ||
+      normalized.includes("scss") ||
+      normalized.includes("tsx") ||
+      normalized.includes("typescript") ||
+      normalized.includes("javascript") ||
+      normalized.includes("json") ||
+      normalized.includes("python") ||
+      normalized.includes("sql") ||
+      normalized.includes("xml") ||
+      normalized.includes("postcss")
+    ) {
+      return "language";
+    }
+    if (normalized.includes("clone") || normalized.includes("baseuniq") || normalized.includes("basepick")) {
+      return "runtime";
+    }
+    const signalFamily =
+      planDomainPriorityTokens.find((token) => !targetedHotDomainStopTokens.has(token)) ??
+      planAliasDomainTokens.find((token) => !targetedHotDomainStopTokens.has(token));
+    if (signalFamily) {
+      return signalFamily;
+    }
+    return fallbackTopicByArchetype(plan.archetype);
+  };
+  const buildTargetedImportFamilyAliasBase = (
+    currentName: string,
+    modulePath: string,
+    importedName: string,
+  ): string => {
+    if (!targetedHotLocalRenameEnabled) {
+      return currentName;
+    }
+    if (!/^(?:store|svc)NavigatePageDep/i.test(currentName)) {
+      return currentName;
+    }
+    const familyToken = resolveTargetedImportFamilyToken(modulePath);
+    const importedTokenTag = buildStableAliasTag(importedName, "dep");
+    const prefix = plan.archetype === "service" ? "svc" : "store";
+    const candidate = compactIdentifier(
+      sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep${importedTokenTag}`),
+      34,
+    );
+    if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+      return candidate;
+    }
+    return compactIdentifier(sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep`), 28);
   };
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
@@ -3438,10 +3507,31 @@ function buildQualityModuleContent(
     const extremeChunkSelection =
       selection.selectedStatements.length >= HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD ||
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
+    const targetedHotFullLiftEnabled = targetedHotStoreModule || targetedHotServiceModule;
+    const targetedHotServiceSafeLift = targetedHotServiceModule;
     const preferChunkImportFallback =
-      (plan.archetype === "service" || plan.archetype === "store") && extremeChunkSelection;
+      (plan.archetype === "service" || plan.archetype === "store") &&
+      extremeChunkSelection &&
+      !targetedHotFullLiftEnabled;
     const allowChunkIndexInline =
-      plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
+      targetedHotFullLiftEnabled || plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
+    const chunkIndexInlineMaxNeedsPerModule = targetedHotFullLiftEnabled
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE, 72)
+      : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
+    const chunkIndexInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK, 16)
+      : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK;
+    const targetedInlineMaxNeedsPerModule = targetedHotFullLiftEnabled ? 48 : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
+    const targetedInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled ? 16 : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK;
+    const targetedInlineMaxSelectedStatements = targetedHotFullLiftEnabled
+      ? 36
+      : TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS;
+    const targetedInlineMaxDeclarationChars = targetedHotFullLiftEnabled
+      ? 42000
+      : TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS;
+    const targetedInlineMaxRequiredImports = targetedHotFullLiftEnabled
+      ? 40
+      : TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS;
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     const inlineDependencyStatements: ts.Statement[] = [];
@@ -3479,6 +3569,49 @@ function buildQualityModuleContent(
       const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, sourceFile);
       return rendered.includes("__vite__mapDeps") || rendered.includes("modulepreload");
     };
+    const hasFunctionAssignmentConflict = (statements: readonly ts.Statement[]): boolean => {
+      const functionNames = new Set<string>();
+      for (const statement of statements) {
+        if (ts.isFunctionDeclaration(statement) && statement.name) {
+          functionNames.add(statement.name.text);
+        }
+      }
+      if (functionNames.size < 1) {
+        return false;
+      }
+      const isAssignmentOperatorKind = (kind: ts.SyntaxKind): boolean =>
+        kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+      const containsConflict = (node: ts.Node): boolean => {
+        if (
+          ts.isBinaryExpression(node) &&
+          isAssignmentOperatorKind(node.operatorToken.kind) &&
+          ts.isIdentifier(node.left) &&
+          functionNames.has(node.left.text)
+        ) {
+          return true;
+        }
+        if (
+          (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+          ts.isIdentifier(node.operand) &&
+          functionNames.has(node.operand.text)
+        ) {
+          return true;
+        }
+        let found = false;
+        ts.forEachChild(node, (child) => {
+          if (!found && containsConflict(child)) {
+            found = true;
+          }
+        });
+        return found;
+      };
+      for (const statement of statements) {
+        if (containsConflict(statement)) {
+          return true;
+        }
+      }
+      return false;
+    };
     const chunkIndexImportLocals = [...requiredImportLocals]
       .map((localName) => {
         const binding = sourceChunkMetadata.importBindings.get(localName);
@@ -3510,7 +3643,7 @@ function buildQualityModuleContent(
           }
           return left.localName.localeCompare(right.localName);
         })
-        .slice(0, CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE);
+        .slice(0, chunkIndexInlineMaxNeedsPerModule);
       const needsByTargetChunkId = new Map<string, Array<{ localName: string; importedName: string }>>();
       for (const candidate of selectedChunkIndexImportLocals) {
         const targetChunkId = chunkIdFromChunkModulePath(candidate.modulePath);
@@ -3523,7 +3656,7 @@ function buildQualityModuleContent(
       }
 
       for (const [targetChunkId, rawNeeds] of needsByTargetChunkId.entries()) {
-        const needs = rawNeeds.slice(0, CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK);
+        const needs = rawNeeds.slice(0, chunkIndexInlineMaxNeedsPerChunk);
         const targetChunkMetadata = resolveLiftedChunkMetadata(targetChunkId);
         const localNameByRootIdentifier = new Map<string, string>();
         for (const need of needs) {
@@ -3548,6 +3681,12 @@ function buildQualityModuleContent(
         const normalizedTargetStatements = targetSelection.selectedStatements
           .map((statement) => stripExportModifiers(statement))
           .filter((statement): statement is ts.Statement => Boolean(statement));
+        if (targetedHotServiceSafeLift && normalizedTargetStatements.some((statement) => ts.isFunctionDeclaration(statement))) {
+          continue;
+        }
+        if (hasFunctionAssignmentConflict(normalizedTargetStatements)) {
+          continue;
+        }
         pushInlineDependencyStatements(normalizedTargetStatements, targetChunkMetadata.sourceFile);
         for (const [rootIdentifier, localName] of localNameByRootIdentifier.entries()) {
           if (rootIdentifier === localName) {
@@ -3625,7 +3764,7 @@ function buildQualityModuleContent(
         const targetChunkMetadata = resolveLiftedChunkMetadata(targetChunkId);
         const needs = [...rawNeeds]
           .sort((left, right) => left.localName.localeCompare(right.localName))
-          .slice(0, TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK);
+          .slice(0, targetedInlineMaxNeedsPerChunk);
         for (const need of needs) {
           const rootIdentifier =
             targetChunkMetadata.exportLocalByExportedName.get(need.importedName) ??
@@ -3637,16 +3776,22 @@ function buildQualityModuleContent(
           if (targetedSelection.selectedStatements.length < 1) {
             continue;
           }
-          if (targetedSelection.selectedStatements.length > TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS) {
+          if (targetedSelection.selectedStatements.length > targetedInlineMaxSelectedStatements) {
             continue;
           }
-          if (targetedSelection.requiredImportLocals.size > TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS) {
+          if (targetedSelection.requiredImportLocals.size > targetedInlineMaxRequiredImports) {
             continue;
           }
           const normalizedTargetStatements = targetedSelection.selectedStatements
             .map((statement) => stripExportModifiers(statement))
             .filter((statement): statement is ts.Statement => Boolean(statement));
           if (normalizedTargetStatements.length < 1) {
+            continue;
+          }
+          if (targetedHotServiceSafeLift && normalizedTargetStatements.some((statement) => ts.isFunctionDeclaration(statement))) {
+            continue;
+          }
+          if (hasFunctionAssignmentConflict(normalizedTargetStatements)) {
             continue;
           }
           let declarationChars = 0;
@@ -3671,7 +3816,7 @@ function buildQualityModuleContent(
           if (unsafePayload || runtimeBootstrap) {
             continue;
           }
-          if (declarationChars > TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS) {
+          if (declarationChars > targetedInlineMaxDeclarationChars) {
             continue;
           }
           let hasCollision = false;
@@ -3687,7 +3832,7 @@ function buildQualityModuleContent(
           const score =
             (OBFUSCATED_ALIAS_STYLE_PATTERN.test(need.importedName) ? 0.4 : 0) +
             (need.importedName.length <= 2 ? 0.2 : 0) +
-            Math.max(0, 1 - declarationChars / TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS);
+            Math.max(0, 1 - declarationChars / targetedInlineMaxDeclarationChars);
           selectedTargetedInlines.push({
             targetChunkId,
             localName: need.localName,
@@ -3709,7 +3854,7 @@ function buildQualityModuleContent(
           }
           return left.localName.localeCompare(right.localName);
         })
-        .slice(0, TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE)
+        .slice(0, targetedInlineMaxNeedsPerModule)
         .forEach((candidate) => {
           for (const statement of candidate.statements) {
             const statementKey = plannerPrinter.printNode(
@@ -3810,10 +3955,14 @@ function buildQualityModuleContent(
         const binding = sourceChunkMetadata.importBindings.get(originalName);
         const aliasKind: "import" | "local" = binding ? "import" : "local";
         const base = binding
-          ? buildTargetedHotImportAliasBase(
-              currentName,
-              originalName,
-              chunkId,
+          ? buildTargetedImportFamilyAliasBase(
+              buildTargetedHotImportAliasBase(
+                currentName,
+                originalName,
+                chunkId,
+                normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
+                binding.importedName,
+              ),
               normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
               binding.importedName,
             )

@@ -81,6 +81,15 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: removed `...EventD5/StateNN/NodeNN` identifier noise inside heavy store/service function bodies while keeping quality and green gates green.
 - Hot-module alias cleanup now runs a safe import-shaping canonicalizer plus domain local rerank (`call-graph/state` seeded) for `store-state-g002.ts` and `service-run.ts`.
   Verified reason: removed `...EventRef*` and `storeAgentSettings*` naming series from shaped imports/locals without touching risky inline AST transforms; run `targeted-alias-domain-pass-v3` stayed green (`quality-gates` + `green-gates` passed).
+- Hot-module import-family canonicalizer is now explicit for `store/service` hot modules:
+  - `core` (`chunk-index/chunk-chunk`),
+  - `channel`,
+  - `language` (lang/theme bundles),
+  - `diagram`,
+  - `runtime`.
+  Verified reason: compressed `storeNavigatePageDep*`/`svcNavigatePageDep*` noise into stable readable families (`storeCoreDep*`, `svcLanguageDep*`, etc.) while keeping deterministic aliases.
+- Targeted full-lift is now enabled for `store-state-g002.ts` and `service-run.ts` with module-scoped higher inline budgets; `service-run` uses safe full-lift mode (skip function-declaration inline candidates that cause `no-func-assign`).
+  Verified reason: raised lifted declaration density in hot modules without breaking green gates; run `targeted-family-full-lift-v3` is fully green.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.
