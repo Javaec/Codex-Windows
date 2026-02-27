@@ -90,6 +90,11 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: compressed `storeNavigatePageDep*`/`svcNavigatePageDep*` noise into stable readable families (`storeCoreDep*`, `svcLanguageDep*`, etc.) while keeping deterministic aliases.
 - Targeted full-lift is now enabled for `store-state-g002.ts` and `service-run.ts` with module-scoped higher inline budgets; `service-run` uses safe full-lift mode (skip function-declaration inline candidates that cause `no-func-assign`).
   Verified reason: raised lifted declaration density in hot modules without breaking green gates; run `targeted-family-full-lift-v3` is fully green.
+- Hot-module alias entropy stabilizer now canonicalizes noisy import/local tails in `store-state-g002.ts` and `service-run.ts`:
+  - strips alphabet-run / navigate-node noise,
+  - collapses `DepDep*` chains,
+  - replaces obfuscated `Dep*` tails with deterministic short tags.
+  Verified reason: removed `DepDepono`/`...EventNavigate...` style tails from quality output while keeping `quality-gates` and `green-gates` green (run `targeted-local-rename-v2`).
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

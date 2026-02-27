@@ -2437,16 +2437,135 @@ function buildQualityModuleContent(
     "page",
     "panel",
   ]);
+  const targetedHotSemanticAllowTokens = new Set<string>([
+    "angular",
+    "core",
+    "channel",
+    "diagram",
+    "language",
+    "runtime",
+    "theme",
+    "grammar",
+    "payload",
+    "parser",
+    "render",
+    "route",
+    "store",
+    "service",
+    "hook",
+    "transport",
+    "state",
+    "event",
+    "dispatch",
+    "workspace",
+    "session",
+    "project",
+    "layout",
+    "config",
+    "settings",
+    "schema",
+  ]);
+  const targetedHotAlphabetRunPattern = /abcdefghijklmnopqrstuvwxyz/i;
   const targetedHotNoiseSuffixPattern = /(?:Event|State)[A-Za-z]{0,3}\d+$/;
   const targetedHotImportAliasPattern = /(?:Event|State)Ref[A-Za-z]{2,}$/;
-  const targetedHotDomainNoisePattern = /(?:Event|State)Node[A-Za-z]{2,}Node$|(?:store|svc|service)AgentSettings/i;
+  const targetedHotDomainNoisePattern =
+    /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|(?:store|svc|service)AgentSettings|Abcdefghijklmnopqrstuvwxyz/i;
+  const maxConsonantRunLength = (token: string): number => {
+    let best = 0;
+    let current = 0;
+    for (const char of token) {
+      if ("aeiou".includes(char)) {
+        current = 0;
+        continue;
+      }
+      current += 1;
+      if (current > best) {
+        best = current;
+      }
+    }
+    return best;
+  };
+  const isLikelyObfuscatedAliasToken = (token: string): boolean => {
+    const normalized = token.toLowerCase().replace(/[^a-z]/g, "");
+    if (normalized.length < 3) {
+      return true;
+    }
+    if (targetedHotSemanticAllowTokens.has(normalized)) {
+      return false;
+    }
+    if (targetedHotAlphabetRunPattern.test(normalized)) {
+      return true;
+    }
+    if (/^[a-f0-9]{6,}$/i.test(normalized)) {
+      return true;
+    }
+    if (/^dep[a-z]{3,4}$/i.test(normalized) && normalized !== "deploy") {
+      return true;
+    }
+    if (
+      /^de[a-z]{4,}$/i.test(normalized) &&
+      !normalized.startsWith("default") &&
+      !normalized.startsWith("debug") &&
+      !normalized.startsWith("deploy") &&
+      !normalized.startsWith("design")
+    ) {
+      return true;
+    }
+    let vowels = 0;
+    for (const char of normalized) {
+      if ("aeiou".includes(char)) {
+        vowels += 1;
+      }
+    }
+    if (normalized.length === 3 && vowels <= 1) {
+      return true;
+    }
+    if (normalized.length >= 6 && vowels <= 1) {
+      return true;
+    }
+    if (normalized.length >= 6 && maxConsonantRunLength(normalized) >= 5) {
+      return true;
+    }
+    return false;
+  };
+  const normalizeTargetedAliasBase = (value: string): string => {
+    let normalized = value;
+    normalized = normalized.replace(/Abcdefghijklmnopqrstuvwxyz/gi, "Domain");
+    normalized = normalized.replace(/(?:Event|State)NavigateNode/gi, "Flow");
+    normalized = normalized.replace(/NavigatePage/gi, "Flow");
+    normalized = normalized.replace(/DepDep+/g, "Dep");
+    normalized = normalized.replace(/NodeNode+/g, "Node");
+    normalized = normalized.replace(/(Local|Dep)(Local|Dep)$/g, "$2");
+    const sanitized = sanitizeIdentifier(normalized);
+    if (sanitized.length > 0) {
+      return sanitized;
+    }
+    return "domainAlias";
+  };
+  const stabilizeTargetedAliasEntropy = (value: string, seed: string): string => {
+    const depTailMatch = value.match(/^(.*Dep)([A-Za-z]{3,8})$/);
+    if (!depTailMatch) {
+      return value;
+    }
+    const depPrefix = depTailMatch[1];
+    const depTail = depTailMatch[2];
+    if (!depPrefix || !depTail) {
+      return value;
+    }
+    if (!isLikelyObfuscatedAliasToken(`dep${depTail.toLowerCase()}`) && !isLikelyObfuscatedAliasToken(depTail)) {
+      return value;
+    }
+    const stabilizedTail = toPascalCase(alphabeticStableSuffix(`dep-tail:${seed}:${value}`, 3));
+    return `${depPrefix}${stabilizedTail}`;
+  };
   const buildStableAliasTag = (rawValue: string, fallbackPrefix: string): string => {
     const normalized = rawValue.replace(/[^A-Za-z0-9]+/g, "");
     const shouldUseRaw =
       normalized.length >= 3 &&
       !/\d/.test(normalized) &&
       !OBFUSCATED_ALIAS_STYLE_PATTERN.test(normalized) &&
-      !/^[a-z]\d+$/i.test(normalized);
+      !/^[a-z]\d+$/i.test(normalized) &&
+      !isLikelyObfuscatedAliasToken(normalized);
     if (shouldUseRaw) {
       return toPascalCase(normalized.length <= 8 ? normalized : normalized.slice(0, 8));
     }
@@ -2467,13 +2586,16 @@ function buildQualityModuleContent(
     if (!targetedHotLocalRenameEnabled) {
       return currentName;
     }
-    if (
-      !targetedHotNoiseSuffixPattern.test(currentName) &&
-      !targetedHotImportAliasPattern.test(currentName) &&
-      !targetedHotDomainNoisePattern.test(currentName) &&
-      !/StateState/i.test(currentName) &&
-      !/Node\d+$/i.test(currentName)
-    ) {
+    const shouldRewrite =
+      targetedHotNoiseSuffixPattern.test(currentName) ||
+      targetedHotImportAliasPattern.test(currentName) ||
+      targetedHotDomainNoisePattern.test(currentName) ||
+      /(?:NneTne|AbnormalExit|EventFlow)Local/i.test(currentName) ||
+      /StateState/i.test(currentName) ||
+      /Node\d+$/i.test(currentName) ||
+      /(?:Event|State)NavigateNode/i.test(currentName) ||
+      /[A-Za-z]{34,}/.test(currentName);
+    if (!shouldRewrite) {
       return currentName;
     }
     const chunkTokens = sanitizeAliasTokens(chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId));
@@ -2489,20 +2611,32 @@ function buildQualityModuleContent(
       .filter((token) => !targetedHotWeakTokenSet.has(token))
       .filter((token) => !token.startsWith("ref"))
       .filter((token) => !targetedHotDomainStopTokens.has(token))
+      .filter((token) => !isLikelyObfuscatedAliasToken(token))
       .slice(0, 2);
-    const stem =
-      stemTokens.length > 0
-        ? stemTokens.map((token) => toPascalCase(token)).join("")
-        : toPascalCase(fallbackTopicByArchetype(plan.archetype));
+    const topicalFallbackToken =
+      splitNameTokens(topic).find((token) => token.length >= 3 && !GENERIC_SEGMENTS.has(token)) ??
+      fallbackTopicByArchetype(plan.archetype);
+    const stemPrimary = stemTokens[0] ?? topicalFallbackToken;
+    const stemSecondary = stemTokens[1] ? toPascalCase(stemTokens[1]) : "";
     const looksImportStyleAlias = kind === "import" || targetedHotImportAliasPattern.test(currentName);
-    const suffix = looksImportStyleAlias ? "Dep" : "Node";
-    const candidate = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}${suffix}`), 42);
+    const suffix = looksImportStyleAlias ? "Dep" : "Local";
+    const shortTag = alphabeticStableSuffix(`${chunkId}:${originalName}:${kind}`, 2).toUpperCase();
+    const candidate = compactIdentifier(
+      normalizeTargetedAliasBase(
+        sanitizeIdentifier(`${plan.archetype}${toPascalCase(stemPrimary)}${stemSecondary}${suffix}${shortTag}`),
+      ),
+      34,
+    );
     if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
       return candidate;
     }
     return compactIdentifier(
-      sanitizeIdentifier(`${plan.archetype}${toPascalCase(fallbackTopicByArchetype(plan.archetype))}${suffix}`),
-      36,
+      normalizeTargetedAliasBase(
+        sanitizeIdentifier(
+          `${plan.archetype}${toPascalCase(fallbackTopicByArchetype(plan.archetype))}${suffix}${shortTag}`,
+        ),
+      ),
+      30,
     );
   };
   const buildTargetedHotImportAliasBase = (
@@ -2537,20 +2671,24 @@ function buildQualityModuleContent(
       ...originalTokens,
       ...currentTokens,
       ...importedTokens,
-    ]).slice(0, 2);
+    ])
+      .filter((token) => !isLikelyObfuscatedAliasToken(token))
+      .slice(0, 2);
     const stemPrimary = semanticTokens[0] ?? pickPlanDomainToken(`${chunkId}:${originalName}:${importedName}`);
-    const stemSecondaryToken = semanticTokens[1] ?? "";
-    const stemSecondary = stemSecondaryToken.length > 0 ? toPascalCase(stemSecondaryToken) : "";
+    const stemSecondary = semanticTokens[1] ? toPascalCase(semanticTokens[1]) : "";
     const shortTag = alphabeticStableSuffix(`${chunkId}:${modulePath}:${importedName}`, 2).toUpperCase();
     const prefix = plan.archetype === "service" ? "svc" : "store";
     const candidate = compactIdentifier(
-      sanitizeIdentifier(`${prefix}${toPascalCase(stemPrimary)}${stemSecondary}Dep${shortTag}`),
-      36,
+      normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${toPascalCase(stemPrimary)}${stemSecondary}Dep${shortTag}`)),
+      32,
     );
     if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
       return candidate;
     }
-    return compactIdentifier(sanitizeIdentifier(`${prefix}${toPascalCase(pickPlanDomainToken(chunkId))}Dep${shortTag}`), 30);
+    return compactIdentifier(
+      normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${toPascalCase(pickPlanDomainToken(chunkId))}Dep${shortTag}`)),
+      28,
+    );
   };
   const resolveTargetedImportFamilyToken = (modulePath: string): string => {
     const normalized = modulePath.replace(/\\/g, "/").toLowerCase();
@@ -2603,20 +2741,23 @@ function buildQualityModuleContent(
     if (!targetedHotLocalRenameEnabled) {
       return currentName;
     }
-    if (!/^(?:store|svc)NavigatePageDep/i.test(currentName)) {
+    const shouldRewrite =
+      /^(?:store|svc).+Dep/i.test(currentName) ||
+      /(?:EventRef|NavigatePageDep|DepDep|DepDefault)/i.test(currentName);
+    if (!shouldRewrite) {
       return currentName;
     }
     const familyToken = resolveTargetedImportFamilyToken(modulePath);
     const importedTokenTag = buildStableAliasTag(importedName, "dep");
     const prefix = plan.archetype === "service" ? "svc" : "store";
     const candidate = compactIdentifier(
-      sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep${importedTokenTag}`),
-      34,
+      normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep${importedTokenTag}`)),
+      30,
     );
     if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
       return candidate;
     }
-    return compactIdentifier(sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep`), 28);
+    return compactIdentifier(normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${toPascalCase(familyToken)}Dep`)), 24);
   };
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
@@ -3967,7 +4108,9 @@ function buildQualityModuleContent(
               binding.importedName,
             )
           : buildTargetedHotLocalAliasBase(currentName, originalName, chunkId, aliasKind);
-        const resolved = nextUniqueIdentifier(base, remapUsedNames);
+        const normalizedBase = normalizeTargetedAliasBase(base);
+        const stabilizedBase = stabilizeTargetedAliasEntropy(normalizedBase, `${chunkId}:${originalName}`);
+        const resolved = nextUniqueIdentifier(compactIdentifier(stabilizedBase, 34), remapUsedNames);
         remapped.set(originalName, resolved);
       }
       finalRenameMap = remapped;
