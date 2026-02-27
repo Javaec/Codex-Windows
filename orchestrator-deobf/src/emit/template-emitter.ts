@@ -2477,11 +2477,11 @@ function buildQualityModuleContent(
     const originalTokens = sanitizeAliasTokens(splitNameTokens(originalName));
     const currentTokens = sanitizeAliasTokens(splitNameTokens(currentName));
     const stemTokens = dedupeNameTokens([
+      ...planDomainPriorityTokens,
+      ...planAliasDomainTokens,
       ...originalTokens,
       ...currentTokens,
       ...chunkTokens,
-      ...planAliasDomainTokens,
-      ...planDomainPriorityTokens,
     ])
       .filter((token) => !targetedHotWeakTokenSet.has(token))
       .filter((token) => !token.startsWith("ref"))
@@ -2528,12 +2528,12 @@ function buildQualityModuleContent(
       (token) => !targetedHotDomainStopTokens.has(token),
     );
     const semanticTokens = dedupeNameTokens([
+      ...planDomainPriorityTokens,
       ...moduleTokens,
       ...chunkTokens,
       ...originalTokens,
       ...currentTokens,
       ...importedTokens,
-      ...planDomainPriorityTokens,
     ]).slice(0, 2);
     const stemPrimary = semanticTokens[0] ?? pickPlanDomainToken(`${chunkId}:${originalName}:${importedName}`);
     const stemSecondaryToken = semanticTokens[1] ?? "";
