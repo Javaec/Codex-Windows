@@ -3756,6 +3756,35 @@ function buildQualityModuleContent(
     normalized = normalized.replace(/\d+$/g, "");
     return normalized;
   };
+  const roleSuffix = archetypeRoleSuffix(plan.archetype);
+  const buildEntryDisambiguator = (entry: ExportEntry): string => {
+    const localTokens = splitNameTokens(entry.localIdentifier).map((token) => canonicalToken(token));
+    const exportTokens = splitNameTokens(entry.exportName).map((token) => canonicalToken(token));
+    const sourceTokens = splitNameTokens(entry.sourceIdentifier).map((token) => canonicalToken(token));
+    const allTokens = [...localTokens, ...exportTokens, ...sourceTokens]
+      .map((token) => token.replace(/node$/i, ""))
+      .map((token) => token.replace(/state$/i, ""))
+      .map((token) => token.replace(/\d+$/g, ""))
+      .filter((token) => token.length > 0)
+      .filter((token) => !exportCanonicalizerStopTokens.has(token))
+      .filter((token) => token !== plan.archetype);
+    const tailTokenCandidate = allTokens.length > 0 ? allTokens[allTokens.length - 1] : "";
+    const tailToken = typeof tailTokenCandidate === "string" ? tailTokenCandidate : "";
+    if (tailToken.length >= 3) {
+      return toPascalCase(tailToken);
+    }
+    if (tailToken.length > 0) {
+      return tailToken.toUpperCase();
+    }
+    return toPascalCase(alphabeticStableSuffix(`${entry.chunkId}:${entry.sourceIdentifier}`, 3));
+  };
+  const withRoleSuffix = (baseStem: string): string => sanitizeIdentifier(`${baseStem}${roleSuffix}`);
+  const stripRoleSuffix = (name: string): string => {
+    if (name.endsWith(roleSuffix) && name.length > roleSuffix.length) {
+      return name.slice(0, name.length - roleSuffix.length);
+    }
+    return name;
+  };
   const shouldCanonicalizeExportName = (entry: ExportEntry): boolean => {
     if (plan.archetype !== "store" && plan.archetype !== "service") {
       return false;
@@ -3792,7 +3821,6 @@ function buildQualityModuleContent(
       .filter((token) => !isLikelyNoiseExportToken(token))
       .slice(0, 3);
     const stem = semanticTokens.map((token) => toPascalCase(token)).join("");
-    const roleSuffix = archetypeRoleSuffix(plan.archetype);
     if (plan.archetype === "hook") {
       const hookStem = stem.length > 0 ? stem : toPascalCase(topic);
       return sanitizeIdentifier(`use${hookStem}${roleSuffix}`);
@@ -3800,9 +3828,9 @@ function buildQualityModuleContent(
     const prefix = plan.archetype;
     const fallbackTopic = toPascalCase(topic).replace(/[^A-Za-z0-9]+/g, "");
     const fallbackStem = fallbackTopic.length > 0 ? fallbackTopic : "Domain";
-    const candidate = sanitizeIdentifier(`${prefix}${stem.length > 0 ? stem : fallbackStem}${roleSuffix}`);
+    const candidate = withRoleSuffix(`${prefix}${stem.length > 0 ? stem : fallbackStem}`);
     if (isNoisyIdentifier(candidate) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
-      return sanitizeIdentifier(`${prefix}${fallbackStem}${roleSuffix}`);
+      return withRoleSuffix(`${prefix}${fallbackStem}`);
     }
     return candidate;
   };
@@ -3813,7 +3841,13 @@ function buildQualityModuleContent(
       const preferredName = shouldCanonicalizeExportName(entry)
         ? buildCanonicalExportBase(entry)
         : entry.exportName;
-      const uniqueName = nextUniqueIdentifier(preferredName, usedNames);
+      let uniqueName = preferredName;
+      if (usedNames.has(uniqueName)) {
+        const disambiguator = buildEntryDisambiguator(entry);
+        const disambiguatedStem = stripRoleSuffix(uniqueName);
+        uniqueName = withRoleSuffix(`${disambiguatedStem}${disambiguator}`);
+      }
+      uniqueName = nextUniqueIdentifier(uniqueName, usedNames);
       canonicalized.push({
         ...entry,
         exportName: uniqueName,

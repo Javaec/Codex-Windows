@@ -75,6 +75,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: significantly cuts `...Node2/3/...` growth in heavy modules and keeps naming deterministic across runs.
 - Domain export canonicalizer is now a separate quality-emitter layer for `store/service` modules.
   Verified reason: rewrites weak export tails (`storeStateStateNN`, `...EventD5`-style suffix exports) into domain-based `*State/*Service` names before final export emission while preserving green/quality gates.
+- Export canonicalizer now applies semantic collision disambiguation from local/source identifiers (`...LState`, `...SState`) before hash fallback.
+  Verified reason: avoids opaque collision suffixes and keeps grouped store/service exports human-readable under heavy symbol density.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.
