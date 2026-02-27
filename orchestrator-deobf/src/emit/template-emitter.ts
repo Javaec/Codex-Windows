@@ -3698,6 +3698,130 @@ function buildQualityModuleContent(
     return deduped;
   };
 
+  const exportCanonicalizerStopTokens = new Set<string>([
+    ...SIGNAL_TOKEN_STOPWORDS,
+    ...GENERIC_SEGMENTS,
+    ...DOMAIN_ALIAS_WEAK_TOKENS,
+    "node",
+    "nodes",
+    "event",
+    "events",
+    "state",
+    "states",
+    "store",
+    "stores",
+    "service",
+    "services",
+    "module",
+    "modules",
+    "chunk",
+    "chunks",
+    "part",
+    "parts",
+    "domain",
+    "navigate",
+    "page",
+    "index",
+    "default",
+    "value",
+    "values",
+  ]);
+  const isLikelyNoiseExportToken = (token: string): boolean => {
+    if (/^[a-f0-9]{6,}$/i.test(token)) {
+      return true;
+    }
+    if (/^[a-z]{1,2}\d+$/i.test(token)) {
+      return true;
+    }
+    if (/^\d+$/.test(token)) {
+      return true;
+    }
+    if (token.length >= 8) {
+      let vowels = 0;
+      for (const char of token) {
+        if ("aeiou".includes(char)) {
+          vowels += 1;
+        }
+      }
+      if (vowels <= 1) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const normalizeExportToken = (token: string): string => {
+    let normalized = canonicalToken(token);
+    normalized = normalized.replace(/node$/i, "");
+    normalized = normalized.replace(/state$/i, "");
+    normalized = normalized.replace(/\d+$/g, "");
+    return normalized;
+  };
+  const shouldCanonicalizeExportName = (entry: ExportEntry): boolean => {
+    if (plan.archetype !== "store" && plan.archetype !== "service") {
+      return false;
+    }
+    const name = entry.exportName;
+    if (/^storeStateState\d+$/i.test(name)) {
+      return true;
+    }
+    if (/(?:State|Event)[A-Za-z]{0,4}\d+$/.test(name)) {
+      return true;
+    }
+    if (/\d{2,}$/.test(name)) {
+      return true;
+    }
+    return false;
+  };
+  const buildCanonicalExportBase = (entry: ExportEntry): string => {
+    const chunkTokens = chunkTopicTokensById.get(entry.chunkId) ?? chunkTokensFromChunkId(entry.chunkId);
+    const roleToken = archetypeRoleSuffix(plan.archetype).toLowerCase();
+    const semanticTokens = dedupeNameTokens([
+      ...splitNameTokens(entry.localIdentifier),
+      ...splitNameTokens(entry.exportName),
+      ...splitNameTokens(topic),
+      ...chunkTokens,
+    ])
+      .map((token) => normalizeExportToken(token))
+      .filter((token) => token.length >= 3)
+      .filter((token) => !/\d/.test(token))
+      .filter((token) => !token.includes("node"))
+      .filter((token) => !token.startsWith("state"))
+      .filter((token) => !exportCanonicalizerStopTokens.has(token))
+      .filter((token) => token !== plan.archetype)
+      .filter((token) => token !== roleToken)
+      .filter((token) => !isLikelyNoiseExportToken(token))
+      .slice(0, 3);
+    const stem = semanticTokens.map((token) => toPascalCase(token)).join("");
+    const roleSuffix = archetypeRoleSuffix(plan.archetype);
+    if (plan.archetype === "hook") {
+      const hookStem = stem.length > 0 ? stem : toPascalCase(topic);
+      return sanitizeIdentifier(`use${hookStem}${roleSuffix}`);
+    }
+    const prefix = plan.archetype;
+    const fallbackTopic = toPascalCase(topic).replace(/[^A-Za-z0-9]+/g, "");
+    const fallbackStem = fallbackTopic.length > 0 ? fallbackTopic : "Domain";
+    const candidate = sanitizeIdentifier(`${prefix}${stem.length > 0 ? stem : fallbackStem}${roleSuffix}`);
+    if (isNoisyIdentifier(candidate) || OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+      return sanitizeIdentifier(`${prefix}${fallbackStem}${roleSuffix}`);
+    }
+    return candidate;
+  };
+  const canonicalizeExportEntries = (entries: ExportEntry[]): ExportEntry[] => {
+    const usedNames = new Set<string>();
+    const canonicalized: ExportEntry[] = [];
+    for (const entry of entries) {
+      const preferredName = shouldCanonicalizeExportName(entry)
+        ? buildCanonicalExportBase(entry)
+        : entry.exportName;
+      const uniqueName = nextUniqueIdentifier(preferredName, usedNames);
+      canonicalized.push({
+        ...entry,
+        exportName: uniqueName,
+      });
+    }
+    return canonicalized;
+  };
+
   for (let symbolIndex = 0; symbolIndex < symbols.length; symbolIndex += 1) {
     const symbol = symbols[symbolIndex];
     if (!symbol) {
@@ -3794,6 +3918,7 @@ function buildQualityModuleContent(
   if (chunkDeclarationBlocks.length < 1) {
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} produced no lifted declarations`);
   }
+  const canonicalizedExportEntries = canonicalizeExportEntries(activeExportEntries);
 
   const lines: string[] = [
     "// @ts-nocheck",
@@ -3837,7 +3962,7 @@ function buildQualityModuleContent(
   }
 
   lines.push("// exports");
-  for (const entry of activeExportEntries) {
+  for (const entry of canonicalizedExportEntries) {
     if (entry.localIdentifier.length < 1) {
       throw new Error(`buildQualityModuleContent: unresolved local identifier for ${entry.exportName}`);
     }
