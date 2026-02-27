@@ -2293,6 +2293,55 @@ function buildQualityModuleContent(
     "store",
     "stores",
   ]);
+  const sanitizeAliasTokens = (tokens: string[]): string[] =>
+    tokens
+      .filter((token) => token.length >= 3)
+      .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
+      .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
+      .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
+      .filter((token) => !/^[a-z]{18,}$/.test(token))
+      .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
+      .filter((token) => !/\d/.test(token))
+      .filter((token) => !GENERIC_SEGMENTS.has(token))
+      .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
+  const planSignalTokens = dedupeNameTokens(
+    plan.symbols.flatMap((symbol) => {
+      const signal = signalContext.symbolSignalByKey.get(symbol.symbolKey);
+      if (!signal) {
+        return [];
+      }
+      return [...signal.stateTokens, ...signal.callGraphTokens, ...signal.signalTokens];
+    }),
+  );
+  const planAliasDomainTokens = sanitizeAliasTokens(planSignalTokens).slice(0, 8);
+  const weakAliasStemTokenSet = new Set<string>([
+    "domain",
+    "event",
+    "navigate",
+    "state",
+    "store",
+    "service",
+    "flow",
+    "route",
+    "dispatch",
+    "node",
+    "chunk",
+    "member",
+    "dependency",
+  ]);
+  const buildStableAliasTag = (rawValue: string, fallbackPrefix: string): string => {
+    const normalized = rawValue.replace(/[^A-Za-z0-9]+/g, "");
+    if (normalized.length > 0) {
+      return toPascalCase(normalized.length <= 8 ? normalized : normalized.slice(0, 8));
+    }
+    return toPascalCase(`${fallbackPrefix}${shortStableHash(rawValue).slice(0, 4)}`);
+  };
+  const isWeakAliasStem = (tokens: string[]): boolean => {
+    if (tokens.length < 1) {
+      return true;
+    }
+    return tokens.every((token) => weakAliasStemTokenSet.has(token));
+  };
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
   interface ChunkImportBinding {
@@ -3013,18 +3062,6 @@ function buildQualityModuleContent(
     sourceIdentifier: string,
     preferredName: string,
   ): string => {
-    const sanitizeAliasTokens = (tokens: string[]): string[] =>
-      tokens
-        .filter((token) => token.length >= 3)
-        .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
-        .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
-        .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
-        .filter((token) => !/^[a-z]{18,}$/.test(token))
-        .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
-        .filter((token) => !/\d/.test(token))
-        .filter((token) => !GENERIC_SEGMENTS.has(token))
-        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
-
     const preferredTokens = sanitizeAliasTokens(splitNameTokens(preferredName));
     const sourceTokens = sanitizeAliasTokens(splitNameTokens(sourceIdentifier));
     const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
@@ -3032,9 +3069,18 @@ function buildQualityModuleContent(
       ...preferredTokens,
       ...sourceTokens,
       ...sanitizeAliasTokens(chunkTokens),
-    ]).slice(0, 2);
+      ...planAliasDomainTokens,
+    ]).slice(0, 3);
     const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Domain";
-    const base = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}Node`), 42);
+    const sourceTokenTag = buildStableAliasTag(sourceIdentifier, "node");
+    const shouldTagSource =
+      sourceTokens.length < 1 ||
+      preferredTokens.length < 1 ||
+      sourceIdentifier.length <= 2 ||
+      OBFUSCATED_ALIAS_STYLE_PATTERN.test(sourceIdentifier) ||
+      isWeakAliasStem(semanticTokens);
+    const baseStem = shouldTagSource ? `${stem}${sourceTokenTag}` : stem;
+    const base = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${baseStem}Node`), 42);
     if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
       return base;
     }
@@ -3048,31 +3094,28 @@ function buildQualityModuleContent(
     modulePath: string,
     importedName: string,
   ): string => {
-    const sanitizeAliasTokens = (tokens: string[]): string[] =>
-      tokens
-        .filter((token) => token.length >= 3)
-        .filter((token) => !IMPORT_CHAIN_NOISE_TOKENS.has(token))
-        .filter((token) => !DOMAIN_ALIAS_WEAK_TOKENS.has(token))
-        .filter((token) => !/^[a-f0-9]{6,}$/i.test(token))
-        .filter((token) => !/^[a-z]{18,}$/.test(token))
-        .filter((token) => !token.includes("abcdefghijklmnopqrstuvwxyz"))
-        .filter((token) => !/\d/.test(token))
-        .filter((token) => !GENERIC_SEGMENTS.has(token))
-        .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token));
-
     const moduleTokens = isChunkIndexModulePath(modulePath)
       ? []
       : sanitizeAliasTokens(splitNameTokens(path.basename(modulePath)));
     const importedTokens = sanitizeAliasTokens(splitNameTokens(importedName));
+    const importedTokenTag = buildStableAliasTag(importedName, "ref");
     const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
     const semanticTokens = dedupeNameTokens([
       ...moduleTokens,
       ...importedTokens,
       ...sanitizeAliasTokens(chunkTokens),
-    ]).slice(0, 2);
+      ...planAliasDomainTokens,
+    ]).slice(0, 3);
     const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Dependency";
     const prefix = IMPORT_ALIAS_PREFIX_BY_ARCHETYPE[plan.archetype];
-    const base = compactIdentifier(sanitizeIdentifier(`${prefix}${stem}`), 34);
+    const shouldTagImportedName =
+      isChunkIndexModulePath(modulePath) ||
+      importedTokens.length < 1 ||
+      importedName.length <= 2 ||
+      OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName) ||
+      isWeakAliasStem(semanticTokens);
+    const baseStem = shouldTagImportedName ? `${stem}${importedTokenTag}` : stem;
+    const base = compactIdentifier(sanitizeIdentifier(`${prefix}${baseStem}`), 34);
     if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
       return base;
     }
