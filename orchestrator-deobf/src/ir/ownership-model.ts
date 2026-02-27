@@ -30,6 +30,39 @@ export interface OwnershipModel {
 }
 
 const LAYER_TIE_BREAK_ORDER: LayerId[] = ["services", "renderer", "main", "tauri"];
+const UI_PAYLOAD_TOKEN_HINTS = new Set<string>([
+  "abap",
+  "actionscript",
+  "ada",
+  "angular",
+  "apache",
+  "apex",
+  "applescript",
+  "asciidoc",
+  "automation",
+  "awk",
+  "ballerina",
+  "bat",
+  "beancount",
+  "bibtex",
+  "bicep",
+  "blade",
+  "catppuccin",
+  "diagram",
+  "grammar",
+  "highlight",
+  "lottie",
+  "markdown",
+  "mermaid",
+  "monaco",
+  "syntax",
+  "theme",
+  "treemap",
+  "tsx",
+  "typescript",
+  "xml",
+  "yaml",
+]);
 
 function clamp(value: number): number {
   if (value < 0) {
@@ -248,6 +281,33 @@ function selectChunkHint(symbolKey: string, symbolName: string): string {
   return "domainSymbol";
 }
 
+function splitHintTokens(value: string): string[] {
+  return value
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
+function hasUiPayloadHint(symbolName: string, chunkHint: string): boolean {
+  const joined = [...splitHintTokens(symbolName), ...splitHintTokens(chunkHint)];
+  for (const token of joined) {
+    if (UI_PAYLOAD_TOKEN_HINTS.has(token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeDomainKindForOwnership(domainKind: DomainKind, symbolName: string, chunkHint: string): DomainKind {
+  const isServiceLike = domainKind === "service" || domainKind === "store" || domainKind === "usecase";
+  if (isServiceLike && hasUiPayloadHint(symbolName, chunkHint)) {
+    return "ui";
+  }
+  return domainKind;
+}
+
 export function buildOwnershipModel(semanticIr: SemanticIrModel): OwnershipModel {
   if (semanticIr.domainDeclarations.length === 0) {
     throw new Error("ownership-model: semantic-ir has no domain declarations");
@@ -269,14 +329,16 @@ export function buildOwnershipModel(semanticIr: SemanticIrModel): OwnershipModel
       if (!declaration) {
         throw new Error(`ownership-model: declaration missing for ${symbol.symbolKey}`);
       }
+      const chunkHint = selectChunkHint(symbol.symbolKey, symbol.name);
+      const effectiveDomainKind = normalizeDomainKindForOwnership(declaration.domainKind, symbol.name, chunkHint);
       const scores = emptyScores();
-      applyDomainScores(declaration.domainKind, scores);
+      applyDomainScores(effectiveDomainKind, scores);
       applyNameScores(symbol.name, scores);
       applyFlowScores(declaration.routeFlowScore, declaration.eventFlowScore, scores);
       applyClusterPrior(declaration.clusterId, scores);
-      applyTransportSplit(declaration.domainKind, symbol.symbolKey, scores);
+      applyTransportSplit(effectiveDomainKind, symbol.symbolKey, scores);
       applyFileHintScores(fileHints, scores);
-      const archetype = mapDomainToArchetype(declaration.domainKind);
+      const archetype = mapDomainToArchetype(effectiveDomainKind);
       const layerDecision = pickLayerForArchetype(scores, archetype);
       const finalConfidence = clamp(symbol.confidence * 0.7 + layerDecision.confidence * 0.3);
       const ownershipRecord: OwnershipRecord = {
@@ -284,11 +346,11 @@ export function buildOwnershipModel(semanticIr: SemanticIrModel): OwnershipModel
         symbolName: symbol.name,
         layer: layerDecision.layer,
         archetype,
-        domainKind: declaration.domainKind,
+        domainKind: effectiveDomainKind,
         declarationClusterId: declaration.clusterId,
         confidence: finalConfidence,
         ownerLineageId: symbol.owner,
-        chunkHint: selectChunkHint(symbol.symbolKey, symbol.name),
+        chunkHint,
         scores,
       };
       assertArchetypeLayerCompatibility(ownershipRecord.layer, ownershipRecord.archetype, ownershipRecord.symbolKey);
@@ -304,7 +366,7 @@ export function buildOwnershipModel(semanticIr: SemanticIrModel): OwnershipModel
   }
 
   return {
-    version: 2,
+    version: 3,
     generatedAtIso: new Date().toISOString(),
     symbols,
   };

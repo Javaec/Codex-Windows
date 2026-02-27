@@ -65,6 +65,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - fallback to import-only behavior only for extreme service/store chunk selections,
   - fail-fast if a quality module would emit with zero lifted declaration blocks.
   Verified reason: keep `src/*` centered on lifted logic instead of proxy-style glue and reduce noisy file proliferation.
+- Ownership resolver now normalizes domain kind for payload-heavy symbols (`service/store/usecase -> ui`) using symbol/chunk token hints (themes/grammars/diagram/monaco/language bundles).
+  Verified reason: prevent large UI/payload registries from polluting `services/store` modules and push them to renderer/ui ownership before template emission.
+- Chunk-index declaration inline is now archetype-gated in quality emit (`ui/hook/transport` only).
+  Verified reason: prevents `service/store` modules from inlining Vite/bootstrap registries (`__vite__mapDeps`, `modulepreload`) that massively bloat readability.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

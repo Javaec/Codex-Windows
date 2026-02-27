@@ -180,6 +180,12 @@ const TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK = 8;
 const TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS = 20;
 const TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS = 14000;
 const TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS = 24;
+const BOOTSTRAP_PAYLOAD_STATIC_DECLARATION_MIN = 24;
+const BOOTSTRAP_PAYLOAD_STATIC_RATIO_MIN = 0.35;
+const BOOTSTRAP_PAYLOAD_IMPORT_FANOUT_MIN = 80;
+const STATIC_PAYLOAD_ONLY_VAR_DECLARATION_MIN = 2;
+const STATIC_PAYLOAD_ONLY_RATIO_MIN = 0.8;
+const STATIC_PAYLOAD_ONLY_MAX_FUNCTION_CLASS_COUNT = 1;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
@@ -2429,6 +2435,79 @@ function buildQualityModuleContent(
     return metadata;
   };
 
+  const isBootstrapPayloadChunk = (metadata: LiftedChunkMetadata): boolean => {
+    let hasBootstrapSignals = false;
+    let staticLiteralDeclarationCount = 0;
+    let variableDeclarationCount = 0;
+    let importFanoutCount = 0;
+    const heuristicPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+
+    for (const statement of metadata.sourceFile.statements) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (!declaration.initializer) {
+            continue;
+          }
+          variableDeclarationCount += 1;
+          if (isStaticLiteralExpression(declaration.initializer)) {
+            staticLiteralDeclarationCount += 1;
+          }
+        }
+      }
+      const rendered = heuristicPrinter.printNode(ts.EmitHint.Unspecified, statement, metadata.sourceFile);
+      if (rendered.includes("__vite__mapDeps") || rendered.includes("modulepreload")) {
+        hasBootstrapSignals = true;
+      }
+      if (rendered.includes("__vite__mapDeps")) {
+        importFanoutCount += rendered.split('"./').length - 1;
+      }
+    }
+
+    if (!hasBootstrapSignals) {
+      return false;
+    }
+    const staticRatio = variableDeclarationCount > 0 ? staticLiteralDeclarationCount / variableDeclarationCount : 0;
+    return (
+      staticLiteralDeclarationCount >= BOOTSTRAP_PAYLOAD_STATIC_DECLARATION_MIN ||
+      staticRatio >= BOOTSTRAP_PAYLOAD_STATIC_RATIO_MIN ||
+      importFanoutCount >= BOOTSTRAP_PAYLOAD_IMPORT_FANOUT_MIN
+    );
+  };
+
+  const isStaticPayloadOnlyChunk = (metadata: LiftedChunkMetadata): boolean => {
+    let variableDeclarationCount = 0;
+    let staticVariableDeclarationCount = 0;
+    let functionOrClassCount = 0;
+
+    for (const statement of metadata.sourceFile.statements) {
+      if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+        functionOrClassCount += 1;
+        continue;
+      }
+      if (!ts.isVariableStatement(statement)) {
+        continue;
+      }
+      for (const declaration of statement.declarationList.declarations) {
+        if (!declaration.initializer) {
+          continue;
+        }
+        variableDeclarationCount += 1;
+        if (isStaticLiteralExpression(declaration.initializer)) {
+          staticVariableDeclarationCount += 1;
+        }
+      }
+    }
+
+    if (functionOrClassCount > STATIC_PAYLOAD_ONLY_MAX_FUNCTION_CLASS_COUNT) {
+      return false;
+    }
+    if (variableDeclarationCount < STATIC_PAYLOAD_ONLY_VAR_DECLARATION_MIN) {
+      return false;
+    }
+    const staticRatio = staticVariableDeclarationCount / Math.max(1, variableDeclarationCount);
+    return staticRatio >= STATIC_PAYLOAD_ONLY_RATIO_MIN;
+  };
+
   const chunkIdFromChunkModulePath = (modulePath: string): string => {
     const base = path.basename(modulePath).replace(/\.[cm]?[jt]sx?$/i, "");
     if (base.length < 1) {
@@ -3110,6 +3189,8 @@ function buildQualityModuleContent(
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
     const preferChunkImportFallback =
       (plan.archetype === "service" || plan.archetype === "store") && extremeChunkSelection;
+    const allowChunkIndexInline =
+      plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     const inlineDependencyStatements: ts.Statement[] = [];
@@ -3154,7 +3235,7 @@ function buildQualityModuleContent(
         };
       })
       .filter((entry): entry is { localName: string; modulePath: string; importedName: string } => Boolean(entry));
-    if (!preferChunkImportFallback && chunkIndexImportLocals.length >= CHUNK_INDEX_INLINE_IMPORT_THRESHOLD) {
+    if (allowChunkIndexInline && !preferChunkImportFallback && chunkIndexImportLocals.length >= CHUNK_INDEX_INLINE_IMPORT_THRESHOLD) {
       const selectedChunkIndexImportLocals = chunkIndexImportLocals
         .sort((left, right) => {
           const leftScore =
@@ -3268,7 +3349,7 @@ function buildQualityModuleContent(
       });
       targetedChunkIndexCandidates.set(targetChunkId, bucket);
     }
-    if (targetedChunkIndexCandidates.size > 0) {
+    if (allowChunkIndexInline && targetedChunkIndexCandidates.size > 0) {
       const selectedTargetedInlines: Array<{
         targetChunkId: string;
         localName: string;
@@ -3591,10 +3672,27 @@ function buildQualityModuleContent(
   }
 
   const dedupedExportEntries = dedupeExportEntriesByLiftedSource(exportEntries);
+  const shouldSkipBootstrapPayloadChunks = plan.archetype === "service" || plan.archetype === "store";
+  const skipPayloadDecisionByChunkId = new Map<string, boolean>();
+  const shouldSkipChunkForQualityModule = (chunkId: string): boolean => {
+    const existing = skipPayloadDecisionByChunkId.get(chunkId);
+    if (typeof existing === "boolean") {
+      return existing;
+    }
+    const metadata = resolveLiftedChunkMetadata(chunkId);
+    const skip =
+      shouldSkipBootstrapPayloadChunks && (isBootstrapPayloadChunk(metadata) || isStaticPayloadOnlyChunk(metadata));
+    skipPayloadDecisionByChunkId.set(chunkId, skip);
+    return skip;
+  };
+  const activeExportEntries = dedupedExportEntries.filter((entry) => !shouldSkipChunkForQualityModule(entry.chunkId));
+  if (activeExportEntries.length < 1) {
+    throw new Error(`buildQualityModuleContent: module ${plan.moduleId} lost all exports after payload-chunk filtering`);
+  }
 
   const sourceIdsByChunk = new Map<string, Set<string>>();
   const preferredLocalNameByChunk = new Map<string, Map<string, string>>();
-  for (const entry of dedupedExportEntries) {
+  for (const entry of activeExportEntries) {
     const existing = sourceIdsByChunk.get(entry.chunkId) ?? new Set<string>();
     existing.add(entry.sourceIdentifier);
     sourceIdsByChunk.set(entry.chunkId, existing);
@@ -3621,7 +3719,7 @@ function buildQualityModuleContent(
     if (liftedDeclarations.declarationText.length > 0) {
       chunkDeclarationBlocks.push(`// chunk: ${chunkId}\n${liftedDeclarations.declarationText}`);
     }
-    for (const entry of dedupedExportEntries) {
+    for (const entry of activeExportEntries) {
       if (entry.chunkId !== chunkId) {
         continue;
       }
@@ -3681,7 +3779,7 @@ function buildQualityModuleContent(
   }
 
   lines.push("// exports");
-  for (const entry of dedupedExportEntries) {
+  for (const entry of activeExportEntries) {
     if (entry.localIdentifier.length < 1) {
       throw new Error(`buildQualityModuleContent: unresolved local identifier for ${entry.exportName}`);
     }
