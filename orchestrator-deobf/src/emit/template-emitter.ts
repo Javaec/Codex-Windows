@@ -573,11 +573,26 @@ function nextUniqueName(baseName: string, usedNames: Map<string, number>): strin
   return seen === 0 ? baseName : `${baseName}${seen + 1}`;
 }
 
+function alphabeticStableSuffix(seed: string, length: number): string {
+  const hash = shortStableHash(seed);
+  const letters: string[] = [];
+  let cursor = 0;
+  while (letters.length < length) {
+    const char = hash[cursor % hash.length] ?? "a";
+    const value = Number.parseInt(char, 16);
+    const normalized = Number.isNaN(value) ? 0 : value % 26;
+    letters.push(String.fromCharCode(97 + normalized));
+    cursor += 1;
+  }
+  return letters.join("");
+}
+
 function nextUniqueIdentifier(baseName: string, usedNames: Set<string>): string {
   let candidate = baseName;
-  let index = 2;
+  let index = 1;
   while (usedNames.has(candidate)) {
-    candidate = `${baseName}${index}`;
+    const suffix = toPascalCase(alphabeticStableSuffix(`${baseName}:${index}`, 3));
+    candidate = `${baseName}${suffix}`;
     index += 1;
   }
   usedNames.add(candidate);

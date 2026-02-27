@@ -71,6 +71,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: prevents `service/store` modules from inlining Vite/bootstrap registries (`__vite__mapDeps`, `modulepreload`) that massively bloat readability.
 - Chunk alias naming now prioritizes symbol/module/chunk domain tokens before plan-wide flow tokens and injects stable identifier tags for weak/obfuscated stems.
   Verified reason: reduces repetitive `storeAgentSettingsNN`-style suffix chains in heavy `store/service` outputs while keeping deterministic naming and green gates.
+- Identifier collision suffixes in quality emitter now use deterministic alphabetic tags (hash-derived) instead of numeric increments.
+  Verified reason: significantly cuts `...Node2/3/...` growth in heavy modules and keeps naming deterministic across runs.
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.
