@@ -2436,6 +2436,11 @@ function buildQualityModuleContent(
     "diagram",
     "page",
     "panel",
+    "abnormal",
+    "exit",
+    "eventflow",
+    "nnetne",
+    "ane",
   ]);
   const targetedHotSemanticAllowTokens = new Set<string>([
     "angular",
@@ -2464,12 +2469,22 @@ function buildQualityModuleContent(
     "config",
     "settings",
     "schema",
+    "workspace",
+    "session",
+    "chat",
+    "router",
+    "layout",
+    "terminal",
+    "git",
+    "auth",
+    "transport",
   ]);
   const targetedHotAlphabetRunPattern = /abcdefghijklmnopqrstuvwxyz/i;
   const targetedHotNoiseSuffixPattern = /(?:Event|State)[A-Za-z]{0,3}\d+$/;
   const targetedHotImportAliasPattern = /(?:Event|State)Ref[A-Za-z]{2,}$/;
+  const targetedHotLocalNoiseIdentifierPattern = /(?:EventFlowNode|Abnormal(?:Exit)?|NneTne)/i;
   const targetedHotDomainNoisePattern =
-    /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|(?:store|svc|service)AgentSettings|Abcdefghijklmnopqrstuvwxyz/i;
+    /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz/i;
   const maxConsonantRunLength = (token: string): number => {
     let best = 0;
     let current = 0;
@@ -2531,6 +2546,9 @@ function buildQualityModuleContent(
   const normalizeTargetedAliasBase = (value: string): string => {
     let normalized = value;
     normalized = normalized.replace(/Abcdefghijklmnopqrstuvwxyz/gi, "Domain");
+    normalized = normalized.replace(/EventFlowNode/gi, "Domain");
+    normalized = normalized.replace(/Abnormal(?:Exit)?/gi, "Domain");
+    normalized = normalized.replace(/NneTne/gi, "Domain");
     normalized = normalized.replace(/(?:Event|State)NavigateNode/gi, "Flow");
     normalized = normalized.replace(/NavigatePage/gi, "Flow");
     normalized = normalized.replace(/DepDep+/g, "Dep");
@@ -2590,9 +2608,10 @@ function buildQualityModuleContent(
       targetedHotNoiseSuffixPattern.test(currentName) ||
       targetedHotImportAliasPattern.test(currentName) ||
       targetedHotDomainNoisePattern.test(currentName) ||
-      /(?:NneTne|AbnormalExit|EventFlow)Local/i.test(currentName) ||
+      /(?:NneTne|Abnormal(?:Exit)?|EventFlow)(?:Local|Node)/i.test(currentName) ||
       /StateState/i.test(currentName) ||
       /Node\d+$/i.test(currentName) ||
+      /EventFlowNode/i.test(currentName) ||
       /(?:Event|State)NavigateNode/i.test(currentName) ||
       /[A-Za-z]{34,}/.test(currentName);
     if (!shouldRewrite) {
@@ -2601,13 +2620,25 @@ function buildQualityModuleContent(
     const chunkTokens = sanitizeAliasTokens(chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId));
     const originalTokens = sanitizeAliasTokens(splitNameTokens(originalName));
     const currentTokens = sanitizeAliasTokens(splitNameTokens(currentName));
-    const stemTokens = dedupeNameTokens([
-      ...planDomainPriorityTokens,
-      ...planAliasDomainTokens,
-      ...originalTokens,
-      ...currentTokens,
-      ...chunkTokens,
-    ])
+    const forceStoreDomainReset =
+      targetedHotStoreModule &&
+      (/(?:Abnormal|EventFlow|NneTne)/i.test(currentName) || /(?:Abnormal|EventFlow|NneTne)/i.test(originalName));
+    const topicTokens = sanitizeAliasTokens(splitNameTokens(topic));
+    const seedTokens = forceStoreDomainReset
+      ? dedupeNameTokens([
+          ...planDomainPriorityTokens,
+          ...topicTokens,
+          ...chunkTokens,
+          ...planAliasDomainTokens,
+        ])
+      : dedupeNameTokens([
+          ...planDomainPriorityTokens,
+          ...planAliasDomainTokens,
+          ...originalTokens,
+          ...currentTokens,
+          ...chunkTokens,
+        ]);
+    const stemTokens = seedTokens
       .filter((token) => !targetedHotWeakTokenSet.has(token))
       .filter((token) => !token.startsWith("ref"))
       .filter((token) => !targetedHotDomainStopTokens.has(token))
@@ -2627,8 +2658,37 @@ function buildQualityModuleContent(
       ),
       34,
     );
-    if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+    const hasForcedNoise = /(?:EventFlowNode|EventFlow|Abnormal(?:Exit)?|NneTne)/i.test(candidate);
+    if (!hasForcedNoise && !isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
       return candidate;
+    }
+    const strictDomainTokens = dedupeNameTokens([
+      ...planDomainPriorityTokens,
+      ...planAliasDomainTokens,
+      ...chunkTokens,
+      ...topicTokens,
+    ])
+      .filter((token) => token.length >= 3)
+      .filter((token) => !targetedHotWeakTokenSet.has(token))
+      .filter((token) => !targetedHotDomainStopTokens.has(token))
+      .filter((token) => !isLikelyObfuscatedAliasToken(token))
+      .filter((token) => !/(?:eventflow|abnormal|nnetne|ane)/i.test(token))
+      .slice(0, 2);
+    const strictPrimary = strictDomainTokens[0] ?? fallbackTopicByArchetype(plan.archetype);
+    const strictSecondary = strictDomainTokens[1] ? toPascalCase(strictDomainTokens[1]) : "";
+    const strictCandidate = compactIdentifier(
+      normalizeTargetedAliasBase(
+        sanitizeIdentifier(`${plan.archetype}${toPascalCase(strictPrimary)}${strictSecondary}${suffix}${shortTag}`),
+      ),
+      34,
+    );
+    if (
+      strictCandidate.length > 0 &&
+      !/(?:EventFlowNode|EventFlow|Abnormal(?:Exit)?|NneTne)/i.test(strictCandidate) &&
+      !isNoisyIdentifier(strictCandidate) &&
+      !OBFUSCATED_ALIAS_STYLE_PATTERN.test(strictCandidate)
+    ) {
+      return strictCandidate;
     }
     return compactIdentifier(
       normalizeTargetedAliasBase(
@@ -3198,6 +3258,179 @@ function buildQualityModuleContent(
     }
     const declarationsRenamed = applyTopLevelDeclarationRenames(statements, renameMap);
     return applyScopedReferenceRenames(declarationsRenamed, renameMap);
+  };
+
+  const isDeclarationIdentifierName = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (!parent) {
+      return false;
+    }
+    if (
+      (ts.isVariableDeclaration(parent) && parent.name === node) ||
+      (ts.isFunctionDeclaration(parent) && parent.name === node) ||
+      (ts.isFunctionExpression(parent) && parent.name === node) ||
+      (ts.isClassDeclaration(parent) && parent.name === node) ||
+      (ts.isClassExpression(parent) && parent.name === node) ||
+      (ts.isParameter(parent) && parent.name === node) ||
+      (ts.isBindingElement(parent) && parent.name === node)
+    ) {
+      return true;
+    }
+    if (ts.isCatchClause(parent) && parent.variableDeclaration && parent.variableDeclaration.name === node) {
+      return true;
+    }
+    return false;
+  };
+
+  const isHotLocalReference = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (parent && ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+      return true;
+    }
+    return isIdentifierReference(node);
+  };
+
+  const collectDeclaredNamesDeep = (statements: ts.Statement[]): Set<string> => {
+    const declared = new Set<string>();
+    const syntheticFile = ts.factory.createSourceFile(
+      statements,
+      ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+      ts.NodeFlags.None,
+    );
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && isDeclarationIdentifierName(node)) {
+        declared.add(node.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(syntheticFile, visit);
+    return declared;
+  };
+
+  const applyTargetedHotLocalIdentifierPass = (
+    statements: ts.Statement[],
+  ): { statements: ts.Statement[]; renameMap: Map<string, string> } => {
+    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || statements.length < 1) {
+      return {
+        statements,
+        renameMap: new Map<string, string>(),
+      };
+    }
+    const syntheticFile = ts.factory.createSourceFile(
+      statements,
+      ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+      ts.NodeFlags.None,
+    );
+    const candidates = new Set<string>();
+    const collectCandidates = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && isDeclarationIdentifierName(node)) {
+        if (
+          node.text.length >= 8 &&
+          targetedHotLocalNoiseIdentifierPattern.test(node.text) &&
+          !RESERVED_IDENTIFIERS.has(node.text)
+        ) {
+          candidates.add(node.text);
+        }
+      }
+      ts.forEachChild(node, collectCandidates);
+    };
+    ts.forEachChild(syntheticFile, collectCandidates);
+    if (candidates.size < 1) {
+      return {
+        statements,
+        renameMap: new Map<string, string>(),
+      };
+    }
+    const usedNames = collectDeclaredNamesDeep(statements);
+    const renameMap = new Map<string, string>();
+    for (const candidate of [...candidates].sort((left, right) => left.localeCompare(right))) {
+      const base = buildTargetedHotLocalAliasBase(candidate, candidate, "targeted-hot-local", "local");
+      const resolved = nextUniqueIdentifier(compactIdentifier(base, 34), usedNames);
+      if (resolved === candidate) {
+        continue;
+      }
+      renameMap.set(candidate, resolved);
+    }
+    if (renameMap.size < 1) {
+      return {
+        statements,
+        renameMap,
+      };
+    }
+    const transformerFactory: ts.TransformerFactory<ts.SourceFile> = (context) => {
+      const visit = (node: ts.Node): ts.VisitResult<ts.Node> => {
+        if (ts.isIdentifier(node)) {
+          const replacement = renameMap.get(node.text);
+          if (replacement && (isDeclarationIdentifierName(node) || isHotLocalReference(node))) {
+            return ts.factory.createIdentifier(replacement);
+          }
+        }
+        return ts.visitEachChild(node, visit, context);
+      };
+      return (sourceFile) => ts.visitNode(sourceFile, visit) as ts.SourceFile;
+    };
+    const result = ts.transform(syntheticFile, [transformerFactory]);
+    const transformed = result.transformed[0];
+    if (!transformed) {
+      result.dispose();
+      throw new Error("buildQualityModuleContent: missing transformed source in targeted hot local pass");
+    }
+    const nextStatements = [...transformed.statements];
+    result.dispose();
+    return {
+      statements: nextStatements,
+      renameMap,
+    };
+  };
+
+  const applyTargetedHotFinalContentPass = (content: string): string => {
+    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const declarationCandidates = new Set<string>();
+    const declaredNames = new Set<string>();
+    const collect = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && isDeclarationIdentifierName(node)) {
+        declaredNames.add(node.text);
+        if (
+          node.text.length >= 8 &&
+          targetedHotLocalNoiseIdentifierPattern.test(node.text) &&
+          !RESERVED_IDENTIFIERS.has(node.text)
+        ) {
+          declarationCandidates.add(node.text);
+        }
+      }
+      ts.forEachChild(node, collect);
+    };
+    ts.forEachChild(sourceFile, collect);
+    if (declarationCandidates.size < 1) {
+      return content;
+    }
+    const renameMap = new Map<string, string>();
+    for (const candidate of [...declarationCandidates].sort((left, right) => left.localeCompare(right))) {
+      const base = buildTargetedHotLocalAliasBase(candidate, candidate, "targeted-hot-content", "local");
+      const resolved = nextUniqueIdentifier(compactIdentifier(base, 34), declaredNames);
+      if (resolved === candidate) {
+        continue;
+      }
+      renameMap.set(candidate, resolved);
+    }
+    if (renameMap.size < 1) {
+      return content;
+    }
+    const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let rewritten = content;
+    for (const [from, to] of [...renameMap.entries()].sort((left, right) => right[0].length - left[0].length)) {
+      rewritten = rewritten.replace(new RegExp(`\\b${escaped(from)}\\b`, "g"), to);
+    }
+    return rewritten;
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
@@ -4174,8 +4407,24 @@ function buildQualityModuleContent(
       }
       sourceBodyStatements.push(stripped);
     }
-    const renamedInlineStatements = applyScopedIdentifierRenames(inlineDependencyStatements, finalRenameMap);
-    const renamedSourceStatements = applyScopedIdentifierRenames(sourceBodyStatements, finalRenameMap);
+    let renamedInlineStatements = applyScopedIdentifierRenames(inlineDependencyStatements, finalRenameMap);
+    let renamedSourceStatements = applyScopedIdentifierRenames(sourceBodyStatements, finalRenameMap);
+    const targetedHotRenamedInline = applyTargetedHotLocalIdentifierPass(renamedInlineStatements);
+    const targetedHotRenamedSource = applyTargetedHotLocalIdentifierPass(renamedSourceStatements);
+    renamedInlineStatements = targetedHotRenamedInline.statements;
+    renamedSourceStatements = targetedHotRenamedSource.statements;
+    const targetedHotPostRenameMap = new Map<string, string>([
+      ...targetedHotRenamedInline.renameMap.entries(),
+      ...targetedHotRenamedSource.renameMap.entries(),
+    ]);
+    if (targetedHotPostRenameMap.size > 0) {
+      for (const [sourceIdentifier, localIdentifier] of sourceIdentifierByOriginal.entries()) {
+        const remappedLocal = targetedHotPostRenameMap.get(localIdentifier);
+        if (remappedLocal) {
+          sourceIdentifierByOriginal.set(sourceIdentifier, remappedLocal);
+        }
+      }
+    }
     const declarationLines: string[] = [];
     for (let statementIndex = 0; statementIndex < renamedInlineStatements.length; statementIndex += 1) {
       const statement = renamedInlineStatements[statementIndex];
@@ -4586,8 +4835,9 @@ function buildQualityModuleContent(
       absolutePath,
       content,
     }));
+  const moduleContent = applyTargetedHotFinalContentPass(lines.join("\n"));
   return {
-    content: lines.join("\n"),
+    content: moduleContent,
     assetFiles,
   };
 }

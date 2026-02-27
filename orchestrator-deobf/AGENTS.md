@@ -100,3 +100,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Continue improving symbol ownership and import shaping for top noisy modules.
 - Improve cluster/topic naming so generated module names are more domain-specific.
 - Keep regression suite green for all four fixed profiles.
+- Hot store safe-pass now includes a final module-content canonicalizer for noisy lifted identifiers (`EventFlowNode`, `AbnormalExit`, `NneTne`) after declaration assembly.
+  Verified reason: deterministic whole-file identifier replacement on declaration tokens reduced these series to zero in `src/services/store/store-state-g002.ts` while keeping `quality-gates` and `green-gates` green (run `targeted-store-local-safe-v7`, `--no-stage-cache`).
