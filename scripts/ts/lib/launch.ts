@@ -5,6 +5,49 @@ import { ensureDir, fileExists, runCommand } from "./exec";
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 
+type WebviewPatchResult = {
+  alreadyPatched: boolean;
+  patched: boolean;
+  content: string;
+};
+
+function patchWebviewIndexBundles(
+  appDir: string,
+  bundleNotFoundError: string,
+  patchNotFoundError: string,
+  patchContent: (raw: string) => WebviewPatchResult,
+): void {
+  const assetsDir = path.join(appDir, "webview", "assets");
+  if (!fileExists(assetsDir)) return;
+
+  const bundles = fs
+    .readdirSync(assetsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
+    .map((entry) => path.join(assetsDir, entry.name));
+
+  if (bundles.length === 0) throw new Error(bundleNotFoundError);
+
+  let patchedFileCount = 0;
+  let alreadyPatchedFileCount = 0;
+
+  for (const bundlePath of bundles) {
+    const raw = fs.readFileSync(bundlePath, "utf8");
+    const result = patchContent(raw);
+    if (result.alreadyPatched) {
+      alreadyPatchedFileCount += 1;
+      continue;
+    }
+    if (!result.patched) continue;
+
+    fs.writeFileSync(bundlePath, result.content, "utf8");
+    patchedFileCount += 1;
+  }
+
+  if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
+    throw new Error(patchNotFoundError);
+  }
+}
+
 export function patchPreload(appDir: string): void {
   const preload = path.join(appDir, ".vite", "build", "preload.js");
   if (!fileExists(preload)) return;
@@ -22,83 +65,49 @@ export function patchPreload(appDir: string): void {
 }
 
 export function patchWebviewCwdNormalization(appDir: string): void {
-  const assetsDir = path.join(appDir, "webview", "assets");
-  if (!fileExists(assetsDir)) return;
-
-  const bundles = fs
-    .readdirSync(assetsDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
-    .map((entry) => path.join(assetsDir, entry.name));
-
-  if (bundles.length === 0) {
-    throw new Error("webview index bundle not found for cwd normalization patch.");
-  }
-
   const helperPairPattern =
     /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
 
-  let patchedFileCount = 0;
-  let alreadyPatchedFileCount = 0;
-
-  for (const bundlePath of bundles) {
-    let raw = fs.readFileSync(bundlePath, "utf8");
-    if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
-      alreadyPatchedFileCount += 1;
-      continue;
-    }
-
-    let changed = false;
-    raw = raw.replace(helperPairPattern, (_full, lowerFn, lowerArg, normalizeFn, normalizeArg) => {
-      changed = true;
-      return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){const __codexWindowsPathRaw=${normalizeArg}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath}`;
-    });
-
-    if (!changed) continue;
-
-    fs.writeFileSync(bundlePath, raw, "utf8");
-    patchedFileCount += 1;
-  }
-
-  if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
-    throw new Error("webview cwd normalization patch point not found.");
-  }
+  patchWebviewIndexBundles(
+    appDir,
+    "webview index bundle not found for cwd normalization patch.",
+    "webview cwd normalization patch point not found.",
+    (raw) => {
+      if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
+        return { alreadyPatched: true, patched: false, content: raw };
+      }
+      let changed = false;
+      const next = raw.replace(helperPairPattern, (_full, lowerFn, lowerArg, normalizeFn, normalizeArg) => {
+        changed = true;
+        return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){const __codexWindowsPathRaw=${normalizeArg}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath}`;
+      });
+      return { alreadyPatched: false, patched: changed, content: next };
+    },
+  );
 }
 
 export function patchWebviewAppSunsetGate(appDir: string): void {
-  const assetsDir = path.join(appDir, "webview", "assets");
-  if (!fileExists(assetsDir)) return;
-
-  const bundles = fs
-    .readdirSync(assetsDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
-    .map((entry) => path.join(assetsDir, entry.name));
-
-  if (bundles.length === 0) {
-    throw new Error("webview index bundle not found for app sunset patch.");
-  }
-
   const patchNeedle = "const s=Xs(i);if(r){";
   const patchReplacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}const s=!1;if(r){`;
 
-  let patchedFileCount = 0;
-  let alreadyPatchedFileCount = 0;
-
-  for (const bundlePath of bundles) {
-    let raw = fs.readFileSync(bundlePath, "utf8");
-    if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
-      alreadyPatchedFileCount += 1;
-      continue;
-    }
-    if (!raw.includes(patchNeedle)) continue;
-
-    raw = raw.replace(patchNeedle, patchReplacement);
-    fs.writeFileSync(bundlePath, raw, "utf8");
-    patchedFileCount += 1;
-  }
-
-  if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
-    throw new Error("webview app sunset patch point not found.");
-  }
+  patchWebviewIndexBundles(
+    appDir,
+    "webview index bundle not found for app sunset patch.",
+    "webview app sunset patch point not found.",
+    (raw) => {
+      if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
+        return { alreadyPatched: true, patched: false, content: raw };
+      }
+      if (!raw.includes(patchNeedle)) {
+        return { alreadyPatched: false, patched: false, content: raw };
+      }
+      return {
+        alreadyPatched: false,
+        patched: true,
+        content: raw.replace(patchNeedle, patchReplacement),
+      };
+    },
+  );
 }
 
 function escapeJsString(value: string): string {

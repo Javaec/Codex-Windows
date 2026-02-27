@@ -49,6 +49,16 @@ const native_1 = require("./lib/native");
 const portable_1 = require("./lib/portable");
 const sfx_1 = require("./lib/sfx");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
+function resolveCodexCli(codexCliPath, requireFound, tracePath) {
+    const resolution = (0, cli_1.resolveCodexCliPathContract)(codexCliPath, requireFound);
+    (0, cli_1.writeCliResolutionTrace)(resolution, tracePath);
+    return resolution;
+}
+function reportWorkspaceSanitizer(result) {
+    if (result.updatedFiles > 0 || result.removedEntries > 0) {
+        (0, exec_1.writeSuccess)(`Workspace sanitizer: updatedFiles=${result.updatedFiles}, removedEntries=${result.removedEntries}`);
+    }
+}
 async function runPipeline(options) {
     (0, env_1.ensureWindowsEnvironment)();
     (0, exec_1.mustResolveCommand)("node.exe");
@@ -129,8 +139,7 @@ async function runPipeline(options) {
     const cliTracePath = path.join(diagDir, "cli-resolution.log");
     if (options.buildPortable) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, false);
-        (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
+        const cliResolution = resolveCodexCli(options.codexCliPath, false, cliTracePath);
         if (cliResolution.found) {
             (0, exec_1.writeSuccess)(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
             const probe = (0, cli_1.probeCodexCliExecutable)(cliResolution.path);
@@ -156,9 +165,7 @@ async function runPipeline(options) {
         if (!options.noLaunch) {
             const portableUserDataDir = path.join(portable.outputDir, effectiveProfile === "default" ? "userdata" : `userdata-${effectiveProfile}`);
             const sanitizeResult = (0, workspace_registry_1.sanitizeWorkspaceRegistry)(portableUserDataDir, diagDir);
-            if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
-                (0, exec_1.writeSuccess)(`Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`);
-            }
+            reportWorkspaceSanitizer(sanitizeResult);
             let status = 0;
             if (singleExePath) {
                 (0, exec_1.writeHeader)("Launching single EXE");
@@ -179,8 +186,7 @@ async function runPipeline(options) {
     }
     if (!options.noLaunch) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, true);
-        (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
+        const cliResolution = resolveCodexCli(options.codexCliPath, true, cliTracePath);
         (0, exec_1.writeSuccess)(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
         const probe = (0, cli_1.probeCodexCliExecutable)(cliResolution.path);
         if (!probe.ok) {
@@ -189,17 +195,14 @@ async function runPipeline(options) {
         (0, launch_1.ensureGitOnPath)();
         const directLaunchExe = await (0, branding_1.prepareDirectLaunchExecutable)(electronExe, appVersion, workDir);
         const sanitizeResult = (0, workspace_registry_1.sanitizeWorkspaceRegistry)(userDataDir, diagDir);
-        if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
-            (0, exec_1.writeSuccess)(`Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`);
-        }
+        reportWorkspaceSanitizer(sanitizeResult);
         (0, exec_1.writeHeader)("Electron child-process environment check");
         (0, env_1.invokeElectronChildEnvironmentContract)(directLaunchExe, appDir, options.strictContract);
         (0, exec_1.writeHeader)("Launching Codex");
         (0, launch_1.startCodexDirectLaunch)(directLaunchExe, appDir, userDataDir, cacheDir, cliResolution.path, buildNumber, buildFlavor, gitCapabilityCachePath);
     }
     else {
-        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, false);
-        (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
+        resolveCodexCli(options.codexCliPath, false, cliTracePath);
     }
     return 0;
 }

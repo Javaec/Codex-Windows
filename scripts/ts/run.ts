@@ -33,6 +33,18 @@ import { invokeSingleExeBuild } from "./lib/sfx";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
+function resolveCodexCli(codexCliPath: string | undefined, requireFound: boolean, tracePath: string) {
+  const resolution = resolveCodexCliPathContract(codexCliPath, requireFound);
+  writeCliResolutionTrace(resolution, tracePath);
+  return resolution;
+}
+
+function reportWorkspaceSanitizer(result: ReturnType<typeof sanitizeWorkspaceRegistry>): void {
+  if (result.updatedFiles > 0 || result.removedEntries > 0) {
+    writeSuccess(`Workspace sanitizer: updatedFiles=${result.updatedFiles}, removedEntries=${result.removedEntries}`);
+  }
+}
+
 async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Promise<number> {
   ensureWindowsEnvironment();
   mustResolveCommand("node.exe");
@@ -147,8 +159,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
 
   if (options.buildPortable) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveCodexCliPathContract(options.codexCliPath, false);
-    writeCliResolutionTrace(cliResolution, cliTracePath);
+    const cliResolution = resolveCodexCli(options.codexCliPath, false, cliTracePath);
     if (cliResolution.found) {
       writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
       const probe = probeCodexCliExecutable(cliResolution.path as string);
@@ -190,11 +201,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
         effectiveProfile === "default" ? "userdata" : `userdata-${effectiveProfile}`,
       );
       const sanitizeResult = sanitizeWorkspaceRegistry(portableUserDataDir, diagDir);
-      if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
-        writeSuccess(
-          `Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`,
-        );
-      }
+      reportWorkspaceSanitizer(sanitizeResult);
 
       let status = 0;
       if (singleExePath) {
@@ -215,8 +222,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
 
   if (!options.noLaunch) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveCodexCliPathContract(options.codexCliPath, true);
-    writeCliResolutionTrace(cliResolution, cliTracePath);
+    const cliResolution = resolveCodexCli(options.codexCliPath, true, cliTracePath);
     writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
     const probe = probeCodexCliExecutable(cliResolution.path as string);
     if (!probe.ok) {
@@ -226,11 +232,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     ensureGitOnPath();
     const directLaunchExe = await prepareDirectLaunchExecutable(electronExe, appVersion, workDir);
     const sanitizeResult = sanitizeWorkspaceRegistry(userDataDir, diagDir);
-    if (sanitizeResult.updatedFiles > 0 || sanitizeResult.removedEntries > 0) {
-      writeSuccess(
-        `Workspace sanitizer: updatedFiles=${sanitizeResult.updatedFiles}, removedEntries=${sanitizeResult.removedEntries}`,
-      );
-    }
+    reportWorkspaceSanitizer(sanitizeResult);
     writeHeader("Electron child-process environment check");
     invokeElectronChildEnvironmentContract(directLaunchExe, appDir, options.strictContract);
 
@@ -246,8 +248,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       gitCapabilityCachePath,
     );
   } else {
-    const cliResolution = resolveCodexCliPathContract(options.codexCliPath, false);
-    writeCliResolutionTrace(cliResolution, cliTracePath);
+    resolveCodexCli(options.codexCliPath, false, cliTracePath);
   }
 
   return 0;
