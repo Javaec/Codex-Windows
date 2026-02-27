@@ -79,6 +79,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: avoids opaque collision suffixes and keeps grouped store/service exports human-readable under heavy symbol density.
 - Hot-module local canonicalizer now also renames inline lifted declarations/references (not only export aliases) for `store-state-g002.ts` and `service-run.ts`.
   Verified reason: removed `...EventD5/StateNN/NodeNN` identifier noise inside heavy store/service function bodies while keeping quality and green gates green.
+- Hot-module alias cleanup now runs a safe import-shaping canonicalizer plus domain local rerank (`call-graph/state` seeded) for `store-state-g002.ts` and `service-run.ts`.
+  Verified reason: removed `...EventRef*` and `storeAgentSettings*` naming series from shaped imports/locals without touching risky inline AST transforms; run `targeted-alias-domain-pass-v3` stayed green (`quality-gates` + `green-gates` passed).
 
 ## Next Steps
 - Continue improving symbol ownership and import shaping for top noisy modules.

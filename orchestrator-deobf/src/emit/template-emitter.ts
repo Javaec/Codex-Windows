@@ -2329,6 +2329,44 @@ function buildQualityModuleContent(
     }),
   );
   const planAliasDomainTokens = sanitizeAliasTokens(planSignalTokens).slice(0, 8);
+  const targetedHotDomainStopTokens = new Set<string>([
+    ...SIGNAL_TOKEN_STOPWORDS,
+    ...GENERIC_SEGMENTS,
+    ...DOMAIN_ALIAS_WEAK_TOKENS,
+    "agent",
+    "settings",
+    "config",
+    "event",
+    "events",
+    "state",
+    "states",
+    "node",
+    "nodes",
+    "store",
+    "service",
+    "services",
+    "renderer",
+    "main",
+    "tauri",
+    "domain",
+    "dep",
+    "default",
+    "value",
+    "values",
+  ]);
+  const planDomainPriorityTokens = dedupeNameTokens([...planSignalTokens, ...planAliasDomainTokens])
+    .map((token) => token.toLowerCase())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !targetedHotDomainStopTokens.has(token))
+    .slice(0, 16);
+  const pickPlanDomainToken = (seed: string): string => {
+    if (planDomainPriorityTokens.length < 1) {
+      return fallbackTopicByArchetype(plan.archetype);
+    }
+    const hash = shortStableHash(`${plan.moduleId}:${seed}`);
+    const index = Number.parseInt(hash.slice(0, 6), 16) % planDomainPriorityTokens.length;
+    return planDomainPriorityTokens[index] ?? planDomainPriorityTokens[0] ?? fallbackTopicByArchetype(plan.archetype);
+  };
   const weakAliasStemTokenSet = new Set<string>([
     "domain",
     "event",
@@ -2344,6 +2382,26 @@ function buildQualityModuleContent(
     "member",
     "dependency",
   ]);
+  const importAliasStopTokens = new Set<string>([
+    ...SIGNAL_TOKEN_STOPWORDS,
+    ...GENERIC_SEGMENTS,
+    ...DOMAIN_ALIAS_WEAK_TOKENS,
+    "event",
+    "events",
+    "navigate",
+    "route",
+    "flow",
+    "state",
+    "states",
+    "node",
+    "nodes",
+    "ref",
+    "default",
+    "value",
+    "values",
+  ]);
+  const sanitizeImportAliasTokens = (tokens: string[]): string[] =>
+    sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
     /(?:^|\/)(store-state-g002|service-run)\.ts$/i.test(plan.filePath.replace(/\\/g, "/"));
@@ -2366,8 +2424,19 @@ function buildQualityModuleContent(
     "default",
     "value",
     "values",
+    "agent",
+    "settings",
+    "config",
+    "path",
+    "route",
+    "navigation",
+    "diagram",
+    "page",
+    "panel",
   ]);
   const targetedHotNoiseSuffixPattern = /(?:Event|State)[A-Za-z]{0,3}\d+$/;
+  const targetedHotImportAliasPattern = /(?:Event|State)Ref[A-Za-z]{2,}$/;
+  const targetedHotDomainNoisePattern = /(?:Event|State)Node[A-Za-z]{2,}Node$|(?:store|svc|service)AgentSettings/i;
   const buildStableAliasTag = (rawValue: string, fallbackPrefix: string): string => {
     const normalized = rawValue.replace(/[^A-Za-z0-9]+/g, "");
     const shouldUseRaw =
@@ -2397,6 +2466,8 @@ function buildQualityModuleContent(
     }
     if (
       !targetedHotNoiseSuffixPattern.test(currentName) &&
+      !targetedHotImportAliasPattern.test(currentName) &&
+      !targetedHotDomainNoisePattern.test(currentName) &&
       !/StateState/i.test(currentName) &&
       !/Node\d+$/i.test(currentName)
     ) {
@@ -2410,14 +2481,18 @@ function buildQualityModuleContent(
       ...currentTokens,
       ...chunkTokens,
       ...planAliasDomainTokens,
+      ...planDomainPriorityTokens,
     ])
       .filter((token) => !targetedHotWeakTokenSet.has(token))
+      .filter((token) => !token.startsWith("ref"))
+      .filter((token) => !targetedHotDomainStopTokens.has(token))
       .slice(0, 2);
     const stem =
       stemTokens.length > 0
         ? stemTokens.map((token) => toPascalCase(token)).join("")
         : toPascalCase(fallbackTopicByArchetype(plan.archetype));
-    const suffix = kind === "import" ? "Ref" : "Node";
+    const looksImportStyleAlias = kind === "import" || targetedHotImportAliasPattern.test(currentName);
+    const suffix = looksImportStyleAlias ? "Dep" : "Node";
     const candidate = compactIdentifier(sanitizeIdentifier(`${plan.archetype}${stem}${suffix}`), 42);
     if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
       return candidate;
@@ -2426,6 +2501,53 @@ function buildQualityModuleContent(
       sanitizeIdentifier(`${plan.archetype}${toPascalCase(fallbackTopicByArchetype(plan.archetype))}${suffix}`),
       36,
     );
+  };
+  const buildTargetedHotImportAliasBase = (
+    currentName: string,
+    originalName: string,
+    chunkId: string,
+    modulePath: string,
+    importedName: string,
+  ): string => {
+    if (!targetedHotLocalRenameEnabled) {
+      return currentName;
+    }
+    const moduleTokens = sanitizeImportAliasTokens(splitNameTokens(path.basename(modulePath))).filter(
+      (token) => !targetedHotDomainStopTokens.has(token),
+    );
+    const chunkTokens = sanitizeImportAliasTokens(chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId)).filter(
+      (token) => !targetedHotDomainStopTokens.has(token),
+    );
+    const originalTokens = sanitizeImportAliasTokens(splitNameTokens(originalName)).filter(
+      (token) => !targetedHotDomainStopTokens.has(token),
+    );
+    const currentTokens = sanitizeImportAliasTokens(splitNameTokens(currentName)).filter(
+      (token) => !targetedHotDomainStopTokens.has(token),
+    );
+    const importedTokens = sanitizeImportAliasTokens(splitNameTokens(importedName)).filter(
+      (token) => !targetedHotDomainStopTokens.has(token),
+    );
+    const semanticTokens = dedupeNameTokens([
+      ...moduleTokens,
+      ...chunkTokens,
+      ...originalTokens,
+      ...currentTokens,
+      ...importedTokens,
+      ...planDomainPriorityTokens,
+    ]).slice(0, 2);
+    const stemPrimary = semanticTokens[0] ?? pickPlanDomainToken(`${chunkId}:${originalName}:${importedName}`);
+    const stemSecondaryToken = semanticTokens[1] ?? "";
+    const stemSecondary = stemSecondaryToken.length > 0 ? toPascalCase(stemSecondaryToken) : "";
+    const shortTag = alphabeticStableSuffix(`${chunkId}:${modulePath}:${importedName}`, 2).toUpperCase();
+    const prefix = plan.archetype === "service" ? "svc" : "store";
+    const candidate = compactIdentifier(
+      sanitizeIdentifier(`${prefix}${toPascalCase(stemPrimary)}${stemSecondary}Dep${shortTag}`),
+      36,
+    );
+    if (!isNoisyIdentifier(candidate) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(candidate)) {
+      return candidate;
+    }
+    return compactIdentifier(sanitizeIdentifier(`${prefix}${toPascalCase(pickPlanDomainToken(chunkId))}Dep${shortTag}`), 30);
   };
 
   type ChunkImportBindingKind = "named" | "default" | "namespace";
@@ -3181,16 +3303,16 @@ function buildQualityModuleContent(
   ): string => {
     const moduleTokens = isChunkIndexModulePath(modulePath)
       ? []
-      : sanitizeAliasTokens(splitNameTokens(path.basename(modulePath)));
-    const importedTokens = sanitizeAliasTokens(splitNameTokens(importedName));
-    const importedTokenTag = buildStableAliasTag(importedName, "ref");
+      : sanitizeImportAliasTokens(splitNameTokens(path.basename(modulePath)));
+    const importedTokens = sanitizeImportAliasTokens(splitNameTokens(importedName));
+    const importedTokenTag = buildStableAliasTag(importedName, "dep");
     const chunkTokens = chunkTopicTokensById.get(chunkId) ?? chunkTokensFromChunkId(chunkId);
     const semanticTokens = dedupeNameTokens([
       ...moduleTokens,
       ...importedTokens,
-      ...sanitizeAliasTokens(chunkTokens),
-      ...planAliasDomainTokens,
-    ]).slice(0, 3);
+      ...sanitizeImportAliasTokens(chunkTokens),
+      ...sanitizeImportAliasTokens(planAliasDomainTokens),
+    ]).slice(0, 2);
     const stem = semanticTokens.length > 0 ? semanticTokens.map((token) => toPascalCase(token)).join("") : "Dependency";
     const prefix = IMPORT_ALIAS_PREFIX_BY_ARCHETYPE[plan.archetype];
     const shouldTagImportedName =
@@ -3200,7 +3322,8 @@ function buildQualityModuleContent(
       OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName) ||
       isWeakAliasStem(semanticTokens);
     const baseStem = shouldTagImportedName ? `${stem}${importedTokenTag}` : stem;
-    const base = compactIdentifier(sanitizeIdentifier(`${prefix}${baseStem}`), 34);
+    const normalizedStem = baseStem.endsWith("Dep") ? baseStem : `${baseStem}Dep`;
+    const base = compactIdentifier(sanitizeIdentifier(`${prefix}${normalizedStem}`), 34);
     if (!isNoisyIdentifier(base) && !OBFUSCATED_ALIAS_STYLE_PATTERN.test(base)) {
       return base;
     }
@@ -3686,7 +3809,15 @@ function buildQualityModuleContent(
         const currentName = renameMap.get(originalName) ?? originalName;
         const binding = sourceChunkMetadata.importBindings.get(originalName);
         const aliasKind: "import" | "local" = binding ? "import" : "local";
-        const base = buildTargetedHotLocalAliasBase(currentName, originalName, chunkId, aliasKind);
+        const base = binding
+          ? buildTargetedHotImportAliasBase(
+              currentName,
+              originalName,
+              chunkId,
+              normalizeChunkImportPath(chunkId, binding.moduleSpecifier),
+              binding.importedName,
+            )
+          : buildTargetedHotLocalAliasBase(currentName, originalName, chunkId, aliasKind);
         const resolved = nextUniqueIdentifier(base, remapUsedNames);
         remapped.set(originalName, resolved);
       }
@@ -3880,11 +4011,20 @@ function buildQualityModuleContent(
     const localTokens = splitNameTokens(entry.localIdentifier).map((token) => canonicalToken(token));
     const exportTokens = splitNameTokens(entry.exportName).map((token) => canonicalToken(token));
     const sourceTokens = splitNameTokens(entry.sourceIdentifier).map((token) => canonicalToken(token));
+    const planSignalTokens = planAliasDomainTokens
+      .map((token) => canonicalToken(token))
+      .map((token) => token.replace(/\d+$/g, ""))
+      .filter((token) => token.length >= 3)
+      .filter((token) => !token.includes("node"))
+      .filter((token) => !token.startsWith("ref"))
+      .filter((token) => !exportCanonicalizerStopTokens.has(token));
     const allTokens = [...localTokens, ...exportTokens, ...sourceTokens]
       .map((token) => token.replace(/node$/i, ""))
       .map((token) => token.replace(/state$/i, ""))
       .map((token) => token.replace(/\d+$/g, ""))
       .filter((token) => token.length > 0)
+      .filter((token) => !token.includes("node"))
+      .filter((token) => !token.startsWith("ref"))
       .filter((token) => !exportCanonicalizerStopTokens.has(token))
       .filter((token) => token !== plan.archetype);
     const tailTokenCandidate = allTokens.length > 0 ? allTokens[allTokens.length - 1] : "";
@@ -3894,6 +4034,14 @@ function buildQualityModuleContent(
     }
     if (tailToken.length > 0) {
       return tailToken.toUpperCase();
+    }
+    if (planSignalTokens.length > 0) {
+      const hash = shortStableHash(`${entry.chunkId}:${entry.sourceIdentifier}`);
+      const index = Number.parseInt(hash.slice(0, 6), 16) % planSignalTokens.length;
+      const signalToken = planSignalTokens[index];
+      if (signalToken && signalToken.length >= 3) {
+        return toPascalCase(signalToken);
+      }
     }
     return toPascalCase(alphabeticStableSuffix(`${entry.chunkId}:${entry.sourceIdentifier}`, 3));
   };
@@ -3915,6 +4063,18 @@ function buildQualityModuleContent(
     if (/(?:State|Event)[A-Za-z]{0,4}\d+$/.test(name)) {
       return true;
     }
+    if (/storeAgentSettings?/i.test(name)) {
+      return true;
+    }
+    if (/EventRef/i.test(name)) {
+      return true;
+    }
+    if (/Node[A-Za-z]{2,6}(?:State|Service)$/i.test(name)) {
+      return true;
+    }
+    if (/(?:Event|State)Node[A-Za-z]{2,6}/i.test(name)) {
+      return true;
+    }
     if (/\d{2,}$/.test(name)) {
       return true;
     }
@@ -3924,6 +4084,7 @@ function buildQualityModuleContent(
     const chunkTokens = chunkTopicTokensById.get(entry.chunkId) ?? chunkTokensFromChunkId(entry.chunkId);
     const roleToken = archetypeRoleSuffix(plan.archetype).toLowerCase();
     const semanticTokens = dedupeNameTokens([
+      ...planAliasDomainTokens,
       ...splitNameTokens(entry.localIdentifier),
       ...splitNameTokens(entry.exportName),
       ...splitNameTokens(topic),
@@ -3934,6 +4095,7 @@ function buildQualityModuleContent(
       .filter((token) => !/\d/.test(token))
       .filter((token) => !token.includes("node"))
       .filter((token) => !token.startsWith("state"))
+      .filter((token) => !token.startsWith("event"))
       .filter((token) => !exportCanonicalizerStopTokens.has(token))
       .filter((token) => token !== plan.archetype)
       .filter((token) => token !== roleToken)
