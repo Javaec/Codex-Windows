@@ -1,7 +1,7 @@
 {
   "aggregate": {
-    "averageScore": 0.9626,
-    "buildHealthAllGreen": true,
+    "averageScore": 0.8626,
+    "buildHealthAllGreen": false,
     "classCoverageAverage": 1,
     "devHealthAllGreen": true,
     "functionClassCoverageAverage": 1,
@@ -11,21 +11,21 @@
     "lowQualityFileCountAverage": 0,
     "mappedFilesAverage": 48,
     "mappedSymbolsAverage": 1069,
-    "minScore": 0.9626,
+    "minScore": 0.8626,
     "nameQualityAverage": 0.7924,
     "proxyInQualityAverage": 0,
     "rerenderedModuleAverage": 1,
     "variableCoverageAverage": 1,
     "worstFileDecileScoreAverage": 0.774
   },
-  "generatedAtIso": "2026-02-27T10:34:16.375Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\radical-quality7b\\merged-evidence.json",
+  "generatedAtIso": "2026-02-27T16:57:52.408Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-qe-v13\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 168418,
+      "durationMs": 169872,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -124,7 +124,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\radical-quality7b\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-qe-v13\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -133,7 +133,7 @@
           "transport": 12,
           "ui": 9
         },
-        "buildHealth": true,
+        "buildHealth": false,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
         "coverageNameQuality": 0.8367,
@@ -156,27 +156,27 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-01-core-no-binary",
-      "runId": "reg-radical-quality7b-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-01-core-no-binary",
+      "runId": "reg-targeted-store-qe-v13-01-core-no-binary",
       "score": {
-        "buildScore": 1,
+        "buildScore": 0,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
         "nameQualityScore": 0.7924,
-        "total": 0.9626,
+        "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-01-core-no-binary\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-01-core-no-binary\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 166897,
+      "durationMs": 169176,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -275,7 +275,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\radical-quality7b\\logs\\02-core-no-binary-no-pretty.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-qe-v13\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -284,7 +284,7 @@
           "transport": 12,
           "ui": 9
         },
-        "buildHealth": true,
+        "buildHealth": false,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
         "coverageNameQuality": 0.8367,
@@ -307,27 +307,27 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-02-core-no-binary-no-pretty",
-      "runId": "reg-radical-quality7b-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-02-core-no-binary-no-pretty",
+      "runId": "reg-targeted-store-qe-v13-02-core-no-binary-no-pretty",
       "score": {
-        "buildScore": 1,
+        "buildScore": 0,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
         "nameQualityScore": 0.7924,
-        "total": 0.9626,
+        "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-02-core-no-binary-no-pretty\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-02-core-no-binary-no-pretty\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 203536,
+      "durationMs": 167575,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -426,7 +426,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\radical-quality7b\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-qe-v13\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -435,7 +435,7 @@
           "transport": 12,
           "ui": 9
         },
-        "buildHealth": true,
+        "buildHealth": false,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
         "coverageNameQuality": 0.8367,
@@ -458,27 +458,27 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-03-core-no-binary-top120",
-      "runId": "reg-radical-quality7b-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-03-core-no-binary-top120",
+      "runId": "reg-targeted-store-qe-v13-03-core-no-binary-top120",
       "score": {
-        "buildScore": 1,
+        "buildScore": 0,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
         "nameQualityScore": 0.7924,
-        "total": 0.9626,
+        "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-03-core-no-binary-top120\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-03-core-no-binary-top120\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 168412,
+      "durationMs": 162565,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -567,7 +567,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\radical-quality7b\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-qe-v13\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -576,7 +576,7 @@
           "transport": 12,
           "ui": 9
         },
-        "buildHealth": true,
+        "buildHealth": false,
         "classCoverage": 1,
         "coverageLowQualitySymbolCount": 0,
         "coverageNameQuality": 0.8367,
@@ -599,25 +599,25 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-04-core-runtime-probe-soft",
-      "runId": "reg-radical-quality7b-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-04-core-runtime-probe-soft",
+      "runId": "reg-targeted-store-qe-v13-04-core-runtime-probe-soft",
       "score": {
-        "buildScore": 1,
+        "buildScore": 0,
         "devScore": 1,
         "mappedFilesScore": 1,
         "mappedSymbolsScore": 1,
         "nameQualityScore": 0.7924,
-        "total": 0.9626,
+        "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-radical-quality7b-04-core-runtime-probe-soft\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-qe-v13-04-core-runtime-probe-soft\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "radical-quality7b",
+  "suiteRunId": "targeted-store-qe-v13",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }

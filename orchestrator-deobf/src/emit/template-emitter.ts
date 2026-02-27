@@ -2441,6 +2441,9 @@ function buildQualityModuleContent(
     "eventflow",
     "nnetne",
     "ane",
+    "iae",
+    "sae",
+    "sie",
   ]);
   const targetedHotSemanticAllowTokens = new Set<string>([
     "angular",
@@ -2482,9 +2485,12 @@ function buildQualityModuleContent(
   const targetedHotAlphabetRunPattern = /abcdefghijklmnopqrstuvwxyz/i;
   const targetedHotNoiseSuffixPattern = /(?:Event|State)[A-Za-z]{0,3}\d+$/;
   const targetedHotImportAliasPattern = /(?:Event|State)Ref[A-Za-z]{2,}$/;
-  const targetedHotLocalNoiseIdentifierPattern = /(?:EventFlowNode|Abnormal(?:Exit)?|NneTne)/i;
+  const targetedHotQeAliasPattern = /^[a-z]Qe[A-Za-z0-9]{2,}$/;
+  const targetedHotSyntheticStemPattern = /^(?:store|service)(?:[A-Z][a-z]{2}){2,}Local[A-Za-z0-9]{2,}$/;
+  const targetedHotLocalNoiseIdentifierPattern =
+    /(?:EventFlowNode|Abnormal(?:Exit)?|NneTne|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSieLocal[A-Za-z0-9]{2,}|(?:store|service)(?:[A-Z][a-z]{2}){2,}Local[A-Za-z0-9]{2,}|[a-z]Qe[A-Za-z0-9]{2,})/i;
   const targetedHotDomainNoisePattern =
-    /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz/i;
+    /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSie/i;
   const maxConsonantRunLength = (token: string): number => {
     let best = 0;
     let current = 0;
@@ -2549,6 +2555,9 @@ function buildQualityModuleContent(
     normalized = normalized.replace(/EventFlowNode/gi, "Domain");
     normalized = normalized.replace(/Abnormal(?:Exit)?/gi, "Domain");
     normalized = normalized.replace(/NneTne/gi, "Domain");
+    normalized = normalized.replace(/Iae/gi, "");
+    normalized = normalized.replace(/SaeSie/gi, "Core");
+    normalized = normalized.replace(/\b(store|service)(?:[A-Z][a-z]{2}){2,}(Local)/g, "$1Core$2");
     normalized = normalized.replace(/(?:Event|State)NavigateNode/gi, "Flow");
     normalized = normalized.replace(/NavigatePage/gi, "Flow");
     normalized = normalized.replace(/DepDep+/g, "Dep");
@@ -2604,16 +2613,26 @@ function buildQualityModuleContent(
     if (!targetedHotLocalRenameEnabled) {
       return currentName;
     }
+    const shortObfuscatedLocalCandidate =
+      kind === "local" &&
+      currentName.length <= 4 &&
+      !targetedHotSemanticAllowTokens.has(currentName.toLowerCase()) &&
+      isLikelyObfuscatedAliasToken(currentName);
     const shouldRewrite =
       targetedHotNoiseSuffixPattern.test(currentName) ||
       targetedHotImportAliasPattern.test(currentName) ||
       targetedHotDomainNoisePattern.test(currentName) ||
       /(?:NneTne|Abnormal(?:Exit)?|EventFlow)(?:Local|Node)/i.test(currentName) ||
+      /(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}$/i.test(currentName) ||
+      /(?:store|service)SaeSieLocal[A-Za-z0-9]{2,}$/i.test(currentName) ||
+      targetedHotSyntheticStemPattern.test(currentName) ||
+      targetedHotQeAliasPattern.test(currentName) ||
       /StateState/i.test(currentName) ||
       /Node\d+$/i.test(currentName) ||
       /EventFlowNode/i.test(currentName) ||
       /(?:Event|State)NavigateNode/i.test(currentName) ||
-      /[A-Za-z]{34,}/.test(currentName);
+      /[A-Za-z]{34,}/.test(currentName) ||
+      shortObfuscatedLocalCandidate;
     if (!shouldRewrite) {
       return currentName;
     }
@@ -3281,6 +3300,24 @@ function buildQualityModuleContent(
     }
     return false;
   };
+  const isTopLevelDeclarationIdentifier = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (!parent) {
+      return false;
+    }
+    if (ts.isVariableDeclaration(parent) && parent.name === node) {
+      const variableDeclarationList = parent.parent;
+      const variableStatement = variableDeclarationList ? variableDeclarationList.parent : undefined;
+      return Boolean(variableStatement && ts.isVariableStatement(variableStatement) && ts.isSourceFile(variableStatement.parent));
+    }
+    if (
+      (ts.isFunctionDeclaration(parent) && parent.name === node) ||
+      (ts.isClassDeclaration(parent) && parent.name === node)
+    ) {
+      return Boolean(parent.parent && ts.isSourceFile(parent.parent));
+    }
+    return false;
+  };
 
   const isHotLocalReference = (node: ts.Identifier): boolean => {
     const parent = node.parent;
@@ -3324,9 +3361,16 @@ function buildQualityModuleContent(
     const candidates = new Set<string>();
     const collectCandidates = (node: ts.Node): void => {
       if (ts.isIdentifier(node) && isDeclarationIdentifierName(node)) {
+        const shortObfuscatedTopLevelCandidate =
+          isTopLevelDeclarationIdentifier(node) &&
+          node.text.length <= 4 &&
+          !targetedHotSemanticAllowTokens.has(node.text.toLowerCase()) &&
+          isLikelyObfuscatedAliasToken(node.text);
+        const qeAliasTopLevelCandidate = isTopLevelDeclarationIdentifier(node) && targetedHotQeAliasPattern.test(node.text);
         if (
-          node.text.length >= 8 &&
-          targetedHotLocalNoiseIdentifierPattern.test(node.text) &&
+          ((node.text.length >= 8 && targetedHotLocalNoiseIdentifierPattern.test(node.text)) ||
+            shortObfuscatedTopLevelCandidate ||
+            qeAliasTopLevelCandidate) &&
           !RESERVED_IDENTIFIERS.has(node.text)
         ) {
           candidates.add(node.text);
@@ -3399,9 +3443,16 @@ function buildQualityModuleContent(
     const collect = (node: ts.Node): void => {
       if (ts.isIdentifier(node) && isDeclarationIdentifierName(node)) {
         declaredNames.add(node.text);
+        const shortObfuscatedTopLevelCandidate =
+          isTopLevelDeclarationIdentifier(node) &&
+          node.text.length <= 4 &&
+          !targetedHotSemanticAllowTokens.has(node.text.toLowerCase()) &&
+          isLikelyObfuscatedAliasToken(node.text);
+        const qeAliasTopLevelCandidate = isTopLevelDeclarationIdentifier(node) && targetedHotQeAliasPattern.test(node.text);
         if (
-          node.text.length >= 8 &&
-          targetedHotLocalNoiseIdentifierPattern.test(node.text) &&
+          ((node.text.length >= 8 && targetedHotLocalNoiseIdentifierPattern.test(node.text)) ||
+            shortObfuscatedTopLevelCandidate ||
+            qeAliasTopLevelCandidate) &&
           !RESERVED_IDENTIFIERS.has(node.text)
         ) {
           declarationCandidates.add(node.text);
@@ -3417,6 +3468,36 @@ function buildQualityModuleContent(
     for (const candidate of [...declarationCandidates].sort((left, right) => left.localeCompare(right))) {
       const base = buildTargetedHotLocalAliasBase(candidate, candidate, "targeted-hot-content", "local");
       const resolved = nextUniqueIdentifier(compactIdentifier(base, 34), declaredNames);
+      if (resolved === candidate) {
+        continue;
+      }
+      renameMap.set(candidate, resolved);
+    }
+    if (renameMap.size < 1) {
+      return content;
+    }
+    const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let rewritten = content;
+    for (const [from, to] of [...renameMap.entries()].sort((left, right) => right[0].length - left[0].length)) {
+      rewritten = rewritten.replace(new RegExp(`\\b${escaped(from)}\\b`, "g"), to);
+    }
+    return rewritten;
+  };
+  const applyTargetedHotResidualLocalNoiseSweep = (content: string): string => {
+    if (!targetedHotStoreModule || !targetedHotLocalRenameEnabled || content.length < 1) {
+      return content;
+    }
+    const residualPattern = /\b(?:store|service)(?:Iae[A-Za-z]{2,}|(?:[A-Z][a-z]{2}){2,})Local[A-Za-z0-9]{2,}\b/g;
+    const residualMatches = content.match(residualPattern) ?? [];
+    if (residualMatches.length < 1) {
+      return content;
+    }
+    const residualCandidates = [...new Set(residualMatches)].sort((left, right) => left.localeCompare(right));
+    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+    const renameMap = new Map<string, string>();
+    for (const candidate of residualCandidates) {
+      const base = buildTargetedHotLocalAliasBase(candidate, candidate, "targeted-hot-residual", "local");
+      const resolved = nextUniqueIdentifier(compactIdentifier(base, 34), usedNames);
       if (resolved === candidate) {
         continue;
       }
@@ -4835,7 +4916,7 @@ function buildQualityModuleContent(
       absolutePath,
       content,
     }));
-  const moduleContent = applyTargetedHotFinalContentPass(lines.join("\n"));
+  const moduleContent = applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n")));
   return {
     content: moduleContent,
     assetFiles,

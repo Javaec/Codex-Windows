@@ -102,3 +102,9 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Keep regression suite green for all four fixed profiles.
 - Hot store safe-pass now includes a final module-content canonicalizer for noisy lifted identifiers (`EventFlowNode`, `AbnormalExit`, `NneTne`) after declaration assembly.
   Verified reason: deterministic whole-file identifier replacement on declaration tokens reduced these series to zero in `src/services/store/store-state-g002.ts` while keeping `quality-gates` and `green-gates` green (run `targeted-store-local-safe-v7`, `--no-stage-cache`).
+- Hot store safe-pass now includes a residual local-noise sweep for `storeIae...LocalXX` / `serviceIae...LocalXX` series on final content.
+  Verified reason: deterministic post-pass closed remaining gaps after declaration-level rename and reduced these series to zero in `output/regression-latest/project/src` on run `targeted-store-local-safe-v9`.
+- Hot store local canonicalizer now treats synthetic alias stems (`SaeSie`, two-syllable obfuscated stems like `AoeRue`) as noise and normalizes them to stable family names.
+  Verified reason: `storeSaeSieLocal*` and follow-up synthetic stem series were removed from `src/services/store/store-state-g002.ts` via targeted runs (`targeted-store-saesie-v11`, `targeted-store-synthetic-v12`) while keeping quality/dev gates green and generic-path noise at zero.
+- Hot store top-level `*Qe*` alias names are now included in the same safe canonicalizer (`eQe...`, `aQe...`, etc.).
+  Verified reason: obfuscated function-name tail series dropped to zero in `src/services/store/store-state-g002.ts` on run `targeted-store-qe-v13`, preserving deterministic output and green quality/dev gates.
