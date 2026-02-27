@@ -33,9 +33,22 @@ import { invokeSingleExeBuild } from "./lib/sfx";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
-function resolveCodexCli(codexCliPath: string | undefined, requireFound: boolean, tracePath: string) {
+function resolveAndProbeCodexCli(
+  codexCliPath: string | undefined,
+  requireFound: boolean,
+  tracePath: string,
+  probeFailurePrefix: string,
+  missingWarnMessage?: string,
+) {
   const resolution = resolveCodexCliPathContract(codexCliPath, requireFound);
   writeCliResolutionTrace(resolution, tracePath);
+  if (!resolution.found) {
+    if (missingWarnMessage) writeWarn(missingWarnMessage);
+    return resolution;
+  }
+  writeSuccess(`Using Codex CLI: ${resolution.path} (source=${resolution.source})`);
+  const probe = probeCodexCliExecutable(resolution.path as string);
+  if (!probe.ok) throw new Error(`${probeFailurePrefix}: ${probe.details}`);
   return resolution;
 }
 
@@ -59,10 +72,9 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     delete process.env[key];
   }
 
-  const repoRoot = REPO_ROOT;
-  const resolvedDmgPath = resolveDmgPath(options.dmgPath, repoRoot);
-  const workDir = path.resolve(options.workDir || path.join(repoRoot, "work"));
-  const distDir = path.resolve(options.distDir || path.join(repoRoot, "dist"));
+  const resolvedDmgPath = resolveDmgPath(options.dmgPath, REPO_ROOT);
+  const workDir = path.resolve(options.workDir || path.join(REPO_ROOT, "work"));
+  const distDir = path.resolve(options.distDir || path.join(REPO_ROOT, "dist"));
   fs.mkdirSync(workDir, { recursive: true });
   fs.mkdirSync(distDir, { recursive: true });
 
@@ -159,16 +171,13 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
 
   if (options.buildPortable) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveCodexCli(options.codexCliPath, false, cliTracePath);
-    if (cliResolution.found) {
-      writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
-      const probe = probeCodexCliExecutable(cliResolution.path as string);
-      if (!probe.ok) {
-        throw new Error(`Codex CLI preflight failed for portable packaging: ${probe.details}`);
-      }
-    } else {
-      writeWarn("codex.exe not found; portable build will rely on runtime PATH detection.");
-    }
+    const cliResolution = resolveAndProbeCodexCli(
+      options.codexCliPath,
+      false,
+      cliTracePath,
+      "Codex CLI preflight failed for portable packaging",
+      "codex.exe not found; portable build will rely on runtime PATH detection.",
+    );
 
     writeHeader("Packaging portable app");
     const portable = await invokePortableBuild(
@@ -200,8 +209,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
         portable.outputDir,
         effectiveProfile === "default" ? "userdata" : `userdata-${effectiveProfile}`,
       );
-      const sanitizeResult = sanitizeWorkspaceRegistry(portableUserDataDir, diagDir);
-      reportWorkspaceSanitizer(sanitizeResult);
+      reportWorkspaceSanitizer(sanitizeWorkspaceRegistry(portableUserDataDir, diagDir));
 
       let status = 0;
       if (singleExePath) {
@@ -222,17 +230,16 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
 
   if (!options.noLaunch) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveCodexCli(options.codexCliPath, true, cliTracePath);
-    writeSuccess(`Using Codex CLI: ${cliResolution.path} (source=${cliResolution.source})`);
-    const probe = probeCodexCliExecutable(cliResolution.path as string);
-    if (!probe.ok) {
-      throw new Error(`Codex CLI preflight failed: ${probe.details}`);
-    }
+    const cliResolution = resolveAndProbeCodexCli(
+      options.codexCliPath,
+      true,
+      cliTracePath,
+      "Codex CLI preflight failed",
+    );
 
     ensureGitOnPath();
     const directLaunchExe = await prepareDirectLaunchExecutable(electronExe, appVersion, workDir);
-    const sanitizeResult = sanitizeWorkspaceRegistry(userDataDir, diagDir);
-    reportWorkspaceSanitizer(sanitizeResult);
+    reportWorkspaceSanitizer(sanitizeWorkspaceRegistry(userDataDir, diagDir));
     writeHeader("Electron child-process environment check");
     invokeElectronChildEnvironmentContract(directLaunchExe, appDir, options.strictContract);
 
@@ -248,7 +255,8 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       gitCapabilityCachePath,
     );
   } else {
-    resolveCodexCli(options.codexCliPath, false, cliTracePath);
+    const cliResolution = resolveCodexCliPathContract(options.codexCliPath, false);
+    writeCliResolutionTrace(cliResolution, cliTracePath);
   }
 
   return 0;
