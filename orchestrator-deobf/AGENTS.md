@@ -131,3 +131,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - dominant-family fallback per module after graph propagation,
   - guarded by reference/declaration/statement-size checks.
   Verified reason: residual `storeCoreLocal*` pool in `src/services/store/store-state-g002.ts` dropped sharply on run `targeted-store-family-inline-v20` while preserving deterministic output and green quality/dev gates.
+- Hot core-family resolver now applies strict family lock per connected-component in statement dependency graph.
+  Verified reason: all linked `store/service CoreLocal*` declarations in hot modules are forced to one dominant domain family before rename, reducing residual mixed-family tails.
+- Quality emitter now runs an AST import-hygiene pass after targeted rename/inlining.
+  Verified reason: unused shaped bindings and orphaned namespace imports are pruned from generated modules, lowering import noise without proxy fallback.

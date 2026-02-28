@@ -3678,6 +3678,23 @@ function buildQualityModuleContent(
       }
       scores.set(family, (scores.get(family) ?? 0) + weight);
     };
+    const selectStrongestTargetedCoreFamily = (
+      scores: ReadonlyMap<TargetedCoreFamily, number>,
+    ): { family: TargetedCoreFamily; score: number } => {
+      let bestFamily: TargetedCoreFamily = "Core";
+      let bestScore = 0;
+      for (const family of TARGETED_CORE_FAMILY_ORDER) {
+        if (family === "Core") {
+          continue;
+        }
+        const score = scores.get(family) ?? 0;
+        if (score > bestScore) {
+          bestScore = score;
+          bestFamily = family;
+        }
+      }
+      return { family: bestFamily, score: bestScore };
+    };
     const ownerByDeclaredName = new Map<string, number>();
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index];
@@ -3879,6 +3896,97 @@ function buildQualityModuleContent(
         entry.resolvedFamily = dominantFamily;
       }
     }
+    const adjacencyByIndex = new Map<number, Set<number>>();
+    const connectEntryIndexes = (leftIndex: number, rightIndex: number): void => {
+      if (leftIndex === rightIndex) {
+        return;
+      }
+      const leftNeighbors = adjacencyByIndex.get(leftIndex) ?? new Set<number>();
+      leftNeighbors.add(rightIndex);
+      adjacencyByIndex.set(leftIndex, leftNeighbors);
+      const rightNeighbors = adjacencyByIndex.get(rightIndex) ?? new Set<number>();
+      rightNeighbors.add(leftIndex);
+      adjacencyByIndex.set(rightIndex, rightNeighbors);
+    };
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (!entry) {
+        continue;
+      }
+      for (const referencedName of entry.referencedNames) {
+        const ownerIndex = ownerByDeclaredName.get(referencedName);
+        if (ownerIndex !== undefined) {
+          connectEntryIndexes(index, ownerIndex);
+        }
+      }
+      for (const declaredCoreName of entry.declaredCoreNames) {
+        const inboundIndexes = referencingIndexesByDeclaredName.get(declaredCoreName);
+        if (!inboundIndexes) {
+          continue;
+        }
+        for (const inboundIndex of inboundIndexes) {
+          connectEntryIndexes(index, inboundIndex);
+        }
+      }
+    }
+    const visitedEntryIndexes = new Set<number>();
+    for (let startIndex = 0; startIndex < entries.length; startIndex += 1) {
+      if (visitedEntryIndexes.has(startIndex)) {
+        continue;
+      }
+      const componentIndexes: number[] = [];
+      const pending = [startIndex];
+      while (pending.length > 0) {
+        const nextIndex = pending.pop();
+        if (nextIndex === undefined || visitedEntryIndexes.has(nextIndex)) {
+          continue;
+        }
+        visitedEntryIndexes.add(nextIndex);
+        componentIndexes.push(nextIndex);
+        const neighbors = adjacencyByIndex.get(nextIndex);
+        if (!neighbors || neighbors.size < 1) {
+          continue;
+        }
+        for (const neighborIndex of neighbors) {
+          if (!visitedEntryIndexes.has(neighborIndex)) {
+            pending.push(neighborIndex);
+          }
+        }
+      }
+      if (componentIndexes.length < 1) {
+        continue;
+      }
+      const componentScores = new Map<TargetedCoreFamily, number>();
+      for (const entryIndex of componentIndexes) {
+        const entry = entries[entryIndex];
+        if (!entry) {
+          continue;
+        }
+        addFamilyScore(componentScores, entry.resolvedFamily, entry.resolvedFamily === "Core" ? 0 : 3);
+        addFamilyScore(componentScores, inferTargetedCoreLocalFamily(entry.statementText), 1.5);
+        for (const referencedName of entry.referencedNames) {
+          addFamilyScore(componentScores, familyFromOwnershipName(referencedName), 1);
+          const ownerIndex = ownerByDeclaredName.get(referencedName);
+          if (ownerIndex === undefined || ownerIndex === entryIndex) {
+            continue;
+          }
+          const ownerEntry = entries[ownerIndex];
+          if (!ownerEntry) {
+            continue;
+          }
+          addFamilyScore(componentScores, ownerEntry.resolvedFamily, 0.75);
+        }
+      }
+      const strongest = selectStrongestTargetedCoreFamily(componentScores);
+      const lockedFamily = strongest.family === "Core" ? dominantFamily : strongest.family;
+      for (const entryIndex of componentIndexes) {
+        const entry = entries[entryIndex];
+        if (!entry) {
+          continue;
+        }
+        entry.resolvedFamily = lockedFamily;
+      }
+    }
     const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
     const renameMap = new Map<string, string>();
     for (const entry of entries) {
@@ -3903,6 +4011,27 @@ function buildQualityModuleContent(
         renameMap.set(declaredName, resolved);
       }
     }
+    const residualCoreNames = new Set<string>(content.match(/\b(?:store|service)CoreLocal[A-Za-z0-9]{2,}\b/g) ?? []);
+    for (const residualName of residualCoreNames) {
+      if (renameMap.has(residualName)) {
+        continue;
+      }
+      const match = residualName.match(coreLocalPattern);
+      if (!match) {
+        continue;
+      }
+      const prefix = match[1];
+      const suffix = match[2];
+      if (!prefix || !suffix) {
+        continue;
+      }
+      const candidate = normalizeTargetedAliasBase(sanitizeIdentifier(`${prefix}${dominantFamily}Local${suffix}`));
+      const resolved = nextUniqueIdentifier(compactIdentifier(candidate, 40), usedNames);
+      if (resolved === residualName) {
+        continue;
+      }
+      renameMap.set(residualName, resolved);
+    }
     if (renameMap.size < 1) {
       return content;
     }
@@ -3912,6 +4041,135 @@ function buildQualityModuleContent(
       rewritten = rewritten.replace(new RegExp(`\\b${escaped(from)}\\b`, "g"), to);
     }
     return rewritten;
+  };
+  const applyImportHygienePass = (content: string): string => {
+    const collectIdentifierReferenceCounts = (sourceFile: ts.SourceFile): Map<string, number> => {
+      const counts = new Map<string, number>();
+      const visit = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+          counts.set(node.text, (counts.get(node.text) ?? 0) + 1);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+      return counts;
+    };
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const namespaceImportAliases = new Set<string>();
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+        continue;
+      }
+      const bindings = statement.importClause.namedBindings;
+      if (!bindings || !ts.isNamespaceImport(bindings)) {
+        continue;
+      }
+      namespaceImportAliases.add(bindings.name.text);
+    }
+    if (namespaceImportAliases.size < 1) {
+      return content;
+    }
+
+    const referenceCounts = collectIdentifierReferenceCounts(sourceFile);
+    let shapingChanged = false;
+    const shapedStatements: ts.Statement[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+        shapedStatements.push(statement);
+        continue;
+      }
+      const declaration = statement.declarationList.declarations[0];
+      if (!declaration) {
+        shapedStatements.push(statement);
+        continue;
+      }
+      if (!ts.isObjectBindingPattern(declaration.name) || !declaration.initializer || !ts.isIdentifier(declaration.initializer)) {
+        shapedStatements.push(statement);
+        continue;
+      }
+      if (!namespaceImportAliases.has(declaration.initializer.text)) {
+        shapedStatements.push(statement);
+        continue;
+      }
+      const keptElements: ts.BindingElement[] = [];
+      for (const element of declaration.name.elements) {
+        if (ts.isOmittedExpression(element)) {
+          continue;
+        }
+        if (!ts.isIdentifier(element.name)) {
+          keptElements.push(element);
+          continue;
+        }
+        const localName = element.name.text;
+        const usageCount = referenceCounts.get(localName) ?? 0;
+        if (usageCount > 0) {
+          keptElements.push(element);
+          continue;
+        }
+        shapingChanged = true;
+      }
+      if (keptElements.length < 1) {
+        shapingChanged = true;
+        continue;
+      }
+      if (keptElements.length === declaration.name.elements.length) {
+        shapedStatements.push(statement);
+        continue;
+      }
+      const updatedPattern = ts.factory.updateObjectBindingPattern(declaration.name, keptElements);
+      const updatedDeclaration = ts.factory.updateVariableDeclaration(
+        declaration,
+        updatedPattern,
+        declaration.exclamationToken,
+        declaration.type,
+        declaration.initializer,
+      );
+      const updatedDeclarationList = ts.factory.updateVariableDeclarationList(statement.declarationList, [updatedDeclaration]);
+      shapedStatements.push(ts.factory.updateVariableStatement(statement, statement.modifiers, updatedDeclarationList));
+    }
+    const shapedContent = shapingChanged
+      ? printer.printFile(ts.factory.updateSourceFile(sourceFile, shapedStatements))
+      : content;
+    const importSource = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      shapedContent,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const importReferenceCounts = collectIdentifierReferenceCounts(importSource);
+    let importChanged = false;
+    const importFilteredStatements: ts.Statement[] = [];
+    for (const statement of importSource.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+        importFilteredStatements.push(statement);
+        continue;
+      }
+      const bindings = statement.importClause.namedBindings;
+      if (!bindings || !ts.isNamespaceImport(bindings)) {
+        importFilteredStatements.push(statement);
+        continue;
+      }
+      const alias = bindings.name.text;
+      const usageCount = importReferenceCounts.get(alias) ?? 0;
+      if (usageCount > 0) {
+        importFilteredStatements.push(statement);
+        continue;
+      }
+      importChanged = true;
+    }
+    if (!importChanged) {
+      return shapedContent;
+    }
+    const importFilteredSource = ts.factory.updateSourceFile(importSource, importFilteredStatements);
+    return printer.printFile(importFilteredSource);
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
@@ -5364,8 +5622,10 @@ function buildQualityModuleContent(
       absolutePath,
       content,
     }));
-  const moduleContent = applyTargetedHotCoreFamilySweep(
-    applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+  const moduleContent = applyImportHygienePass(
+    applyTargetedHotCoreFamilySweep(
+      applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+    ),
   );
   return {
     content: moduleContent,

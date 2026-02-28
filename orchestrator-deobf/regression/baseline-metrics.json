@@ -18,14 +18,14 @@
     "variableCoverageAverage": 1,
     "worstFileDecileScoreAverage": 0.774
   },
-  "generatedAtIso": "2026-02-28T08:09:30.628Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v20\\merged-evidence.json",
+  "generatedAtIso": "2026-02-28T09:02:08.104Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v22\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 330320,
+      "durationMs": 318037,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -124,7 +124,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v20\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v22\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -156,10 +156,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-01-core-no-binary",
-      "runId": "reg-targeted-store-family-inline-v20-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-01-core-no-binary",
+      "runId": "reg-targeted-store-family-inline-v22-01-core-no-binary",
       "score": {
         "buildScore": 0,
         "devScore": 1,
@@ -169,14 +169,14 @@
         "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-01-core-no-binary\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-01-core-no-binary\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 308420,
+      "durationMs": 354186,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -275,7 +275,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v20\\logs\\02-core-no-binary-no-pretty.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v22\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -307,10 +307,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-02-core-no-binary-no-pretty",
-      "runId": "reg-targeted-store-family-inline-v20-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-02-core-no-binary-no-pretty",
+      "runId": "reg-targeted-store-family-inline-v22-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 0,
         "devScore": 1,
@@ -320,14 +320,14 @@
         "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-02-core-no-binary-no-pretty\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-02-core-no-binary-no-pretty\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 234689,
+      "durationMs": 259601,
       "fileQuality": {
         "fileCount": 9,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -426,7 +426,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v20\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v22\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -458,10 +458,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-03-core-no-binary-top120",
-      "runId": "reg-targeted-store-family-inline-v20-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-03-core-no-binary-top120",
+      "runId": "reg-targeted-store-family-inline-v22-03-core-no-binary-top120",
       "score": {
         "buildScore": 0,
         "devScore": 1,
@@ -471,14 +471,14 @@
         "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-03-core-no-binary-top120\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-03-core-no-binary-top120\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     },
     {
-      "durationMs": 235310,
+      "durationMs": 247117,
       "fileQuality": {
         "fileCount": 8,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 1,
@@ -567,7 +567,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v20\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\targeted-store-family-inline-v22\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -599,10 +599,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-04-core-runtime-probe-soft",
-      "runId": "reg-targeted-store-family-inline-v20-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-04-core-runtime-probe-soft",
+      "runId": "reg-targeted-store-family-inline-v22-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 0,
         "devScore": 1,
@@ -612,12 +612,12 @@
         "total": 0.8626,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v20-04-core-runtime-probe-soft\\summary.json",
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-targeted-store-family-inline-v22-04-core-runtime-probe-soft\\summary.json",
       "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "targeted-store-family-inline-v20",
+  "suiteRunId": "targeted-store-family-inline-v22",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }
