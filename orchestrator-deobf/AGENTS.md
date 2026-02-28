@@ -186,3 +186,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduced vendor import surface in `src/services/store/store-state-g003.ts` from near-wholesale extracted export set to a focused subset while keeping vendor split, quality gates, and green gates stable.
 - Final import-hygiene pass now splits oversized named imports into multiple deterministic imports (`24` specifiers per statement).
   Verified reason: hot modules keep the same symbol surface but avoid single giant import declarations, improving readability and diffability in `store-state-g003.ts` while preserving green gates.
+- Targeted static payload extraction for `store-state-g003.ts` now applies to both inline dependency statements and selected source statements, with stricter thresholding for `JSON.parse`/`Object.freeze` payload blocks.
+  Verified reason: heavy inline JSON/theme payloads are moved to `assets/payloads/*` while preserving deterministic output.
+- Final quality-module post-pass now enforces `// @ts-nocheck` header after vendor-split/import-shaping rewrites.
+  Verified reason: prevents TypeScript typecheck/build regressions when printer-based rewrites drop leading comments in hot modules.
