@@ -9,7 +9,7 @@ import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { SemanticIrModel } from "../ir/semantic-ir";
 import { buildMonolithLayoutHintMaps, MonolithLayoutHintsModel } from "../ir/monolith-layout";
 import { buildAstLiftResult, LiftedChunkArtifact, LiftedSymbolBinding } from "../lift/ast-lift";
-import { ensureCleanDirectory, ensureDirectory } from "../utils/fs-json";
+import { ensureCleanDirectory, ensureDirectory, readJsonFile } from "../utils/fs-json";
 
 export interface TemplateEmitResult {
   emittedFiles: string[];
@@ -76,6 +76,15 @@ interface EmittedAssetFile {
 interface QualityModuleBuildResult {
   content: string;
   assetFiles: EmittedAssetFile[];
+}
+
+interface ManualRefactorCandidate {
+  filePath: string;
+  averageScore: number;
+}
+
+interface ManualRefactorCandidatesModel {
+  candidates: ManualRefactorCandidate[];
 }
 
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
@@ -1574,10 +1583,74 @@ function isHotFirstFilePath(filePath: string): boolean {
   if (/(?:^|\/)src\/services\/store\/store-state(?:-g\d+|-quality-\d+)?\.ts$/.test(normalized)) {
     return true;
   }
+  if (/(?:^|\/)src\/services\/(?:service|store)\//.test(normalized)) {
+    return true;
+  }
   return false;
 }
 
+function hotFamilyKeyFromFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const withoutExt = normalized.replace(/\.ts$/i, "");
+  return withoutExt
+    .replace(/-quality-\d+$/i, "")
+    .replace(/-cohesion-\d+$/i, "")
+    .replace(/-part-\d+$/i, "")
+    .replace(/-g\d+$/i, "");
+}
+
+function applyHotSeedPriority(modulePlans: ModulePlan[], hotSeedFamilies: ReadonlySet<string>): ModulePlan[] {
+  if (hotSeedFamilies.size < 1) {
+    return modulePlans;
+  }
+  return modulePlans.map((plan) => ({
+    ...plan,
+    hotPriority: plan.hotPriority || hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath)),
+  }));
+}
+
+async function loadManualHotSeedFamilies(
+  manualRefactorCandidatesPath: string | undefined,
+): Promise<Set<string>> {
+  const seedFamilies = new Set<string>();
+  if (!manualRefactorCandidatesPath || manualRefactorCandidatesPath.length < 1) {
+    return seedFamilies;
+  }
+  const exists = await fs
+    .stat(manualRefactorCandidatesPath)
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    return seedFamilies;
+  }
+
+  const report = await readJsonFile<ManualRefactorCandidatesModel>(manualRefactorCandidatesPath);
+  if (!report || !Array.isArray(report.candidates)) {
+    return seedFamilies;
+  }
+
+  const candidates = [...report.candidates]
+    .filter((candidate) => typeof candidate.filePath === "string" && candidate.filePath.length > 0)
+    .filter((candidate) => typeof candidate.averageScore === "number" && Number.isFinite(candidate.averageScore))
+    .filter((candidate) => isHotFirstFilePath(candidate.filePath))
+    .sort((left, right) => {
+      if (left.averageScore !== right.averageScore) {
+        return left.averageScore - right.averageScore;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    })
+    .slice(0, HOT_FIRST_MAX_TARGET_FILES);
+
+  for (const candidate of candidates) {
+    seedFamilies.add(hotFamilyKeyFromFilePath(candidate.filePath));
+  }
+  return seedFamilies;
+}
+
 function isHotFirstCandidate(plan: ModulePlan, entry: ModuleQualityEntry): boolean {
+  if (plan.hotPriority) {
+    return true;
+  }
   if (isHotFirstFilePath(plan.filePath)) {
     return true;
   }
@@ -1607,6 +1680,7 @@ function applyFileQualityRerender(
   modulePlans: ModulePlan[],
   bindingByKey: Map<string, LiftedSymbolBinding>,
   statementBudget: number,
+  hotSeedFamilies: ReadonlySet<string>,
 ): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
   if (modulePlans.length === 0) {
     return {
@@ -1638,7 +1712,38 @@ function applyFileQualityRerender(
       return isHotFirstCandidate(plan, entry);
     })
     : sortedCandidates;
-  const selectedCandidates = (hotCandidates.length > 0 ? hotCandidates : sortedCandidates).slice(0, targetCount);
+  const candidatePool = hotCandidates.length > 0 ? hotCandidates : sortedCandidates;
+  const selectedCandidates: ModuleQualityEntry[] = [];
+  const selectedModuleIds = new Set<string>();
+  if (hotSeedFamilies.size > 0) {
+    const seededCandidates = candidatePool.filter((entry) => {
+      const plan = planByModuleId.get(entry.moduleId);
+      if (!plan) {
+        return false;
+      }
+      return hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath));
+    });
+    for (const candidate of seededCandidates) {
+      if (selectedCandidates.length >= targetCount) {
+        break;
+      }
+      if (selectedModuleIds.has(candidate.moduleId)) {
+        continue;
+      }
+      selectedModuleIds.add(candidate.moduleId);
+      selectedCandidates.push(candidate);
+    }
+  }
+  for (const candidate of candidatePool) {
+    if (selectedCandidates.length >= targetCount) {
+      break;
+    }
+    if (selectedModuleIds.has(candidate.moduleId)) {
+      continue;
+    }
+    selectedModuleIds.add(candidate.moduleId);
+    selectedCandidates.push(candidate);
+  }
   const hotCandidateModuleIds = new Set<string>(selectedCandidates.map((entry) => entry.moduleId));
 
   const rerenderedPlanByModuleId = new Map<string, ModulePlan[]>();
@@ -7898,6 +8003,33 @@ function collectChunkStubDependencies(
   return dependencies;
 }
 
+function resolvePriorityChunkIdsFromHotPlans(
+  chunkArtifacts: ChunkArtifactModel,
+  modulePlans: ModulePlan[],
+): string[] {
+  const hotSymbolKeys = new Set<string>();
+  for (const plan of modulePlans) {
+    if (!plan.hotPriority) {
+      continue;
+    }
+    for (const symbol of plan.symbols) {
+      hotSymbolKeys.add(symbol.symbolKey);
+    }
+  }
+  if (hotSymbolKeys.size < 1) {
+    return [];
+  }
+
+  const priorityChunkIds = new Set<string>();
+  for (const mapping of chunkArtifacts.symbolMappings) {
+    if (!hotSymbolKeys.has(mapping.symbolKey)) {
+      continue;
+    }
+    priorityChunkIds.add(mapping.chunkId);
+  }
+  return [...priorityChunkIds].sort((left, right) => left.localeCompare(right));
+}
+
 export async function emitTemplateProject(
   ownershipModel: OwnershipModel,
   chunkArtifacts: ChunkArtifactModel,
@@ -7905,6 +8037,7 @@ export async function emitTemplateProject(
   monolithLayoutHints: MonolithLayoutHintsModel,
   outputProjectDirectory: string,
   statementBudget: number,
+  manualRefactorCandidatesPath?: string,
 ): Promise<TemplateEmitResult> {
   await ensureCleanDirectory(outputProjectDirectory);
   const emittedFiles: string[] = [];
@@ -7929,6 +8062,29 @@ export async function emitTemplateProject(
   );
   emittedFiles.push(toProjectRelative(outputProjectDirectory, chunkArtifactManifestPath));
 
+  const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
+  const signalContext = buildEmitterSignalContext(semanticIr);
+  const domainRenameHints = buildDomainRenameHints(ownershipModel, signalContext);
+  const monolithTopicHints = buildMonolithTopicHints(monolithLayoutHints);
+  if (monolithTopicHints.bySymbolKey.size < 1 && monolithTopicHints.bySymbolName.size < 1) {
+    throw new Error("emitTemplateProject: monolith-first mode requires non-empty monolith layout hints");
+  }
+  const hotSeedFamilies = await loadManualHotSeedFamilies(manualRefactorCandidatesPath);
+  const preliftRawPlans = buildModulePlans(
+    ownershipModel,
+    Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
+    domainRenameHints,
+    monolithTopicHints,
+  );
+  const preliftCohesionPlans = applyCohesionMergeSplit(
+    preliftRawPlans,
+    statementBudget,
+    domainRenameHints,
+    signalContext,
+  );
+  const preliftPrioritizedPlans = applyHotSeedPriority(preliftCohesionPlans, hotSeedFamilies);
+  const priorityChunkIds = resolvePriorityChunkIdsFromHotPlans(chunkArtifacts, preliftPrioritizedPlans);
+
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
     hotChunkMax: 120,
     targetCoverage: 0.985,
@@ -7936,6 +8092,7 @@ export async function emitTemplateProject(
     preferredArchetypes: ["ui", "service", "store", "hook", "transport"],
     minimumChunkScore: 0,
     closureChunkLimit: 960,
+    priorityChunkIds,
   });
   const sharedHelperPool = extractSharedHelperPool(astLift.liftedChunks);
   const liftedChunkById = new Map<string, LiftedChunkArtifact>(
@@ -7964,13 +8121,6 @@ export async function emitTemplateProject(
     );
   }
 
-  const chunkTopicTokensById = buildChunkTopicTokensById(sortedChunks);
-  const signalContext = buildEmitterSignalContext(semanticIr);
-  const domainRenameHints = buildDomainRenameHints(ownershipModel, signalContext);
-  const monolithTopicHints = buildMonolithTopicHints(monolithLayoutHints);
-  if (monolithTopicHints.bySymbolKey.size < 1 && monolithTopicHints.bySymbolName.size < 1) {
-    throw new Error("emitTemplateProject: monolith-first mode requires non-empty monolith layout hints");
-  }
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
   const unresolvedSymbols = ownershipModel.symbols
     .filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey))
@@ -7996,7 +8146,13 @@ export async function emitTemplateProject(
     domainRenameHints,
     signalContext,
   );
-  const qualityPass = applyFileQualityRerender(qualityCohesionPlans, astLift.symbolBindingByKey, statementBudget);
+  const qualityPrioritizedPlans = applyHotSeedPriority(qualityCohesionPlans, hotSeedFamilies);
+  const qualityPass = applyFileQualityRerender(
+    qualityPrioritizedPlans,
+    astLift.symbolBindingByKey,
+    statementBudget,
+    hotSeedFamilies,
+  );
   const qualityModulePlans = qualityPass.modulePlans;
   const emittedAssetContentByPath = new Map<string, string>();
 

@@ -996,11 +996,19 @@ async function run(): Promise<void> {
     },
   );
 
+  const manualRefactorCandidatesPath = path.join(projectRoot, "regression", "manual-refactor-candidates.json");
+  const manualRefactorCandidatesExists = await fileExists(manualRefactorCandidatesPath);
+  const manualRefactorCandidatesDigest = manualRefactorCandidatesExists
+    ? (await hashFileSha256(manualRefactorCandidatesPath)).sha256
+    : "";
+
   const templateEmitterInput: TemplateEmitterStageInput = {
     ownershipModelPath: qualityOwnershipModelPath,
     chunkArtifactsPath: chunkArtifactModelOutput.outputFilePath,
     semanticIrPath: namingMemoryOutput.qualityNamedSemanticIrPath,
     monolithLayoutHintsPath: monolithPassOutput.outputFilePath,
+    manualRefactorCandidatesPath: manualRefactorCandidatesExists ? manualRefactorCandidatesPath : undefined,
+    manualRefactorCandidatesDigest,
     outputProjectDirectory: path.join(artifactsDirectory, "project"),
     statementBudget: cli.statementBudget,
     emittedFilesIndexPath: path.join(artifactsDirectory, "emitted-files.json"),

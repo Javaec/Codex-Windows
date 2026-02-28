@@ -344,6 +344,8 @@ export interface TemplateEmitterStageInput {
   chunkArtifactsPath: string;
   semanticIrPath: string;
   monolithLayoutHintsPath: string;
+  manualRefactorCandidatesPath?: string;
+  manualRefactorCandidatesDigest?: string;
   outputProjectDirectory: string;
   statementBudget: number;
   emittedFilesIndexPath: string;

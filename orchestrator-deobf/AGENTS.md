@@ -192,6 +192,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: prevents TypeScript typecheck/build regressions when printer-based rewrites drop leading comments in hot modules.
 - Emitter now runs in hot-first-only rerender mode: each cycle targets only top worst hot modules (bounded to 5..10) and marks `hotFocus` in file-quality report.
   Verified reason: concentrates heavy rewrites on `service/store` hotspots and avoids broad project churn.
+- Hot-first planner now auto-seeds priorities from `regression/manual-refactor-candidates.json` (worst score first, hot families only).
+  Verified reason: rerender targeting is now driven by measured worst files from regression output instead of only static path heuristics.
+- AST-lift hot-chunk picker now accepts `priorityChunkIds` computed from seeded hot module plans before lift.
+  Verified reason: full-lift budget is concentrated on chunks that back the current worst hot files, raising useful logic density in those modules.
 - Monolith-first is now strict in quality emit: `emitTemplateProject` fails fast when monolith layout hints are empty.
   Verified reason: keeps topic/path synthesis anchored to monolith signal source-of-truth instead of fallback drift.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.

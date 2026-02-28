@@ -21,6 +21,7 @@ async function executeTemplateEmitter(request: StageExecutionRequest): Promise<v
     monolithLayoutHints,
     input.outputProjectDirectory,
     input.statementBudget,
+    input.manualRefactorCandidatesPath,
   );
   const emittedFiles = [...new Set(emitResult.emittedFiles)].sort((left, right) => left.localeCompare(right));
 

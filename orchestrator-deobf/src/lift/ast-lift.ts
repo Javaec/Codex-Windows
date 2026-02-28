@@ -41,6 +41,7 @@ export interface AstLiftOptions {
   preferredArchetypes: ArchetypeId[];
   minimumChunkScore: number;
   closureChunkLimit: number;
+  priorityChunkIds: string[];
 }
 
 export interface LiftedChunkDependency {
@@ -105,6 +106,7 @@ const DEFAULT_LIFT_OPTIONS: AstLiftOptions = {
   preferredArchetypes: ["ui", "service", "hook", "transport"],
   minimumChunkScore: 0,
   closureChunkLimit: 128,
+  priorityChunkIds: [],
 };
 
 const GENERIC_IMPORT_TOKENS = new Set<string>(["index", "chunk", "main", "entry", "assets", "webview", "src"]);
@@ -1540,9 +1542,28 @@ function pickHotChunks(
   const picked = new Set<string>();
   let collectedScore = 0;
 
+  const availableChunkIds = new Set(chunkArtifacts.chunks.map((chunk) => chunk.chunkId));
+  for (const priorityChunkId of options.priorityChunkIds) {
+    if (hotChunkIds.length >= options.hotChunkMax) {
+      break;
+    }
+    if (!availableChunkIds.has(priorityChunkId)) {
+      continue;
+    }
+    if (picked.has(priorityChunkId)) {
+      continue;
+    }
+    hotChunkIds.push(priorityChunkId);
+    picked.add(priorityChunkId);
+    collectedScore += chunkScores.get(priorityChunkId) ?? 0;
+  }
+
   for (const entry of rankedChunks) {
     if (hotChunkIds.length >= options.hotChunkMax) {
       break;
+    }
+    if (picked.has(entry.chunkId)) {
+      continue;
     }
     hotChunkIds.push(entry.chunkId);
     picked.add(entry.chunkId);
