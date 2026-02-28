@@ -3646,6 +3646,38 @@ function buildQualityModuleContent(
     if (entries.length < 1) {
       return content;
     }
+    const familyFromOwnershipName = (name: string): TargetedCoreFamily => {
+      const match = name.match(/^(?:store|service)(Runtime|State|React|Preload|Language|Diagram)Local/);
+      if (!match || !match[1]) {
+        return "Core";
+      }
+      const token = match[1];
+      if (token === "Runtime") {
+        return "Runtime";
+      }
+      if (token === "State") {
+        return "State";
+      }
+      if (token === "React") {
+        return "React";
+      }
+      if (token === "Preload") {
+        return "Preload";
+      }
+      if (token === "Language") {
+        return "Language";
+      }
+      if (token === "Diagram") {
+        return "Diagram";
+      }
+      return "Core";
+    };
+    const addFamilyScore = (scores: Map<TargetedCoreFamily, number>, family: TargetedCoreFamily, weight: number): void => {
+      if (family === "Core") {
+        return;
+      }
+      scores.set(family, (scores.get(family) ?? 0) + weight);
+    };
     const ownerByDeclaredName = new Map<string, number>();
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index];
@@ -3658,6 +3690,21 @@ function buildQualityModuleContent(
         }
       }
     }
+    const referencingIndexesByDeclaredName = new Map<string, Set<number>>();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (!entry) {
+        continue;
+      }
+      for (const referencedName of entry.referencedNames) {
+        if (!ownerByDeclaredName.has(referencedName)) {
+          continue;
+        }
+        const indexes = referencingIndexesByDeclaredName.get(referencedName) ?? new Set<number>();
+        indexes.add(index);
+        referencingIndexesByDeclaredName.set(referencedName, indexes);
+      }
+    }
     for (let iteration = 0; iteration < 4; iteration += 1) {
       let changed = false;
       for (const entry of entries) {
@@ -3668,13 +3715,26 @@ function buildQualityModuleContent(
         for (const referencedName of entry.referencedNames) {
           const ownerIndex = ownerByDeclaredName.get(referencedName);
           if (ownerIndex === undefined) {
+            addFamilyScore(supportScores, familyFromOwnershipName(referencedName), 1.5);
+          } else {
+            const owner = entries[ownerIndex];
+            if (owner) {
+              addFamilyScore(supportScores, owner.resolvedFamily, 2);
+            }
+          }
+        }
+        for (const declaredCoreName of entry.declaredCoreNames) {
+          const inboundIndexes = referencingIndexesByDeclaredName.get(declaredCoreName);
+          if (!inboundIndexes) {
             continue;
           }
-          const owner = entries[ownerIndex];
-          if (!owner || owner.resolvedFamily === "Core") {
-            continue;
+          for (const inboundIndex of inboundIndexes) {
+            const inboundEntry = entries[inboundIndex];
+            if (!inboundEntry) {
+              continue;
+            }
+            addFamilyScore(supportScores, inboundEntry.resolvedFamily, 1);
           }
-          supportScores.set(owner.resolvedFamily, (supportScores.get(owner.resolvedFamily) ?? 0) + 2);
         }
         let bestFamily: TargetedCoreFamily = "Core";
         let bestScore = 0;
@@ -3705,13 +3765,26 @@ function buildQualityModuleContent(
       for (const referencedName of entry.referencedNames) {
         const ownerIndex = ownerByDeclaredName.get(referencedName);
         if (ownerIndex === undefined) {
+          addFamilyScore(supportScores, familyFromOwnershipName(referencedName), 1);
+        } else {
+          const owner = entries[ownerIndex];
+          if (owner) {
+            addFamilyScore(supportScores, owner.resolvedFamily, 1);
+          }
+        }
+      }
+      for (const declaredCoreName of entry.declaredCoreNames) {
+        const inboundIndexes = referencingIndexesByDeclaredName.get(declaredCoreName);
+        if (!inboundIndexes) {
           continue;
         }
-        const owner = entries[ownerIndex];
-        if (!owner || owner.resolvedFamily === "Core") {
-          continue;
+        for (const inboundIndex of inboundIndexes) {
+          const inboundEntry = entries[inboundIndex];
+          if (!inboundEntry) {
+            continue;
+          }
+          addFamilyScore(supportScores, inboundEntry.resolvedFamily, 0.75);
         }
-        supportScores.set(owner.resolvedFamily, (supportScores.get(owner.resolvedFamily) ?? 0) + 1);
       }
       let bestFamily: TargetedCoreFamily = "Core";
       let bestScore = 0;
@@ -4359,6 +4432,26 @@ function buildQualityModuleContent(
       }
       return false;
     };
+    const countIdentifierReferencesInStatement = (statement: ts.Statement, identifier: string): number => {
+      let count = 0;
+      const visit = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) && isIdentifierReference(node) && node.text === identifier) {
+          count += 1;
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(statement);
+      return count;
+    };
+    const selectedSourceStatements = [...selection.selectedStatements];
+    const localUsageCountByImportName = new Map<string, number>();
+    for (const importLocal of requiredImportLocals) {
+      let usageCount = 0;
+      for (const statement of selectedSourceStatements) {
+        usageCount += countIdentifierReferencesInStatement(statement, importLocal);
+      }
+      localUsageCountByImportName.set(importLocal, usageCount);
+    }
     const chunkIndexImportLocals = [...requiredImportLocals]
       .map((localName) => {
         const binding = sourceChunkMetadata.importBindings.get(localName);
@@ -4379,12 +4472,16 @@ function buildQualityModuleContent(
     if (allowChunkIndexInline && !preferChunkImportFallback && chunkIndexImportLocals.length >= chunkIndexInlineImportThreshold) {
       const selectedChunkIndexImportLocals = chunkIndexImportLocals
         .sort((left, right) => {
+          const leftUsage = localUsageCountByImportName.get(left.localName) ?? 0;
+          const rightUsage = localUsageCountByImportName.get(right.localName) ?? 0;
           const leftScore =
             (OBFUSCATED_ALIAS_STYLE_PATTERN.test(left.importedName) ? 2 : 0) +
-            (left.importedName.length <= 2 ? 1 : 0);
+            (left.importedName.length <= 2 ? 1 : 0) +
+            Math.min(8, leftUsage) * 0.2;
           const rightScore =
             (OBFUSCATED_ALIAS_STYLE_PATTERN.test(right.importedName) ? 2 : 0) +
-            (right.importedName.length <= 2 ? 1 : 0);
+            (right.importedName.length <= 2 ? 1 : 0) +
+            Math.min(8, rightUsage) * 0.2;
           if (leftScore !== rightScore) {
             return rightScore - leftScore;
           }
@@ -4510,7 +4607,14 @@ function buildQualityModuleContent(
       for (const [targetChunkId, rawNeeds] of targetedChunkIndexCandidates.entries()) {
         const targetChunkMetadata = resolveLiftedChunkMetadata(targetChunkId);
         const needs = [...rawNeeds]
-          .sort((left, right) => left.localName.localeCompare(right.localName))
+          .sort((left, right) => {
+            const leftUsage = localUsageCountByImportName.get(left.localName) ?? 0;
+            const rightUsage = localUsageCountByImportName.get(right.localName) ?? 0;
+            if (leftUsage !== rightUsage) {
+              return rightUsage - leftUsage;
+            }
+            return left.localName.localeCompare(right.localName);
+          })
           .slice(0, targetedInlineMaxNeedsPerChunk);
         for (const need of needs) {
           const rootIdentifier =
@@ -4579,6 +4683,7 @@ function buildQualityModuleContent(
           const score =
             (OBFUSCATED_ALIAS_STYLE_PATTERN.test(need.importedName) ? 0.4 : 0) +
             (need.importedName.length <= 2 ? 0.2 : 0) +
+            Math.min(8, localUsageCountByImportName.get(need.localName) ?? 0) * 0.08 +
             Math.max(0, 1 - declarationChars / targetedInlineMaxDeclarationChars);
           selectedTargetedInlines.push({
             targetChunkId,

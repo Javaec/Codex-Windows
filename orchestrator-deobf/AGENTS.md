@@ -118,3 +118,12 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - aggressive full-lift only for `store-state-g*` and `service-run.ts`,
   - `store-state-quality-*` keeps canonicalization without aggressive inline lift to prevent module bloat.
   Verified reason: this keeps heavy hot modules on logic-first path while avoiding large readability regressions in quality shards (run `targeted-store-family-full-lift-v18`).
+- Ownership-aware family resolver now includes call-graph/state-edge weighting:
+  - outgoing references to resolved-family owners,
+  - inbound dependency support from referencing statements,
+  - ownership-prefix hints (`storeRuntimeLocal*`, `storeStateLocal*`, etc.) before fallback classification.
+  Verified reason: unresolved `storeCoreLocal*` pool in `src/services/store/store-state-g002.ts` was reduced further (down to 3678 on run `targeted-store-family-inline-v19`) while keeping deterministic output and green quality/dev gates.
+- Priority chunk inline planner now ranks by local usage impact in selected statements (not only obfuscation pattern):
+  - usage-aware sorting for early chunk-index inline candidates,
+  - usage-aware scoring for targeted inline selection.
+  Verified reason: inlining decisions now prefer imports that remove the most noisy references in hot modules (`store-state-g002.ts` / `service-run.ts`) without reopening payload/bootstrap regressions.
