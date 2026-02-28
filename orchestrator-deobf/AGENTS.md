@@ -182,3 +182,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: removed `no-import-assign` regressions introduced by vendor extraction while preserving split output and runtime behavior in `store-state-g003.ts`.
 - Generated lint profile for `src/chunks-ts/**/*.ts` now disables `no-self-assign`.
   Verified reason: lifted vendor/runtime chunks intentionally preserve opaque assignment patterns from upstream bundles; keeping this rule off avoids false-positive gate failures without affecting quality module linting.
+- Targeted g003 vendor import shaping now imports only symbols referenced by the remaining main module after extraction.
+  Verified reason: reduced vendor import surface in `src/services/store/store-state-g003.ts` from near-wholesale extracted export set to a focused subset while keeping vendor split, quality gates, and green gates stable.

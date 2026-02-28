@@ -7040,6 +7040,21 @@ function buildQualityModuleContent(
       .filter((statement): statement is ts.Statement => Boolean(statement));
     const exportedNames = [...extractedDeclaredNames].sort((left, right) => left.localeCompare(right));
     const remainingStatements = source.statements.filter((_, statementIndex) => !includedStatementIndices.has(statementIndex));
+    const referencedNamesInMain = new Set<string>();
+    for (const statement of remainingStatements) {
+      if (!statement || ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      const referencedNames = collectStatementReferencedNames(statement);
+      for (const referencedName of referencedNames) {
+        referencedNamesInMain.add(referencedName);
+      }
+    }
+    const importedVendorNames = exportedNames.filter((name) => referencedNamesInMain.has(name));
+    if (importedVendorNames.length < 1) {
+      return { content: contentText };
+    }
+    const importedVendorNameSet = new Set<string>(importedVendorNames);
     const topLevelDeclaredNamesInMain = new Set<string>();
     for (const statement of remainingStatements) {
       if (!statement || ts.isImportDeclaration(statement)) {
@@ -7077,7 +7092,7 @@ function buildQualityModuleContent(
       }
       const assignedInStatement = collectAssignedIdentifiers(statement);
       for (const assignedName of assignedInStatement) {
-        if (!extractedDeclaredNames.has(assignedName)) {
+        if (!importedVendorNameSet.has(assignedName)) {
           continue;
         }
         if (topLevelDeclaredNamesInMain.has(assignedName)) {
@@ -7086,7 +7101,7 @@ function buildQualityModuleContent(
         reassignedVendorExportNames.add(assignedName);
       }
     }
-    const usedVendorAliasNames = new Set<string>([...topLevelDeclaredNamesInMain, ...exportedNames]);
+    const usedVendorAliasNames = new Set<string>([...topLevelDeclaredNamesInMain, ...importedVendorNames]);
     const vendorImportAliasByExportName = new Map<string, string>();
     for (const reassignedName of [...reassignedVendorExportNames].sort((left, right) => left.localeCompare(right))) {
       const aliasName = nextUniqueIdentifier(`${reassignedName}Vendor`, usedVendorAliasNames);
@@ -7150,7 +7165,7 @@ function buildQualityModuleContent(
         false,
         undefined,
         ts.factory.createNamedImports(
-          exportedNames.map((name) =>
+          importedVendorNames.map((name) =>
             ts.factory.createImportSpecifier(
               false,
               ts.factory.createIdentifier(name),
