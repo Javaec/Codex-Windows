@@ -166,3 +166,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: hard-blocks regressions where heavy full-lift reintroduces 40k+ line store modules.
 - Added strict size fail-fast gate for `src/services/*` quality modules (`12000` lines max).
   Verified reason: extends hard-blocking to non-store service modules so oversized service regressions fail at emit-time.
+- Added hot-module namespace-import budget gate in `quality-gates`:
+  - `src/services/store/store-state-g*.ts` max `14`,
+  - `src/services/service/service-run.ts` max `12`.
+  Verified reason: prevents namespace-import noise regression in worst store/service modules across future runs.

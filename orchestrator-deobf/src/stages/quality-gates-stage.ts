@@ -14,6 +14,8 @@ const GENERIC_PATH_SEGMENTS = new Set<string>(["types", "utils", "index", "commo
 const ARCHETYPE_SEGMENTS = new Set<string>(["hook", "service", "ui", "transport", "store"]);
 const INLINE_LITERAL_PAYLOAD_THRESHOLD = 4096;
 const INLINE_JSON_PAYLOAD_THRESHOLD = 1800;
+const HOT_STORE_NAMESPACE_IMPORT_MAX = 14;
+const HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX = 12;
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
@@ -193,6 +195,36 @@ async function validateNoProxyInQuality(outputProjectDirectory: string, files: s
   return violations;
 }
 
+function resolveNamespaceImportLimit(relativePath: string): number {
+  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
+  if (/^src\/services\/store\/store-state-g\d+\.ts$/.test(normalized)) {
+    return HOT_STORE_NAMESPACE_IMPORT_MAX;
+  }
+  if (normalized === "src/services/service/service-run.ts") {
+    return HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX;
+  }
+  return 0;
+}
+
+async function validateHotModuleNamespaceImportBudget(outputProjectDirectory: string, files: string[]): Promise<string[]> {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    const limit = resolveNamespaceImportLimit(relativePath);
+    if (limit < 1) {
+      continue;
+    }
+    const absolutePath = path.join(outputProjectDirectory, relativePath);
+    const content = await fs.readFile(absolutePath, "utf8");
+    const namespaceImportCount = (content.match(/^import\s+\*\s+as\s+[A-Za-z_$][A-Za-z0-9_$]*\s+from\s+/gm) || []).length;
+    if (namespaceImportCount > limit) {
+      violations.push(
+        `hot-module namespace-import budget exceeded: ${relativePath} (${namespaceImportCount} > ${limit})`,
+      );
+    }
+  }
+  return violations;
+}
+
 function validateChunkArtifacts(chunkArtifacts: ChunkArtifactModel): string[] {
   const violations: string[] = [];
   const sourcePaths = new Set<string>();
@@ -231,6 +263,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
   violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
   violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
+  violations.push(...(await validateHotModuleNamespaceImportBudget(input.outputProjectDirectory, emittedFilesIndex.files)));
   violations.push(...(await validateStaticPayloadExtraction(input.outputProjectDirectory, emittedFilesIndex.files)));
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 
