@@ -152,3 +152,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduced `import * as` noise in `src/services/service/service-run.ts` to the requested target band (now `12`) while preserving zero `store/serviceCoreLocal*` regressions.
 - Added safe fallback conversion for single-use namespace aliases without shaping blocks in hot service modules.
   Verified reason: allows extra deterministic namespace reduction when planner candidates are limited by shaping-only constraints.
+- Single-use namespace fallback conversion now applies to both critical hot modules (`store-state-g002.ts` and `service-run.ts`) with module-specific targets (`store:13`, `service:12`).
+  Verified reason: achieved requested one-pass reduction for the second hot module (`src/services/store/store-state-g002.ts` now `13` namespace imports) while preserving zero `store/serviceCoreLocal*` regressions.

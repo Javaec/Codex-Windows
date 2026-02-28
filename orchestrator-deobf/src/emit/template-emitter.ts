@@ -4684,7 +4684,7 @@ function buildQualityModuleContent(
       return printer.printFile(convertedSource);
     };
     const applySingleUseNamespaceAliasFallbackConversion = (contentText: string): string => {
-      if (!targetedHotServiceModule || contentText.length < 1) {
+      if (!targetedHotCriticalStoreServiceModule || contentText.length < 1) {
         return contentText;
       }
       const source = ts.createSourceFile(
@@ -4709,7 +4709,8 @@ function buildQualityModuleContent(
         }
         namespaceImports.set(namedBindings.name.text, { modulePath: moduleSpecifier.text, statement });
       }
-      if (namespaceImports.size <= 12) {
+      const targetNamespaceCount = targetedHotStoreModule ? 13 : 12;
+      if (namespaceImports.size <= targetNamespaceCount) {
         return contentText;
       }
       const aliasUsedByShaping = new Set<string>();
@@ -4822,7 +4823,7 @@ function buildQualityModuleContent(
       if (candidates.length < 1) {
         return contentText;
       }
-      const needed = Math.max(0, namespaceImports.size - 12);
+      const needed = Math.max(0, namespaceImports.size - targetNamespaceCount);
       if (needed < 1) {
         return contentText;
       }
