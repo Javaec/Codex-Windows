@@ -4318,8 +4318,91 @@ function buildQualityModuleContent(
       true,
       ts.ScriptKind.TS,
     );
+    const extractBindingImportedName = (element: ts.BindingElement, localName: string): string => {
+      if (!element.propertyName) {
+        return localName;
+      }
+      if (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName)) {
+        return element.propertyName.text;
+      }
+      return localName;
+    };
+    let sourceForCleanup = sourceFile;
+    let contentForCleanup = content;
+    if (targetedHotCriticalStoreServiceModule) {
+      const initialReferenceCounts = collectIdentifierReferenceCounts(sourceFile);
+      const inlineCandidatesByLocal = new Map<string, { namespaceAlias: string; importedName: string }>();
+      const inlineUsageCeiling = 2;
+      for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+          continue;
+        }
+        const declaration = statement.declarationList.declarations[0];
+        if (!declaration) {
+          continue;
+        }
+        if (!ts.isObjectBindingPattern(declaration.name) || !declaration.initializer || !ts.isIdentifier(declaration.initializer)) {
+          continue;
+        }
+        const namespaceAlias = declaration.initializer.text;
+        for (const element of declaration.name.elements) {
+          if (ts.isOmittedExpression(element) || !ts.isIdentifier(element.name)) {
+            continue;
+          }
+          const localName = element.name.text;
+          const usageCount = initialReferenceCounts.get(localName) ?? 0;
+          const importedName = extractBindingImportedName(element, localName);
+          const shouldInlineSingleUse = usageCount === 1;
+          const shouldInlineMultiUseObfuscated =
+            usageCount > 1 &&
+            usageCount <= inlineUsageCeiling &&
+            (OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName) ||
+              importedName.length <= 4 ||
+              importedName.includes("$"));
+          if (!shouldInlineSingleUse && !shouldInlineMultiUseObfuscated) {
+            continue;
+          }
+          if (importedName.length < 1 || importedName.length > 64) {
+            continue;
+          }
+          inlineCandidatesByLocal.set(localName, { namespaceAlias, importedName });
+        }
+      }
+      if (inlineCandidatesByLocal.size > 0) {
+        const inlineTransformer: ts.TransformerFactory<ts.SourceFile> = (context) => {
+          const visit = (node: ts.Node): ts.VisitResult<ts.Node> => {
+            if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+              const candidate = inlineCandidatesByLocal.get(node.text);
+              if (candidate) {
+                return ts.factory.createElementAccessExpression(
+                  ts.factory.createIdentifier(candidate.namespaceAlias),
+                  ts.factory.createStringLiteral(candidate.importedName),
+                );
+              }
+            }
+            return ts.visitEachChild(node, visit, context);
+          };
+          return (file) => ts.visitNode(file, visit) as ts.SourceFile;
+        };
+        const transformedResult = ts.transform(sourceFile, [inlineTransformer]);
+        const transformedSourceFile = transformedResult.transformed[0];
+        if (!transformedSourceFile) {
+          transformedResult.dispose();
+          throw new Error(`buildQualityModuleContent: missing transformed source in import-hygiene inline pass for ${plan.moduleId}`);
+        }
+        contentForCleanup = printer.printFile(transformedSourceFile);
+        sourceForCleanup = ts.createSourceFile(
+          `${plan.moduleId}.ts`,
+          contentForCleanup,
+          ts.ScriptTarget.ESNext,
+          true,
+          ts.ScriptKind.TS,
+        );
+        transformedResult.dispose();
+      }
+    }
     const namespaceImportAliases = new Set<string>();
-    for (const statement of sourceFile.statements) {
+    for (const statement of sourceForCleanup.statements) {
       if (!ts.isImportDeclaration(statement) || !statement.importClause) {
         continue;
       }
@@ -4330,13 +4413,13 @@ function buildQualityModuleContent(
       namespaceImportAliases.add(bindings.name.text);
     }
     if (namespaceImportAliases.size < 1) {
-      return content;
+      return contentForCleanup;
     }
 
-    const referenceCounts = collectIdentifierReferenceCounts(sourceFile);
+    const referenceCounts = collectIdentifierReferenceCounts(sourceForCleanup);
     let shapingChanged = false;
     const shapedStatements: ts.Statement[] = [];
-    for (const statement of sourceFile.statements) {
+    for (const statement of sourceForCleanup.statements) {
       if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
         shapedStatements.push(statement);
         continue;
@@ -4391,8 +4474,8 @@ function buildQualityModuleContent(
       shapedStatements.push(ts.factory.updateVariableStatement(statement, statement.modifiers, updatedDeclarationList));
     }
     const shapedContent = shapingChanged
-      ? printer.printFile(ts.factory.updateSourceFile(sourceFile, shapedStatements))
-      : content;
+      ? printer.printFile(ts.factory.updateSourceFile(sourceForCleanup, shapedStatements))
+      : contentForCleanup;
     const importSource = ts.createSourceFile(
       `${plan.moduleId}.ts`,
       shapedContent,

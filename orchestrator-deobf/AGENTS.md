@@ -141,3 +141,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: worst store/service modules replace opaque short tails with deterministic domain stems (`workspace/session/navigation/state/transport/...`) while keeping deterministic output and green gates.
 - Local alias normalization now collapses duplicated family stems (`RuntimeRuntime`, `DiagramDiagram`) after rename synthesis.
   Verified reason: generated hot-module identifiers stay shorter and cleaner without losing deterministic uniqueness tags.
+- Import hygiene for critical hot modules now inlines single-use shaped bindings to direct namespace access before pruning.
+  Verified reason: `store-state-g002.ts` / `service-run.ts` dropped many `const { ... }` shaping blocks while preserving deterministic output and green quality/dev gates.
+- Critical import-hygiene inline now also allows low-fanout obfuscated bindings (usage <= 2) while keeping single-use inline always on.
+  Verified reason: further reduced shaping noise in hot store/service modules without reintroducing `CoreLocal`/`HeeNode` naming regressions.
