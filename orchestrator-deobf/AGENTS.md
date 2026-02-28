@@ -135,3 +135,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: all linked `store/service CoreLocal*` declarations in hot modules are forced to one dominant domain family before rename, reducing residual mixed-family tails.
 - Quality emitter now runs an AST import-hygiene pass after targeted rename/inlining.
   Verified reason: unused shaped bindings and orphaned namespace imports are pruned from generated modules, lowering import noise without proxy fallback.
+- Hot worst-module strategy now has an ultra full-lift profile for `store-state-g002.ts` and `service-run.ts`.
+  Verified reason: higher inline/closure budgets for these two modules reduce chunk import fan-out and increase lifted logic density in final quality TS bodies.
+- Hot local domain rename pass now rewrites opaque `store/service(Runtime|State|...)Local*` tails in worst modules using statement-level domain signals.
+  Verified reason: worst store/service modules replace opaque short tails with deterministic domain stems (`workspace/session/navigation/state/transport/...`) while keeping deterministic output and green gates.

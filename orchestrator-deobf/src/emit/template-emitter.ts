@@ -2406,6 +2406,7 @@ function buildQualityModuleContent(
   const targetedHotStoreModule = /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
   const targetedHotServiceModule = /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
   const targetedHotWorstStoreServiceModule = /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotCriticalStoreServiceModule = /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
     (targetedHotStoreModule || targetedHotServiceModule);
@@ -3503,6 +3504,256 @@ function buildQualityModuleContent(
         continue;
       }
       renameMap.set(candidate, resolved);
+    }
+    if (renameMap.size < 1) {
+      return content;
+    }
+    const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let rewritten = content;
+    for (const [from, to] of [...renameMap.entries()].sort((left, right) => right[0].length - left[0].length)) {
+      rewritten = rewritten.replace(new RegExp(`\\b${escaped(from)}\\b`, "g"), to);
+    }
+    return rewritten;
+  };
+  const inferTargetedHotDomainLocalToken = (
+    statementText: string,
+    referencedNames: ReadonlySet<string>,
+    family: TargetedCoreFamily,
+  ): string => {
+    const normalizedText = `${statementText}\n${[...referencedNames].join(" ")}`.toLowerCase();
+    const scoreByToken = new Map<string, number>();
+    const add = (token: string, signal: string, weight = 1): void => {
+      if (!normalizedText.includes(signal)) {
+        return;
+      }
+      scoreByToken.set(token, (scoreByToken.get(token) ?? 0) + weight);
+    };
+
+    add("workspace", "workspace", 2);
+    add("workspace", "project", 1);
+    add("workspace", "repo", 1);
+    add("workspace", "worktree", 2);
+
+    add("session", "session", 2);
+    add("session", "conversation", 2);
+    add("session", "thread", 1);
+    add("session", "chat", 1);
+
+    add("navigation", "route", 2);
+    add("navigation", "router", 2);
+    add("navigation", "navigate", 3);
+    add("navigation", "location", 1);
+    add("navigation", "path", 1);
+
+    add("state", "store", 2);
+    add("state", "state", 2);
+    add("state", "dispatch", 2);
+    add("state", "reducer", 2);
+    add("state", "atom", 2);
+    add("state", "selector", 1);
+
+    add("transport", "ipc", 3);
+    add("transport", "rpc", 3);
+    add("transport", "channel", 2);
+    add("transport", "request", 2);
+    add("transport", "response", 2);
+    add("transport", "event", 1);
+    add("transport", "message", 1);
+
+    add("runtime", "promise", 2);
+    add("runtime", "prototype", 2);
+    add("runtime", "symbol", 2);
+    add("runtime", "globalthis", 2);
+
+    add("parser", "parse", 3);
+    add("parser", "parser", 2);
+    add("parser", "token", 1);
+    add("parser", "grammar", 2);
+    add("parser", "schema", 2);
+    add("parser", "json", 1);
+    add("parser", "ast", 2);
+
+    add("config", "config", 2);
+    add("config", "setting", 2);
+    add("config", "preference", 2);
+    add("config", "option", 1);
+    add("config", "flag", 1);
+
+    add("filesystem", "file", 2);
+    add("filesystem", "fs", 1);
+    add("filesystem", "read", 1);
+    add("filesystem", "write", 1);
+    add("filesystem", "directory", 2);
+
+    add("diagram", "diagram", 3);
+    add("diagram", "cytoscape", 3);
+    add("diagram", "treemap", 3);
+    add("diagram", "layout", 1);
+
+    add("language", "language", 2);
+    add("language", "typescript", 2);
+    add("language", "javascript", 2);
+    add("language", "monaco", 2);
+    add("language", "theme", 2);
+
+    add("render", "render", 2);
+    add("render", "component", 1);
+    add("render", "view", 1);
+    add("render", "jsx", 2);
+
+    const familyFallback = (() => {
+      if (family === "State") {
+        return "state";
+      }
+      if (family === "Runtime") {
+        return "runtime";
+      }
+      if (family === "Language") {
+        return "language";
+      }
+      if (family === "Diagram") {
+        return "diagram";
+      }
+      if (family === "React") {
+        return "render";
+      }
+      if (family === "Preload") {
+        return "transport";
+      }
+      return fallbackTopicByArchetype(plan.archetype);
+    })();
+
+    let bestToken = "";
+    let bestScore = 0;
+    for (const [token, score] of scoreByToken.entries()) {
+      if (score > bestScore) {
+        bestScore = score;
+        bestToken = token;
+      }
+    }
+    if (bestToken.length > 0 && bestScore >= 2) {
+      return bestToken;
+    }
+    const planToken = planDomainPriorityTokens.find((token) => !targetedHotDomainStopTokens.has(token));
+    if (planToken) {
+      return planToken;
+    }
+    return familyFallback;
+  };
+  const applyTargetedHotLocalDomainRenamePass = (content: string): string => {
+    if (!targetedHotLocalRenameEnabled || !targetedHotWorstStoreServiceModule || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const familyLocalPattern = /^(store|service)(Runtime|State|React|Preload|Language|Diagram)Local([A-Za-z0-9]{2,})$/;
+    const legacyLocalPattern = /^(store|service)([A-Z][A-Za-z0-9]{3,})Local([A-Za-z0-9]{2,})$/;
+    interface TargetedDomainLocalEntry {
+      originalName: string;
+      prefix: "store" | "service";
+      family: TargetedCoreFamily;
+      suffix: string;
+      statementText: string;
+      referencedNames: Set<string>;
+    }
+    const entries: TargetedDomainLocalEntry[] = [];
+    for (const statement of sourceFile.statements) {
+      const declaredNames = collectStatementDeclaredNames(statement);
+      if (declaredNames.size < 1) {
+        continue;
+      }
+      const statementText = statement.getText(sourceFile);
+      const referencedNames = collectStatementReferencedNames(statement);
+      for (const declaredName of declaredNames) {
+        const match = declaredName.match(familyLocalPattern);
+        if (match) {
+          const prefix = match[1];
+          const family = match[2];
+          const suffix = match[3];
+          if (!prefix || !family || !suffix) {
+            continue;
+          }
+          const normalizedSuffix = suffix.toLowerCase();
+          const shouldRewrite =
+            suffix.length <= 4 ||
+            /^[A-Z0-9]{2,6}$/.test(suffix) ||
+            /^[A-Za-z]{2,4}$/.test(suffix) ||
+            isLikelyObfuscatedAliasToken(normalizedSuffix);
+          if (!shouldRewrite) {
+            continue;
+          }
+          entries.push({
+            originalName: declaredName,
+            prefix: prefix === "service" ? "service" : "store",
+            family: family as TargetedCoreFamily,
+            suffix,
+            statementText,
+            referencedNames,
+          });
+          continue;
+        }
+        const legacyMatch = declaredName.match(legacyLocalPattern);
+        if (!legacyMatch) {
+          continue;
+        }
+        const prefix = legacyMatch[1];
+        const middle = legacyMatch[2];
+        const suffix = legacyMatch[3];
+        if (!prefix || !middle || !suffix) {
+          continue;
+        }
+        const middleTokens = sanitizeAliasTokens(splitNameTokens(middle));
+        const weakMiddle =
+          middleTokens.length < 1 ||
+          middleTokens.every(
+            (token) =>
+              targetedHotWeakTokenSet.has(token) ||
+              isLikelyObfuscatedAliasToken(token) ||
+              /^(?:node|dep|chunk|index|baseuniq|basepick|angular|hee)$/.test(token),
+          );
+        const noisyMiddle = /(?:hee|node|dep|chunk|index|baseuniq|basepick|angular|abcdefghijklmnopqrstuvwxyz)/i.test(middle);
+        const shouldRewriteLegacy =
+          noisyMiddle ||
+          weakMiddle ||
+          suffix.length <= 4 ||
+          /^[A-Z0-9]{2,6}$/.test(suffix) ||
+          isLikelyObfuscatedAliasToken(suffix.toLowerCase());
+        if (!shouldRewriteLegacy) {
+          continue;
+        }
+        const inferredFamily = inferTargetedCoreLocalFamily(statementText);
+        entries.push({
+          originalName: declaredName,
+          prefix: prefix === "service" ? "service" : "store",
+          family: inferredFamily === "Core" ? "Runtime" : inferredFamily,
+          suffix,
+          statementText,
+          referencedNames,
+        });
+      }
+    }
+    if (entries.length < 1) {
+      return content;
+    }
+    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+    const renameMap = new Map<string, string>();
+    for (const entry of entries.sort((left, right) => left.originalName.localeCompare(right.originalName))) {
+      const domainToken = inferTargetedHotDomainLocalToken(entry.statementText, entry.referencedNames, entry.family);
+      const domainStem = toPascalCase(domainToken);
+      const shortTag = alphabeticStableSuffix(`${plan.moduleId}:${entry.originalName}:${domainToken}`, 2).toUpperCase();
+      const candidate = normalizeTargetedAliasBase(
+        sanitizeIdentifier(`${entry.prefix}${entry.family}${domainStem}Local${shortTag}`),
+      );
+      const resolved = nextUniqueIdentifier(compactIdentifier(candidate, 40), usedNames);
+      if (resolved === entry.originalName) {
+        continue;
+      }
+      renameMap.set(entry.originalName, resolved);
     }
     if (renameMap.size < 1) {
       return content;
@@ -4622,6 +4873,7 @@ function buildQualityModuleContent(
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
     const targetedHotFullLiftEnabled = targetedHotWorstStoreServiceModule;
     const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
+    const targetedHotUltraFullLift = targetedHotCriticalStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const preferChunkImportFallback =
       (plan.archetype === "service" || plan.archetype === "store") &&
@@ -4629,37 +4881,51 @@ function buildQualityModuleContent(
       !targetedHotFullLiftEnabled;
     const allowChunkIndexInline =
       targetedHotFullLiftEnabled || plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
-    const chunkIndexInlineImportThreshold = targetedHotAggressiveFullLift ? 2 : CHUNK_INDEX_INLINE_IMPORT_THRESHOLD;
+    const chunkIndexInlineImportThreshold = targetedHotUltraFullLift
+      ? 1
+      : targetedHotAggressiveFullLift
+        ? 2
+        : CHUNK_INDEX_INLINE_IMPORT_THRESHOLD;
     const chunkIndexInlineMaxNeedsPerModule = targetedHotFullLiftEnabled
-      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE, targetedHotAggressiveFullLift ? 104 : 72)
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE, targetedHotUltraFullLift ? 144 : targetedHotAggressiveFullLift ? 104 : 72)
       : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
     const chunkIndexInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled
-      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK, targetedHotAggressiveFullLift ? 24 : 16)
+      ? Math.max(CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK, targetedHotUltraFullLift ? 40 : targetedHotAggressiveFullLift ? 24 : 16)
       : CHUNK_INDEX_INLINE_MAX_NEEDS_PER_CHUNK;
     const targetedInlineMaxNeedsPerModule = targetedHotFullLiftEnabled
-      ? targetedHotAggressiveFullLift
-        ? 76
-        : 48
+      ? targetedHotUltraFullLift
+        ? 128
+        : targetedHotAggressiveFullLift
+          ? 76
+          : 48
       : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_MODULE;
     const targetedInlineMaxNeedsPerChunk = targetedHotFullLiftEnabled
-      ? targetedHotAggressiveFullLift
-        ? 24
-        : 16
+      ? targetedHotUltraFullLift
+        ? 40
+        : targetedHotAggressiveFullLift
+          ? 24
+          : 16
       : TARGETED_CHUNK_INDEX_INLINE_MAX_NEEDS_PER_TARGET_CHUNK;
     const targetedInlineMaxSelectedStatements = targetedHotFullLiftEnabled
-      ? targetedHotAggressiveFullLift
-        ? 56
-        : 36
+      ? targetedHotUltraFullLift
+        ? 84
+        : targetedHotAggressiveFullLift
+          ? 56
+          : 36
       : TARGETED_CHUNK_INDEX_INLINE_MAX_SELECTED_STATEMENTS;
     const targetedInlineMaxDeclarationChars = targetedHotFullLiftEnabled
-      ? targetedHotAggressiveFullLift
-        ? 64000
-        : 42000
+      ? targetedHotUltraFullLift
+        ? 96000
+        : targetedHotAggressiveFullLift
+          ? 64000
+          : 42000
       : TARGETED_CHUNK_INDEX_INLINE_MAX_DECLARATION_CHARS;
     const targetedInlineMaxRequiredImports = targetedHotFullLiftEnabled
-      ? targetedHotAggressiveFullLift
-        ? 64
-        : 40
+      ? targetedHotUltraFullLift
+        ? 104
+        : targetedHotAggressiveFullLift
+          ? 64
+          : 40
       : TARGETED_CHUNK_INDEX_INLINE_MAX_REQUIRED_IMPORTS;
     const plannerPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
@@ -5623,8 +5889,10 @@ function buildQualityModuleContent(
       content,
     }));
   const moduleContent = applyImportHygienePass(
-    applyTargetedHotCoreFamilySweep(
-      applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+    applyTargetedHotLocalDomainRenamePass(
+      applyTargetedHotCoreFamilySweep(
+        applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+      ),
     ),
   );
   return {
