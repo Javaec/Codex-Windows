@@ -2082,6 +2082,7 @@ function buildEslintConfig(): string {
       '      "no-case-declarations": "off",',
       '      "no-unreachable": "off",',
       '      "no-func-assign": "off",',
+      '      "no-self-assign": "off",',
       '      "no-sparse-arrays": "off",',
       '      "no-irregular-whitespace": "off",',
       '      "no-unsafe-finally": "off",',
@@ -6791,19 +6792,435 @@ function buildQualityModuleContent(
     lines.push(`export { ${entry.localIdentifier} as ${entry.exportName} };`);
   }
   lines.push("");
-  const assetFiles = [...assetFilesByPath.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([absolutePath, content]) => ({
-      absolutePath,
-      content,
-    }));
-  const moduleContent = applyImportHygienePass(
+  const applyTargetedG003VendorSplit = (
+    contentText: string,
+  ): { content: string; vendorAssetFile?: EmittedAssetFile } => {
+    if (!targetedHotStoreG003Module || contentText.length < 1) {
+      return { content: contentText };
+    }
+    const source = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      contentText,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    interface ImportBindingEntry {
+      statementIndex: number;
+      modulePath: string;
+      kind: "namespace" | "default" | "named";
+      importedName: string;
+      localName: string;
+    }
+    const importBindingByLocalName = new Map<string, ImportBindingEntry>();
+    const importDeclarationByIndex = new Map<number, ts.ImportDeclaration>();
+    const localDeclarationStatementIndexByName = new Map<string, number>();
+    for (let statementIndex = 0; statementIndex < source.statements.length; statementIndex += 1) {
+      const statement = source.statements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      if (ts.isImportDeclaration(statement)) {
+        importDeclarationByIndex.set(statementIndex, statement);
+        if (!statement.importClause || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
+          continue;
+        }
+        const modulePath = statement.moduleSpecifier.text;
+        if (statement.importClause.name) {
+          importBindingByLocalName.set(statement.importClause.name.text, {
+            statementIndex,
+            modulePath,
+            kind: "default",
+            importedName: "default",
+            localName: statement.importClause.name.text,
+          });
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings) {
+          continue;
+        }
+        if (ts.isNamespaceImport(namedBindings)) {
+          importBindingByLocalName.set(namedBindings.name.text, {
+            statementIndex,
+            modulePath,
+            kind: "namespace",
+            importedName: "*",
+            localName: namedBindings.name.text,
+          });
+          continue;
+        }
+        for (const specifier of namedBindings.elements) {
+          const localName = specifier.name.text;
+          const importedName = specifier.propertyName ? specifier.propertyName.text : specifier.name.text;
+          importBindingByLocalName.set(localName, {
+            statementIndex,
+            modulePath,
+            kind: "named",
+            importedName,
+            localName,
+          });
+        }
+        continue;
+      }
+      if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+        continue;
+      }
+      const declaredNames = collectStatementDeclaredNames(statement);
+      for (const declaredName of declaredNames) {
+        if (!localDeclarationStatementIndexByName.has(declaredName)) {
+          localDeclarationStatementIndexByName.set(declaredName, statementIndex);
+        }
+      }
+    }
+
+    const vendorSeedNamePattern = /^(?:storeReact|storeReactLocal|storeRuntime(?:Core)?Local)/;
+    const vendorSeedTextPattern =
+      /react-jsx-runtime\.production\.js|react\.production\.js|react\.transitional\.element|__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE/i;
+    const candidateStatementIndices: number[] = [];
+    for (let statementIndex = 0; statementIndex < source.statements.length; statementIndex += 1) {
+      if (importDeclarationByIndex.has(statementIndex)) {
+        continue;
+      }
+      const statement = source.statements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+        continue;
+      }
+      candidateStatementIndices.push(statementIndex);
+    }
+    const includedStatementIndices = new Set<number>();
+    for (const statementIndex of candidateStatementIndices) {
+      const statement = source.statements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      const declaredNames = collectStatementDeclaredNames(statement);
+      const hasSeedName = [...declaredNames].some((name) => vendorSeedNamePattern.test(name));
+      const statementText = statement.getText(source);
+      const hasSeedText = vendorSeedTextPattern.test(statementText);
+      if (hasSeedName || hasSeedText) {
+        includedStatementIndices.add(statementIndex);
+      }
+    }
+    if (includedStatementIndices.size < 6) {
+      return { content: contentText };
+    }
+
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const statementIndex of [...includedStatementIndices]) {
+        const statement = source.statements[statementIndex];
+        if (!statement) {
+          continue;
+        }
+        const referencedNames = collectStatementReferencedNames(statement);
+        for (const referencedName of referencedNames) {
+          const dependencyStatementIndex = localDeclarationStatementIndexByName.get(referencedName);
+          if (dependencyStatementIndex === undefined || includedStatementIndices.has(dependencyStatementIndex)) {
+            continue;
+          }
+          if (importDeclarationByIndex.has(dependencyStatementIndex)) {
+            continue;
+          }
+          includedStatementIndices.add(dependencyStatementIndex);
+          expanded = true;
+        }
+      }
+    }
+
+    if (includedStatementIndices.size < 6) {
+      return { content: contentText };
+    }
+    const extractedDeclaredNames = new Set<string>();
+    const extractedReferencedNames = new Set<string>();
+    for (const statementIndex of includedStatementIndices) {
+      const statement = source.statements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      const declaredNames = collectStatementDeclaredNames(statement);
+      const referencedNames = collectStatementReferencedNames(statement);
+      for (const declaredName of declaredNames) {
+        extractedDeclaredNames.add(declaredName);
+      }
+      for (const referencedName of referencedNames) {
+        extractedReferencedNames.add(referencedName);
+      }
+    }
+    if (extractedDeclaredNames.size < 4) {
+      return { content: contentText };
+    }
+
+    const unresolvedLocalReferences: string[] = [];
+    const neededImportBindingsByStatementIndex = new Map<number, Set<string>>();
+    for (const referencedName of extractedReferencedNames) {
+      if (extractedDeclaredNames.has(referencedName)) {
+        continue;
+      }
+      const localDeclarationStatementIndex = localDeclarationStatementIndexByName.get(referencedName);
+      if (localDeclarationStatementIndex !== undefined && !includedStatementIndices.has(localDeclarationStatementIndex)) {
+        unresolvedLocalReferences.push(referencedName);
+        continue;
+      }
+      const importBinding = importBindingByLocalName.get(referencedName);
+      if (!importBinding) {
+        continue;
+      }
+      const bucket = neededImportBindingsByStatementIndex.get(importBinding.statementIndex) ?? new Set<string>();
+      bucket.add(referencedName);
+      neededImportBindingsByStatementIndex.set(importBinding.statementIndex, bucket);
+    }
+    if (unresolvedLocalReferences.length > 0) {
+      return { content: contentText };
+    }
+
+    const buildVendorImportDeclaration = (
+      importDeclaration: ts.ImportDeclaration,
+      neededLocalNames: ReadonlySet<string>,
+    ): ts.ImportDeclaration | undefined => {
+      if (!importDeclaration.importClause || !ts.isStringLiteralLike(importDeclaration.moduleSpecifier)) {
+        return undefined;
+      }
+      const importClause = importDeclaration.importClause;
+      const defaultImportName = importClause.name?.text;
+      const includeDefault = defaultImportName ? neededLocalNames.has(defaultImportName) : false;
+      const namedBindings = importClause.namedBindings;
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+        if (!neededLocalNames.has(namedBindings.name.text)) {
+          return undefined;
+        }
+        return importDeclaration;
+      }
+      const keptNamedSpecifiers: ts.ImportSpecifier[] = [];
+      if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          const localName = element.name.text;
+          if (!neededLocalNames.has(localName)) {
+            continue;
+          }
+          keptNamedSpecifiers.push(element);
+        }
+      }
+      if (!includeDefault && keptNamedSpecifiers.length < 1) {
+        return undefined;
+      }
+      return ts.factory.createImportDeclaration(
+        importDeclaration.modifiers,
+        ts.factory.createImportClause(
+          importClause.isTypeOnly,
+          includeDefault && defaultImportName ? ts.factory.createIdentifier(defaultImportName) : undefined,
+          keptNamedSpecifiers.length > 0 ? ts.factory.createNamedImports(keptNamedSpecifiers) : undefined,
+        ),
+        importDeclaration.moduleSpecifier,
+        importDeclaration.attributes,
+      );
+    };
+
+    const vendorImportStatements: ts.Statement[] = [];
+    for (const [statementIndex, neededLocalNames] of [...neededImportBindingsByStatementIndex.entries()].sort(
+      (left, right) => left[0] - right[0],
+    )) {
+      const importDeclaration = importDeclarationByIndex.get(statementIndex);
+      if (!importDeclaration) {
+        continue;
+      }
+      const vendorImportDeclaration = buildVendorImportDeclaration(importDeclaration, neededLocalNames);
+      if (vendorImportDeclaration) {
+        vendorImportStatements.push(vendorImportDeclaration);
+      }
+    }
+
+    const extractedStatements = [...includedStatementIndices]
+      .sort((left, right) => left - right)
+      .map((statementIndex) => source.statements[statementIndex])
+      .filter((statement): statement is ts.Statement => Boolean(statement));
+    const exportedNames = [...extractedDeclaredNames].sort((left, right) => left.localeCompare(right));
+    const remainingStatements = source.statements.filter((_, statementIndex) => !includedStatementIndices.has(statementIndex));
+    const topLevelDeclaredNamesInMain = new Set<string>();
+    for (const statement of remainingStatements) {
+      if (!statement || ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      const declaredNames = collectStatementDeclaredNames(statement);
+      for (const declaredName of declaredNames) {
+        topLevelDeclaredNamesInMain.add(declaredName);
+      }
+    }
+    const collectAssignedIdentifiers = (statement: ts.Statement): Set<string> => {
+      const assigned = new Set<string>();
+      const isAssignmentOperatorKind = (kind: ts.SyntaxKind): boolean =>
+        kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+      const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && isAssignmentOperatorKind(node.operatorToken.kind) && ts.isIdentifier(node.left)) {
+          assigned.add(node.left.text);
+        } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+          if (
+            (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
+            ts.isIdentifier(node.operand)
+          ) {
+            assigned.add(node.operand.text);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(statement);
+      return assigned;
+    };
+    const reassignedVendorExportNames = new Set<string>();
+    for (const statement of remainingStatements) {
+      if (!statement || ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      const assignedInStatement = collectAssignedIdentifiers(statement);
+      for (const assignedName of assignedInStatement) {
+        if (!extractedDeclaredNames.has(assignedName)) {
+          continue;
+        }
+        if (topLevelDeclaredNamesInMain.has(assignedName)) {
+          continue;
+        }
+        reassignedVendorExportNames.add(assignedName);
+      }
+    }
+    const usedVendorAliasNames = new Set<string>([...topLevelDeclaredNamesInMain, ...exportedNames]);
+    const vendorImportAliasByExportName = new Map<string, string>();
+    for (const reassignedName of [...reassignedVendorExportNames].sort((left, right) => left.localeCompare(right))) {
+      const aliasName = nextUniqueIdentifier(`${reassignedName}Vendor`, usedVendorAliasNames);
+      usedVendorAliasNames.add(aliasName);
+      vendorImportAliasByExportName.set(reassignedName, aliasName);
+    }
+    const vendorExportDeclaration = ts.factory.createExportDeclaration(
+      undefined,
+      false,
+      ts.factory.createNamedExports(
+        exportedNames.map((name) =>
+          ts.factory.createExportSpecifier(false, undefined, ts.factory.createIdentifier(name)),
+        ),
+      ),
+      undefined,
+      undefined,
+    );
+    const vendorMutableAliasStatements: ts.Statement[] = [...vendorImportAliasByExportName.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map(([exportName, aliasName]) =>
+        ts.factory.createVariableStatement(
+          undefined,
+          ts.factory.createVariableDeclarationList(
+            [
+              ts.factory.createVariableDeclaration(
+                ts.factory.createIdentifier(exportName),
+                undefined,
+                undefined,
+                ts.factory.createIdentifier(aliasName),
+              ),
+            ],
+            ts.NodeFlags.Let,
+          ),
+        ),
+      );
+    const vendorFileStatements: ts.Statement[] = [
+      ...vendorImportStatements,
+      ...extractedStatements,
+      vendorExportDeclaration,
+    ];
+    const vendorSourceFile = ts.factory.updateSourceFile(source, vendorFileStatements);
+    const vendorPrelude = [
+      "// @ts-nocheck",
+      "// Targeted vendor split: React/runtime block extracted from store-state-g003 quality module.",
+      "",
+    ].join("\n");
+    const vendorContent = `${vendorPrelude}${printer.printFile(vendorSourceFile)}`;
+    const vendorRelativeImportPath = "./vendor/store-state-g003-react-runtime.js";
+    const vendorAbsolutePath = path.join(
+      outputProjectDirectory,
+      "src",
+      "services",
+      "store",
+      "vendor",
+      "store-state-g003-react-runtime.ts",
+    );
+
+    const vendorImportDeclaration = ts.factory.createImportDeclaration(
+      undefined,
+      ts.factory.createImportClause(
+        false,
+        undefined,
+        ts.factory.createNamedImports(
+          exportedNames.map((name) =>
+            ts.factory.createImportSpecifier(
+              false,
+              ts.factory.createIdentifier(name),
+              ts.factory.createIdentifier(vendorImportAliasByExportName.get(name) ?? name),
+            ),
+          ),
+        ),
+      ),
+      ts.factory.createStringLiteral(vendorRelativeImportPath),
+      undefined,
+    );
+
+    let nextMainStatements: ts.Statement[] = [];
+    const importStatementIndices = [...importDeclarationByIndex.keys()].sort((left, right) => left - right);
+    const lastImportStatementIndex = importStatementIndices.length > 0 ? (importStatementIndices[importStatementIndices.length - 1] ?? -1) : -1;
+    let vendorImportInserted = false;
+    for (let statementIndex = 0; statementIndex < source.statements.length; statementIndex += 1) {
+      if (!vendorImportInserted && statementIndex > lastImportStatementIndex) {
+        nextMainStatements.push(vendorImportDeclaration);
+        nextMainStatements.push(...vendorMutableAliasStatements);
+        vendorImportInserted = true;
+      }
+      if (includedStatementIndices.has(statementIndex)) {
+        continue;
+      }
+      const statement = source.statements[statementIndex];
+      if (!statement) {
+        continue;
+      }
+      nextMainStatements.push(statement);
+    }
+    if (!vendorImportInserted) {
+      nextMainStatements = [vendorImportDeclaration, ...vendorMutableAliasStatements, ...nextMainStatements];
+    }
+
+    const nextMainSource = ts.factory.updateSourceFile(source, nextMainStatements);
+    const rewrittenMainContent = printer.printFile(nextMainSource);
+    return {
+      content: rewrittenMainContent,
+      vendorAssetFile: {
+        absolutePath: vendorAbsolutePath,
+        content: vendorContent,
+      },
+    };
+  };
+
+  const qualityPassContent = applyImportHygienePass(
     applyTargetedHotLocalDomainRenamePass(
       applyTargetedHotCoreFamilySweep(
         applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
       ),
     ),
   );
+  const vendorSplitResult = applyTargetedG003VendorSplit(qualityPassContent);
+  if (vendorSplitResult.vendorAssetFile) {
+    const existingVendorAsset = assetFilesByPath.get(vendorSplitResult.vendorAssetFile.absolutePath);
+    if (existingVendorAsset && existingVendorAsset !== vendorSplitResult.vendorAssetFile.content) {
+      throw new Error(
+        `buildQualityModuleContent: targeted vendor split collision at ${vendorSplitResult.vendorAssetFile.absolutePath}`,
+      );
+    }
+    assetFilesByPath.set(vendorSplitResult.vendorAssetFile.absolutePath, vendorSplitResult.vendorAssetFile.content);
+  }
+  const moduleContent = applyImportHygienePass(vendorSplitResult.content);
+  const assetFiles = [...assetFilesByPath.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([absolutePath, content]) => ({
+      absolutePath,
+      content,
+    }));
   const normalizedModuleFilePath = plan.filePath.replace(/\\/g, "/").toLowerCase();
   const lineCount = moduleContent.split(/\r?\n/).length;
   if (normalizedModuleFilePath.startsWith("src/services/store/")) {
