@@ -202,3 +202,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduces noisy cross-chunk inlining and keeps non-hot files cleaner and more stable.
 - Regression cycle aggregate now tracks/guards hot-first discipline (`hotFocusFileAverage`, `hotFirstOnlyAllProfiles`) and fails KPI when profile output leaves hot-first mode.
   Verified reason: enforces pipeline behavior at suite level, not just per-run local checks.
+- `run-regression-cycles` now publishes cycle-local worst-file report to canonical `regression/manual-refactor-candidates.json` after every cycle.
+  Verified reason: next cycle hot-rerender seeds always come from the most recent completed cycle (same cadence as merged-evidence promotion), removing stale seed drift.

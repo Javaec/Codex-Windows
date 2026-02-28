@@ -7,7 +7,7 @@ import { loadRegressionSuite, loadToolWeights } from "./suite-loader";
 import { RegressionProfile, RegressionSuite } from "./suite-model";
 import { resolveNamingMemoryProfilePath } from "../naming/profile-store";
 import { hashFileSha256 } from "../utils/hash";
-import { ensureDirectory, writeJsonFile } from "../utils/fs-json";
+import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 
 interface CliOptions {
   snapshotAsarPath: string;
@@ -113,6 +113,13 @@ interface ManualRefactorAccumulator {
   profiles: Set<string>;
   moduleIds: Set<string>;
   stableProjects: Set<string>;
+}
+
+interface ManualRefactorCandidatesReport {
+  generatedAtIso: string;
+  suiteRunId: string;
+  candidateCount: number;
+  candidates: ManualRefactorCandidate[];
 }
 
 const KPI_TARGET_CLASS_COVERAGE = 0.95;
@@ -635,11 +642,25 @@ async function writeManualRefactorCandidates(
   return reportPath;
 }
 
+async function publishManualRefactorCandidates(
+  sourceReportPath: string,
+  destinationReportPath: string,
+): Promise<void> {
+  const report = await readJsonFile<ManualRefactorCandidatesReport>(sourceReportPath);
+  if (!Array.isArray(report.candidates)) {
+    throw new Error(`manual-refactor: invalid candidates report at ${sourceReportPath}`);
+  }
+  await ensureDirectory(path.dirname(destinationReportPath));
+  await writeJsonFile(destinationReportPath, report);
+}
+
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
   await ensureDirectory(cli.outputRoot);
   await ensureDirectory(path.dirname(cli.baselinePath));
+  const canonicalManualRefactorCandidatesPath = path.join(projectRoot, "regression", "manual-refactor-candidates.json");
+  await ensureDirectory(path.dirname(canonicalManualRefactorCandidatesPath));
 
   const suite = await loadRegressionSuite(cli.suiteConfigPath);
   validateFixedRegressionProfiles(suite);
@@ -684,6 +705,13 @@ async function run(): Promise<void> {
       promotionBudget: cli.promotionBudgetPerCycle,
     });
 
+    const cycleDirectory = path.join(cli.outputRoot, sanitizeToken(cycleRunId));
+    const cycleManualRefactorCandidatesPath = await writeManualRefactorCandidates(execution, cycleDirectory);
+    await publishManualRefactorCandidates(
+      cycleManualRefactorCandidatesPath,
+      canonicalManualRefactorCandidatesPath,
+    );
+
     const previousStrike = previousSummary ? previousSummary.stagnationStrike : 0;
     const summary = summarizeCycle(
       cycleIndex,
@@ -716,10 +744,7 @@ async function run(): Promise<void> {
     throw new Error("No regression cycle was executed");
   }
 
-  const manualRefactorCandidatesPath = await writeManualRefactorCandidates(
-    lastExecution,
-    path.dirname(cli.baselinePath),
-  );
+  const manualRefactorCandidatesPath = canonicalManualRefactorCandidatesPath;
 
   const report: CycleReport = {
     generatedAtIso: new Date().toISOString(),

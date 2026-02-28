@@ -20,14 +20,14 @@
     "variableCoverageAverage": 1,
     "worstFileDecileScoreAverage": 0.7649
   },
-  "generatedAtIso": "2026-02-28T19:45:57.840Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\merged-evidence.json",
+  "generatedAtIso": "2026-02-28T20:50:44.748Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 193965,
+      "durationMs": 183454,
       "fileQuality": {
         "fileCount": 20,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "hotFirstOnly": true,
         "hotFocusFileCount": 14,
@@ -214,7 +214,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 22,
@@ -246,10 +246,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-01-core-no-binary",
-      "runId": "reg-cycle-20260228-193335-c01-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-01-core-no-binary",
+      "runId": "reg-cycle-20260228-203919-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -259,14 +259,14 @@
         "total": 0.9619,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-01-core-no-binary\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\adaptive-weights\\core-no-binary.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-01-core-no-binary\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\adaptive-weights\\core-no-binary.weights.json"
     },
     {
-      "durationMs": 174911,
+      "durationMs": 160050,
       "fileQuality": {
         "fileCount": 20,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-02-core-no-binary-no-pretty\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "hotFirstOnly": true,
         "hotFocusFileCount": 14,
@@ -453,7 +453,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\logs\\02-core-no-binary-no-pretty.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\logs\\02-core-no-binary-no-pretty.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 22,
@@ -485,10 +485,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-02-core-no-binary-no-pretty\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-02-core-no-binary-no-pretty\\run-metrics.json",
       "profileId": "core-no-binary-no-pretty",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-02-core-no-binary-no-pretty",
-      "runId": "reg-cycle-20260228-193335-c01-02-core-no-binary-no-pretty",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-02-core-no-binary-no-pretty",
+      "runId": "reg-cycle-20260228-203919-c01-02-core-no-binary-no-pretty",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -498,14 +498,14 @@
         "total": 0.9619,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-02-core-no-binary-no-pretty\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-02-core-no-binary-no-pretty\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\adaptive-weights\\core-no-binary-no-pretty.weights.json"
     },
     {
-      "durationMs": 181830,
+      "durationMs": 166347,
       "fileQuality": {
         "fileCount": 19,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-03-core-no-binary-top120\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "hotFirstOnly": true,
         "hotFocusFileCount": 13,
@@ -692,7 +692,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\logs\\03-core-no-binary-top120.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\logs\\03-core-no-binary-top120.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 22,
@@ -724,10 +724,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-03-core-no-binary-top120\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-03-core-no-binary-top120\\run-metrics.json",
       "profileId": "core-no-binary-top120",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-03-core-no-binary-top120",
-      "runId": "reg-cycle-20260228-193335-c01-03-core-no-binary-top120",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-03-core-no-binary-top120",
+      "runId": "reg-cycle-20260228-203919-c01-03-core-no-binary-top120",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -737,14 +737,14 @@
         "total": 0.9619,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-03-core-no-binary-top120\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\adaptive-weights\\core-no-binary-top120.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-03-core-no-binary-top120\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\adaptive-weights\\core-no-binary-top120.weights.json"
     },
     {
-      "durationMs": 189751,
+      "durationMs": 174028,
       "fileQuality": {
         "fileCount": 20,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-04-core-runtime-probe-soft\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "hotFirstOnly": true,
         "hotFocusFileCount": 14,
@@ -931,7 +931,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\logs\\04-core-runtime-probe-soft.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\logs\\04-core-runtime-probe-soft.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 22,
@@ -963,10 +963,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-04-core-runtime-probe-soft\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-04-core-runtime-probe-soft\\run-metrics.json",
       "profileId": "core-runtime-probe-soft",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-04-core-runtime-probe-soft",
-      "runId": "reg-cycle-20260228-193335-c01-04-core-runtime-probe-soft",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-04-core-runtime-probe-soft",
+      "runId": "reg-cycle-20260228-203919-c01-04-core-runtime-probe-soft",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -976,12 +976,12 @@
         "total": 0.9619,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-193335-c01-04-core-runtime-probe-soft\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-193335-c01\\adaptive-weights\\core-runtime-probe-soft.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-cycle-20260228-203919-c01-04-core-runtime-probe-soft\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\cycle-20260228-203919-c01\\adaptive-weights\\core-runtime-probe-soft.weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "cycle-20260228-193335-c01",
+  "suiteRunId": "cycle-20260228-203919-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }
