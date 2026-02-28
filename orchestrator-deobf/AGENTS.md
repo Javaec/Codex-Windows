@@ -160,3 +160,9 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: large literal payloads from inline paths are externalized to `assets/payloads/*`, reducing heavy `services/store` module size without proxy fallback.
 - Import-hygiene finalizer now demotes reassigned `const` declarations to `let` by AST assignment scan.
   Verified reason: removes residual `no-const-assign` lint failures in heavy lifted modules without broad lint-rule suppression.
+- Namespace import ownership-reduction now applies to all hot worst store/service modules (`store-state-g*`, `service-run.ts`), not only critical pair.
+  Verified reason: allows `store-state-g003.ts` to use the same direct-import + single-use conversion path and reach target namespace-import band without opening generic noise.
+- Added strict size fail-fast gate for `src/services/store/*` quality modules (`12000` lines max).
+  Verified reason: hard-blocks regressions where heavy full-lift reintroduces 40k+ line store modules.
+- Added strict size fail-fast gate for `src/services/*` quality modules (`12000` lines max).
+  Verified reason: extends hard-blocking to non-store service modules so oversized service regressions fail at emit-time.

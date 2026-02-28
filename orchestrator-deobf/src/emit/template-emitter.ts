@@ -188,6 +188,8 @@ const STATIC_PAYLOAD_ONLY_RATIO_MIN = 0.8;
 const STATIC_PAYLOAD_ONLY_MAX_FUNCTION_CLASS_COUNT = 1;
 const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
+const STORE_MODULE_MAX_LINES_FAILFAST = 12000;
+const SERVICE_MODULE_MAX_LINES_FAILFAST = 12000;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
   "liftedSourcePath",
   "liftedImportResolutionCount",
@@ -4552,7 +4554,7 @@ function buildQualityModuleContent(
       return score;
     };
     const buildPreferredDirectImportAliasSet = (source: ts.SourceFile): Set<string> => {
-      if (!targetedHotCriticalStoreServiceModule) {
+      if (!targetedHotWorstStoreServiceModule) {
         return new Set<string>();
       }
       const metadataByAlias = collectNamespaceAliasMetadata(source);
@@ -4759,7 +4761,7 @@ function buildQualityModuleContent(
       return printer.printFile(convertedSource);
     };
     const applySingleUseNamespaceAliasFallbackConversion = (contentText: string): string => {
-      if (!targetedHotCriticalStoreServiceModule || contentText.length < 1) {
+      if (!targetedHotWorstStoreServiceModule || contentText.length < 1) {
         return contentText;
       }
       const source = ts.createSourceFile(
@@ -5017,7 +5019,7 @@ function buildQualityModuleContent(
     const preferredDirectImportAliases = buildPreferredDirectImportAliasSet(sourceFile);
     let sourceForCleanup = sourceFile;
     let contentForCleanup = content;
-    if (targetedHotCriticalStoreServiceModule) {
+    if (targetedHotWorstStoreServiceModule) {
       const initialReferenceCounts = collectIdentifierReferenceCounts(sourceFile);
       const inlineCandidatesByLocal = new Map<string, { namespaceAlias: string; importedName: string }>();
       const inlineUsageCeiling = 2;
@@ -6691,6 +6693,22 @@ function buildQualityModuleContent(
       ),
     ),
   );
+  const normalizedModuleFilePath = plan.filePath.replace(/\\/g, "/").toLowerCase();
+  const lineCount = moduleContent.split(/\r?\n/).length;
+  if (normalizedModuleFilePath.startsWith("src/services/store/")) {
+    if (lineCount > STORE_MODULE_MAX_LINES_FAILFAST) {
+      throw new Error(
+        `buildQualityModuleContent: store module size fail-fast for ${plan.moduleId} (${lineCount} lines > ${STORE_MODULE_MAX_LINES_FAILFAST})`,
+      );
+    }
+  }
+  if (normalizedModuleFilePath.startsWith("src/services/")) {
+    if (lineCount > SERVICE_MODULE_MAX_LINES_FAILFAST) {
+      throw new Error(
+        `buildQualityModuleContent: service module size fail-fast for ${plan.moduleId} (${lineCount} lines > ${SERVICE_MODULE_MAX_LINES_FAILFAST})`,
+      );
+    }
+  }
   return {
     content: moduleContent,
     assetFiles,
