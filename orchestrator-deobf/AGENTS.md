@@ -184,3 +184,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: lifted vendor/runtime chunks intentionally preserve opaque assignment patterns from upstream bundles; keeping this rule off avoids false-positive gate failures without affecting quality module linting.
 - Targeted g003 vendor import shaping now imports only symbols referenced by the remaining main module after extraction.
   Verified reason: reduced vendor import surface in `src/services/store/store-state-g003.ts` from near-wholesale extracted export set to a focused subset while keeping vendor split, quality gates, and green gates stable.
+- Final import-hygiene pass now splits oversized named imports into multiple deterministic imports (`24` specifiers per statement).
+  Verified reason: hot modules keep the same symbol surface but avoid single giant import declarations, improving readability and diffability in `store-state-g003.ts` while preserving green gates.

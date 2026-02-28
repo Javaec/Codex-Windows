@@ -4441,6 +4441,56 @@ function buildQualityModuleContent(
       }
       return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
     };
+    const splitLongNamedImportDeclarations = (contentText: string): string => {
+      if (contentText.length < 1) {
+        return contentText;
+      }
+      const source = ts.createSourceFile(
+        `${plan.moduleId}.ts`,
+        contentText,
+        ts.ScriptTarget.ESNext,
+        true,
+        ts.ScriptKind.TS,
+      );
+      const maxSpecifiersPerImport = 24;
+      let changed = false;
+      const nextStatements: ts.Statement[] = [];
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          nextStatements.push(statement);
+          continue;
+        }
+        const importClause = statement.importClause;
+        const namedBindings = importClause.namedBindings;
+        if (!namedBindings || !ts.isNamedImports(namedBindings) || namedBindings.elements.length <= maxSpecifiersPerImport) {
+          nextStatements.push(statement);
+          continue;
+        }
+        changed = true;
+        const specifiers = [...namedBindings.elements];
+        const defaultImportName = importClause.name?.text;
+        for (let offset = 0; offset < specifiers.length; offset += maxSpecifiersPerImport) {
+          const slice = specifiers.slice(offset, offset + maxSpecifiersPerImport);
+          const splitImportClause = ts.factory.createImportClause(
+            importClause.isTypeOnly,
+            offset === 0 && defaultImportName ? ts.factory.createIdentifier(defaultImportName) : undefined,
+            ts.factory.createNamedImports(slice),
+          );
+          nextStatements.push(
+            ts.factory.createImportDeclaration(
+              statement.modifiers,
+              splitImportClause,
+              statement.moduleSpecifier,
+              statement.attributes,
+            ),
+          );
+        }
+      }
+      if (!changed) {
+        return contentText;
+      }
+      return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
+    };
     interface NamespaceBindingEntry {
       localName: string;
       importedName: string;
@@ -5311,11 +5361,15 @@ function buildQualityModuleContent(
     }
     if (!importChanged) {
       const directConverted = applyPreferredDirectImportConversion(importSource, preferredDirectImportAliases);
-      return demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted));
+      return splitLongNamedImportDeclarations(
+        demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+      );
     }
     const importFilteredSource = ts.factory.updateSourceFile(importSource, importFilteredStatements);
     const directConverted = applyPreferredDirectImportConversion(importFilteredSource, preferredDirectImportAliases);
-    return demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted));
+    return splitLongNamedImportDeclarations(
+      demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+    );
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
@@ -7211,6 +7265,56 @@ function buildQualityModuleContent(
       },
     };
   };
+  const splitLongNamedImportsFinalPass = (contentText: string): string => {
+    if (contentText.length < 1) {
+      return contentText;
+    }
+    const source = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      contentText,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const finalImportPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const maxSpecifiersPerImport = 24;
+    let changed = false;
+    const nextStatements: ts.Statement[] = [];
+    for (const statement of source.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+        nextStatements.push(statement);
+        continue;
+      }
+      const importClause = statement.importClause;
+      const namedBindings = importClause.namedBindings;
+      if (!namedBindings || !ts.isNamedImports(namedBindings) || namedBindings.elements.length <= maxSpecifiersPerImport) {
+        nextStatements.push(statement);
+        continue;
+      }
+      changed = true;
+      const specifiers = [...namedBindings.elements];
+      const defaultImportName = importClause.name?.text;
+      for (let offset = 0; offset < specifiers.length; offset += maxSpecifiersPerImport) {
+        const slice = specifiers.slice(offset, offset + maxSpecifiersPerImport);
+        nextStatements.push(
+          ts.factory.createImportDeclaration(
+            statement.modifiers,
+            ts.factory.createImportClause(
+              importClause.isTypeOnly,
+              offset === 0 && defaultImportName ? ts.factory.createIdentifier(defaultImportName) : undefined,
+              ts.factory.createNamedImports(slice),
+            ),
+            statement.moduleSpecifier,
+            statement.attributes,
+          ),
+        );
+      }
+    }
+    if (!changed) {
+      return contentText;
+    }
+    return finalImportPrinter.printFile(ts.factory.updateSourceFile(source, nextStatements));
+  };
 
   const qualityPassContent = applyImportHygienePass(
     applyTargetedHotLocalDomainRenamePass(
@@ -7229,7 +7333,7 @@ function buildQualityModuleContent(
     }
     assetFilesByPath.set(vendorSplitResult.vendorAssetFile.absolutePath, vendorSplitResult.vendorAssetFile.content);
   }
-  const moduleContent = applyImportHygienePass(vendorSplitResult.content);
+  const moduleContent = splitLongNamedImportsFinalPass(applyImportHygienePass(vendorSplitResult.content));
   const assetFiles = [...assetFilesByPath.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([absolutePath, content]) => ({
