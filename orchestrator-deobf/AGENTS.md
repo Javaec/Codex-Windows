@@ -190,3 +190,11 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: heavy inline JSON/theme payloads are moved to `assets/payloads/*` while preserving deterministic output.
 - Final quality-module post-pass now enforces `// @ts-nocheck` header after vendor-split/import-shaping rewrites.
   Verified reason: prevents TypeScript typecheck/build regressions when printer-based rewrites drop leading comments in hot modules.
+- Emitter now runs in hot-first-only rerender mode: each cycle targets only top worst hot modules (bounded to 5..10) and marks `hotFocus` in file-quality report.
+  Verified reason: concentrates heavy rewrites on `service/store` hotspots and avoids broad project churn.
+- Monolith-first is now strict in quality emit: `emitTemplateProject` fails fast when monolith layout hints are empty.
+  Verified reason: keeps topic/path synthesis anchored to monolith signal source-of-truth instead of fallback drift.
+- Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.
+  Verified reason: reduces noisy cross-chunk inlining and keeps non-hot files cleaner and more stable.
+- Regression cycle aggregate now tracks/guards hot-first discipline (`hotFocusFileAverage`, `hotFirstOnlyAllProfiles`) and fails KPI when profile output leaves hot-first mode.
+  Verified reason: enforces pipeline behavior at suite level, not just per-run local checks.

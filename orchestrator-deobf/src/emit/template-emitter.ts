@@ -28,6 +28,7 @@ interface ModulePlan {
   moduleId: string;
   symbols: OwnershipRecord[];
   filePath: string;
+  hotPriority: boolean;
 }
 
 interface SymbolSignalDescriptor {
@@ -59,6 +60,7 @@ interface ModuleQualityEntry {
   averageNameQuality: number;
   liftedCoverage: number;
   rerendered: boolean;
+  hotFocus: boolean;
 }
 
 interface MonolithTopicHints {
@@ -83,6 +85,10 @@ const MAX_PARTS_PER_TOPIC = 2;
 const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
+const HOT_FIRST_REGENERATION_ENABLED = true;
+const HOT_FIRST_MIN_TARGET_FILES = 5;
+const HOT_FIRST_MAX_TARGET_FILES = 10;
+const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -1304,6 +1310,7 @@ function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, Lifted
     averageNameQuality: clamp(averageNameQuality),
     liftedCoverage: clamp(liftedCoverage),
     rerendered: false,
+    hotFocus: plan.hotPriority,
   };
 }
 
@@ -1549,6 +1556,7 @@ function buildModulePlans(
             moduleId: `${layer}:${archetype}:${topic}${modulePartId}`,
             symbols: partSymbols,
             filePath: `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`,
+            hotPriority: false,
           });
         }
       }
@@ -1556,6 +1564,43 @@ function buildModulePlans(
   }
 
   return plans.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+function isHotFirstFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  if (/(?:^|\/)src\/services\/service\/service-run\.ts$/.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|\/)src\/services\/store\/store-state(?:-g\d+|-quality-\d+)?\.ts$/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+function isHotFirstCandidate(plan: ModulePlan, entry: ModuleQualityEntry): boolean {
+  if (isHotFirstFilePath(plan.filePath)) {
+    return true;
+  }
+  if (plan.layer === "services" && (plan.archetype === "service" || plan.archetype === "store")) {
+    return true;
+  }
+  if ((plan.archetype === "service" || plan.archetype === "store") && entry.symbolCount >= 48) {
+    return true;
+  }
+  return false;
+}
+
+function resolveHotFirstTargetCount(planCount: number): number {
+  if (planCount <= 0) {
+    return 0;
+  }
+  const baselineTarget = Math.max(1, Math.ceil(planCount * FILE_QUALITY_WORST_PERCENT));
+  if (!HOT_FIRST_REGENERATION_ENABLED) {
+    return baselineTarget;
+  }
+  const boundedMax = Math.min(HOT_FIRST_MAX_TARGET_FILES, planCount);
+  const boundedMin = Math.min(HOT_FIRST_MIN_TARGET_FILES, boundedMax);
+  return Math.max(boundedMin, Math.min(baselineTarget, boundedMax));
 }
 
 function applyFileQualityRerender(
@@ -1572,21 +1617,33 @@ function applyFileQualityRerender(
   }
 
   const orderedPlans = [...modulePlans].sort((left, right) => left.filePath.localeCompare(right.filePath));
+  const planByModuleId = new Map<string, ModulePlan>(orderedPlans.map((plan) => [plan.moduleId, plan]));
   const baselineEntries = orderedPlans.map((plan) => computeModuleQuality(plan, bindingByKey));
-  const worstTargetCount = Math.max(1, Math.ceil(orderedPlans.length * FILE_QUALITY_WORST_PERCENT));
-  const worstCandidates = [...baselineEntries]
+  const targetCount = resolveHotFirstTargetCount(orderedPlans.length);
+  const sortedCandidates = [...baselineEntries]
     .sort((left, right) => {
       if (left.score !== right.score) {
         return left.score - right.score;
       }
       return left.filePath.localeCompare(right.filePath);
     })
-    .slice(0, worstTargetCount)
-    .filter((entry) => entry.symbolCount >= 8);
+    .filter((entry) => entry.symbolCount >= HOT_FIRST_MIN_SYMBOL_COUNT);
+
+  const hotCandidates = HOT_FIRST_REGENERATION_ENABLED
+    ? sortedCandidates.filter((entry) => {
+      const plan = planByModuleId.get(entry.moduleId);
+      if (!plan) {
+        return false;
+      }
+      return isHotFirstCandidate(plan, entry);
+    })
+    : sortedCandidates;
+  const selectedCandidates = (hotCandidates.length > 0 ? hotCandidates : sortedCandidates).slice(0, targetCount);
+  const hotCandidateModuleIds = new Set<string>(selectedCandidates.map((entry) => entry.moduleId));
 
   const rerenderedPlanByModuleId = new Map<string, ModulePlan[]>();
-  for (const candidate of worstCandidates) {
-    const plan = orderedPlans.find((entry) => entry.moduleId === candidate.moduleId);
+  for (const candidate of selectedCandidates) {
+    const plan = planByModuleId.get(candidate.moduleId);
     if (!plan) {
       continue;
     }
@@ -1616,6 +1673,7 @@ function applyFileQualityRerender(
         moduleId: `${plan.moduleId}:quality-${String(partIndex + 1).padStart(2, "0")}`,
         symbols,
         filePath,
+        hotPriority: true,
       });
     }
     if (nextPlans.length > 1) {
@@ -1631,7 +1689,10 @@ function applyFileQualityRerender(
       finalPlans.push(...replacement);
       continue;
     }
-    finalPlans.push(plan);
+    finalPlans.push({
+      ...plan,
+      hotPriority: plan.hotPriority || hotCandidateModuleIds.has(plan.moduleId),
+    });
   }
 
   finalPlans.sort((left, right) => left.filePath.localeCompare(right.filePath));
@@ -1642,6 +1703,7 @@ function applyFileQualityRerender(
     return {
       ...entry,
       rerendered: rerenderedModuleIds.has(originalId),
+      hotFocus: plan.hotPriority,
     };
   });
 
@@ -1846,6 +1908,7 @@ function collapseTinyModulePlans(modulePlans: ModulePlan[], statementBudget: num
         topic: mergedTopic,
         clusterId: mergedTopic,
         symbols: dedupeSymbolsByKey([...current.symbols, ...candidate.symbols]),
+        hotPriority: current.hotPriority || candidate.hotPriority,
       };
     }
     collapsed.push(current);
@@ -1961,6 +2024,7 @@ function applyCohesionMergeSplit(
         topic: mergedTopic,
         clusterId: mergedTopic,
         symbols: [...current.symbols, ...candidate.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+        hotPriority: current.hotPriority || candidate.hotPriority,
       };
     }
     mergedPlans.push(current);
@@ -2406,11 +2470,14 @@ function buildQualityModuleContent(
   const sanitizeImportAliasTokens = (tokens: string[]): string[] =>
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
-  const targetedHotStoreModule = /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotStoreG003Module = /(?:^|\/)store-state-g003\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotServiceModule = /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotWorstStoreServiceModule = /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotCriticalStoreServiceModule = /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
+  const hotFocusModule = plan.hotPriority;
+  const targetedHotStoreModule = hotFocusModule && /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotStoreG003Module = hotFocusModule && /(?:^|\/)store-state-g003\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotServiceModule = hotFocusModule && /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotWorstStoreServiceModule =
+    hotFocusModule && /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotCriticalStoreServiceModule =
+    hotFocusModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotPriorityStoreServiceModule = targetedHotCriticalStoreServiceModule || targetedHotStoreG003Module;
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
@@ -5833,8 +5900,7 @@ function buildQualityModuleContent(
       (plan.archetype === "service" || plan.archetype === "store") &&
       extremeChunkSelection &&
       !targetedHotFullLiftEnabled;
-    const allowChunkIndexInline =
-      targetedHotFullLiftEnabled || plan.archetype === "ui" || plan.archetype === "hook" || plan.archetype === "transport";
+    const allowChunkIndexInline = targetedHotFullLiftEnabled;
     const chunkIndexInlineImportThreshold = targetedHotUltraFullLift
       ? 1
       : targetedHotAggressiveFullLift
@@ -7413,10 +7479,15 @@ function buildSmokeRunner(modulePaths: string[]): string {
 }
 
 function buildFileQualityReport(qualityEntries: ModuleQualityEntry[], rerenderedModuleCount: number): string {
+  const hotFocusFileCount = qualityEntries.reduce((count, entry) => count + (entry.hotFocus ? 1 : 0), 0);
   const payload = {
     generatedAtIso: new Date().toISOString(),
     rerenderedModuleCount,
     worstPercent: FILE_QUALITY_WORST_PERCENT,
+    hotFirstOnly: HOT_FIRST_REGENERATION_ENABLED,
+    hotFirstTargetMin: HOT_FIRST_MIN_TARGET_FILES,
+    hotFirstTargetMax: HOT_FIRST_MAX_TARGET_FILES,
+    hotFocusFileCount,
     files: [...qualityEntries].sort((left, right) => {
       if (left.score !== right.score) {
         return left.score - right.score;
@@ -7897,6 +7968,9 @@ export async function emitTemplateProject(
   const signalContext = buildEmitterSignalContext(semanticIr);
   const domainRenameHints = buildDomainRenameHints(ownershipModel, signalContext);
   const monolithTopicHints = buildMonolithTopicHints(monolithLayoutHints);
+  if (monolithTopicHints.bySymbolKey.size < 1 && monolithTopicHints.bySymbolName.size < 1) {
+    throw new Error("emitTemplateProject: monolith-first mode requires non-empty monolith layout hints");
+  }
   const qualitySymbols = ownershipModel.symbols.filter((symbol) => astLift.symbolBindingByKey.has(symbol.symbolKey));
   const unresolvedSymbols = ownershipModel.symbols
     .filter((symbol) => !astLift.symbolBindingByKey.has(symbol.symbolKey))

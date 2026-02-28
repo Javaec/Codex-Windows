@@ -1,63 +1,112 @@
 {
-  "candidateCount": 13,
+  "candidateCount": 17,
   "candidates": [
     {
-      "averageConfidence": 0.6306,
+      "averageConfidence": 0.6247,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.7642,
-      "averageSymbolCount": 97,
+      "averageScore": 0.7616,
+      "averageSymbolCount": 98,
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "minScore": 0.7581,
+      "moduleIds": [
+        "services:store:state-g002:g002:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.64,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.7682,
+      "averageSymbolCount": 92,
+      "filePath": "src/renderer/store/store-state-quality-01.ts",
+      "minScore": 0.7682,
+      "moduleIds": [
+        "renderer:store:state:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.647,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.7712,
+      "averageSymbolCount": 101.75,
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "minScore": 0.7636,
+      "minScore": 0.7711,
       "moduleIds": [
         "services:store:state:quality-01"
       ],
       "profiles": [
         "core-no-binary",
         "core-no-binary-no-pretty",
-        "core-no-binary-top120"
-      ],
-      "rerenderedHits": 3,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7216,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8033,
-      "averageSymbolCount": 6,
-      "filePath": "src/main/transport/transport-bridge-quality-02.ts",
-      "minScore": 0.8033,
-      "moduleIds": [
-        "main:transport:transport-bridge:quality-02"
-      ],
-      "profiles": [
+        "core-no-binary-top120",
         "core-runtime-probe-soft"
       ],
-      "rerenderedHits": 1,
+      "rerenderedHits": 4,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
     },
     {
-      "averageConfidence": 0.7308,
+      "averageConfidence": 0.6975,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8072,
-      "averageSymbolCount": 12,
+      "averageScore": 0.7929,
+      "averageSymbolCount": 4,
       "filePath": "src/main/transport/transport-bridge.ts",
-      "minScore": 0.8072,
+      "minScore": 0.7929,
       "moduleIds": [
         "main:transport:transport-bridge"
       ],
       "profiles": [
         "core-no-binary",
         "core-no-binary-no-pretty",
-        "core-no-binary-top120"
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
       ],
       "rerenderedHits": 0,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7178,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7789,
+      "averageScore": 0.8013,
+      "averageSymbolCount": 97.5,
+      "filePath": "src/services/store/store-state-g002-quality-02.ts",
+      "minScore": 0.7913,
+      "moduleIds": [
+        "services:store:state-g002:g002:quality-02"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
@@ -67,30 +116,11 @@
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
       "averageScore": 0.8073,
-      "averageSymbolCount": 362,
-      "filePath": "src/services/store/store-state.ts",
+      "averageSymbolCount": 92,
+      "filePath": "src/renderer/store/store-state-quality-02.ts",
       "minScore": 0.8073,
       "moduleIds": [
-        "services:store:state"
-      ],
-      "profiles": [
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7357,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8093,
-      "averageSymbolCount": 165,
-      "filePath": "src/renderer/store/store-state.ts",
-      "minScore": 0.8093,
-      "moduleIds": [
-        "renderer:store:state"
+        "renderer:store:state:quality-02"
       ],
       "profiles": [
         "core-no-binary",
@@ -98,46 +128,51 @@
         "core-no-binary-top120",
         "core-runtime-probe-soft"
       ],
-      "rerenderedHits": 0,
+      "rerenderedHits": 4,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
     },
     {
-      "averageConfidence": 0.7399,
+      "averageConfidence": 0.7381,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8111,
-      "averageSymbolCount": 6,
-      "filePath": "src/main/transport/transport-bridge-quality-01.ts",
-      "minScore": 0.8111,
+      "averageNameQuality": 0.7734,
+      "averageScore": 0.808,
+      "averageSymbolCount": 101,
+      "filePath": "src/services/store/store-state-g003-quality-02.ts",
+      "minScore": 0.8067,
       "moduleIds": [
-        "main:transport:transport-bridge:quality-01"
-      ],
-      "profiles": [
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 1,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.7418,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.812,
-      "averageSymbolCount": 240,
-      "filePath": "src/services/store/store-state-g003.ts",
-      "minScore": 0.812,
-      "moduleIds": [
-        "services:store:state-store-g002:g003"
+        "services:store:state-store:g003:quality-02"
       ],
       "profiles": [
         "core-no-binary",
-        "core-no-binary-no-pretty"
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
       ],
-      "rerenderedHits": 0,
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7397,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7776,
+      "averageScore": 0.8102,
+      "averageSymbolCount": 100.75,
+      "filePath": "src/services/store/store-state-g003-quality-03.ts",
+      "minScore": 0.8085,
+      "moduleIds": [
+        "services:store:state-store:g003:quality-03"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
@@ -145,13 +180,13 @@
     {
       "averageConfidence": 0.7416,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7807,
-      "averageScore": 0.8122,
-      "averageSymbolCount": 281.75,
-      "filePath": "src/services/store/store-state-g002.ts",
-      "minScore": 0.8118,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8119,
+      "averageSymbolCount": 4,
+      "filePath": "src-tauri-adapter/transport/transport-bridge.ts",
+      "minScore": 0.8119,
       "moduleIds": [
-        "services:store:state-store:g002"
+        "tauri:transport:transport-bridge"
       ],
       "profiles": [
         "core-no-binary",
@@ -165,20 +200,130 @@
       ]
     },
     {
-      "averageConfidence": 0.7849,
+      "averageConfidence": 0.7477,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8305,
-      "averageSymbolCount": 96.67,
+      "averageNameQuality": 0.7757,
+      "averageScore": 0.813,
+      "averageSymbolCount": 101,
+      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "minScore": 0.8079,
+      "moduleIds": [
+        "services:store:state-store:g003:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7461,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.781,
+      "averageScore": 0.8142,
+      "averageSymbolCount": 101,
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "minScore": 0.8042,
+      "minScore": 0.813,
       "moduleIds": [
         "services:store:state:quality-02"
       ],
       "profiles": [
         "core-no-binary",
         "core-no-binary-no-pretty",
-        "core-no-binary-top120"
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.6867,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.88,
+      "averageScore": 0.8233,
+      "averageSymbolCount": 60,
+      "filePath": "src/services/service/service-run-flow-quality-01.ts",
+      "minScore": 0.8233,
+      "moduleIds": [
+        "services:service:run-flow:quality-01"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.7247,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.88,
+      "averageScore": 0.8396,
+      "averageSymbolCount": 60,
+      "filePath": "src/services/service/service-run-flow-quality-02.ts",
+      "minScore": 0.8396,
+      "moduleIds": [
+        "services:service:run-flow:quality-02"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.764,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.8425,
+      "averageScore": 0.8434,
+      "averageSymbolCount": 16,
+      "filePath": "src/main/service/service-domain.ts",
+      "minScore": 0.8434,
+      "moduleIds": [
+        "main:service:domain-service"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 0,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.8269,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7726,
+      "averageScore": 0.846,
+      "averageSymbolCount": 98.67,
+      "filePath": "src/services/store/store-state-g002-quality-03.ts",
+      "minScore": 0.8459,
+      "moduleIds": [
+        "services:store:state-g002:g002:quality-03"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-runtime-probe-soft"
       ],
       "rerenderedHits": 3,
       "stableProjects": [
@@ -186,13 +331,35 @@
       ]
     },
     {
-      "averageConfidence": 0.8284,
+      "averageConfidence": 0.8249,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8492,
-      "averageSymbolCount": 106,
+      "averageNameQuality": 0.7767,
+      "averageScore": 0.8466,
+      "averageSymbolCount": 91,
+      "filePath": "src/renderer/store/store-state-quality-03.ts",
+      "minScore": 0.8466,
+      "moduleIds": [
+        "renderer:store:state:quality-03"
+      ],
+      "profiles": [
+        "core-no-binary",
+        "core-no-binary-no-pretty",
+        "core-no-binary-top120",
+        "core-runtime-probe-soft"
+      ],
+      "rerenderedHits": 4,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ]
+    },
+    {
+      "averageConfidence": 0.8301,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.773,
+      "averageScore": 0.8475,
+      "averageSymbolCount": 115,
       "filePath": "src/services/store/store-state-quality-03.ts",
-      "minScore": 0.8492,
+      "minScore": 0.8475,
       "moduleIds": [
         "services:store:state:quality-03"
       ],
@@ -203,74 +370,8 @@
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ]
-    },
-    {
-      "averageConfidence": 0.7822,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.839,
-      "averageScore": 0.85,
-      "averageSymbolCount": 212,
-      "filePath": "src/services/service/service-run.ts",
-      "minScore": 0.85,
-      "moduleIds": [
-        "services:service:service-run"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.912,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8229,
-      "averageScore": 0.9002,
-      "averageSymbolCount": 7,
-      "filePath": "src/renderer/hook/hook-hooks-render.ts",
-      "minScore": 0.9002,
-      "moduleIds": [
-        "renderer:hook:hooks-render"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
-    },
-    {
-      "averageConfidence": 0.9335,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8133,
-      "averageScore": 0.9061,
-      "averageSymbolCount": 9,
-      "filePath": "src/renderer/ui/ui-components.ts",
-      "minScore": 0.9061,
-      "moduleIds": [
-        "renderer:ui:ui-components"
-      ],
-      "profiles": [
-        "core-no-binary",
-        "core-no-binary-no-pretty",
-        "core-no-binary-top120",
-        "core-runtime-probe-soft"
-      ],
-      "rerenderedHits": 0,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ]
     }
   ],
-  "generatedAtIso": "2026-02-27T09:56:20.024Z",
-  "suiteRunId": "radical-quality6-20260227-094529-c01"
+  "generatedAtIso": "2026-02-28T19:46:03.277Z",
+  "suiteRunId": "cycle-20260228-193335-c01"
 }

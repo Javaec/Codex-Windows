@@ -41,12 +41,17 @@ interface FileQualityEntrySnapshot {
   averageNameQuality: number;
   liftedCoverage: number;
   rerendered: boolean;
+  hotFocus?: boolean;
 }
 
 interface FileQualityReportSnapshot {
   generatedAtIso: string;
   rerenderedModuleCount: number;
   worstPercent: number;
+  hotFirstOnly?: boolean;
+  hotFirstTargetMin?: number;
+  hotFirstTargetMax?: number;
+  hotFocusFileCount?: number;
   files: FileQualityEntrySnapshot[];
 }
 
@@ -100,6 +105,8 @@ export interface RegressionProfileExecution {
     worstDecileAverageScore: number;
     lowQualityFileCount: number;
     rerenderedModuleCount: number;
+    hotFocusFileCount: number;
+    hotFirstOnly: boolean;
     hotChunkCount: number;
     worstFiles: Array<{
       moduleId: string;
@@ -110,6 +117,7 @@ export interface RegressionProfileExecution {
       averageNameQuality: number;
       liftedCoverage: number;
       rerendered: boolean;
+      hotFocus: boolean;
     }>;
   };
 }
@@ -137,6 +145,8 @@ export interface RegressionSuiteExecution {
     worstFileDecileScoreAverage: number;
     lowQualityFileCountAverage: number;
     rerenderedModuleAverage: number;
+    hotFocusFileAverage: number;
+    hotFirstOnlyAllProfiles: boolean;
     hotChunkAverage: number;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
@@ -349,6 +359,7 @@ function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProf
     averageNameQuality: clamp(entry.averageNameQuality),
     liftedCoverage: clamp(entry.liftedCoverage),
     rerendered: entry.rerendered,
+    hotFocus: entry.hotFocus === true,
   }));
   return {
     fileQualityReportPath: "",
@@ -357,6 +368,8 @@ function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProf
     worstDecileAverageScore,
     lowQualityFileCount,
     rerenderedModuleCount: report.rerenderedModuleCount,
+    hotFocusFileCount: Math.max(0, Math.trunc(report.hotFocusFileCount ?? 0)),
+    hotFirstOnly: report.hotFirstOnly === true,
     hotChunkCount: 0,
     worstFiles,
   };
@@ -427,6 +440,8 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     worstFileDecileScoreAverage: average(executions.map((entry) => entry.fileQuality.worstDecileAverageScore)),
     lowQualityFileCountAverage: average(executions.map((entry) => entry.fileQuality.lowQualityFileCount)),
     rerenderedModuleAverage: average(executions.map((entry) => entry.fileQuality.rerenderedModuleCount)),
+    hotFocusFileAverage: average(executions.map((entry) => entry.fileQuality.hotFocusFileCount)),
+    hotFirstOnlyAllProfiles: executions.every((entry) => entry.fileQuality.hotFirstOnly),
     hotChunkAverage: average(executions.map((entry) => entry.fileQuality.hotChunkCount)),
     buildHealthAllGreen: executions.every((entry) => entry.metrics.buildHealth),
     devHealthAllGreen: executions.every((entry) => entry.metrics.devHealth),

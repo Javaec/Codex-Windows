@@ -43,6 +43,8 @@ interface CycleExecutionSummary {
   worstFileDecileScoreAverage: number;
   lowQualityFileCountAverage: number;
   rerenderedModuleAverage: number;
+  hotFocusFileAverage: number;
+  hotFirstOnlyAllProfiles: boolean;
   hotChunkAverage: number;
   promotionSelectedCount: number;
   promotionUpdatedCount: number;
@@ -501,6 +503,9 @@ function summarizeCycle(
   if (!execution.aggregate.devHealthAllGreen) {
     kpiViolations.push("devHealthAllGreen is false");
   }
+  if (!execution.aggregate.hotFirstOnlyAllProfiles) {
+    kpiViolations.push("hotFirstOnlyAllProfiles is false");
+  }
   if (previous && execution.aggregate.nameQualityAverage < previous.nameQualityAverage) {
     kpiViolations.push(`nameQualityAverage regressed: ${execution.aggregate.nameQualityAverage} < ${previous.nameQualityAverage}`);
   }
@@ -520,6 +525,8 @@ function summarizeCycle(
     worstFileDecileScoreAverage: execution.aggregate.worstFileDecileScoreAverage,
     lowQualityFileCountAverage: execution.aggregate.lowQualityFileCountAverage,
     rerenderedModuleAverage: execution.aggregate.rerenderedModuleAverage,
+    hotFocusFileAverage: execution.aggregate.hotFocusFileAverage,
+    hotFirstOnlyAllProfiles: execution.aggregate.hotFirstOnlyAllProfiles,
     hotChunkAverage: execution.aggregate.hotChunkAverage,
     promotionSelectedCount: promotion.selectedCount,
     promotionUpdatedCount: promotion.updatedEntryCount,
