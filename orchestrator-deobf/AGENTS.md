@@ -139,3 +139,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: higher inline/closure budgets for these two modules reduce chunk import fan-out and increase lifted logic density in final quality TS bodies.
 - Hot local domain rename pass now rewrites opaque `store/service(Runtime|State|...)Local*` tails in worst modules using statement-level domain signals.
   Verified reason: worst store/service modules replace opaque short tails with deterministic domain stems (`workspace/session/navigation/state/transport/...`) while keeping deterministic output and green gates.
+- Local alias normalization now collapses duplicated family stems (`RuntimeRuntime`, `DiagramDiagram`) after rename synthesis.
+  Verified reason: generated hot-module identifiers stay shorter and cleaner without losing deterministic uniqueness tags.

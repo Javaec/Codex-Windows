@@ -2564,6 +2564,10 @@ function buildQualityModuleContent(
     normalized = normalized.replace(/NavigatePage/gi, "Flow");
     normalized = normalized.replace(/DepDep+/g, "Dep");
     normalized = normalized.replace(/NodeNode+/g, "Node");
+    normalized = normalized.replace(
+      /(store|service)(Runtime|State|React|Preload|Language|Diagram)\2(Local)/g,
+      "$1$2$3",
+    );
     normalized = normalized.replace(/(Local|Dep)(Local|Dep)$/g, "$2");
     const sanitized = sanitizeIdentifier(normalized);
     if (sanitized.length > 0) {
@@ -3744,7 +3748,8 @@ function buildQualityModuleContent(
     const renameMap = new Map<string, string>();
     for (const entry of entries.sort((left, right) => left.originalName.localeCompare(right.originalName))) {
       const domainToken = inferTargetedHotDomainLocalToken(entry.statementText, entry.referencedNames, entry.family);
-      const domainStem = toPascalCase(domainToken);
+      const familyToken = entry.family.toLowerCase();
+      const domainStem = domainToken.toLowerCase() === familyToken ? "" : toPascalCase(domainToken);
       const shortTag = alphabeticStableSuffix(`${plan.moduleId}:${entry.originalName}:${domainToken}`, 2).toUpperCase();
       const candidate = normalizeTargetedAliasBase(
         sanitizeIdentifier(`${entry.prefix}${entry.family}${domainStem}Local${shortTag}`),
