@@ -154,3 +154,9 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: allows extra deterministic namespace reduction when planner candidates are limited by shaping-only constraints.
 - Single-use namespace fallback conversion now applies to both critical hot modules (`store-state-g002.ts` and `service-run.ts`) with module-specific targets (`store:13`, `service:12`).
   Verified reason: achieved requested one-pass reduction for the second hot module (`src/services/store/store-state-g002.ts` now `13` namespace imports) while preserving zero `store/serviceCoreLocal*` regressions.
+- Hot store full-lift now disables bulk chunk-index inline and applies runtime/payload guards before cross-chunk inline admission.
+  Verified reason: prevents accidental ingestion of Vite bootstrap (`__vite__mapDeps`/`modulepreload`) and giant static dictionaries into `store-state-g*` quality modules.
+- Inline dependency declarations now run through the same static payload extraction path as source declarations.
+  Verified reason: large literal payloads from inline paths are externalized to `assets/payloads/*`, reducing heavy `services/store` module size without proxy fallback.
+- Import-hygiene finalizer now demotes reassigned `const` declarations to `let` by AST assignment scan.
+  Verified reason: removes residual `no-const-assign` lint failures in heavy lifted modules without broad lint-rule suppression.

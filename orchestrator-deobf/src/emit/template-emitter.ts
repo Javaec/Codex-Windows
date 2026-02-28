@@ -4311,6 +4311,81 @@ function buildQualityModuleContent(
       return counts;
     };
     const isValidIdentifierImportName = (name: string): boolean => /^[$A-Za-z_][$A-Za-z0-9_]*$/.test(name);
+    const collectAssignedIdentifierNames = (source: ts.SourceFile): Set<string> => {
+      const assigned = new Set<string>();
+      const isAssignmentOperatorKind = (kind: ts.SyntaxKind): boolean =>
+        kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+      const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && isAssignmentOperatorKind(node.operatorToken.kind)) {
+          if (ts.isIdentifier(node.left)) {
+            assigned.add(node.left.text);
+          }
+        } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+          if (
+            (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
+            ts.isIdentifier(node.operand)
+          ) {
+            assigned.add(node.operand.text);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      return assigned;
+    };
+    const demoteAssignedConstDeclarations = (contentText: string): string => {
+      if (contentText.length < 1) {
+        return contentText;
+      }
+      const source = ts.createSourceFile(
+        `${plan.moduleId}.ts`,
+        contentText,
+        ts.ScriptTarget.ESNext,
+        true,
+        ts.ScriptKind.TS,
+      );
+      const assigned = collectAssignedIdentifierNames(source);
+      if (assigned.size < 1) {
+        return contentText;
+      }
+      let changed = false;
+      const nextStatements = source.statements.map((statement) => {
+        if (!ts.isVariableStatement(statement)) {
+          return statement;
+        }
+        const declarationList = statement.declarationList;
+        if (!(declarationList.flags & ts.NodeFlags.Const)) {
+          return statement;
+        }
+        let shouldDemote = false;
+        for (const declaration of declarationList.declarations) {
+          const names = new Set<string>();
+          collectBindingNames(declaration.name, names);
+          for (const name of names) {
+            if (assigned.has(name)) {
+              shouldDemote = true;
+              break;
+            }
+          }
+          if (shouldDemote) {
+            break;
+          }
+        }
+        if (!shouldDemote) {
+          return statement;
+        }
+        changed = true;
+        return ts.factory.updateVariableStatement(
+          statement,
+          statement.modifiers,
+          ts.factory.createVariableDeclarationList(declarationList.declarations, ts.NodeFlags.Let),
+        );
+      });
+      if (!changed) {
+        return contentText;
+      }
+      return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
+    };
     interface NamespaceBindingEntry {
       localName: string;
       importedName: string;
@@ -5122,11 +5197,11 @@ function buildQualityModuleContent(
     }
     if (!importChanged) {
       const directConverted = applyPreferredDirectImportConversion(importSource, preferredDirectImportAliases);
-      return applySingleUseNamespaceAliasFallbackConversion(directConverted);
+      return demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted));
     }
     const importFilteredSource = ts.factory.updateSourceFile(importSource, importFilteredStatements);
     const directConverted = applyPreferredDirectImportConversion(importFilteredSource, preferredDirectImportAliases);
-    return applySingleUseNamespaceAliasFallbackConversion(directConverted);
+    return demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted));
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {
@@ -5581,6 +5656,7 @@ function buildQualityModuleContent(
     const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
     const targetedHotUltraFullLift = targetedHotCriticalStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
+    const disableBulkChunkIndexInline = targetedHotStoreModule;
     const preferChunkImportFallback =
       (plan.archetype === "service" || plan.archetype === "store") &&
       extremeChunkSelection &&
@@ -5750,7 +5826,12 @@ function buildQualityModuleContent(
         };
       })
       .filter((entry): entry is { localName: string; modulePath: string; importedName: string } => Boolean(entry));
-    if (allowChunkIndexInline && !preferChunkImportFallback && chunkIndexImportLocals.length >= chunkIndexInlineImportThreshold) {
+    if (
+      allowChunkIndexInline &&
+      !disableBulkChunkIndexInline &&
+      !preferChunkImportFallback &&
+      chunkIndexImportLocals.length >= chunkIndexInlineImportThreshold
+    ) {
       const selectedChunkIndexImportLocals = chunkIndexImportLocals
         .sort((left, right) => {
           const leftUsage = localUsageCountByImportName.get(left.localName) ?? 0;
@@ -5806,6 +5887,14 @@ function buildQualityModuleContent(
         const normalizedTargetStatements = targetSelection.selectedStatements
           .map((statement) => stripExportModifiers(statement))
           .filter((statement): statement is ts.Statement => Boolean(statement));
+        const hasUnsafeInlinePayloadOrBootstrap = normalizedTargetStatements.some(
+          (statement) =>
+            hasUnsafeStaticPayloadStatement(statement, targetChunkMetadata.sourceFile) ||
+            hasChunkRuntimeBootstrapPattern(statement, targetChunkMetadata.sourceFile),
+        );
+        if (hasUnsafeInlinePayloadOrBootstrap) {
+          continue;
+        }
         if (targetedHotServiceSafeLift && normalizedTargetStatements.some((statement) => ts.isFunctionDeclaration(statement))) {
           continue;
         }
@@ -6191,7 +6280,8 @@ function buildQualityModuleContent(
         continue;
       }
       const statementSource = inlineDependencyStatementSources[statementIndex] ?? sourceChunkMetadata.sourceFile;
-      const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, statement, statementSource).trim();
+      const withExtractedPayload = extractStaticPayloadFromStatement(statement, chunkId, statementSource, plannerPrinter);
+      const rendered = plannerPrinter.printNode(ts.EmitHint.Unspecified, withExtractedPayload, statementSource).trim();
       if (rendered.length < 1) {
         continue;
       }
