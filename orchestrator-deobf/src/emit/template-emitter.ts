@@ -3828,6 +3828,57 @@ function buildQualityModuleContent(
         entry.resolvedFamily = "State";
       }
     }
+    const familyFrequency = new Map<TargetedCoreFamily, number>();
+    for (const entry of entries) {
+      if (entry.resolvedFamily === "Core") {
+        continue;
+      }
+      familyFrequency.set(entry.resolvedFamily, (familyFrequency.get(entry.resolvedFamily) ?? 0) + entry.declaredCoreNames.length);
+    }
+    let dominantFamily: TargetedCoreFamily = "Runtime";
+    let dominantScore = 0;
+    for (const family of TARGETED_CORE_FAMILY_ORDER) {
+      if (family === "Core") {
+        continue;
+      }
+      const score = familyFrequency.get(family) ?? 0;
+      if (score > dominantScore) {
+        dominantScore = score;
+        dominantFamily = family;
+      }
+    }
+    for (const entry of entries) {
+      if (entry.resolvedFamily !== "Core") {
+        continue;
+      }
+      const ownershipHintScores = new Map<TargetedCoreFamily, number>();
+      for (const referencedName of entry.referencedNames) {
+        addFamilyScore(ownershipHintScores, familyFromOwnershipName(referencedName), 1);
+      }
+      let hintedFamily: TargetedCoreFamily = "Core";
+      let hintedScore = 0;
+      for (const family of TARGETED_CORE_FAMILY_ORDER) {
+        if (family === "Core") {
+          continue;
+        }
+        const score = ownershipHintScores.get(family) ?? 0;
+        if (score > hintedScore) {
+          hintedScore = score;
+          hintedFamily = family;
+        }
+      }
+      if (hintedFamily !== "Core" && hintedScore >= 1) {
+        entry.resolvedFamily = hintedFamily;
+        continue;
+      }
+      const canUseDominantFallback =
+        entry.referencedNames.size > 0 ||
+        entry.declaredCoreNames.length <= 3 ||
+        entry.statementText.length <= 1400;
+      if (canUseDominantFallback) {
+        entry.resolvedFamily = dominantFamily;
+      }
+    }
     const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
     const renameMap = new Map<string, string>();
     for (const entry of entries) {

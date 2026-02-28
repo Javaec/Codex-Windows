@@ -127,3 +127,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - usage-aware sorting for early chunk-index inline candidates,
   - usage-aware scoring for targeted inline selection.
   Verified reason: inlining decisions now prefer imports that remove the most noisy references in hot modules (`store-state-g002.ts` / `service-run.ts`) without reopening payload/bootstrap regressions.
+- Aggressive ownership fallback for unresolved core-family entries is now enabled:
+  - dominant-family fallback per module after graph propagation,
+  - guarded by reference/declaration/statement-size checks.
+  Verified reason: residual `storeCoreLocal*` pool in `src/services/store/store-state-g002.ts` dropped sharply on run `targeted-store-family-inline-v20` while preserving deterministic output and green quality/dev gates.
