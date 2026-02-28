@@ -170,3 +170,11 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - `src/services/store/store-state-g*.ts` max `14`,
   - `src/services/service/service-run.ts` max `12`.
   Verified reason: prevents namespace-import noise regression in worst store/service modules across future runs.
+- Elevated `store-state-g003.ts` to priority hot-module profile (`ultra full-lift` budgets) in chunk lift planner.
+  Verified reason: enables deeper targeted inline/full-lift for this store module without opening full blanket lift.
+- Direct-import conversion now supports duplicate shaped bindings (`default` and repeated named members) via deterministic alias statements.
+  Verified reason: removes extra namespace imports that were previously skipped due duplicate binding patterns.
+- Targeted local domain rename now handles stacked families (`storeReactStateLocal*`, `storeRuntimeStateLocal*`) and applies stricter rewrite on `store-state-g003.ts`.
+  Verified reason: reduces residual obfuscated local-family tails in the hot g003 module while keeping deterministic naming.
+- Stacked-family rename synthesis now normalizes React/Runtime domain stems (`React+State -> ReactView`, `Runtime+State -> RuntimeCore`) in hot g003 local identifiers.
+  Verified reason: eliminates recurring `storeReactStateLocal*` tails and produces cleaner local symbol families in `src/services/store/store-state-g003.ts`.

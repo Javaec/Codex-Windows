@@ -2406,9 +2406,11 @@ function buildQualityModuleContent(
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
   const targetedHotStoreModule = /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotStoreG003Module = /(?:^|\/)store-state-g003\.ts$/i.test(normalizedHotFilePath);
   const targetedHotServiceModule = /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
   const targetedHotWorstStoreServiceModule = /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotCriticalStoreServiceModule = /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotPriorityStoreServiceModule = targetedHotCriticalStoreServiceModule || targetedHotStoreG003Module;
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
     (targetedHotStoreModule || targetedHotServiceModule);
@@ -3658,7 +3660,22 @@ function buildQualityModuleContent(
       ts.ScriptKind.TS,
     );
     const familyLocalPattern = /^(store|service)(Runtime|State|React|Preload|Language|Diagram)Local([A-Za-z0-9]{2,})$/;
+    const stackedFamilyLocalPattern =
+      /^(store|service)(Runtime|State|React|Preload|Language|Diagram)(Runtime|State|React|Preload|Language|Diagram)Local([A-Za-z0-9]{2,})$/;
     const legacyLocalPattern = /^(store|service)([A-Z][A-Za-z0-9]{3,})Local([A-Za-z0-9]{2,})$/;
+    const resolveStackedFamily = (statementText: string, firstFamily: string, secondFamily: string): TargetedCoreFamily => {
+      const inferredFamily = inferTargetedCoreLocalFamily(statementText);
+      if (inferredFamily !== "Core") {
+        return inferredFamily;
+      }
+      if (firstFamily === "React" || secondFamily === "React") {
+        return "React";
+      }
+      if (secondFamily === "Runtime" || firstFamily === "Runtime") {
+        return "Runtime";
+      }
+      return (secondFamily as TargetedCoreFamily) ?? "Runtime";
+    };
     interface TargetedDomainLocalEntry {
       originalName: string;
       prefix: "store" | "service";
@@ -3676,6 +3693,35 @@ function buildQualityModuleContent(
       const statementText = statement.getText(sourceFile);
       const referencedNames = collectStatementReferencedNames(statement);
       for (const declaredName of declaredNames) {
+        const stackedMatch = declaredName.match(stackedFamilyLocalPattern);
+        if (stackedMatch) {
+          const prefix = stackedMatch[1];
+          const firstFamily = stackedMatch[2];
+          const secondFamily = stackedMatch[3];
+          const suffix = stackedMatch[4];
+          if (!prefix || !firstFamily || !secondFamily || !suffix) {
+            continue;
+          }
+          const normalizedSuffix = suffix.toLowerCase();
+          const shouldRewrite =
+            targetedHotStoreG003Module ||
+            suffix.length <= 8 ||
+            /^[A-Z0-9]{2,10}$/.test(suffix) ||
+            /^[A-Za-z]{2,6}$/.test(suffix) ||
+            isLikelyObfuscatedAliasToken(normalizedSuffix);
+          if (!shouldRewrite) {
+            continue;
+          }
+          entries.push({
+            originalName: declaredName,
+            prefix: prefix === "service" ? "service" : "store",
+            family: resolveStackedFamily(statementText, firstFamily, secondFamily),
+            suffix,
+            statementText,
+            referencedNames,
+          });
+          continue;
+        }
         const match = declaredName.match(familyLocalPattern);
         if (match) {
           const prefix = match[1];
@@ -3728,6 +3774,7 @@ function buildQualityModuleContent(
           weakMiddle ||
           suffix.length <= 4 ||
           /^[A-Z0-9]{2,6}$/.test(suffix) ||
+          (targetedHotStoreG003Module && suffix.length <= 10) ||
           isLikelyObfuscatedAliasToken(suffix.toLowerCase());
         if (!shouldRewriteLegacy) {
           continue;
@@ -3749,7 +3796,12 @@ function buildQualityModuleContent(
     const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
     const renameMap = new Map<string, string>();
     for (const entry of entries.sort((left, right) => left.originalName.localeCompare(right.originalName))) {
-      const domainToken = inferTargetedHotDomainLocalToken(entry.statementText, entry.referencedNames, entry.family);
+      let domainToken = inferTargetedHotDomainLocalToken(entry.statementText, entry.referencedNames, entry.family);
+      if (entry.family === "React" && (domainToken === "state" || domainToken === "react")) {
+        domainToken = "view";
+      } else if (entry.family === "Runtime" && (domainToken === "state" || domainToken === "runtime")) {
+        domainToken = "core";
+      }
       const familyToken = entry.family.toLowerCase();
       const domainStem = domainToken.toLowerCase() === familyToken ? "" : toPascalCase(domainToken);
       const shortTag = alphabeticStableSuffix(`${plan.moduleId}:${entry.originalName}:${domainToken}`, 2).toUpperCase();
@@ -4562,7 +4614,7 @@ function buildQualityModuleContent(
         return new Set<string>();
       }
       const currentNamespaceCount = metadataByAlias.size;
-      const targetNamespaceCount = targetedHotServiceModule ? 10 : 12;
+      const targetNamespaceCount = targetedHotServiceModule ? 10 : targetedHotStoreG003Module ? 11 : 12;
       if (currentNamespaceCount <= targetNamespaceCount) {
         return new Set<string>();
       }
@@ -4620,6 +4672,7 @@ function buildQualityModuleContent(
         return printer.printFile(source);
       }
       const replacementImportByAlias = new Map<string, ts.ImportDeclaration>();
+      const replacementAliasStatementsByAlias = new Map<string, ts.Statement[]>();
       const skippedAliases = new Set<string>();
       for (const alias of preferredAliases) {
         const metadata = metadataByAlias.get(alias);
@@ -4627,15 +4680,19 @@ function buildQualityModuleContent(
           continue;
         }
         let defaultBindingLocalName = "";
+        const duplicateDefaultAliasLocalNames: string[] = [];
+        const namedLocalNameByImportedName = new Map<string, string>();
+        const duplicateNamedAliasPairs: Array<{ aliasLocalName: string; sourceLocalName: string }> = [];
         const namedSpecifiers: ts.ImportSpecifier[] = [];
         for (const binding of metadata.bindings) {
           if (binding.importedName === "default") {
-            if (defaultBindingLocalName.length > 0) {
-              skippedAliases.add(alias);
-              defaultBindingLocalName = "";
-              break;
+            if (defaultBindingLocalName.length < 1) {
+              defaultBindingLocalName = binding.localName;
+              continue;
             }
-            defaultBindingLocalName = binding.localName;
+            if (binding.localName !== defaultBindingLocalName) {
+              duplicateDefaultAliasLocalNames.push(binding.localName);
+            }
             continue;
           }
           if (!isValidIdentifierImportName(binding.importedName)) {
@@ -4643,6 +4700,17 @@ function buildQualityModuleContent(
             defaultBindingLocalName = "";
             break;
           }
+          const existingNamedLocal = namedLocalNameByImportedName.get(binding.importedName);
+          if (existingNamedLocal) {
+            if (existingNamedLocal !== binding.localName) {
+              duplicateNamedAliasPairs.push({
+                aliasLocalName: binding.localName,
+                sourceLocalName: existingNamedLocal,
+              });
+            }
+            continue;
+          }
+          namedLocalNameByImportedName.set(binding.importedName, binding.localName);
           namedSpecifiers.push(
             binding.importedName === binding.localName
               ? ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(binding.localName))
@@ -4656,6 +4724,47 @@ function buildQualityModuleContent(
         if (skippedAliases.has(alias)) {
           continue;
         }
+        if (defaultBindingLocalName.length < 1 && namedSpecifiers.length < 1) {
+          continue;
+        }
+        const aliasStatements: ts.Statement[] = [];
+        for (const duplicateDefaultAliasLocalName of duplicateDefaultAliasLocalNames) {
+          aliasStatements.push(
+            ts.factory.createVariableStatement(
+              undefined,
+              ts.factory.createVariableDeclarationList(
+                [
+                  ts.factory.createVariableDeclaration(
+                    ts.factory.createIdentifier(duplicateDefaultAliasLocalName),
+                    undefined,
+                    undefined,
+                    ts.factory.createIdentifier(defaultBindingLocalName),
+                  ),
+                ],
+                ts.NodeFlags.Const,
+              ),
+            ),
+          );
+        }
+        for (const duplicateNamedAliasPair of duplicateNamedAliasPairs) {
+          aliasStatements.push(
+            ts.factory.createVariableStatement(
+              undefined,
+              ts.factory.createVariableDeclarationList(
+                [
+                  ts.factory.createVariableDeclaration(
+                    ts.factory.createIdentifier(duplicateNamedAliasPair.aliasLocalName),
+                    undefined,
+                    undefined,
+                    ts.factory.createIdentifier(duplicateNamedAliasPair.sourceLocalName),
+                  ),
+                ],
+                ts.NodeFlags.Const,
+              ),
+            ),
+          );
+        }
+        replacementAliasStatementsByAlias.set(alias, aliasStatements);
         const importClause = ts.factory.createImportClause(
           false,
           defaultBindingLocalName.length > 0 ? ts.factory.createIdentifier(defaultBindingLocalName) : undefined,
@@ -4738,6 +4847,8 @@ function buildQualityModuleContent(
             const replacement = replacementImportByAlias.get(alias);
             if (replacement) {
               nextStatements.push(replacement);
+              const aliasStatements = replacementAliasStatementsByAlias.get(alias) ?? [];
+              nextStatements.push(...aliasStatements);
               continue;
             }
           }
@@ -4786,7 +4897,7 @@ function buildQualityModuleContent(
         }
         namespaceImports.set(namedBindings.name.text, { modulePath: moduleSpecifier.text, statement });
       }
-      const targetNamespaceCount = targetedHotStoreModule ? 13 : 12;
+      const targetNamespaceCount = targetedHotStoreG003Module ? 12 : targetedHotStoreModule ? 13 : 12;
       if (namespaceImports.size <= targetNamespaceCount) {
         return contentText;
       }
@@ -5022,7 +5133,7 @@ function buildQualityModuleContent(
     if (targetedHotWorstStoreServiceModule) {
       const initialReferenceCounts = collectIdentifierReferenceCounts(sourceFile);
       const inlineCandidatesByLocal = new Map<string, { namespaceAlias: string; importedName: string }>();
-      const inlineUsageCeiling = 2;
+      const inlineUsageCeiling = targetedHotStoreG003Module ? 3 : 2;
       for (const statement of sourceFile.statements) {
         if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
           continue;
@@ -5656,7 +5767,7 @@ function buildQualityModuleContent(
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
     const targetedHotFullLiftEnabled = targetedHotWorstStoreServiceModule;
     const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
-    const targetedHotUltraFullLift = targetedHotCriticalStoreServiceModule;
+    const targetedHotUltraFullLift = targetedHotPriorityStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const disableBulkChunkIndexInline = targetedHotStoreModule;
     const preferChunkImportFallback =
