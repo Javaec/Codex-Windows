@@ -4310,6 +4310,617 @@ function buildQualityModuleContent(
       visit(sourceFile);
       return counts;
     };
+    const isValidIdentifierImportName = (name: string): boolean => /^[$A-Za-z_][$A-Za-z0-9_]*$/.test(name);
+    interface NamespaceBindingEntry {
+      localName: string;
+      importedName: string;
+    }
+    interface NamespaceAliasMetadata {
+      alias: string;
+      modulePath: string;
+      bindings: NamespaceBindingEntry[];
+      statement: ts.VariableStatement;
+      declaration: ts.VariableDeclaration;
+    }
+    const collectNamespaceAliasMetadata = (source: ts.SourceFile): Map<string, NamespaceAliasMetadata> => {
+      const namespaceImportByAlias = new Map<string, string>();
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          continue;
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings || !ts.isNamespaceImport(namedBindings)) {
+          continue;
+        }
+        const moduleSpecifier = statement.moduleSpecifier;
+        if (!ts.isStringLiteralLike(moduleSpecifier)) {
+          continue;
+        }
+        namespaceImportByAlias.set(namedBindings.name.text, moduleSpecifier.text);
+      }
+      const metadataByAlias = new Map<string, NamespaceAliasMetadata>();
+      for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+          continue;
+        }
+        const declaration = statement.declarationList.declarations[0];
+        if (!declaration) {
+          continue;
+        }
+        if (
+          !ts.isObjectBindingPattern(declaration.name) ||
+          !declaration.initializer ||
+          !ts.isIdentifier(declaration.initializer)
+        ) {
+          continue;
+        }
+        const alias = declaration.initializer.text;
+        const modulePath = namespaceImportByAlias.get(alias);
+        if (!modulePath) {
+          continue;
+        }
+        const bindings: NamespaceBindingEntry[] = [];
+        for (const element of declaration.name.elements) {
+          if (ts.isOmittedExpression(element) || !ts.isIdentifier(element.name)) {
+            continue;
+          }
+          const localName = element.name.text;
+          const importedName = extractBindingImportedName(element, localName);
+          bindings.push({ localName, importedName });
+        }
+        if (bindings.length < 1) {
+          continue;
+        }
+        metadataByAlias.set(alias, {
+          alias,
+          modulePath,
+          bindings,
+          statement,
+          declaration,
+        });
+      }
+      return metadataByAlias;
+    };
+    const canRewriteNamespaceAliasReferences = (
+      source: ts.SourceFile,
+      alias: string,
+      shapingDeclaration: ts.VariableDeclaration,
+      bindingByImportedName: ReadonlyMap<string, string>,
+    ): boolean => {
+      let onlyAllowed = true;
+      const visit = (node: ts.Node): void => {
+        if (!onlyAllowed) {
+          return;
+        }
+        if (ts.isIdentifier(node) && isIdentifierReference(node) && node.text === alias) {
+          const parent = node.parent;
+          const allowed = ts.isVariableDeclaration(parent) && parent === shapingDeclaration && parent.initializer === node;
+          if (allowed) {
+            ts.forEachChild(node, visit);
+            return;
+          }
+          if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+            if (bindingByImportedName.has(parent.name.text)) {
+              ts.forEachChild(node, visit);
+              return;
+            }
+          }
+          if (ts.isElementAccessExpression(parent) && parent.expression === node && parent.argumentExpression) {
+            const argument = parent.argumentExpression;
+            const importedName = ts.isStringLiteralLike(argument)
+              ? argument.text
+              : ts.isIdentifier(argument)
+                ? argument.text
+                : "";
+            if (importedName.length > 0 && bindingByImportedName.has(importedName)) {
+              ts.forEachChild(node, visit);
+              return;
+            }
+          }
+          onlyAllowed = false;
+          return;
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      return onlyAllowed;
+    };
+    const scoreNamespaceAliasForDirectImport = (metadata: NamespaceAliasMetadata): number => {
+      const familyToken = resolveTargetedImportFamilyToken(metadata.modulePath);
+      const familyPriorityScore: Record<string, number> = {
+        runtime: 6,
+        channel: 5,
+        core: 4,
+        language: 3,
+        diagram: 2,
+      };
+      let score = familyPriorityScore[familyToken] ?? 1;
+      if (metadata.modulePath.includes("/chunk-index-") || metadata.modulePath.includes("/chunk-chunk-")) {
+        score += 2;
+      }
+      if (metadata.modulePath.includes("/chunks-ts/")) {
+        score += 1;
+      }
+      if (metadata.bindings.length <= 4) {
+        score += 3;
+      } else if (metadata.bindings.length <= 8) {
+        score += 1.5;
+      } else {
+        score -= 2;
+      }
+      let safeImportedCount = 0;
+      for (const binding of metadata.bindings) {
+        const importedName = binding.importedName;
+        const safeIdentifier = importedName === "default" || isValidIdentifierImportName(importedName);
+        if (!safeIdentifier) {
+          score -= 3;
+          continue;
+        }
+        const looksObfuscated =
+          importedName !== "default" &&
+          (OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName) ||
+            importedName.length <= 3 ||
+            importedName.includes("$") ||
+            isLikelyObfuscatedAliasToken(importedName));
+        if (!looksObfuscated) {
+          safeImportedCount += 1;
+        }
+      }
+      if (safeImportedCount > 0) {
+        score += Math.min(3, safeImportedCount * 0.5);
+      }
+      for (const token of planDomainPriorityTokens) {
+        if (metadata.modulePath.toLowerCase().includes(token.toLowerCase())) {
+          score += 0.5;
+        }
+      }
+      return score;
+    };
+    const buildPreferredDirectImportAliasSet = (source: ts.SourceFile): Set<string> => {
+      if (!targetedHotCriticalStoreServiceModule) {
+        return new Set<string>();
+      }
+      const metadataByAlias = collectNamespaceAliasMetadata(source);
+      if (metadataByAlias.size < 1) {
+        return new Set<string>();
+      }
+      const currentNamespaceCount = metadataByAlias.size;
+      const targetNamespaceCount = targetedHotServiceModule ? 10 : 12;
+      if (currentNamespaceCount <= targetNamespaceCount) {
+        return new Set<string>();
+      }
+      const candidates: Array<{ alias: string; score: number }> = [];
+      for (const metadata of metadataByAlias.values()) {
+        const allBindingsImportable = metadata.bindings.every((binding) => {
+          const importedName = binding.importedName;
+          return importedName === "default" || isValidIdentifierImportName(importedName);
+        });
+        if (!allBindingsImportable) {
+          continue;
+        }
+        const bindingByImportedName = new Map<string, string>();
+        for (const binding of metadata.bindings) {
+          if (binding.importedName === "default") {
+            continue;
+          }
+          if (!bindingByImportedName.has(binding.importedName)) {
+            bindingByImportedName.set(binding.importedName, binding.localName);
+          }
+        }
+        if (!canRewriteNamespaceAliasReferences(source, metadata.alias, metadata.declaration, bindingByImportedName)) {
+          continue;
+        }
+        const score = scoreNamespaceAliasForDirectImport(metadata);
+        candidates.push({ alias: metadata.alias, score });
+      }
+      if (candidates.length < 1) {
+        return new Set<string>();
+      }
+      const needed = Math.max(0, currentNamespaceCount - targetNamespaceCount);
+      if (needed < 1) {
+        return new Set<string>();
+      }
+      const selected = candidates
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          return left.alias.localeCompare(right.alias);
+        })
+        .slice(0, needed)
+        .map((entry) => entry.alias);
+      return new Set<string>(selected);
+    };
+    const applyPreferredDirectImportConversion = (
+      source: ts.SourceFile,
+      preferredAliases: ReadonlySet<string>,
+    ): string => {
+      if (preferredAliases.size < 1) {
+        return printer.printFile(source);
+      }
+      const metadataByAlias = collectNamespaceAliasMetadata(source);
+      if (metadataByAlias.size < 1) {
+        return printer.printFile(source);
+      }
+      const replacementImportByAlias = new Map<string, ts.ImportDeclaration>();
+      const skippedAliases = new Set<string>();
+      for (const alias of preferredAliases) {
+        const metadata = metadataByAlias.get(alias);
+        if (!metadata) {
+          continue;
+        }
+        let defaultBindingLocalName = "";
+        const namedSpecifiers: ts.ImportSpecifier[] = [];
+        for (const binding of metadata.bindings) {
+          if (binding.importedName === "default") {
+            if (defaultBindingLocalName.length > 0) {
+              skippedAliases.add(alias);
+              defaultBindingLocalName = "";
+              break;
+            }
+            defaultBindingLocalName = binding.localName;
+            continue;
+          }
+          if (!isValidIdentifierImportName(binding.importedName)) {
+            skippedAliases.add(alias);
+            defaultBindingLocalName = "";
+            break;
+          }
+          namedSpecifiers.push(
+            binding.importedName === binding.localName
+              ? ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(binding.localName))
+              : ts.factory.createImportSpecifier(
+                  false,
+                  ts.factory.createIdentifier(binding.importedName),
+                  ts.factory.createIdentifier(binding.localName),
+                ),
+          );
+        }
+        if (skippedAliases.has(alias)) {
+          continue;
+        }
+        const importClause = ts.factory.createImportClause(
+          false,
+          defaultBindingLocalName.length > 0 ? ts.factory.createIdentifier(defaultBindingLocalName) : undefined,
+          namedSpecifiers.length > 0 ? ts.factory.createNamedImports(namedSpecifiers) : undefined,
+        );
+        replacementImportByAlias.set(
+          alias,
+          ts.factory.createImportDeclaration(
+            undefined,
+            importClause,
+            ts.factory.createStringLiteral(metadata.modulePath),
+            undefined,
+          ),
+        );
+      }
+      if (replacementImportByAlias.size < 1) {
+        return printer.printFile(source);
+      }
+      const bindingByAlias = new Map<string, Map<string, string>>();
+      for (const [alias, metadata] of metadataByAlias.entries()) {
+        if (!replacementImportByAlias.has(alias)) {
+          continue;
+        }
+        const bindingByImportedName = new Map<string, string>();
+        for (const binding of metadata.bindings) {
+          if (binding.importedName === "default") {
+            continue;
+          }
+          if (!bindingByImportedName.has(binding.importedName)) {
+            bindingByImportedName.set(binding.importedName, binding.localName);
+          }
+        }
+        bindingByAlias.set(alias, bindingByImportedName);
+      }
+      const rewrittenResult = ts.transform(source, [
+        (context) => {
+          const visit = (node: ts.Node): ts.VisitResult<ts.Node> => {
+            if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.argumentExpression) {
+              const alias = node.expression.text;
+              const bindingByImportedName = bindingByAlias.get(alias);
+              if (bindingByImportedName) {
+                const argument = node.argumentExpression;
+                const importedName = ts.isStringLiteralLike(argument)
+                  ? argument.text
+                  : ts.isIdentifier(argument)
+                    ? argument.text
+                    : "";
+                const localName = importedName.length > 0 ? bindingByImportedName.get(importedName) : undefined;
+                if (localName && isValidIdentifierImportName(localName)) {
+                  return ts.factory.createIdentifier(localName);
+                }
+              }
+            }
+            if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+              const alias = node.expression.text;
+              const bindingByImportedName = bindingByAlias.get(alias);
+              if (bindingByImportedName) {
+                const localName = bindingByImportedName.get(node.name.text);
+                if (localName && isValidIdentifierImportName(localName)) {
+                  return ts.factory.createIdentifier(localName);
+                }
+              }
+            }
+            return ts.visitEachChild(node, visit, context);
+          };
+          return (file) => ts.visitNode(file, visit) as ts.SourceFile;
+        },
+      ]);
+      const rewrittenSource = rewrittenResult.transformed[0];
+      if (!rewrittenSource) {
+        rewrittenResult.dispose();
+        throw new Error(`buildQualityModuleContent: missing transformed source in preferred direct import conversion for ${plan.moduleId}`);
+      }
+      const nextStatements: ts.Statement[] = [];
+      for (const statement of rewrittenSource.statements) {
+        if (ts.isImportDeclaration(statement) && statement.importClause) {
+          const namedBindings = statement.importClause.namedBindings;
+          if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+            const alias = namedBindings.name.text;
+            const replacement = replacementImportByAlias.get(alias);
+            if (replacement) {
+              nextStatements.push(replacement);
+              continue;
+            }
+          }
+        }
+        if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1) {
+          const declaration = statement.declarationList.declarations[0];
+          if (
+            declaration &&
+            ts.isObjectBindingPattern(declaration.name) &&
+            declaration.initializer &&
+            ts.isIdentifier(declaration.initializer) &&
+            replacementImportByAlias.has(declaration.initializer.text)
+          ) {
+            continue;
+          }
+        }
+        nextStatements.push(statement);
+      }
+      const convertedSource = ts.factory.updateSourceFile(rewrittenSource, nextStatements);
+      rewrittenResult.dispose();
+      return printer.printFile(convertedSource);
+    };
+    const applySingleUseNamespaceAliasFallbackConversion = (contentText: string): string => {
+      if (!targetedHotServiceModule || contentText.length < 1) {
+        return contentText;
+      }
+      const source = ts.createSourceFile(
+        `${plan.moduleId}.ts`,
+        contentText,
+        ts.ScriptTarget.ESNext,
+        true,
+        ts.ScriptKind.TS,
+      );
+      const namespaceImports = new Map<string, { modulePath: string; statement: ts.ImportDeclaration }>();
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          continue;
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings || !ts.isNamespaceImport(namedBindings)) {
+          continue;
+        }
+        const moduleSpecifier = statement.moduleSpecifier;
+        if (!ts.isStringLiteralLike(moduleSpecifier)) {
+          continue;
+        }
+        namespaceImports.set(namedBindings.name.text, { modulePath: moduleSpecifier.text, statement });
+      }
+      if (namespaceImports.size <= 12) {
+        return contentText;
+      }
+      const aliasUsedByShaping = new Set<string>();
+      for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+          continue;
+        }
+        const declaration = statement.declarationList.declarations[0];
+        if (
+          !declaration ||
+          !ts.isObjectBindingPattern(declaration.name) ||
+          !declaration.initializer ||
+          !ts.isIdentifier(declaration.initializer)
+        ) {
+          continue;
+        }
+        aliasUsedByShaping.add(declaration.initializer.text);
+      }
+      interface AliasUseInfo {
+        importedNames: Set<string>;
+        unsupported: boolean;
+      }
+      const useInfoByAlias = new Map<string, AliasUseInfo>();
+      for (const alias of namespaceImports.keys()) {
+        useInfoByAlias.set(alias, { importedNames: new Set<string>(), unsupported: false });
+      }
+      const markUnsupported = (alias: string): void => {
+        const entry = useInfoByAlias.get(alias);
+        if (entry) {
+          entry.unsupported = true;
+        }
+      };
+      const recordImportedName = (alias: string, importedName: string): void => {
+        const entry = useInfoByAlias.get(alias);
+        if (!entry) {
+          return;
+        }
+        if (!isValidIdentifierImportName(importedName)) {
+          entry.unsupported = true;
+          return;
+        }
+        entry.importedNames.add(importedName);
+      };
+      const visit = (node: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+          const alias = node.expression.text;
+          if (useInfoByAlias.has(alias)) {
+            recordImportedName(alias, node.name.text);
+          }
+        } else if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.argumentExpression) {
+          const alias = node.expression.text;
+          if (useInfoByAlias.has(alias)) {
+            const argument = node.argumentExpression;
+            const importedName = ts.isStringLiteralLike(argument)
+              ? argument.text
+              : ts.isIdentifier(argument)
+                ? argument.text
+                : "";
+            if (importedName.length < 1) {
+              markUnsupported(alias);
+            } else {
+              recordImportedName(alias, importedName);
+            }
+          }
+        } else if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+          const alias = node.text;
+          if (useInfoByAlias.has(alias)) {
+            const parent = node.parent;
+            const supported =
+              (ts.isPropertyAccessExpression(parent) && parent.expression === node) ||
+              (ts.isElementAccessExpression(parent) && parent.expression === node);
+            if (!supported) {
+              markUnsupported(alias);
+            }
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      const candidates: Array<{ alias: string; importedName: string; modulePath: string; score: number }> = [];
+      for (const [alias, importEntry] of namespaceImports.entries()) {
+        if (aliasUsedByShaping.has(alias)) {
+          continue;
+        }
+        const useInfo = useInfoByAlias.get(alias);
+        if (!useInfo || useInfo.unsupported || useInfo.importedNames.size !== 1) {
+          continue;
+        }
+        const importedName = [...useInfo.importedNames][0];
+        if (!importedName || !isValidIdentifierImportName(importedName)) {
+          continue;
+        }
+        const family = resolveTargetedImportFamilyToken(importEntry.modulePath);
+        const familyPriority: Record<string, number> = {
+          runtime: 5,
+          channel: 4,
+          core: 3,
+          language: 2,
+          diagram: 1,
+        };
+        let score = familyPriority[family] ?? 0;
+        if (importEntry.modulePath.includes("/chunk-index-")) {
+          score += 2;
+        }
+        if (!OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName) && !isLikelyObfuscatedAliasToken(importedName)) {
+          score += 1.5;
+        }
+        candidates.push({ alias, importedName, modulePath: importEntry.modulePath, score });
+      }
+      if (candidates.length < 1) {
+        return contentText;
+      }
+      const needed = Math.max(0, namespaceImports.size - 12);
+      if (needed < 1) {
+        return contentText;
+      }
+      const selectedCandidates = candidates
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          return left.alias.localeCompare(right.alias);
+        })
+        .slice(0, needed);
+      if (selectedCandidates.length < 1) {
+        return contentText;
+      }
+      const selectedByAlias = new Map<string, { importedName: string; modulePath: string; localName: string }>();
+      const usedNames = new Set<string>(contentText.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+      for (const candidate of selectedCandidates) {
+        const baseLocalName = buildTargetedImportFamilyAliasBase(
+          candidate.importedName,
+          candidate.modulePath,
+          candidate.importedName,
+        );
+        const localName = nextUniqueIdentifier(compactIdentifier(baseLocalName, 34), usedNames);
+        selectedByAlias.set(candidate.alias, {
+          importedName: candidate.importedName,
+          modulePath: candidate.modulePath,
+          localName,
+        });
+      }
+      const transformedResult = ts.transform(source, [
+        (context) => {
+          const visitNode = (node: ts.Node): ts.VisitResult<ts.Node> => {
+            if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+              const selected = selectedByAlias.get(node.expression.text);
+              if (selected && node.name.text === selected.importedName) {
+                return ts.factory.createIdentifier(selected.localName);
+              }
+            }
+            if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.argumentExpression) {
+              const selected = selectedByAlias.get(node.expression.text);
+              if (selected) {
+                const argument = node.argumentExpression;
+                const importedName = ts.isStringLiteralLike(argument)
+                  ? argument.text
+                  : ts.isIdentifier(argument)
+                    ? argument.text
+                    : "";
+                if (importedName === selected.importedName) {
+                  return ts.factory.createIdentifier(selected.localName);
+                }
+              }
+            }
+            return ts.visitEachChild(node, visitNode, context);
+          };
+          return (file) => ts.visitNode(file, visitNode) as ts.SourceFile;
+        },
+      ]);
+      const transformedSource = transformedResult.transformed[0];
+      if (!transformedSource) {
+        transformedResult.dispose();
+        throw new Error(`buildQualityModuleContent: missing transformed source in single-use namespace fallback for ${plan.moduleId}`);
+      }
+      const nextStatements: ts.Statement[] = [];
+      for (const statement of transformedSource.statements) {
+        if (ts.isImportDeclaration(statement) && statement.importClause) {
+          const namedBindings = statement.importClause.namedBindings;
+          if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+            const alias = namedBindings.name.text;
+            const selected = selectedByAlias.get(alias);
+            if (selected) {
+              nextStatements.push(
+                ts.factory.createImportDeclaration(
+                  undefined,
+                  ts.factory.createImportClause(
+                    false,
+                    undefined,
+                    ts.factory.createNamedImports([
+                      ts.factory.createImportSpecifier(
+                        false,
+                        ts.factory.createIdentifier(selected.importedName),
+                        ts.factory.createIdentifier(selected.localName),
+                      ),
+                    ]),
+                  ),
+                  ts.factory.createStringLiteral(selected.modulePath),
+                  undefined,
+                ),
+              );
+              continue;
+            }
+          }
+        }
+        nextStatements.push(statement);
+      }
+      const convertedSource = ts.factory.updateSourceFile(transformedSource, nextStatements);
+      transformedResult.dispose();
+      return printer.printFile(convertedSource);
+    };
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
     const sourceFile = ts.createSourceFile(
       `${plan.moduleId}.ts`,
@@ -4327,6 +4938,7 @@ function buildQualityModuleContent(
       }
       return localName;
     };
+    const preferredDirectImportAliases = buildPreferredDirectImportAliasSet(sourceFile);
     let sourceForCleanup = sourceFile;
     let contentForCleanup = content;
     if (targetedHotCriticalStoreServiceModule) {
@@ -4345,6 +4957,9 @@ function buildQualityModuleContent(
           continue;
         }
         const namespaceAlias = declaration.initializer.text;
+        if (preferredDirectImportAliases.has(namespaceAlias)) {
+          continue;
+        }
         for (const element of declaration.name.elements) {
           if (ts.isOmittedExpression(element) || !ts.isIdentifier(element.name)) {
             continue;
@@ -4505,10 +5120,12 @@ function buildQualityModuleContent(
       importChanged = true;
     }
     if (!importChanged) {
-      return shapedContent;
+      const directConverted = applyPreferredDirectImportConversion(importSource, preferredDirectImportAliases);
+      return applySingleUseNamespaceAliasFallbackConversion(directConverted);
     }
     const importFilteredSource = ts.factory.updateSourceFile(importSource, importFilteredStatements);
-    return printer.printFile(importFilteredSource);
+    const directConverted = applyPreferredDirectImportConversion(importFilteredSource, preferredDirectImportAliases);
+    return applySingleUseNamespaceAliasFallbackConversion(directConverted);
   };
 
   const collectStatementReferencedNames = (statement: ts.Statement): Set<string> => {

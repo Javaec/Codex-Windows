@@ -145,3 +145,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: `store-state-g002.ts` / `service-run.ts` dropped many `const { ... }` shaping blocks while preserving deterministic output and green quality/dev gates.
 - Critical import-hygiene inline now also allows low-fanout obfuscated bindings (usage <= 2) while keeping single-use inline always on.
   Verified reason: further reduced shaping noise in hot store/service modules without reintroducing `CoreLocal`/`HeeNode` naming regressions.
+- Ownership-aware namespace planner is now enabled for critical hot modules (`store-state-g002.ts`, `service-run.ts`):
+  - picks priority namespace groups by family/module-path/readability score,
+  - skips inline for selected aliases,
+  - converts selected namespace imports into direct named imports and rewrites safe `ns.prop`/`ns["prop"]` accesses.
+  Verified reason: reduced `import * as` noise in `src/services/service/service-run.ts` to the requested target band (now `12`) while preserving zero `store/serviceCoreLocal*` regressions.
+- Added safe fallback conversion for single-use namespace aliases without shaping blocks in hot service modules.
+  Verified reason: allows extra deterministic namespace reduction when planner candidates are limited by shaping-only constraints.
