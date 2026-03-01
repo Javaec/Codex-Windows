@@ -29,6 +29,10 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 
 ## Current Decisions
 - Reverse-engineering tooling is implemented as a separate CLI (`reverse.ts`) and not mixed into launch/build pipeline.
+- Webview sunset-gate patching is signature-tolerant:
+  - keep legacy exact needles for known bundles;
+  - fallback to semantic detection (`appSunset.title` / `Update required`) and patch the gating branch by component reference.
+- Legacy webview auto-scroll artifacts are removed during repack so stale injected scripts cannot survive into new builds.
 
 ## Reverse Pipeline Status (2026-02-23)
 

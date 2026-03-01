@@ -87,8 +87,10 @@ export function patchWebviewCwdNormalization(appDir: string): void {
 }
 
 export function patchWebviewAppSunsetGate(appDir: string): void {
-  const patchNeedle = "const s=Xs(i);if(r){";
-  const patchReplacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}const s=!1;if(r){`;
+  const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){"];
+  const markerNeedles = ['id:"appSunset.title"', 'defaultMessage:"Update required"'];
+  const gatePattern =
+    /const\s+([A-Za-z0-9_$]+)\s*=\s*([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\);\s*if\(([A-Za-z0-9_$]+)\)\{/g;
 
   patchWebviewIndexBundles(
     appDir,
@@ -98,13 +100,79 @@ export function patchWebviewAppSunsetGate(appDir: string): void {
       if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
         return { alreadyPatched: true, patched: false, content: raw };
       }
-      if (!raw.includes(patchNeedle)) {
+
+      for (const needle of legacyPatchNeedles) {
+        if (!raw.includes(needle)) continue;
+        return {
+          alreadyPatched: false,
+          patched: true,
+          content: raw.replace(needle, `${WEBVIEW_APP_SUNSET_PATCH_TAG}const s=!1;if(r){`),
+        };
+      }
+
+      const markerIndex = markerNeedles
+        .map((needle) => raw.indexOf(needle))
+        .find((index) => index >= 0);
+      if (markerIndex === undefined) {
         return { alreadyPatched: false, patched: false, content: raw };
       }
+
+      const sunsetComponentStart = raw.lastIndexOf("function ", markerIndex);
+      if (sunsetComponentStart < 0) {
+        return { alreadyPatched: false, patched: false, content: raw };
+      }
+
+      const sunsetComponentMatch = /^function\s+([A-Za-z0-9_$]+)\(/.exec(
+        raw.slice(sunsetComponentStart, sunsetComponentStart + 96),
+      );
+      if (!sunsetComponentMatch) {
+        return { alreadyPatched: false, patched: false, content: raw };
+      }
+
+      const sunsetComponentName = sunsetComponentMatch[1];
+      const usageNeedles = [`h.jsx(${sunsetComponentName},`, `h.jsxs(${sunsetComponentName},`];
+      const usageIndex = usageNeedles
+        .map((needle) => raw.indexOf(needle, markerIndex))
+        .find((index) => index >= 0);
+      if (usageIndex === undefined) {
+        return { alreadyPatched: false, patched: false, content: raw };
+      }
+
+      const searchStart = Math.max(0, usageIndex - 1600);
+      const searchEnd = Math.min(raw.length, usageIndex + 512);
+      const searchWindow = raw.slice(searchStart, searchEnd);
+      let selectedPatch:
+        | {
+            start: number;
+            end: number;
+            gateVar: string;
+            guardVar: string;
+          }
+        | undefined;
+      let match: RegExpExecArray | null;
+      while ((match = gatePattern.exec(searchWindow)) !== null) {
+        const full = match[0];
+        const gateVar = match[1];
+        const guardVar = match[4];
+        const branchWindow = searchWindow.slice(match.index, Math.min(searchWindow.length, match.index + 640));
+        if (!branchWindow.includes(`else if(${gateVar}){`)) continue;
+        if (!branchWindow.includes(`h.jsx(${sunsetComponentName},`)) continue;
+        selectedPatch = {
+          start: searchStart + match.index,
+          end: searchStart + match.index + full.length,
+          gateVar,
+          guardVar,
+        };
+      }
+      if (!selectedPatch) {
+        return { alreadyPatched: false, patched: false, content: raw };
+      }
+
+      const replacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}const ${selectedPatch.gateVar}=!1;if(${selectedPatch.guardVar}){`;
       return {
         alreadyPatched: false,
         patched: true,
-        content: raw.replace(patchNeedle, patchReplacement),
+        content: raw.slice(0, selectedPatch.start) + replacement + raw.slice(selectedPatch.end),
       };
     },
   );
