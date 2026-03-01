@@ -118,6 +118,13 @@ const HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS = 84;
 const HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES = 3;
 const HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES = 48;
 const HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS = 96;
+const HOT_STORE_SHARD_DEPENDENCY_STRICT_MIN_LINES = 72;
+const HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_MODULES = 5;
+const HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_STATEMENTS = 168;
+const HOT_STORE_SHARD_RUNTIME_STRICT_MIN_LINES = 24;
+const HOT_STORE_SHARD_RUNTIME_STRICT_MAX_MODULES = 6;
+const HOT_STORE_SHARD_RUNTIME_STRICT_MAX_STATEMENTS = 168;
+const HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES = 2;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -2081,6 +2088,13 @@ function isTargetedQualityShardFilePath(filePath: string): boolean {
   );
 }
 
+function isPrimaryTargetedQualityShardFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-03)(?:-cohesion-\d+)?\.ts$/i.test(
+    normalized,
+  );
+}
+
 function collapseTinyModulePlans(modulePlans: ModulePlan[], statementBudget: number): ModulePlan[] {
   if (modulePlans.length <= 1) {
     return modulePlans;
@@ -2755,6 +2769,7 @@ function buildQualityModuleContent(
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
   const targetedQualityShardModule = isTargetedQualityShardFilePath(normalizedHotFilePath);
+  const strictTargetedQualityShardModule = isPrimaryTargetedQualityShardFilePath(normalizedHotFilePath);
   const hotFocusModule = plan.hotPriority;
   const criticalTopWorstModule = hotFocusModule && criticalHotFilePaths.has(normalizedHotFilePath.toLowerCase());
   const targetedHotStoreModule = criticalTopWorstModule && plan.archetype === "store";
@@ -5975,7 +5990,15 @@ function buildQualityModuleContent(
       normalized.includes("modulepreload") ||
       normalized.includes("vite:preloaderror") ||
       normalized.includes("object.prototype") ||
-      normalized.includes("function.prototype")
+      normalized.includes("function.prototype") ||
+      normalized.includes("object.defineproperty(") ||
+      normalized.includes("__esmodule") ||
+      normalized.includes("globalthis") ||
+      normalized.includes("weakmap") ||
+      normalized.includes("weakset") ||
+      normalized.includes("promise.resolve") ||
+      normalized.includes("process.env") ||
+      normalized.includes("[statsig]")
     );
   };
   const isMovableTopLevelStatementForStoreShard = (statement: ts.Statement): boolean => {
@@ -6069,6 +6092,7 @@ function buildQualityModuleContent(
   const applyStoreShardClusterExtraction = (
     content: string,
     mode: "dependency-closure" | "runtime-quarantine",
+    passTag: string,
   ): string => {
     if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
       return content;
@@ -6116,31 +6140,54 @@ function buildQualityModuleContent(
       lineCount: number;
       descriptor: StoreShardBehaviorCluster;
     }
+    const dependencyMinLines = strictTargetedQualityShardModule
+      ? HOT_STORE_SHARD_DEPENDENCY_STRICT_MIN_LINES
+      : HOT_STORE_SHARD_LONG_FUNCTION_LINES;
+    const runtimeMinLines = strictTargetedQualityShardModule
+      ? HOT_STORE_SHARD_RUNTIME_STRICT_MIN_LINES
+      : HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES;
+    const maxClusters =
+      mode === "dependency-closure"
+        ? strictTargetedQualityShardModule
+          ? HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_MODULES
+          : HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES
+        : strictTargetedQualityShardModule
+          ? HOT_STORE_SHARD_RUNTIME_STRICT_MAX_MODULES
+          : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES;
+    const maxClosureStatements =
+      mode === "dependency-closure"
+        ? strictTargetedQualityShardModule
+          ? HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_STATEMENTS
+          : HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS
+        : strictTargetedQualityShardModule
+          ? HOT_STORE_SHARD_RUNTIME_STRICT_MAX_STATEMENTS
+          : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS;
     const rootCandidates: ClusterRootCandidate[] = [];
-    for (const statement of sourceFile.statements) {
-      if (!isMovableTopLevelStatementForStoreShard(statement)) {
-        continue;
-      }
-      if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) {
-        continue;
-      }
-      const lineCount = countNodeLines(statement, sourceFile);
-      const rootName = statement.name.text;
+    const pushRootCandidate = (
+      statement: ts.Statement,
+      rootName: string,
+      lineCount: number,
+      statementText: string,
+      skipIfSelfContained: boolean,
+    ): void => {
       if (mode === "dependency-closure") {
-        if (lineCount < HOT_STORE_SHARD_LONG_FUNCTION_LINES || isSelfContainedHelperFunction(statement)) {
-          continue;
+        if (lineCount < dependencyMinLines) {
+          return;
+        }
+        if (skipIfSelfContained && ts.isFunctionDeclaration(statement) && isSelfContainedHelperFunction(statement)) {
+          return;
         }
       } else {
-        if (lineCount < HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES) {
-          continue;
+        if (lineCount < runtimeMinLines) {
+          return;
         }
-        if (!isStoreShardRuntimeLikeName(rootName) && !hasStoreShardRuntimeSignal(statement.getText(sourceFile))) {
-          continue;
+        if (!isStoreShardRuntimeLikeName(rootName) && !hasStoreShardRuntimeSignal(statementText)) {
+          return;
         }
       }
       const descriptor = describeStoreShardBehaviorCluster(
         rootName,
-        statement.getText(sourceFile),
+        statementText,
         refsByStatement.get(statement) ?? new Set<string>(),
       );
       rootCandidates.push({
@@ -6149,14 +6196,42 @@ function buildQualityModuleContent(
         lineCount,
         descriptor,
       });
+    };
+    for (const statement of sourceFile.statements) {
+      if (!isMovableTopLevelStatementForStoreShard(statement)) {
+        continue;
+      }
+      if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+        const lineCount = countNodeLines(statement, sourceFile);
+        const rootName = statement.name.text;
+        pushRootCandidate(statement, rootName, lineCount, statement.getText(sourceFile), true);
+        continue;
+      }
+      if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1) {
+        const declaration = statement.declarationList.declarations[0];
+        if (!declaration || !ts.isIdentifier(declaration.name) || !declaration.initializer) {
+          continue;
+        }
+        if (!ts.isArrowFunction(declaration.initializer) && !ts.isFunctionExpression(declaration.initializer)) {
+          continue;
+        }
+        const lineCount = declaration.initializer.getText(sourceFile).split(/\r?\n/).length;
+        if (lineCount < 1) {
+          continue;
+        }
+        const rootName = declaration.name.text;
+        pushRootCandidate(statement, rootName, lineCount, statement.getText(sourceFile), false);
+        continue;
+      }
+      if (mode === "runtime-quarantine" && ts.isClassDeclaration(statement) && statement.name) {
+        const lineCount = countNodeLines(statement, sourceFile);
+        const rootName = statement.name.text;
+        pushRootCandidate(statement, rootName, lineCount, statement.getText(sourceFile), false);
+      }
     }
     if (rootCandidates.length < 1) {
       return content;
     }
-    const maxClusters =
-      mode === "dependency-closure" ? HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES;
-    const maxClosureStatements =
-      mode === "dependency-closure" ? HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS;
     const selectedByCluster = new Map<string, StoreShardClusterSelection>();
     const globallySelectedStatements = new Set<ts.Statement>();
     const orderedCandidates = [...rootCandidates].sort((left, right) => {
@@ -6256,7 +6331,8 @@ function buildQualityModuleContent(
       if (exportedClusterStatements.length < 1) {
         continue;
       }
-      const helperSuffix = mode === "dependency-closure" ? "closure" : "runtime";
+      const helperSuffixBase = mode === "dependency-closure" ? "closure" : "runtime";
+      const helperSuffix = sanitizeSegment(`${helperSuffixBase}-${passTag}`, helperSuffixBase);
       const helperStem = sanitizeSegment(
         `${shardBaseStem}-${cluster.clusterKey}-${helperSuffix}`,
         `${shardBaseStem}-${helperSuffix}-${String(clusterIndex + 1).padStart(2, "0")}`,
@@ -6343,10 +6419,28 @@ function buildQualityModuleContent(
     }
     return helperPrinter.printFile(ts.factory.updateSourceFile(sourceFile, nextStatements));
   };
-  const applyTargetedStoreShardDependencyClosureExtraction = (content: string): string =>
-    applyStoreShardClusterExtraction(content, "dependency-closure");
-  const applyTargetedStoreShardRuntimeClusterQuarantine = (content: string): string =>
-    applyStoreShardClusterExtraction(content, "runtime-quarantine");
+  const applyTargetedStoreShardDependencyClosureExtraction = (content: string): string => {
+    let next = content;
+    for (let passIndex = 0; passIndex < HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES; passIndex += 1) {
+      const rewritten = applyStoreShardClusterExtraction(next, "dependency-closure", `p${String(passIndex + 1).padStart(2, "0")}`);
+      if (rewritten === next) {
+        break;
+      }
+      next = rewritten;
+    }
+    return next;
+  };
+  const applyTargetedStoreShardRuntimeClusterQuarantine = (content: string): string => {
+    let next = content;
+    for (let passIndex = 0; passIndex < HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES; passIndex += 1) {
+      const rewritten = applyStoreShardClusterExtraction(next, "runtime-quarantine", `p${String(passIndex + 1).padStart(2, "0")}`);
+      if (rewritten === next) {
+        break;
+      }
+      next = rewritten;
+    }
+    return next;
+  };
   const applyImportHygienePass = (content: string): string => {
     const collectIdentifierReferenceCounts = (sourceFile: ts.SourceFile): Map<string, number> => {
       const counts = new Map<string, number>();

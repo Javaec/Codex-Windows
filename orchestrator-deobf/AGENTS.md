@@ -290,3 +290,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: shrinks runtime/vendor surface in shard files and increases ratio of application flow logic in primary store quality modules.
 - Store quality-shard hard function-length cap was raised from 260 to 1300 lines.
   Verified reason: previous threshold caused regression fail-fast before dependency-closure/runtime-quarantine passes could stabilize output on current Codex snapshot; this keeps gates strict enough to catch extreme outliers while unblocking iterative quality improvements.
+- Top-3 store quality shards now use stricter iterative extraction passes for readability.
+  - dependency-closure extraction now also targets long variable function expressions and runs multi-pass,
+  - runtime/vendor quarantine now has broader signal detection and can move class/function/variable runtime clusters,
+  - strict thresholds are applied only for `store-state-quality-01/02` and `store-state-g002-quality-03` families.
+  Verified reason: reduce function-body fragmentation and import/runtime noise in the worst files without widening noisy rewrites across non-hot modules.
