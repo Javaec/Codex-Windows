@@ -256,3 +256,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: controls disk growth during aggressive iteration loops without changing pipeline logic.
 - Regression runners now prune heavy per-run artifacts (`asar-extract`, `webcrack`, `wakaru`, optional tool outputs) after baseline/report write.
   Verified reason: keeps run metrics and generated project artifacts while cutting most disk-heavy transient stage folders.
+- Critical top-5 hot modules now run three extra quality-only passes before final import hygiene:
+  - local AST wrapper-inline planner (forwarder call wrappers are inlined and removed),
+  - type-hint propagation for local variable declarations,
+  - function-body semantic rename pass (`role + domain + io-signature`).
+  Verified reason: raises real-logic density and function readability in worst store/service files without enabling noisy rewrites for non-hot modules.

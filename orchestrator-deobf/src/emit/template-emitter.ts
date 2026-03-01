@@ -105,6 +105,8 @@ const HOT_FIRST_MIN_TARGET_FILES = 5;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
 const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 5;
+const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
+const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -4748,6 +4750,482 @@ function buildQualityModuleContent(
     }
     return rewritten;
   };
+  const applyCriticalLocalAstInlinePlanner = (content: string): string => {
+    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    interface ForwardingWrapperCandidate {
+      name: string;
+      targetName: string;
+      statement: ts.Statement;
+    }
+    const extractParameterNames = (parameters: readonly ts.ParameterDeclaration[]): string[] | undefined => {
+      const parameterNames: string[] = [];
+      for (const parameter of parameters) {
+        if (parameter.dotDotDotToken || parameter.questionToken || parameter.initializer || !ts.isIdentifier(parameter.name)) {
+          return undefined;
+        }
+        parameterNames.push(parameter.name.text);
+      }
+      return parameterNames;
+    };
+    const extractForwardingTarget = (
+      body: ts.ConciseBody | undefined,
+      parameterNames: readonly string[],
+    ): string | undefined => {
+      if (!body) {
+        return undefined;
+      }
+      let callExpression: ts.CallExpression | undefined;
+      if (ts.isBlock(body)) {
+        if (body.statements.length !== 1) {
+          return undefined;
+        }
+        const statement = body.statements[0];
+        if (!statement || !ts.isReturnStatement(statement) || !statement.expression || !ts.isCallExpression(statement.expression)) {
+          return undefined;
+        }
+        callExpression = statement.expression;
+      } else if (ts.isCallExpression(body)) {
+        callExpression = body;
+      } else {
+        return undefined;
+      }
+      if (!callExpression || !ts.isIdentifier(callExpression.expression)) {
+        return undefined;
+      }
+      if (callExpression.arguments.length !== parameterNames.length) {
+        return undefined;
+      }
+      for (let index = 0; index < parameterNames.length; index += 1) {
+        const argument = callExpression.arguments[index];
+        const parameterName = parameterNames[index];
+        if (!argument || !parameterName || !ts.isIdentifier(argument) || argument.text !== parameterName) {
+          return undefined;
+        }
+      }
+      return callExpression.expression.text;
+    };
+    const candidateByName = new Map<string, ForwardingWrapperCandidate>();
+    for (const statement of sourceFile.statements) {
+      if (hasExportModifier(statement)) {
+        continue;
+      }
+      if (ts.isFunctionDeclaration(statement) && statement.name) {
+        const parameterNames = extractParameterNames(statement.parameters);
+        if (!parameterNames) {
+          continue;
+        }
+        const targetName = extractForwardingTarget(statement.body, parameterNames);
+        if (!targetName || targetName === statement.name.text) {
+          continue;
+        }
+        candidateByName.set(statement.name.text, {
+          name: statement.name.text,
+          targetName,
+          statement,
+        });
+        continue;
+      }
+      if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+        continue;
+      }
+      if (!(statement.declarationList.flags & ts.NodeFlags.Const)) {
+        continue;
+      }
+      const declaration = statement.declarationList.declarations[0];
+      if (!declaration || !ts.isIdentifier(declaration.name) || !declaration.initializer) {
+        continue;
+      }
+      const initializer = declaration.initializer;
+      if (!ts.isArrowFunction(initializer) && !ts.isFunctionExpression(initializer)) {
+        continue;
+      }
+      const parameterNames = extractParameterNames(initializer.parameters);
+      if (!parameterNames) {
+        continue;
+      }
+      const targetName = extractForwardingTarget(initializer.body, parameterNames);
+      if (!targetName || targetName === declaration.name.text) {
+        continue;
+      }
+      candidateByName.set(declaration.name.text, {
+        name: declaration.name.text,
+        targetName,
+        statement,
+      });
+    }
+    if (candidateByName.size < 1) {
+      return content;
+    }
+
+    interface WrapperUsage {
+      callCount: number;
+      invalidReference: boolean;
+    }
+    const usageByName = new Map<string, WrapperUsage>();
+    for (const candidateName of candidateByName.keys()) {
+      usageByName.set(candidateName, {
+        callCount: 0,
+        invalidReference: false,
+      });
+    }
+    const visitUsage = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && isIdentifierReference(node)) {
+        const usage = usageByName.get(node.text);
+        if (usage) {
+          const parent = node.parent;
+          const isDirectCall = ts.isCallExpression(parent) && parent.expression === node;
+          if (isDirectCall) {
+            usage.callCount += 1;
+          } else {
+            usage.invalidReference = true;
+          }
+        }
+      }
+      ts.forEachChild(node, visitUsage);
+    };
+    visitUsage(sourceFile);
+
+    const scoredCandidates: Array<{ candidate: ForwardingWrapperCandidate; callCount: number }> = [];
+    for (const [candidateName, candidate] of candidateByName.entries()) {
+      const usage = usageByName.get(candidateName);
+      if (!usage || usage.invalidReference || usage.callCount < 1) {
+        continue;
+      }
+      if (candidateByName.has(candidate.targetName)) {
+        continue;
+      }
+      scoredCandidates.push({
+        candidate,
+        callCount: usage.callCount,
+      });
+    }
+    if (scoredCandidates.length < 1) {
+      return content;
+    }
+    const selectedCandidates = scoredCandidates
+      .sort((left, right) => {
+        if (right.callCount !== left.callCount) {
+          return right.callCount - left.callCount;
+        }
+        return left.candidate.name.localeCompare(right.candidate.name);
+      })
+      .slice(0, HOT_INLINE_WRAPPER_MAX_PER_MODULE);
+    if (selectedCandidates.length < 1) {
+      return content;
+    }
+    const activeCandidateByName = new Map<string, ForwardingWrapperCandidate>();
+    const removableStatements = new Set<ts.Statement>();
+    for (const { candidate } of selectedCandidates) {
+      activeCandidateByName.set(candidate.name, candidate);
+      removableStatements.add(candidate.statement);
+    }
+    const filteredStatements = sourceFile.statements.filter((statement) => !removableStatements.has(statement));
+    const filteredSource = ts.factory.updateSourceFile(sourceFile, filteredStatements);
+    const transformedResult = ts.transform(filteredSource, [
+      (context) => {
+        const visit = (node: ts.Node): ts.VisitResult<ts.Node> => {
+          if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+            const candidate = activeCandidateByName.get(node.expression.text);
+            if (candidate) {
+              return ts.factory.updateCallExpression(
+                node,
+                ts.factory.createIdentifier(candidate.targetName),
+                node.typeArguments,
+                node.arguments,
+              );
+            }
+          }
+          return ts.visitEachChild(node, visit, context);
+        };
+        return (file) => ts.visitNode(file, visit) as ts.SourceFile;
+      },
+    ]);
+    const transformedSource = transformedResult.transformed[0];
+    if (!transformedSource) {
+      transformedResult.dispose();
+      throw new Error("buildQualityModuleContent: missing transformed source in critical local AST inline planner");
+    }
+    const transformedContent = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(transformedSource);
+    transformedResult.dispose();
+    return transformedContent;
+  };
+  type TypeHintTag = "array" | "boolean" | "function" | "number" | "object" | "string";
+  const inferTypeHintTagFromTypeNode = (typeNode: ts.TypeNode): TypeHintTag | undefined => {
+    if (typeNode.kind === ts.SyntaxKind.BooleanKeyword) {
+      return "boolean";
+    }
+    if (typeNode.kind === ts.SyntaxKind.NumberKeyword) {
+      return "number";
+    }
+    if (typeNode.kind === ts.SyntaxKind.StringKeyword) {
+      return "string";
+    }
+    if (ts.isArrayTypeNode(typeNode)) {
+      return "array";
+    }
+    if (ts.isFunctionTypeNode(typeNode)) {
+      return "function";
+    }
+    if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+      const typeName = typeNode.typeName.text.toLowerCase();
+      if (typeName === "record" || typeName === "object") {
+        return "object";
+      }
+      if (typeName === "array") {
+        return "array";
+      }
+      if (typeName === "function") {
+        return "function";
+      }
+      if (typeName === "string") {
+        return "string";
+      }
+      if (typeName === "number") {
+        return "number";
+      }
+      if (typeName === "boolean") {
+        return "boolean";
+      }
+    }
+    return undefined;
+  };
+  const inferTypeHintTagFromInitializer = (
+    initializer: ts.Expression,
+    hintByIdentifier: ReadonlyMap<string, TypeHintTag>,
+  ): TypeHintTag | undefined => {
+    if (initializer.kind === ts.SyntaxKind.TrueKeyword || initializer.kind === ts.SyntaxKind.FalseKeyword) {
+      return "boolean";
+    }
+    if (
+      ts.isNumericLiteral(initializer) ||
+      (ts.isPrefixUnaryExpression(initializer) && ts.isNumericLiteral(initializer.operand))
+    ) {
+      return "number";
+    }
+    if (ts.isStringLiteralLike(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+      return "string";
+    }
+    if (ts.isArrayLiteralExpression(initializer)) {
+      return "array";
+    }
+    if (ts.isObjectLiteralExpression(initializer)) {
+      return "object";
+    }
+    if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+      return "function";
+    }
+    if (ts.isIdentifier(initializer)) {
+      return hintByIdentifier.get(initializer.text);
+    }
+    return undefined;
+  };
+  const createTypeNodeFromTypeHint = (tag: TypeHintTag): ts.TypeNode => {
+    if (tag === "boolean") {
+      return ts.factory.createKeywordTypeNode(ts.SyntaxKind.BooleanKeyword);
+    }
+    if (tag === "number") {
+      return ts.factory.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword);
+    }
+    if (tag === "string") {
+      return ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword);
+    }
+    if (tag === "array") {
+      return ts.factory.createArrayTypeNode(ts.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword));
+    }
+    if (tag === "object") {
+      return ts.factory.createTypeReferenceNode("Record", [
+        ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+        ts.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+      ]);
+    }
+    return ts.factory.createTypeReferenceNode("Function", undefined);
+  };
+  const applyCriticalTypeHintPropagation = (content: string): string => {
+    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const hintByIdentifier = new Map<string, TypeHintTag>();
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      let changed = false;
+      for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) {
+          continue;
+        }
+        for (const declaration of statement.declarationList.declarations) {
+          if (!ts.isIdentifier(declaration.name)) {
+            continue;
+          }
+          let hint = declaration.type ? inferTypeHintTagFromTypeNode(declaration.type) : undefined;
+          if (!hint && declaration.initializer) {
+            hint = inferTypeHintTagFromInitializer(declaration.initializer, hintByIdentifier);
+          }
+          if (!hint) {
+            continue;
+          }
+          const current = hintByIdentifier.get(declaration.name.text);
+          if (current === hint) {
+            continue;
+          }
+          hintByIdentifier.set(declaration.name.text, hint);
+          changed = true;
+        }
+      }
+      if (!changed) {
+        break;
+      }
+    }
+    if (hintByIdentifier.size < 1) {
+      return content;
+    }
+    let annotationApplied = false;
+    const nextStatements = sourceFile.statements.map((statement) => {
+      if (!ts.isVariableStatement(statement)) {
+        return statement;
+      }
+      const nextDeclarations = statement.declarationList.declarations.map((declaration) => {
+        if (declaration.type || !ts.isIdentifier(declaration.name)) {
+          return declaration;
+        }
+        let hint: TypeHintTag | undefined;
+        if (declaration.initializer) {
+          hint = inferTypeHintTagFromInitializer(declaration.initializer, hintByIdentifier);
+        }
+        if (!hint) {
+          hint = hintByIdentifier.get(declaration.name.text);
+        }
+        if (!hint) {
+          return declaration;
+        }
+        annotationApplied = true;
+        return ts.factory.updateVariableDeclaration(
+          declaration,
+          declaration.name,
+          declaration.exclamationToken,
+          createTypeNodeFromTypeHint(hint),
+          declaration.initializer,
+        );
+      });
+      return ts.factory.updateVariableStatement(
+        statement,
+        statement.modifiers,
+        ts.factory.updateVariableDeclarationList(statement.declarationList, nextDeclarations),
+      );
+    });
+    if (!annotationApplied) {
+      return content;
+    }
+    return ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(
+      ts.factory.updateSourceFile(sourceFile, nextStatements),
+    );
+  };
+  const applyCriticalFunctionBodyNamingPass = (content: string): string => {
+    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const exportedNames = collectTopLevelExportedNames(sourceFile);
+    const usedNames = new Set<string>(content.match(/\b[$A-Za-z_][$A-Za-z0-9_]*\b/g) ?? []);
+    const renameMap = new Map<string, string>();
+    const shouldRenameFunctionName = (name: string): boolean => {
+      if (exportedNames.has(name) || RESERVED_IDENTIFIERS.has(name)) {
+        return false;
+      }
+      const normalizedName = name.toLowerCase();
+      const lowQuality = scoreNameQuality(name) < HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD;
+      const noisyPattern =
+        isLikelyObfuscatedAliasToken(normalizedName) ||
+        targetedHotLocalNoiseIdentifierPattern.test(name) ||
+        /^(?:store|service)(?:core|runtime|state|react|preload|language|diagram)local[a-z0-9]{2,}$/i.test(name) ||
+        /^[$a-z]{1,4}\d{0,2}$/i.test(name);
+      return lowQuality || noisyPattern;
+    };
+    const buildFunctionName = (
+      originalName: string,
+      statementText: string,
+      referencedNames: ReadonlySet<string>,
+    ): string => {
+      const family = inferTargetedCoreLocalFamily(statementText);
+      const role = inferBehaviorRoleToken(statementText, referencedNames);
+      const ioSignature = inferIoSignatureToken(statementText, referencedNames);
+      const inferredDomain = inferTargetedHotDomainLocalToken(statementText, referencedNames, family);
+      const normalizedDomain =
+        targetedHotWeakTokenSet.has(inferredDomain.toLowerCase()) || inferredDomain.length < 3
+          ? pickPlanDomainToken(`${originalName}:domain`)
+          : inferredDomain;
+      const prefix = targetedHotServiceModule ? "service" : "store";
+      const familyStem = family === "Core" ? "" : family;
+      const ioStem = ioSignature === "None" ? "" : ioSignature;
+      const baseName = normalizeTargetedAliasBase(
+        sanitizeIdentifier(`${prefix}${role}${toPascalCase(normalizedDomain)}${familyStem}${ioStem}`),
+      );
+      return nextUniqueIdentifier(compactIdentifier(baseName, 42), usedNames);
+    };
+    for (const statement of sourceFile.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+        const originalName = statement.name.text;
+        if (!shouldRenameFunctionName(originalName)) {
+          continue;
+        }
+        const referencedNames = collectStatementReferencedNames(statement);
+        const nextName = buildFunctionName(originalName, statement.getText(sourceFile), referencedNames);
+        if (nextName === originalName) {
+          continue;
+        }
+        renameMap.set(originalName, nextName);
+        continue;
+      }
+      if (!ts.isVariableStatement(statement) || hasExportModifier(statement)) {
+        continue;
+      }
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+          continue;
+        }
+        if (!ts.isArrowFunction(declaration.initializer) && !ts.isFunctionExpression(declaration.initializer)) {
+          continue;
+        }
+        const originalName = declaration.name.text;
+        if (!shouldRenameFunctionName(originalName)) {
+          continue;
+        }
+        const referencedNames = collectStatementReferencedNames(statement);
+        const nextName = buildFunctionName(originalName, statement.getText(sourceFile), referencedNames);
+        if (nextName === originalName) {
+          continue;
+        }
+        renameMap.set(originalName, nextName);
+      }
+    }
+    if (renameMap.size < 1) {
+      return content;
+    }
+    const renamedStatements = applyScopedIdentifierRenames([...sourceFile.statements], renameMap);
+    return ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(
+      ts.factory.updateSourceFile(sourceFile, renamedStatements),
+    );
+  };
   const applyImportHygienePass = (content: string): string => {
     const collectIdentifierReferenceCounts = (sourceFile: ts.SourceFile): Map<string, number> => {
       const counts = new Map<string, number>();
@@ -7729,9 +8207,15 @@ function buildQualityModuleContent(
   };
 
   const qualityPassContent = applyImportHygienePass(
-    applyTargetedHotLocalDomainRenamePass(
-      applyTargetedHotCoreFamilySweep(
-        applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+    applyCriticalFunctionBodyNamingPass(
+      applyCriticalTypeHintPropagation(
+        applyCriticalLocalAstInlinePlanner(
+          applyTargetedHotLocalDomainRenamePass(
+            applyTargetedHotCoreFamilySweep(
+              applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+            ),
+          ),
+        ),
       ),
     ),
   );
