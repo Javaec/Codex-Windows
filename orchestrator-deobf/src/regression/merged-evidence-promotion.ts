@@ -41,6 +41,7 @@ const MIN_MONOTONIC_UPDATES_PER_CYCLE = 80;
 const AGGRESSIVE_AUTO_RENAME_MIN_BUDGET = 64;
 const AGGRESSIVE_AUTO_RENAME_MAX_BUDGET = 220;
 const FORCE_QUALITY_UPLIFT_THRESHOLD = 0.76;
+const MIN_UPDATE_SELECTION_SHARE = 0.42;
 const PROVENANCE_SOURCE_WEIGHTS: Readonly<Record<string, number>> = {
   asar: 0.76,
   webcrack: 1,
@@ -306,21 +307,38 @@ function selectPromotionCandidates(candidates: PromotionCandidate[], promotionBu
   if (promotionBudget < 1) {
     return [];
   }
+  const minUpdateSelection = Math.min(
+    candidates.filter((candidate) => candidate.likelyUpdate).length,
+    Math.max(1, Math.floor(promotionBudget * MIN_UPDATE_SELECTION_SHARE)),
+  );
   const selected: PromotionCandidate[] = [];
+  const selectedSymbolKeys = new Set<string>();
   for (const candidate of candidates) {
     if (!candidate.likelyUpdate) {
       continue;
     }
     selected.push(candidate);
+    selectedSymbolKeys.add(candidate.symbol.symbolKey);
+    if (selected.length >= minUpdateSelection) {
+      break;
+    }
+  }
+  for (const candidate of candidates) {
+    if (!candidate.likelyUpdate || selectedSymbolKeys.has(candidate.symbol.symbolKey)) {
+      continue;
+    }
+    selected.push(candidate);
+    selectedSymbolKeys.add(candidate.symbol.symbolKey);
     if (selected.length >= promotionBudget) {
       return selected;
     }
   }
   for (const candidate of candidates) {
-    if (candidate.likelyUpdate) {
+    if (candidate.likelyUpdate || selectedSymbolKeys.has(candidate.symbol.symbolKey)) {
       continue;
     }
     selected.push(candidate);
+    selectedSymbolKeys.add(candidate.symbol.symbolKey);
     if (selected.length >= promotionBudget) {
       return selected;
     }
@@ -496,7 +514,7 @@ function applyAggressiveHotFocusRenameFallback(
   runId: string,
   renameBudget: number,
 ): { namingMemory: NamingMemoryModel; updated: number } {
-  if (focusSymbolKeys.size < 1 || renameBudget < 1) {
+  if (renameBudget < 1) {
     return {
       namingMemory,
       updated: 0,
@@ -512,7 +530,19 @@ function applyAggressiveHotFocusRenameFallback(
     });
   }
 
-  const rankedTargets = [...focusSymbolKeys]
+  type RenameTarget = {
+    symbolKey: string;
+    ranking: number;
+    forceQualityUplift: boolean;
+  };
+  const sortTargets = (left: RenameTarget, right: RenameTarget): number => {
+    if (left.ranking !== right.ranking) {
+      return right.ranking - left.ranking;
+    }
+    return left.symbolKey.localeCompare(right.symbolKey);
+  };
+
+  const focusTargets = [...focusSymbolKeys]
     .map((symbolKey) => {
       const entry = byKey.get(symbolKey);
       if (!entry) {
@@ -524,21 +554,45 @@ function applyAggressiveHotFocusRenameFallback(
       return {
         symbolKey,
         ranking,
+        forceQualityUplift: currentQuality < FORCE_QUALITY_UPLIFT_THRESHOLD,
       };
     })
-    .filter((entry): entry is { symbolKey: string; ranking: number } => typeof entry !== "undefined")
-    .sort((left, right) => {
-      if (left.ranking !== right.ranking) {
-        return right.ranking - left.ranking;
+    .filter((entry): entry is RenameTarget => typeof entry !== "undefined");
+  const focusForced = focusTargets.filter((target) => target.forceQualityUplift).sort(sortTargets);
+  const focusRegular = focusTargets.filter((target) => !target.forceQualityUplift).sort(sortTargets);
+
+  const globalForced = [...byKey.values()]
+    .map((entry) => {
+      if (focusSymbolKeys.has(entry.symbolKey)) {
+        return undefined;
       }
-      return left.symbolKey.localeCompare(right.symbolKey);
-    });
+      const currentQuality = scoreNameQuality(entry.currentName);
+      if (currentQuality >= FORCE_QUALITY_UPLIFT_THRESHOLD) {
+        return undefined;
+      }
+      const genericPenalty = isGenericName(entry.currentName) ? 0.2 : 0;
+      const ranking = (1 - currentQuality) * 0.75 + (1 - entry.currentScore) * 0.2 + genericPenalty;
+      return {
+        symbolKey: entry.symbolKey,
+        ranking,
+        forceQualityUplift: true,
+      };
+    })
+    .filter((entry): entry is RenameTarget => typeof entry !== "undefined")
+    .sort(sortTargets);
+
+  const rankedTargets = [...focusForced, ...globalForced, ...focusRegular];
 
   let updated = 0;
+  const seenSymbolKeys = new Set<string>();
   for (const target of rankedTargets) {
     if (updated >= renameBudget) {
       break;
     }
+    if (seenSymbolKeys.has(target.symbolKey)) {
+      continue;
+    }
+    seenSymbolKeys.add(target.symbolKey);
     const entry = byKey.get(target.symbolKey);
     if (!entry) {
       continue;

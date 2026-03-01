@@ -210,6 +210,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: keeps signal quality while reducing per-cycle runtime/cost and improving iteration speed.
 - Aggressive promotion now has a forced quality-uplift rule for weak current names (`quality < 0.76`) under hot-focus context.
   Verified reason: increases rename updates per cycle without allowing quality regressions or generic-name fallback.
+- Promotion selector now enforces a minimum update share (`selected != currentName`) before insert-heavy picks, and aggressive fallback prioritizes low-quality entries globally (not only current hot-focus list).
+  Verified reason: stabilized `promotionUpdatedCount` growth (e.g. `133` updates in fast single-cycle run) instead of insert-only cycles.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.
