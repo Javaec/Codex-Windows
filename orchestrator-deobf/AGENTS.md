@@ -230,6 +230,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: reduces non-hot import-noise and keeps TS output centered on lifted declarations instead of noisy fallback glue.
 - KPI monotonicity is now mode-aware in regression cycles (`fast` compared with previous `fast`, `full` with previous `full`).
   Verified reason: avoids false checkpoint failures caused by comparing strict full-suite cycles against fast-cycle metrics directly.
+- Mode-aware checkpoint behavior validated on `max-cycles=4` run (`3 fast + 1 full`): full cycle no longer trips false KPI regression and run stops on stagnation rule instead.
+  Verified reason: checkpoint quality comparison is now semantically correct across cycle modes.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.

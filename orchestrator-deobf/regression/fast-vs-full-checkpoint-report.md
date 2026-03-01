@@ -1,12 +1,12 @@
 # Fast vs Full Checkpoint Report
 
-Generated: 2026-03-01T13:29:17.056Z
+Generated: 2026-03-01T14:10:36.167Z
 Source: C:\Codex-Windows\orchestrator-deobf\regression\cycle-report.json
 
 ## Cycle Summary
 
 - Completed cycles: 4
-- Stop reason: kpi_failed:c04
+- Stop reason: stagnation_limit_reached:3
 - fullCheckpointEvery: 4
 - fast cycles: 3
 - full cycles: 1
@@ -34,9 +34,10 @@ Source: C:\Codex-Windows\orchestrator-deobf\regression\cycle-report.json
 | worstFileDecileScoreAverage | 0.7711 | 0.7644 | -0.0067 |
 | promotionBudgetUsed | 180 | 220 | 40 |
 | promotionUpdatedCount | 171 | 209 | 38 |
+| kpiPassed | true | true | n/a |
 
 ## Notes
 
-- Latest full checkpoint KPI failed: nameQualityAverage regressed: 0.7888 < 0.7987
-- Fast cycles show higher name-quality due to narrower profile pressure; full checkpoint adds stricter profile diversity and can expose lower-confidence naming decisions.
-- Promotion auto-boost worked (budget increased on stagnation) and raised update count in later fast cycles.
+- Latest full checkpoint KPI: passed.
+- Mode-aware KPI gate is active, so full cycle is validated against previous full-cycle baseline (not against fast cycle).
+- Fast cycles keep better short-loop nameQuality; full cycle remains stricter and lower on confidence/quality averages while raising update volume.
