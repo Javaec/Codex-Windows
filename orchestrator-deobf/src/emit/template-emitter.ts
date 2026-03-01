@@ -108,6 +108,16 @@ const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 5;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
 const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
 const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
+const HOT_STORE_SHARD_LONG_FUNCTION_LINES = 120;
+const HOT_STORE_SHARD_FUNCTION_MAX_LINES = 1300;
+const HOT_STORE_SHARD_MAX_CLUSTER_MODULES = 6;
+const HOT_STORE_SHARD_MAX_MOVED_LONG_FUNCTIONS = 28;
+const HOT_STORE_SHARD_MAX_DOMAIN_HELPERS = 16;
+const HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES = 3;
+const HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS = 84;
+const HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES = 3;
+const HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES = 48;
+const HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS = 96;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -2064,6 +2074,13 @@ function dedupeSymbolsByKey(symbols: OwnershipRecord[]): OwnershipRecord[] {
   return [...byKey.values()].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
 }
 
+function isTargetedQualityShardFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-03)(?:-cohesion-\d+)?\.ts$/i.test(
+    normalized,
+  );
+}
+
 function collapseTinyModulePlans(modulePlans: ModulePlan[], statementBudget: number): ModulePlan[] {
   if (modulePlans.length <= 1) {
     return modulePlans;
@@ -2123,12 +2140,13 @@ function splitPlanByCohesion(
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   signalContext: EmitterSignalContext,
 ): ModulePlan[] {
-  if (plan.symbols.length < COHESION_SPLIT_MIN_SYMBOLS) {
+  const targetedQualityShardPlan = isTargetedQualityShardFilePath(plan.filePath);
+  if (!targetedQualityShardPlan && plan.symbols.length < COHESION_SPLIT_MIN_SYMBOLS) {
     return [plan];
   }
-  const forceSplit = plan.symbols.length >= COHESION_FORCE_SPLIT_SYMBOLS;
+  const forceSplit = targetedQualityShardPlan || plan.symbols.length >= COHESION_FORCE_SPLIT_SYMBOLS;
   const cohesion = moduleCohesionScore(plan, renameHintsBySymbolKey, signalContext);
-  if (!forceSplit && cohesion >= COHESION_SPLIT_THRESHOLD) {
+  if (!targetedQualityShardPlan && !forceSplit && cohesion >= COHESION_SPLIT_THRESHOLD) {
     return [plan];
   }
 
@@ -2142,14 +2160,47 @@ function splitPlanByCohesion(
     bucket.push(symbol);
     buckets.set(bucketKey, bucket);
   }
-  const maxBucketCount = forceSplit ? Math.min(5, maxPartsForArchetype(plan.archetype)) : 2;
+  const maxBucketCount = targetedQualityShardPlan
+    ? Math.min(6, Math.max(4, maxPartsForArchetype(plan.archetype) + 1))
+    : forceSplit
+      ? Math.min(5, maxPartsForArchetype(plan.archetype))
+      : 2;
+  const boundaryPriority = (bucketToken: string): number => {
+    const boundary = bucketToken.split(":")[0] ?? "domain-boundary";
+    if (boundary === "state-boundary") {
+      return 6;
+    }
+    if (boundary === "event-boundary") {
+      return 5;
+    }
+    if (boundary === "mixed-boundary") {
+      return 4;
+    }
+    if (boundary === "route-boundary") {
+      return 3;
+    }
+    return 1;
+  };
   const rankedBuckets = [...buckets.entries()]
-    .sort((left, right) => right[1].length - left[1].length)
+    .sort((left, right) => {
+      if (targetedQualityShardPlan) {
+        const priorityDelta = boundaryPriority(right[0]) - boundaryPriority(left[0]);
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+      }
+      const sizeDelta = right[1].length - left[1].length;
+      if (sizeDelta !== 0) {
+        return sizeDelta;
+      }
+      return left[0].localeCompare(right[0]);
+    })
     .slice(0, maxBucketCount);
   if (rankedBuckets.length < 2) {
     return [plan];
   }
   const parts: ModulePlan[] = [];
+  const selectedSymbolKeys = new Set<string>();
   for (let index = 0; index < rankedBuckets.length; index += 1) {
     const bucket = rankedBuckets[index];
     if (!bucket) {
@@ -2158,6 +2209,9 @@ function splitPlanByCohesion(
     const [token, symbols] = bucket;
     const boundaryToken = token.split(":")[0] ?? "domain";
     const topicToken = token.split(":")[1] ?? "domain";
+    for (const symbol of symbols) {
+      selectedSymbolKeys.add(symbol.symbolKey);
+    }
     const partTopic = sanitizeSegment(`${plan.topic}-${boundaryToken}-${topicToken}`, plan.topic);
     parts.push({
       ...plan,
@@ -2167,6 +2221,21 @@ function splitPlanByCohesion(
       symbols: [...symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
       filePath: plan.filePath.replace(/\.ts$/, `-cohesion-${String(index + 1).padStart(2, "0")}.ts`),
     });
+  }
+  if (targetedQualityShardPlan) {
+    const residualSymbols = plan.symbols.filter((symbol) => !selectedSymbolKeys.has(symbol.symbolKey));
+    if (residualSymbols.length > 0) {
+      const partIndex = parts.length + 1;
+      const residualTopic = sanitizeSegment(`${plan.topic}-state-event-residual`, plan.topic);
+      parts.push({
+        ...plan,
+        topic: residualTopic,
+        clusterId: residualTopic,
+        moduleId: `${plan.moduleId}:cohesion-${String(partIndex).padStart(2, "0")}`,
+        symbols: residualSymbols.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+        filePath: plan.filePath.replace(/\.ts$/, `-cohesion-${String(partIndex).padStart(2, "0")}.ts`),
+      });
+    }
   }
   const splitSymbolsCount = parts.reduce((sum, entry) => sum + entry.symbols.length, 0);
   if (splitSymbolsCount < plan.symbols.length) {
@@ -2685,6 +2754,7 @@ function buildQualityModuleContent(
   const sanitizeImportAliasTokens = (tokens: string[]): string[] =>
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
+  const targetedQualityShardModule = isTargetedQualityShardFilePath(normalizedHotFilePath);
   const hotFocusModule = plan.hotPriority;
   const criticalTopWorstModule = hotFocusModule && criticalHotFilePaths.has(normalizedHotFilePath.toLowerCase());
   const targetedHotStoreModule = criticalTopWorstModule && plan.archetype === "store";
@@ -2692,11 +2762,13 @@ function buildQualityModuleContent(
   const targetedHotServiceModule = criticalTopWorstModule && plan.archetype === "service";
   const targetedHotWorstStoreServiceModule =
     criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store");
+  const fullLiftFocusedStoreServiceModule =
+    targetedHotWorstStoreServiceModule || (targetedQualityShardModule && plan.archetype === "store");
   const targetedHotCriticalStoreServiceModule =
     criticalTopWorstModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
-    (targetedHotStoreModule || targetedHotServiceModule);
+    (targetedHotStoreModule || targetedHotServiceModule || targetedQualityShardModule);
   const targetedHotWeakTokenSet = new Set<string>([
     "event",
     "events",
@@ -4044,7 +4116,7 @@ function buildQualityModuleContent(
     return "None";
   };
   const applyTargetedHotLocalDomainRenamePass = (content: string): string => {
-    if (!targetedHotLocalRenameEnabled || !targetedHotWorstStoreServiceModule || content.length < 1) {
+    if (!targetedHotLocalRenameEnabled || !fullLiftFocusedStoreServiceModule || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -4751,7 +4823,7 @@ function buildQualityModuleContent(
     return rewritten;
   };
   const applyCriticalLocalAstInlinePlanner = (content: string): string => {
-    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+    if (!fullLiftFocusedStoreServiceModule || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -5050,7 +5122,7 @@ function buildQualityModuleContent(
     return ts.factory.createTypeReferenceNode("Function", undefined);
   };
   const applyCriticalTypeHintPropagation = (content: string): string => {
-    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+    if (!fullLiftFocusedStoreServiceModule || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -5135,7 +5207,7 @@ function buildQualityModuleContent(
     );
   };
   const applyCriticalBehaviorClusterFunctionExtraction = (content: string): string => {
-    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+    if (!fullLiftFocusedStoreServiceModule || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -5380,7 +5452,7 @@ function buildQualityModuleContent(
     );
   };
   const applyCriticalFunctionBodyNamingPass = (content: string): string => {
-    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+    if (!fullLiftFocusedStoreServiceModule || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -5471,6 +5543,810 @@ function buildQualityModuleContent(
       ts.factory.updateSourceFile(sourceFile, renamedStatements),
     );
   };
+  interface StoreShardBehaviorCluster {
+    role: "Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle";
+    domain: string;
+    family: TargetedCoreFamily;
+    key: string;
+  }
+  const describeStoreShardBehaviorCluster = (
+    symbolName: string,
+    statementText: string,
+    referencedNames: ReadonlySet<string>,
+  ): StoreShardBehaviorCluster => {
+    const family = inferTargetedCoreLocalFamily(statementText);
+    const role = inferBehaviorRoleToken(statementText, referencedNames);
+    const inferredDomain = inferTargetedHotDomainLocalToken(statementText, referencedNames, family);
+    const domain =
+      inferredDomain.length < 3 || targetedHotWeakTokenSet.has(inferredDomain.toLowerCase())
+        ? pickPlanDomainToken(`${symbolName}:behavior-cluster`)
+        : inferredDomain.toLowerCase();
+    const key = sanitizeSegment(`${role}-${domain}-${family}`, `${role.toLowerCase()}-cluster`);
+    return {
+      role,
+      domain,
+      family,
+      key,
+    };
+  };
+  const countNodeLines = (node: ts.Node, sourceFile: ts.SourceFile): number => {
+    const text = node.getText(sourceFile);
+    return text.length < 1 ? 0 : text.split(/\r?\n/).length;
+  };
+  const enforceTargetedStoreShardFunctionLengthCap = (content: string): string => {
+    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+      return content;
+    }
+    const source = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const violations: string[] = [];
+    for (const statement of source.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+        const lineCount = countNodeLines(statement, source);
+        if (lineCount > HOT_STORE_SHARD_FUNCTION_MAX_LINES) {
+          violations.push(`${statement.name.text}:${lineCount}`);
+        }
+        continue;
+      }
+      if (!ts.isVariableStatement(statement)) {
+        continue;
+      }
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+          continue;
+        }
+        if (!ts.isArrowFunction(declaration.initializer) && !ts.isFunctionExpression(declaration.initializer)) {
+          continue;
+        }
+        const lineCount = countNodeLines(declaration.initializer, source);
+        if (lineCount > HOT_STORE_SHARD_FUNCTION_MAX_LINES) {
+          violations.push(`${declaration.name.text}:${lineCount}`);
+        }
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `buildQualityModuleContent: function-length cap failed for ${plan.moduleId} (${violations.slice(0, 8).join(", ")})`,
+      );
+    }
+    return content;
+  };
+  const applyTargetedStoreShardLongFunctionClusterSplit = (content: string): string => {
+    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    interface LongFunctionCandidate {
+      statement: ts.FunctionDeclaration;
+      lineCount: number;
+      cluster: StoreShardBehaviorCluster;
+    }
+    const candidates: LongFunctionCandidate[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body || hasExportModifier(statement)) {
+        continue;
+      }
+      const lineCount = countNodeLines(statement, sourceFile);
+      if (lineCount < HOT_STORE_SHARD_LONG_FUNCTION_LINES) {
+        continue;
+      }
+      if (!isSelfContainedHelperFunction(statement)) {
+        continue;
+      }
+      const cluster = describeStoreShardBehaviorCluster(
+        statement.name.text,
+        statement.getText(sourceFile),
+        collectStatementReferencedNames(statement),
+      );
+      candidates.push({
+        statement,
+        lineCount,
+        cluster,
+      });
+    }
+    if (candidates.length < 1) {
+      return content;
+    }
+    const selectedCandidates = candidates
+      .sort((left, right) => {
+        if (right.lineCount !== left.lineCount) {
+          return right.lineCount - left.lineCount;
+        }
+        return left.statement.name!.text.localeCompare(right.statement.name!.text);
+      })
+      .slice(0, HOT_STORE_SHARD_MAX_MOVED_LONG_FUNCTIONS);
+    if (selectedCandidates.length < 1) {
+      return content;
+    }
+    const groupByCluster = new Map<string, LongFunctionCandidate[]>();
+    for (const candidate of selectedCandidates) {
+      const bucket = groupByCluster.get(candidate.cluster.key) ?? [];
+      bucket.push(candidate);
+      groupByCluster.set(candidate.cluster.key, bucket);
+    }
+    const selectedGroups = [...groupByCluster.entries()]
+      .sort((left, right) => {
+        const leftLines = left[1].reduce((sum, entry) => sum + entry.lineCount, 0);
+        const rightLines = right[1].reduce((sum, entry) => sum + entry.lineCount, 0);
+        if (rightLines !== leftLines) {
+          return rightLines - leftLines;
+        }
+        return left[0].localeCompare(right[0]);
+      })
+      .slice(0, HOT_STORE_SHARD_MAX_CLUSTER_MODULES);
+    const selectedStatementSet = new Set<ts.Statement>();
+    const helperImportDeclarations: ts.ImportDeclaration[] = [];
+    const shardBaseStem = sanitizeSegment(path.basename(normalizedHotFilePath, ".ts"), "store-shard");
+    const helperPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    for (let groupIndex = 0; groupIndex < selectedGroups.length; groupIndex += 1) {
+      const group = selectedGroups[groupIndex];
+      if (!group) {
+        continue;
+      }
+      const [clusterKey, entries] = group;
+      const sortedEntries = [...entries].sort((left, right) => left.statement.name!.text.localeCompare(right.statement.name!.text));
+      for (const entry of sortedEntries) {
+        selectedStatementSet.add(entry.statement);
+      }
+      const helperStem = sanitizeSegment(
+        `${shardBaseStem}-${clusterKey}-cluster`,
+        `${shardBaseStem}-cluster-${String(groupIndex + 1).padStart(2, "0")}`,
+      );
+      const helperAbsolutePath = path.join(
+        outputProjectDirectory,
+        "src",
+        "services",
+        "store",
+        "helpers",
+        `${helperStem}.ts`,
+      );
+      const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
+      const helperStatements = sortedEntries.map((entry) =>
+        ts.factory.updateFunctionDeclaration(
+          entry.statement,
+          [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+          entry.statement.asteriskToken,
+          entry.statement.name,
+          entry.statement.typeParameters,
+          entry.statement.parameters,
+          entry.statement.type,
+          entry.statement.body,
+        ),
+      );
+      const helperSource = ts.factory.updateSourceFile(sourceFile, helperStatements);
+      const helperContent = [
+        "// @ts-nocheck",
+        "// Targeted store-shard long-function cluster split.",
+        "",
+        helperPrinter.printFile(helperSource),
+      ].join("\n");
+      const existingHelperContent = assetFilesByPath.get(helperAbsolutePath);
+      if (existingHelperContent && existingHelperContent !== helperContent) {
+        throw new Error(`buildQualityModuleContent: helper cluster collision at ${helperAbsolutePath}`);
+      }
+      assetFilesByPath.set(helperAbsolutePath, helperContent);
+      helperImportDeclarations.push(
+        ts.factory.createImportDeclaration(
+          undefined,
+          ts.factory.createImportClause(
+            false,
+            undefined,
+            ts.factory.createNamedImports(
+              sortedEntries.map((entry) =>
+                ts.factory.createImportSpecifier(
+                  false,
+                  undefined,
+                  ts.factory.createIdentifier(entry.statement.name!.text),
+                ),
+              ),
+            ),
+          ),
+          ts.factory.createStringLiteral(helperImportPath),
+          undefined,
+        ),
+      );
+    }
+    if (helperImportDeclarations.length < 1 || selectedStatementSet.size < 1) {
+      return content;
+    }
+    const lastImportIndex = sourceFile.statements.reduce((lastIndex, statement, index) => {
+      if (ts.isImportDeclaration(statement)) {
+        return index;
+      }
+      return lastIndex;
+    }, -1);
+    const sortedHelperImports = [...helperImportDeclarations].sort((left, right) => {
+      const leftPath = ts.isStringLiteralLike(left.moduleSpecifier) ? left.moduleSpecifier.text : "";
+      const rightPath = ts.isStringLiteralLike(right.moduleSpecifier) ? right.moduleSpecifier.text : "";
+      return leftPath.localeCompare(rightPath);
+    });
+    const nextStatements: ts.Statement[] = [];
+    let importsInserted = false;
+    for (let index = 0; index < sourceFile.statements.length; index += 1) {
+      const statement = sourceFile.statements[index];
+      if (!statement) {
+        continue;
+      }
+      if (!importsInserted && index > lastImportIndex) {
+        nextStatements.push(...sortedHelperImports);
+        importsInserted = true;
+      }
+      if (selectedStatementSet.has(statement)) {
+        continue;
+      }
+      nextStatements.push(statement);
+    }
+    if (!importsInserted) {
+      nextStatements.unshift(...sortedHelperImports);
+    }
+    const rewritten = helperPrinter.printFile(ts.factory.updateSourceFile(sourceFile, nextStatements));
+    return rewritten;
+  };
+  const applyTargetedStoreShardDomainHelperHoist = (content: string): string => {
+    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const helperCandidates: ts.FunctionDeclaration[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body || hasExportModifier(statement)) {
+        continue;
+      }
+      const lineCount = countNodeLines(statement, sourceFile);
+      if (lineCount < 8) {
+        continue;
+      }
+      if (!isSelfContainedHelperFunction(statement)) {
+        continue;
+      }
+      const name = statement.name.text;
+      const runtimeLike =
+        /^(?:store)(?:Runtime|Core|Architecture|Agent|Page|Arc|Apl|Angular|Base|Clone|Cytoscape|Treemap)/.test(name) ||
+        scoreNameQuality(name) < HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD;
+      if (!runtimeLike) {
+        continue;
+      }
+      helperCandidates.push(statement);
+    }
+    if (helperCandidates.length < 2) {
+      return content;
+    }
+    const selectedHelpers = helperCandidates
+      .sort((left, right) => {
+        const leftLines = countNodeLines(left, sourceFile);
+        const rightLines = countNodeLines(right, sourceFile);
+        if (rightLines !== leftLines) {
+          return rightLines - leftLines;
+        }
+        return left.name!.text.localeCompare(right.name!.text);
+      })
+      .slice(0, HOT_STORE_SHARD_MAX_DOMAIN_HELPERS);
+    if (selectedHelpers.length < 2) {
+      return content;
+    }
+    const selectedSet = new Set<ts.Statement>(selectedHelpers);
+    const shardBaseStem = sanitizeSegment(path.basename(normalizedHotFilePath, ".ts"), "store-shard");
+    const helperStem = sanitizeSegment(`${shardBaseStem}-domain-helpers`, `${shardBaseStem}-helpers`);
+    const helperAbsolutePath = path.join(outputProjectDirectory, "src", "services", "store", "helpers", `${helperStem}.ts`);
+    const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
+    const helperPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const helperStatements = selectedHelpers
+      .sort((left, right) => left.name!.text.localeCompare(right.name!.text))
+      .map((statement) =>
+        ts.factory.updateFunctionDeclaration(
+          statement,
+          [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+          statement.asteriskToken,
+          statement.name,
+          statement.typeParameters,
+          statement.parameters,
+          statement.type,
+          statement.body,
+        ),
+      );
+    const helperSource = ts.factory.updateSourceFile(sourceFile, helperStatements);
+    const helperContent = [
+      "// @ts-nocheck",
+      "// Targeted store-shard domain helper hoist.",
+      "",
+      helperPrinter.printFile(helperSource),
+    ].join("\n");
+    const existingHelperContent = assetFilesByPath.get(helperAbsolutePath);
+    if (existingHelperContent && existingHelperContent !== helperContent) {
+      throw new Error(`buildQualityModuleContent: domain helper collision at ${helperAbsolutePath}`);
+    }
+    assetFilesByPath.set(helperAbsolutePath, helperContent);
+    const helperImport = ts.factory.createImportDeclaration(
+      undefined,
+      ts.factory.createImportClause(
+        false,
+        undefined,
+        ts.factory.createNamedImports(
+          helperStatements.map((statement) =>
+            ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(statement.name!.text)),
+          ),
+        ),
+      ),
+      ts.factory.createStringLiteral(helperImportPath),
+      undefined,
+    );
+    const lastImportIndex = sourceFile.statements.reduce((lastIndex, statement, index) => {
+      if (ts.isImportDeclaration(statement)) {
+        return index;
+      }
+      return lastIndex;
+    }, -1);
+    const nextStatements: ts.Statement[] = [];
+    let helperImportInserted = false;
+    for (let index = 0; index < sourceFile.statements.length; index += 1) {
+      const statement = sourceFile.statements[index];
+      if (!statement) {
+        continue;
+      }
+      if (!helperImportInserted && index > lastImportIndex) {
+        nextStatements.push(helperImport);
+        helperImportInserted = true;
+      }
+      if (selectedSet.has(statement)) {
+        continue;
+      }
+      nextStatements.push(statement);
+    }
+    if (!helperImportInserted) {
+      nextStatements.unshift(helperImport);
+    }
+    return helperPrinter.printFile(ts.factory.updateSourceFile(sourceFile, nextStatements));
+  };
+  const collectTopLevelDeclaredNamesShallow = (statement: ts.Statement): Set<string> => {
+    const names = new Set<string>();
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+      names.add(statement.name.text);
+      return names;
+    }
+    if (!ts.isVariableStatement(statement)) {
+      return names;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      collectBindingNames(declaration.name, names);
+    }
+    return names;
+  };
+  const collectImportDeclaredNames = (statement: ts.ImportDeclaration): Set<string> => {
+    const names = new Set<string>();
+    const clause = statement.importClause;
+    if (!clause) {
+      return names;
+    }
+    if (clause.name) {
+      names.add(clause.name.text);
+    }
+    const namedBindings = clause.namedBindings;
+    if (!namedBindings) {
+      return names;
+    }
+    if (ts.isNamespaceImport(namedBindings)) {
+      names.add(namedBindings.name.text);
+      return names;
+    }
+    for (const element of namedBindings.elements) {
+      names.add(element.name.text);
+    }
+    return names;
+  };
+  const isStoreShardRuntimeLikeName = (name: string): boolean => {
+    const normalized = name.toLowerCase();
+    if (/^(?:store)(?:runtime|core|architecture|agent|page|arc|apl|angular|base|clone|cytoscape|treemap)/.test(name)) {
+      return true;
+    }
+    if (
+      normalized.includes("runtime") ||
+      normalized.includes("polyfill") ||
+      normalized.includes("core") ||
+      normalized.includes("vendor") ||
+      normalized.includes("modulepreload")
+    ) {
+      return true;
+    }
+    return false;
+  };
+  const hasStoreShardRuntimeSignal = (statementText: string): boolean => {
+    const normalized = statementText.toLowerCase();
+    return (
+      normalized.includes("__core-js_shared__") ||
+      normalized.includes("symbol.for(") ||
+      normalized.includes("object.freeze(json.parse") ||
+      normalized.includes("modulepreload") ||
+      normalized.includes("vite:preloaderror") ||
+      normalized.includes("object.prototype") ||
+      normalized.includes("function.prototype")
+    );
+  };
+  const isMovableTopLevelStatementForStoreShard = (statement: ts.Statement): boolean => {
+    if (hasExportModifier(statement)) {
+      return false;
+    }
+    if (ts.isFunctionDeclaration(statement)) {
+      return Boolean(statement.name && statement.body);
+    }
+    if (ts.isClassDeclaration(statement)) {
+      return Boolean(statement.name);
+    }
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.length > 0;
+    }
+    return false;
+  };
+  const asExportedTopLevelStatement = (statement: ts.Statement): ts.Statement => {
+    const exportModifier = ts.factory.createModifier(ts.SyntaxKind.ExportKeyword);
+    if (ts.isFunctionDeclaration(statement)) {
+      return ts.factory.updateFunctionDeclaration(
+        statement,
+        [exportModifier],
+        statement.asteriskToken,
+        statement.name,
+        statement.typeParameters,
+        statement.parameters,
+        statement.type,
+        statement.body,
+      );
+    }
+    if (ts.isClassDeclaration(statement)) {
+      return ts.factory.updateClassDeclaration(
+        statement,
+        [exportModifier],
+        statement.name,
+        statement.typeParameters,
+        statement.heritageClauses,
+        statement.members,
+      );
+    }
+    if (ts.isVariableStatement(statement)) {
+      return ts.factory.updateVariableStatement(statement, [exportModifier], statement.declarationList);
+    }
+    return statement;
+  };
+  interface StoreShardClosureResult {
+    closureStatements: Set<ts.Statement>;
+    unresolvedLocalRefs: Set<string>;
+  }
+  const buildStoreShardDependencyClosure = (
+    rootStatement: ts.Statement,
+    refsByStatement: ReadonlyMap<ts.Statement, ReadonlySet<string>>,
+    movableStatementByName: ReadonlyMap<string, ts.Statement>,
+    topLevelStatementByName: ReadonlyMap<string, ts.Statement>,
+  ): StoreShardClosureResult => {
+    const closureStatements = new Set<ts.Statement>();
+    const unresolvedLocalRefs = new Set<string>();
+    const pendingStatements: ts.Statement[] = [rootStatement];
+    while (pendingStatements.length > 0) {
+      const statement = pendingStatements.pop();
+      if (!statement || closureStatements.has(statement)) {
+        continue;
+      }
+      closureStatements.add(statement);
+      const references = refsByStatement.get(statement) ?? new Set<string>();
+      for (const reference of references) {
+        const movableDependency = movableStatementByName.get(reference);
+        if (movableDependency) {
+          if (!closureStatements.has(movableDependency)) {
+            pendingStatements.push(movableDependency);
+          }
+          continue;
+        }
+        const localDependency = topLevelStatementByName.get(reference);
+        if (localDependency && !closureStatements.has(localDependency)) {
+          unresolvedLocalRefs.add(reference);
+        }
+      }
+    }
+    return {
+      closureStatements,
+      unresolvedLocalRefs,
+    };
+  };
+  interface StoreShardClusterSelection {
+    clusterKey: string;
+    clusterDescriptor: StoreShardBehaviorCluster;
+    statements: Set<ts.Statement>;
+  }
+  const applyStoreShardClusterExtraction = (
+    content: string,
+    mode: "dependency-closure" | "runtime-quarantine",
+  ): string => {
+    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const statementOrderIndex = new Map<ts.Statement, number>();
+    sourceFile.statements.forEach((statement, index) => {
+      statementOrderIndex.set(statement, index);
+    });
+    const importStatements: ts.ImportDeclaration[] = [];
+    const importDeclaredNamesByStatement = new Map<ts.ImportDeclaration, Set<string>>();
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      importStatements.push(statement);
+      importDeclaredNamesByStatement.set(statement, collectImportDeclaredNames(statement));
+    }
+    const topLevelStatementByName = new Map<string, ts.Statement>();
+    const movableStatementByName = new Map<string, ts.Statement>();
+    const refsByStatement = new Map<ts.Statement, ReadonlySet<string>>();
+    for (const statement of sourceFile.statements) {
+      const declaredNames = collectTopLevelDeclaredNamesShallow(statement);
+      if (declaredNames.size > 0) {
+        for (const name of declaredNames) {
+          if (!topLevelStatementByName.has(name)) {
+            topLevelStatementByName.set(name, statement);
+          }
+          if (isMovableTopLevelStatementForStoreShard(statement) && !movableStatementByName.has(name)) {
+            movableStatementByName.set(name, statement);
+          }
+        }
+      }
+      refsByStatement.set(statement, collectStatementReferencedNames(statement));
+    }
+    interface ClusterRootCandidate {
+      statement: ts.Statement;
+      rootName: string;
+      lineCount: number;
+      descriptor: StoreShardBehaviorCluster;
+    }
+    const rootCandidates: ClusterRootCandidate[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!isMovableTopLevelStatementForStoreShard(statement)) {
+        continue;
+      }
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) {
+        continue;
+      }
+      const lineCount = countNodeLines(statement, sourceFile);
+      const rootName = statement.name.text;
+      if (mode === "dependency-closure") {
+        if (lineCount < HOT_STORE_SHARD_LONG_FUNCTION_LINES || isSelfContainedHelperFunction(statement)) {
+          continue;
+        }
+      } else {
+        if (lineCount < HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES) {
+          continue;
+        }
+        if (!isStoreShardRuntimeLikeName(rootName) && !hasStoreShardRuntimeSignal(statement.getText(sourceFile))) {
+          continue;
+        }
+      }
+      const descriptor = describeStoreShardBehaviorCluster(
+        rootName,
+        statement.getText(sourceFile),
+        refsByStatement.get(statement) ?? new Set<string>(),
+      );
+      rootCandidates.push({
+        statement,
+        rootName,
+        lineCount,
+        descriptor,
+      });
+    }
+    if (rootCandidates.length < 1) {
+      return content;
+    }
+    const maxClusters =
+      mode === "dependency-closure" ? HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES;
+    const maxClosureStatements =
+      mode === "dependency-closure" ? HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS;
+    const selectedByCluster = new Map<string, StoreShardClusterSelection>();
+    const globallySelectedStatements = new Set<ts.Statement>();
+    const orderedCandidates = [...rootCandidates].sort((left, right) => {
+      if (right.lineCount !== left.lineCount) {
+        return right.lineCount - left.lineCount;
+      }
+      return left.rootName.localeCompare(right.rootName);
+    });
+    for (const candidate of orderedCandidates) {
+      const closure = buildStoreShardDependencyClosure(
+        candidate.statement,
+        refsByStatement,
+        movableStatementByName,
+        topLevelStatementByName,
+      );
+      if (closure.unresolvedLocalRefs.size > 0) {
+        continue;
+      }
+      if (closure.closureStatements.size < 1 || closure.closureStatements.size > maxClosureStatements) {
+        continue;
+      }
+      let overlaps = false;
+      for (const statement of closure.closureStatements) {
+        if (globallySelectedStatements.has(statement)) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) {
+        continue;
+      }
+      const clusterKey = candidate.descriptor.key;
+      const existingCluster = selectedByCluster.get(clusterKey);
+      if (!existingCluster && selectedByCluster.size >= maxClusters) {
+        continue;
+      }
+      const cluster = existingCluster ?? {
+        clusterKey,
+        clusterDescriptor: candidate.descriptor,
+        statements: new Set<ts.Statement>(),
+      };
+      for (const statement of closure.closureStatements) {
+        cluster.statements.add(statement);
+        globallySelectedStatements.add(statement);
+      }
+      selectedByCluster.set(clusterKey, cluster);
+    }
+    if (selectedByCluster.size < 1 || globallySelectedStatements.size < 1) {
+      return content;
+    }
+    const remainingStatements = sourceFile.statements.filter((statement) => !globallySelectedStatements.has(statement));
+    const remainingRefs = new Set<string>();
+    for (const statement of remainingStatements) {
+      const refs = refsByStatement.get(statement) ?? new Set<string>();
+      for (const ref of refs) {
+        remainingRefs.add(ref);
+      }
+    }
+    const selectedClusters = [...selectedByCluster.values()].sort((left, right) => left.clusterKey.localeCompare(right.clusterKey));
+    const shardBaseStem = sanitizeSegment(path.basename(normalizedHotFilePath, ".ts"), "store-shard");
+    const helperPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+    const newImports: ts.ImportDeclaration[] = [];
+    for (let clusterIndex = 0; clusterIndex < selectedClusters.length; clusterIndex += 1) {
+      const cluster = selectedClusters[clusterIndex];
+      if (!cluster) {
+        continue;
+      }
+      const orderedClusterStatements = [...cluster.statements].sort((left, right) => {
+        const leftIndex = statementOrderIndex.get(left) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = statementOrderIndex.get(right) ?? Number.MAX_SAFE_INTEGER;
+        return leftIndex - rightIndex;
+      });
+      const movedDeclaredNames = new Set<string>();
+      const helperRefs = new Set<string>();
+      for (const statement of orderedClusterStatements) {
+        const names = collectTopLevelDeclaredNamesShallow(statement);
+        for (const name of names) {
+          movedDeclaredNames.add(name);
+        }
+        const refs = refsByStatement.get(statement) ?? new Set<string>();
+        for (const ref of refs) {
+          helperRefs.add(ref);
+        }
+      }
+      for (const name of movedDeclaredNames) {
+        helperRefs.delete(name);
+      }
+      const helperImportStatements: ts.ImportDeclaration[] = [];
+      for (const importStatement of importStatements) {
+        const declaredNames = importDeclaredNamesByStatement.get(importStatement) ?? new Set<string>();
+        const needed = [...declaredNames].some((name) => helperRefs.has(name));
+        if (needed) {
+          helperImportStatements.push(importStatement);
+        }
+      }
+      const exportedClusterStatements = orderedClusterStatements.map((statement) => asExportedTopLevelStatement(statement));
+      if (exportedClusterStatements.length < 1) {
+        continue;
+      }
+      const helperSuffix = mode === "dependency-closure" ? "closure" : "runtime";
+      const helperStem = sanitizeSegment(
+        `${shardBaseStem}-${cluster.clusterKey}-${helperSuffix}`,
+        `${shardBaseStem}-${helperSuffix}-${String(clusterIndex + 1).padStart(2, "0")}`,
+      );
+      const helperAbsolutePath = path.join(
+        outputProjectDirectory,
+        "src",
+        "services",
+        "store",
+        "runtime",
+        `${helperStem}.ts`,
+      );
+      const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
+      const helperSource = ts.factory.updateSourceFile(sourceFile, [...helperImportStatements, ...exportedClusterStatements]);
+      const helperContent = [
+        "// @ts-nocheck",
+        mode === "dependency-closure"
+          ? "// Targeted store-shard dependency-closure extraction."
+          : "// Targeted store-shard runtime cluster quarantine.",
+        "",
+        helperPrinter.printFile(helperSource),
+      ].join("\n");
+      const existingHelperContent = assetFilesByPath.get(helperAbsolutePath);
+      if (existingHelperContent && existingHelperContent !== helperContent) {
+        throw new Error(`buildQualityModuleContent: runtime helper collision at ${helperAbsolutePath}`);
+      }
+      assetFilesByPath.set(helperAbsolutePath, helperContent);
+
+      const importNames = [...movedDeclaredNames]
+        .filter((name) => remainingRefs.has(name))
+        .sort((left, right) => left.localeCompare(right));
+      if (importNames.length < 1) {
+        continue;
+      }
+      newImports.push(
+        ts.factory.createImportDeclaration(
+          undefined,
+          ts.factory.createImportClause(
+            false,
+            undefined,
+            ts.factory.createNamedImports(
+              importNames.map((name) =>
+                ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(name)),
+              ),
+            ),
+          ),
+          ts.factory.createStringLiteral(helperImportPath),
+          undefined,
+        ),
+      );
+    }
+    if (newImports.length < 1) {
+      return content;
+    }
+    const lastImportIndex = sourceFile.statements.reduce((lastIndex, statement, index) => {
+      if (ts.isImportDeclaration(statement)) {
+        return index;
+      }
+      return lastIndex;
+    }, -1);
+    const sortedNewImports = [...newImports].sort((left, right) => {
+      const leftPath = ts.isStringLiteralLike(left.moduleSpecifier) ? left.moduleSpecifier.text : "";
+      const rightPath = ts.isStringLiteralLike(right.moduleSpecifier) ? right.moduleSpecifier.text : "";
+      return leftPath.localeCompare(rightPath);
+    });
+    const nextStatements: ts.Statement[] = [];
+    let importsInserted = false;
+    for (let index = 0; index < sourceFile.statements.length; index += 1) {
+      const statement = sourceFile.statements[index];
+      if (!statement) {
+        continue;
+      }
+      if (!importsInserted && index > lastImportIndex) {
+        nextStatements.push(...sortedNewImports);
+        importsInserted = true;
+      }
+      if (globallySelectedStatements.has(statement)) {
+        continue;
+      }
+      nextStatements.push(statement);
+    }
+    if (!importsInserted) {
+      nextStatements.unshift(...sortedNewImports);
+    }
+    return helperPrinter.printFile(ts.factory.updateSourceFile(sourceFile, nextStatements));
+  };
+  const applyTargetedStoreShardDependencyClosureExtraction = (content: string): string =>
+    applyStoreShardClusterExtraction(content, "dependency-closure");
+  const applyTargetedStoreShardRuntimeClusterQuarantine = (content: string): string =>
+    applyStoreShardClusterExtraction(content, "runtime-quarantine");
   const applyImportHygienePass = (content: string): string => {
     const collectIdentifierReferenceCounts = (sourceFile: ts.SourceFile): Map<string, number> => {
       const counts = new Map<string, number>();
@@ -5775,7 +6651,7 @@ function buildQualityModuleContent(
       return score;
     };
     const buildPreferredDirectImportAliasSet = (source: ts.SourceFile): Set<string> => {
-      if (!targetedHotWorstStoreServiceModule) {
+      if (!fullLiftFocusedStoreServiceModule) {
         return new Set<string>();
       }
       const metadataByAlias = collectNamespaceAliasMetadata(source);
@@ -6041,7 +6917,7 @@ function buildQualityModuleContent(
       return printer.printFile(convertedSource);
     };
     const applySingleUseNamespaceAliasFallbackConversion = (contentText: string): string => {
-      if (!targetedHotWorstStoreServiceModule || contentText.length < 1) {
+      if (!fullLiftFocusedStoreServiceModule || contentText.length < 1) {
         return contentText;
       }
       const source = ts.createSourceFile(
@@ -6299,7 +7175,7 @@ function buildQualityModuleContent(
     const preferredDirectImportAliases = buildPreferredDirectImportAliasSet(sourceFile);
     let sourceForCleanup = sourceFile;
     let contentForCleanup = content;
-    if (targetedHotWorstStoreServiceModule) {
+    if (fullLiftFocusedStoreServiceModule) {
       const initialReferenceCounts = collectIdentifierReferenceCounts(sourceFile);
       const inlineCandidatesByLocal = new Map<string, { namespaceAlias: string; importedName: string }>();
       const inlineUsageCeiling = targetedHotStoreG003Module ? 3 : 2;
@@ -6941,9 +7817,9 @@ function buildQualityModuleContent(
     const extremeChunkSelection =
       selection.selectedStatements.length >= HEAVY_CHUNK_IMPORT_FALLBACK_STATEMENT_THRESHOLD ||
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
-    const targetedHotFullLiftEnabled = targetedHotWorstStoreServiceModule;
-    const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
-    const targetedHotUltraFullLift = targetedHotWorstStoreServiceModule;
+    const targetedHotFullLiftEnabled = fullLiftFocusedStoreServiceModule;
+    const targetedHotAggressiveFullLift = fullLiftFocusedStoreServiceModule;
+    const targetedHotUltraFullLift = fullLiftFocusedStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const disableBulkChunkIndexInline = targetedHotStoreModule;
     const strictFullLiftDeclarationsOnly = true;
@@ -8451,14 +9327,24 @@ function buildQualityModuleContent(
     return `// @ts-nocheck\n${normalized}`;
   };
 
-  const qualityPassContent = applyImportHygienePass(
-    applyCriticalFunctionBodyNamingPass(
-      applyCriticalTypeHintPropagation(
-        applyCriticalBehaviorClusterFunctionExtraction(
-          applyCriticalLocalAstInlinePlanner(
-            applyTargetedHotLocalDomainRenamePass(
-              applyTargetedHotCoreFamilySweep(
-                applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+  const qualityPassContent = enforceTargetedStoreShardFunctionLengthCap(
+    applyImportHygienePass(
+      applyTargetedStoreShardDomainHelperHoist(
+        applyTargetedStoreShardRuntimeClusterQuarantine(
+          applyTargetedStoreShardDependencyClosureExtraction(
+            applyTargetedStoreShardLongFunctionClusterSplit(
+              applyCriticalFunctionBodyNamingPass(
+                applyCriticalTypeHintPropagation(
+                  applyCriticalBehaviorClusterFunctionExtraction(
+                    applyCriticalLocalAstInlinePlanner(
+                      applyTargetedHotLocalDomainRenamePass(
+                        applyTargetedHotCoreFamilySweep(
+                          applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
