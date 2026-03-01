@@ -56,6 +56,7 @@ interface ModuleQualityEntry {
   filePath: string;
   score: number;
   symbolCount: number;
+  symbolKeys: string[];
   averageConfidence: number;
   averageNameQuality: number;
   liftedCoverage: number;
@@ -1305,6 +1306,9 @@ function average(numbers: number[]): number {
 
 function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, LiftedSymbolBinding>): ModuleQualityEntry {
   const symbolCount = plan.symbols.length;
+  const symbolKeys = [...new Set(plan.symbols.map((symbol) => symbol.symbolKey))].sort((left, right) =>
+    left.localeCompare(right),
+  );
   const averageConfidence = average(plan.symbols.map((symbol) => symbol.confidence));
   const averageNameQuality = average(plan.symbols.map((symbol) => scoreNameQuality(symbol.symbolName)));
   const liftedSymbolCount = plan.symbols.reduce((count, symbol) => count + (bindingByKey.has(symbol.symbolKey) ? 1 : 0), 0);
@@ -1315,6 +1319,7 @@ function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, Lifted
     filePath: plan.filePath,
     score,
     symbolCount,
+    symbolKeys,
     averageConfidence: clamp(averageConfidence),
     averageNameQuality: clamp(averageNameQuality),
     liftedCoverage: clamp(liftedCoverage),
@@ -2251,6 +2256,7 @@ function buildEslintConfig(): string {
       '      "no-case-declarations": "off",',
       '      "no-unreachable": "off",',
       '      "no-func-assign": "off",',
+      '      "require-yield": "off",',
       '      "no-self-assign": "off",',
       '      "no-sparse-arrays": "off",',
       '      "no-irregular-whitespace": "off",',

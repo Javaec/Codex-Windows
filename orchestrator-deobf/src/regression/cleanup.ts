@@ -6,9 +6,12 @@ interface Entry {
   modifiedMs: number;
 }
 
-export async function cleanupKeepLastN(rootDirectory: string, keepLastN: number): Promise<void> {
+export async function cleanupKeepLastN(rootDirectory: string, keepLastN: number, maxAgeHours = 6): Promise<void> {
   if (keepLastN < 1) {
     throw new Error("cleanupKeepLastN: keepLastN must be >= 1");
+  }
+  if (!Number.isFinite(maxAgeHours) || maxAgeHours < 1) {
+    throw new Error("cleanupKeepLastN: maxAgeHours must be >= 1");
   }
   const entries = await fs.readdir(rootDirectory, { withFileTypes: true }).catch(() => []);
   const directories: Entry[] = [];
@@ -24,8 +27,14 @@ export async function cleanupKeepLastN(rootDirectory: string, keepLastN: number)
     });
   }
   directories.sort((left, right) => right.modifiedMs - left.modifiedMs);
-  const stale = directories.slice(keepLastN);
-  for (const entry of stale) {
-    await fs.rm(path.join(rootDirectory, entry.name), { recursive: true, force: true });
+  const nowMs = Date.now();
+  const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+  const staleByCount = directories.slice(keepLastN).map((entry) => entry.name);
+  const staleByAge = directories
+    .filter((entry) => nowMs - entry.modifiedMs > maxAgeMs)
+    .map((entry) => entry.name);
+  const stale = new Set<string>([...staleByCount, ...staleByAge]);
+  for (const entryName of stale) {
+    await fs.rm(path.join(rootDirectory, entryName), { recursive: true, force: true });
   }
 }

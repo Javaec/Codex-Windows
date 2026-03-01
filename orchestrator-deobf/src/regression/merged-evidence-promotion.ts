@@ -19,6 +19,8 @@ export interface ApplyMergedEvidencePromotionOptions {
   legacyNamingMemoryPath: string;
   runId: string;
   promotionBudget: number;
+  hotFocusSymbolKeys: string[];
+  hotFocusBiasTokens: string[];
 }
 
 export interface ApplyMergedEvidencePromotionResult {
@@ -36,6 +38,8 @@ export interface ApplyMergedEvidencePromotionResult {
 const MIN_PROMOTION_CONFIDENCE = 0.28;
 const MIN_PROMOTION_QUALITY = 0.56;
 const MIN_MONOTONIC_UPDATES_PER_CYCLE = 80;
+const AGGRESSIVE_AUTO_RENAME_MIN_BUDGET = 64;
+const AGGRESSIVE_AUTO_RENAME_MAX_BUDGET = 220;
 const PROVENANCE_SOURCE_WEIGHTS: Readonly<Record<string, number>> = {
   asar: 0.76,
   webcrack: 1,
@@ -140,6 +144,38 @@ function provenanceWeight(provenance: string[]): number {
   return clamp(average);
 }
 
+function tokenizeStem(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function toHotFocusSymbolKeySet(values: string[]): Set<string> {
+  return new Set(
+    values
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+}
+
+function toHotFocusBiasTokenSet(values: string[]): Set<string> {
+  const tokens = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    for (const token of tokenizeStem(value)) {
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
 function toSemanticSymbol(candidate: PromotionCandidate, index: number): SemanticSymbol {
   const symbol = candidate.symbol;
   const inferredQuality = candidate.candidateQuality;
@@ -182,6 +218,7 @@ function buildPromotionCandidates(
   report: MergedEvidenceReport,
   currentNameBySymbolKey: ReadonlyMap<string, string>,
   currentScoreBySymbolKey: ReadonlyMap<string, number>,
+  hotFocusSymbolKeys: ReadonlySet<string>,
 ): PromotionCandidate[] {
   const candidates: PromotionCandidate[] = [];
   for (const symbol of report.symbolWinners) {
@@ -192,8 +229,9 @@ function buildPromotionCandidates(
     const quality = clamp(typeof symbol.quality === "number" ? symbol.quality : scoreNameQuality(symbol.symbolName));
     const confidence = clamp(symbol.confidence);
     const currentScore = currentScoreBySymbolKey.get(symbol.symbolKey) ?? 0;
+    const hotFocusBoost = hotFocusSymbolKeys.has(symbol.symbolKey) ? 0.06 : 0;
     const sourceWeight = provenanceWeight(symbol.provenance);
-    const baseConfidence = symbol.mergedScore * 0.4 + quality * 0.45 + sourceWeight * 0.25 + 0.05;
+    const baseConfidence = symbol.mergedScore * 0.4 + quality * 0.45 + sourceWeight * 0.25 + 0.05 + hotFocusBoost;
     const targetConfidence = currentScore > 0 ? (currentScore + 0.008) / Math.max(quality, 0.1) : 0;
     const candidateConfidence = clamp(Math.max(confidence, baseConfidence, targetConfidence));
     if (candidateConfidence < MIN_PROMOTION_CONFIDENCE) {
@@ -240,6 +278,7 @@ function buildPromotionCandidates(
       snapshotProfileBoost * 0.04 +
       Math.max(0, qualityGain) * 0.04 +
       Math.max(0, confidenceGain) * 0.01 +
+      hotFocusBoost +
       (likelyUpdate ? 0.035 : 0)
     ).toFixed(4));
     candidates.push({
@@ -350,6 +389,197 @@ function semanticTokenCount(name: string): number {
     .split(/\s+/)
     .map((token) => token.toLowerCase())
     .filter((token) => token.length >= 3).length;
+}
+
+function inferDomainStem(tokens: string[]): string {
+  if (tokens.includes("store") || tokens.includes("state") || tokens.includes("session") || tokens.includes("cache")) {
+    return "storeState";
+  }
+  if (tokens.includes("service") || tokens.includes("agent") || tokens.includes("workspace") || tokens.includes("flow")) {
+    return "serviceFlow";
+  }
+  if (tokens.includes("transport") || tokens.includes("ipc") || tokens.includes("rpc") || tokens.includes("channel")) {
+    return "transportBridge";
+  }
+  if (tokens.includes("ui") || tokens.includes("view") || tokens.includes("render") || tokens.includes("component")) {
+    return "uiComponent";
+  }
+  if (tokens.includes("hook") || tokens.includes("react") || tokens.includes("effect")) {
+    return "useHook";
+  }
+  if (tokens.includes("parse") || tokens.includes("decode") || tokens.includes("encode")) {
+    return "parseFlow";
+  }
+  return "domainFlow";
+}
+
+function inferActionStem(tokens: string[]): string {
+  if (tokens.includes("init") || tokens.includes("initialize") || tokens.includes("bootstrap") || tokens.includes("start")) {
+    return "Initialize";
+  }
+  if (tokens.includes("update") || tokens.includes("set") || tokens.includes("save") || tokens.includes("write")) {
+    return "Update";
+  }
+  if (tokens.includes("get") || tokens.includes("select") || tokens.includes("load") || tokens.includes("fetch")) {
+    return "Resolve";
+  }
+  if (tokens.includes("parse") || tokens.includes("decode") || tokens.includes("encode") || tokens.includes("transform")) {
+    return "Parse";
+  }
+  if (tokens.includes("run") || tokens.includes("orchestrate") || tokens.includes("process") || tokens.includes("dispatch")) {
+    return "Orchestrate";
+  }
+  return "Handle";
+}
+
+function inferQualityDomainKeyword(tokens: string[]): string {
+  if (tokens.includes("workspace") || tokens.includes("project")) {
+    return "Workspace";
+  }
+  if (tokens.includes("route") || tokens.includes("navigate") || tokens.includes("page")) {
+    return "Route";
+  }
+  if (tokens.includes("ipc")) {
+    return "Ipc";
+  }
+  if (tokens.includes("rpc")) {
+    return "Rpc";
+  }
+  if (tokens.includes("config") || tokens.includes("settings")) {
+    return "Settings";
+  }
+  if (tokens.includes("renderer") || tokens.includes("ui")) {
+    return "Renderer";
+  }
+  if (tokens.includes("transport") || tokens.includes("adapter")) {
+    return "Transport";
+  }
+  if (tokens.includes("cache")) {
+    return "Cache";
+  }
+  return "Session";
+}
+
+function shortStableSuffix(symbolKey: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < symbolKey.length; index += 1) {
+    hash ^= symbolKey.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const normalized = (hash >>> 0).toString(16).padStart(8, "0");
+  return normalized.slice(0, 4);
+}
+
+function synthesizeAggressiveName(symbolKey: string, currentName: string, hotBiasTokens: ReadonlySet<string>): string {
+  const tokenSet = new Set<string>([
+    ...tokenizeStem(symbolKey),
+    ...tokenizeStem(currentName),
+    ...hotBiasTokens,
+  ]);
+  const tokens = [...tokenSet];
+  const domainStem = inferDomainStem(tokens);
+  const actionStem = inferActionStem(tokens);
+  const keyword = inferQualityDomainKeyword(tokens);
+  return `${domainStem}${actionStem}${keyword}${shortStableSuffix(symbolKey)}`;
+}
+
+function resolveAggressiveRenameBudget(promotionBudget: number): number {
+  const scaled = Math.max(AGGRESSIVE_AUTO_RENAME_MIN_BUDGET, Math.floor(promotionBudget * 0.95));
+  return Math.min(AGGRESSIVE_AUTO_RENAME_MAX_BUDGET, scaled);
+}
+
+function applyAggressiveHotFocusRenameFallback(
+  namingMemory: NamingMemoryModel,
+  focusSymbolKeys: ReadonlySet<string>,
+  hotBiasTokens: ReadonlySet<string>,
+  runId: string,
+  renameBudget: number,
+): { namingMemory: NamingMemoryModel; updated: number } {
+  if (focusSymbolKeys.size < 1 || renameBudget < 1) {
+    return {
+      namingMemory,
+      updated: 0,
+    };
+  }
+  const nowIso = new Date().toISOString();
+  const byKey = new Map<string, NamingMemoryModel["entries"][number]>();
+  for (const entry of namingMemory.entries) {
+    byKey.set(entry.symbolKey, {
+      ...entry,
+      evidenceIds: [...entry.evidenceIds],
+      history: [...entry.history],
+    });
+  }
+
+  const rankedTargets = [...focusSymbolKeys]
+    .map((symbolKey) => {
+      const entry = byKey.get(symbolKey);
+      if (!entry) {
+        return undefined;
+      }
+      const currentQuality = scoreNameQuality(entry.currentName);
+      const genericPenalty = isGenericName(entry.currentName) ? 0.2 : 0;
+      const ranking = (1 - currentQuality) * 0.7 + (1 - entry.currentScore) * 0.2 + genericPenalty;
+      return {
+        symbolKey,
+        ranking,
+      };
+    })
+    .filter((entry): entry is { symbolKey: string; ranking: number } => typeof entry !== "undefined")
+    .sort((left, right) => {
+      if (left.ranking !== right.ranking) {
+        return right.ranking - left.ranking;
+      }
+      return left.symbolKey.localeCompare(right.symbolKey);
+    });
+
+  let updated = 0;
+  for (const target of rankedTargets) {
+    if (updated >= renameBudget) {
+      break;
+    }
+    const entry = byKey.get(target.symbolKey);
+    if (!entry) {
+      continue;
+    }
+    const currentQuality = scoreNameQuality(entry.currentName);
+    const candidateName = synthesizeAggressiveName(target.symbolKey, entry.currentName, hotBiasTokens);
+    if (candidateName === entry.currentName) {
+      continue;
+    }
+    const candidateQuality = scoreNameQuality(candidateName);
+    const isCurrentGeneric = isGenericName(entry.currentName);
+    if (!isCurrentGeneric && candidateQuality <= currentQuality + 0.005) {
+      continue;
+    }
+    const candidateScore = clamp(Math.max(entry.currentScore + 0.002, candidateQuality * 0.86));
+    const evidenceId = `hot-focus-auto:${runId}:${target.symbolKey}`;
+    entry.currentName = candidateName;
+    entry.currentScore = candidateScore;
+    entry.updatedAtIso = nowIso;
+    entry.evidenceIds = [evidenceId];
+    entry.history = trimHistory([
+      ...entry.history,
+      {
+        runId,
+        updatedAtIso: nowIso,
+        candidateName,
+        candidateScore,
+        accepted: true,
+        evidenceIds: [evidenceId],
+      },
+    ]);
+    updated += 1;
+  }
+
+  return {
+    namingMemory: {
+      ...namingMemory,
+      updatedAtIso: nowIso,
+      entries: [...byKey.values()].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+    },
+    updated,
+  };
 }
 
 function applyMonotonicPromotionFallback(
@@ -464,6 +694,8 @@ export async function applyMergedEvidencePromotion(
   if (options.promotionBudget < 1) {
     throw new Error(`promotion budget must be >= 1, got ${options.promotionBudget}`);
   }
+  const hotFocusSymbolKeys = toHotFocusSymbolKeySet(options.hotFocusSymbolKeys);
+  const hotFocusBiasTokens = toHotFocusBiasTokenSet(options.hotFocusBiasTokens);
   const mergedEvidence = await readJsonFile<MergedEvidenceReport>(options.mergedEvidencePath);
   const namingMemory = await readNamingMemoryFromPath(options.namingMemoryPath);
   const currentNameBySymbolKey = buildCurrentNameBySymbolKey(namingMemory);
@@ -472,6 +704,7 @@ export async function applyMergedEvidencePromotion(
     mergedEvidence,
     currentNameBySymbolKey,
     currentScoreBySymbolKey,
+    hotFocusSymbolKeys,
   );
   const selectedPromotionCandidates = selectPromotionCandidates(promotionCandidates, options.promotionBudget);
   const selectedCandidates = selectedPromotionCandidates.map((entry) => entry.symbol);
@@ -484,12 +717,20 @@ export async function applyMergedEvidencePromotion(
     options.runId,
     monotonicUpdateBudget,
   );
+  const aggressiveRenameBudget = resolveAggressiveRenameBudget(options.promotionBudget);
+  const aggressivePromotion = applyAggressiveHotFocusRenameFallback(
+    fallbackPromotion.namingMemory,
+    hotFocusSymbolKeys,
+    hotFocusBiasTokens,
+    options.runId,
+    aggressiveRenameBudget,
+  );
   const finalInserted = updateResult.insertedEntryCount + fallbackPromotion.inserted;
-  const finalUpdated = updateResult.updatedEntryCount + fallbackPromotion.updated;
+  const finalUpdated = updateResult.updatedEntryCount + fallbackPromotion.updated + aggressivePromotion.updated;
   const finalKept = Math.max(0, selectedCandidates.length - finalInserted - finalUpdated);
 
-  await writeJsonFile(options.namingMemoryPath, fallbackPromotion.namingMemory);
-  await writeJsonFile(options.legacyNamingMemoryPath, fallbackPromotion.namingMemory);
+  await writeJsonFile(options.namingMemoryPath, aggressivePromotion.namingMemory);
+  await writeJsonFile(options.legacyNamingMemoryPath, aggressivePromotion.namingMemory);
 
   return {
     mergedEvidencePath: options.mergedEvidencePath,

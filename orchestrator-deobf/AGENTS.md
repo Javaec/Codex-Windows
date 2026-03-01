@@ -204,3 +204,11 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: enforces pipeline behavior at suite level, not just per-run local checks.
 - `run-regression-cycles` now publishes cycle-local worst-file report to canonical `regression/manual-refactor-candidates.json` after every cycle.
   Verified reason: next cycle hot-rerender seeds always come from the most recent completed cycle (same cadence as merged-evidence promotion), removing stale seed drift.
+- Promotion stage now consumes top-5 hot worst-file symbol keys (`manual-refactor-candidates.json`) and applies aggressive auto-rename fallback on those symbols without manual lock/review.
+  Verified reason: forces measurable rename updates in worst modules (`promotionUpdatedCount`) while keeping deterministic naming and hot-first targeting.
+- Promotion targeting is now computed directly from current cycle profile outputs (`execution.profiles[*].fileQuality.worstFiles`) and passed inline to promotion (`hotFocusSymbolKeys`, `hotFocusBiasTokens`).
+  Verified reason: removes dependency on external/manual report files for decision-making; worst-file focus is fully automatic per cycle.
+- Regression run cleanup now removes stale run directories by both count and age (default `6h`), not only keep-last-N.
+  Verified reason: controls disk growth during aggressive iteration loops without changing pipeline logic.
+- Regression runners now prune heavy per-run artifacts (`asar-extract`, `webcrack`, `wakaru`, optional tool outputs) after baseline/report write.
+  Verified reason: keeps run metrics and generated project artifacts while cutting most disk-heavy transient stage folders.

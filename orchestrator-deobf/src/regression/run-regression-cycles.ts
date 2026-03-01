@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { ToolWeights } from "../contracts";
 import { cleanupKeepLastN } from "./cleanup";
@@ -95,6 +96,7 @@ interface ManualRefactorCandidate {
   averageLiftedCoverage: number;
   averageSymbolCount: number;
   rerenderedHits: number;
+  symbolKeys: string[];
   profiles: string[];
   moduleIds: string[];
   stableProjects: string[];
@@ -110,9 +112,15 @@ interface ManualRefactorAccumulator {
   symbolCountSum: number;
   rerenderedHits: number;
   sampleCount: number;
+  symbolKeys: Set<string>;
   profiles: Set<string>;
   moduleIds: Set<string>;
   stableProjects: Set<string>;
+}
+
+interface AutoHotFocusPayload {
+  symbolKeys: string[];
+  biasTokens: string[];
 }
 
 interface ManualRefactorCandidatesReport {
@@ -132,6 +140,17 @@ const FIXED_REGRESSION_PROFILE_IDS = [
   "core-no-binary-no-pretty",
   "core-no-binary-top120",
   "core-runtime-probe-soft",
+] as const;
+const PRUNED_RUN_ARTIFACT_RELATIVE_PATHS = [
+  "artifacts",
+  path.join("artifacts", "asar-extract"),
+  path.join("artifacts", "webcrack"),
+  path.join("artifacts", "wakaru"),
+  path.join("artifacts", "javascript-deobfuscator"),
+  path.join("artifacts", "synchrony"),
+  path.join("artifacts", "unwebpack-sourcemap"),
+  path.join("artifacts", "project", "src", "chunks"),
+  path.join("artifacts", "project", "src", "chunks-ts"),
 ] as const;
 
 function buildRunId(prefix: string): string {
@@ -186,6 +205,79 @@ function parseIntegerOption(token: string, value: string, minimum: number): numb
     throw new Error(`Invalid ${token} value: ${value}`);
   }
   return parsed;
+}
+
+function tokenizeFocusStem(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function buildAutoHotFocusFromExecution(execution: RegressionSuiteExecution, focusCount: number): AutoHotFocusPayload {
+  const worstByFilePath = new Map<string, { scoreSum: number; sampleCount: number; symbolKeys: Set<string> }>();
+  for (const profileExecution of execution.profiles) {
+    for (const worstFile of profileExecution.fileQuality.worstFiles) {
+      const existing = worstByFilePath.get(worstFile.filePath);
+      if (existing) {
+        existing.scoreSum += worstFile.score;
+        existing.sampleCount += 1;
+        for (const symbolKey of worstFile.symbolKeys) {
+          existing.symbolKeys.add(symbolKey);
+        }
+        continue;
+      }
+      worstByFilePath.set(worstFile.filePath, {
+        scoreSum: worstFile.score,
+        sampleCount: 1,
+        symbolKeys: new Set(worstFile.symbolKeys),
+      });
+    }
+  }
+
+  const selected = [...worstByFilePath.entries()]
+    .map(([filePath, value]) => ({
+      filePath,
+      averageScore: value.sampleCount > 0 ? value.scoreSum / value.sampleCount : 0,
+      symbolKeys: value.symbolKeys,
+    }))
+    .sort((left, right) => {
+      if (left.averageScore !== right.averageScore) {
+        return left.averageScore - right.averageScore;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    })
+    .slice(0, Math.max(1, focusCount));
+
+  const symbolKeySet = new Set<string>();
+  const tokenSet = new Set<string>();
+  for (const candidate of selected) {
+    for (const symbolKey of candidate.symbolKeys) {
+      symbolKeySet.add(symbolKey);
+    }
+    for (const token of tokenizeFocusStem(candidate.filePath)) {
+      if (token === "src" || token === "services" || token === "renderer" || token === "main" || token === "quality") {
+        continue;
+      }
+      tokenSet.add(token);
+    }
+  }
+  return {
+    symbolKeys: [...symbolKeySet].sort((left, right) => left.localeCompare(right)),
+    biasTokens: [...tokenSet].sort((left, right) => left.localeCompare(right)),
+  };
+}
+
+async function pruneHeavyRunArtifacts(execution: RegressionSuiteExecution): Promise<void> {
+  for (const profileExecution of execution.profiles) {
+    for (const relativePath of PRUNED_RUN_ARTIFACT_RELATIVE_PATHS) {
+      const targetPath = path.join(profileExecution.runDirectory, relativePath);
+      await fs.rm(targetPath, { recursive: true, force: true });
+    }
+  }
 }
 
 function parseCli(argv: string[], projectRoot: string): CliOptions {
@@ -566,6 +658,7 @@ function finalizeManualRefactorCandidate(source: ManualRefactorAccumulator): Man
     averageLiftedCoverage: Number((source.liftedCoverageSum / count).toFixed(4)),
     averageSymbolCount: Number((source.symbolCountSum / count).toFixed(2)),
     rerenderedHits: source.rerenderedHits,
+    symbolKeys: [...source.symbolKeys].sort((left, right) => left.localeCompare(right)),
     profiles: [...source.profiles].sort((left, right) => left.localeCompare(right)),
     moduleIds: [...source.moduleIds].sort((left, right) => left.localeCompare(right)),
     stableProjects: [...source.stableProjects].sort((left, right) => left.localeCompare(right)),
@@ -592,6 +685,9 @@ async function writeManualRefactorCandidates(
         if (issue.rerendered) {
           existing.rerenderedHits += 1;
         }
+        for (const symbolKey of issue.symbolKeys) {
+          existing.symbolKeys.add(symbolKey);
+        }
         existing.profiles.add(profileExecution.profileId);
         existing.moduleIds.add(issue.moduleId);
         existing.stableProjects.add(profileExecution.fileQuality.stableProjectDirectory);
@@ -608,6 +704,7 @@ async function writeManualRefactorCandidates(
         symbolCountSum: issue.symbolCount,
         rerenderedHits: issue.rerendered ? 1 : 0,
         sampleCount: 1,
+        symbolKeys: new Set(issue.symbolKeys),
         profiles: new Set([profileExecution.profileId]),
         moduleIds: new Set([issue.moduleId]),
         stableProjects: new Set([profileExecution.fileQuality.stableProjectDirectory]),
@@ -657,7 +754,10 @@ async function publishManualRefactorCandidates(
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
+  const globalRunsRoot = path.join(projectRoot, "runs");
+  const globalRunsKeepLastN = Math.max(cli.keepLastN * 3, 24);
   await ensureDirectory(cli.outputRoot);
+  await ensureDirectory(globalRunsRoot);
   await ensureDirectory(path.dirname(cli.baselinePath));
   const canonicalManualRefactorCandidatesPath = path.join(projectRoot, "regression", "manual-refactor-candidates.json");
   await ensureDirectory(path.dirname(canonicalManualRefactorCandidatesPath));
@@ -697,12 +797,16 @@ async function run(): Promise<void> {
       outputDirectory: cli.outputRoot,
     });
 
+    const autoHotFocus = buildAutoHotFocusFromExecution(execution, 5);
+
     const promotion = await applyMergedEvidencePromotion({
       mergedEvidencePath: execution.mergedEvidencePath,
       namingMemoryPath: namingMemoryProfile.profilePath,
       legacyNamingMemoryPath: namingMemoryProfile.legacyPath,
       runId: `${cycleRunId}:merged-evidence-promotion`,
       promotionBudget: cli.promotionBudgetPerCycle,
+      hotFocusSymbolKeys: autoHotFocus.symbolKeys,
+      hotFocusBiasTokens: autoHotFocus.biasTokens,
     });
 
     const cycleDirectory = path.join(cli.outputRoot, sanitizeToken(cycleRunId));
@@ -728,7 +832,9 @@ async function run(): Promise<void> {
     lastExecution = execution;
 
     await writeJsonFile(cli.baselinePath, execution);
+    await pruneHeavyRunArtifacts(execution);
     await cleanupKeepLastN(cli.outputRoot, cli.keepLastN);
+    await cleanupKeepLastN(globalRunsRoot, globalRunsKeepLastN);
 
     if (!summary.kpiPassed) {
       stopReason = `kpi_failed:c${String(cycleIndex).padStart(2, "0")}`;

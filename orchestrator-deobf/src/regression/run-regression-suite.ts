@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { executeRegressionSuite } from "./execute-suite";
 import { cleanupKeepLastN } from "./cleanup";
@@ -12,6 +13,27 @@ interface CliOptions {
   baselinePath: string;
   keepLastN: number;
   suiteRunId: string;
+}
+
+const PRUNED_RUN_ARTIFACT_RELATIVE_PATHS = [
+  "artifacts",
+  path.join("artifacts", "asar-extract"),
+  path.join("artifacts", "webcrack"),
+  path.join("artifacts", "wakaru"),
+  path.join("artifacts", "javascript-deobfuscator"),
+  path.join("artifacts", "synchrony"),
+  path.join("artifacts", "unwebpack-sourcemap"),
+  path.join("artifacts", "project", "src", "chunks"),
+  path.join("artifacts", "project", "src", "chunks-ts"),
+] as const;
+
+async function pruneHeavyRunArtifacts(execution: Awaited<ReturnType<typeof executeRegressionSuite>>): Promise<void> {
+  for (const profileExecution of execution.profiles) {
+    for (const relativePath of PRUNED_RUN_ARTIFACT_RELATIVE_PATHS) {
+      const targetPath = path.join(profileExecution.runDirectory, relativePath);
+      await fs.rm(targetPath, { recursive: true, force: true });
+    }
+  }
 }
 
 function buildRunId(prefix: string): string {
@@ -147,9 +169,11 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
 
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
+  const globalRunsRoot = path.join(projectRoot, "runs");
   const cli = parseCli(process.argv.slice(2), projectRoot);
   const suite = await loadRegressionSuite(cli.suiteConfigPath);
   await ensureDirectory(cli.outputRoot);
+  await ensureDirectory(globalRunsRoot);
 
   const execution = await executeRegressionSuite({
     projectRoot,
@@ -162,7 +186,9 @@ async function run(): Promise<void> {
   });
 
   await writeJsonFile(cli.baselinePath, execution);
+  await pruneHeavyRunArtifacts(execution);
   await cleanupKeepLastN(cli.outputRoot, cli.keepLastN);
+  await cleanupKeepLastN(globalRunsRoot, Math.max(cli.keepLastN * 3, 24));
   process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`);
 }
 

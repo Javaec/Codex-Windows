@@ -37,6 +37,7 @@ interface FileQualityEntrySnapshot {
   filePath: string;
   score: number;
   symbolCount: number;
+  symbolKeys?: string[];
   averageConfidence: number;
   averageNameQuality: number;
   liftedCoverage: number;
@@ -113,6 +114,7 @@ export interface RegressionProfileExecution {
       filePath: string;
       score: number;
       symbolCount: number;
+      symbolKeys: string[];
       averageConfidence: number;
       averageNameQuality: number;
       liftedCoverage: number;
@@ -355,6 +357,11 @@ function summarizeFileQuality(report: FileQualityReportSnapshot): RegressionProf
     filePath: entry.filePath,
     score: clamp(entry.score),
     symbolCount: entry.symbolCount,
+    symbolKeys: Array.isArray(entry.symbolKeys)
+      ? [...new Set(entry.symbolKeys.filter((symbolKey) => typeof symbolKey === "string" && symbolKey.length > 0))].sort(
+        (left, right) => left.localeCompare(right),
+      )
+      : [],
     averageConfidence: clamp(entry.averageConfidence),
     averageNameQuality: clamp(entry.averageNameQuality),
     liftedCoverage: clamp(entry.liftedCoverage),

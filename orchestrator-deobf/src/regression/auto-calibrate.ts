@@ -309,10 +309,12 @@ async function runCandidate(
 
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
+  const globalRunsRoot = path.join(projectRoot, "runs");
   const cli = parseCli(process.argv.slice(2), projectRoot);
   const baseWeights = await loadToolWeights(cli.baseWeightsPath);
   const candidates = buildCandidates(baseWeights).slice(0, cli.maxCandidates);
   await ensureDirectory(cli.outputRoot);
+  await ensureDirectory(globalRunsRoot);
 
   const results: CandidateResult[] = [];
   for (let index = 0; index < candidates.length; index += 1) {
@@ -363,6 +365,7 @@ async function run(): Promise<void> {
   const reportPath = path.join(cli.outputRoot, cli.calibrationRunId, "calibration-report.json");
   await writeJsonFile(reportPath, report);
   await cleanupKeepLastN(cli.outputRoot, cli.keepLastN);
+  await cleanupKeepLastN(globalRunsRoot, Math.max(cli.keepLastN * 3, 24));
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
