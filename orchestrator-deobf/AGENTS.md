@@ -228,6 +228,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: increases rename pressure only when quality/high-confidence growth stalls, without manual tuning.
 - Quality emit now disables namespace import-shaping for non-hot modules and enforces strict full-lift declaration path (no chunk import fallback in quality path).
   Verified reason: reduces non-hot import-noise and keeps TS output centered on lifted declarations instead of noisy fallback glue.
+- KPI monotonicity is now mode-aware in regression cycles (`fast` compared with previous `fast`, `full` with previous `full`).
+  Verified reason: avoids false checkpoint failures caused by comparing strict full-suite cycles against fast-cycle metrics directly.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.

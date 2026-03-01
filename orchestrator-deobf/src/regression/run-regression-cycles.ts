@@ -658,6 +658,7 @@ function summarizeCycle(
   promotion: ApplyMergedEvidencePromotionResult,
   adaptiveWeights: AdaptiveProfileWeightsResult,
   previous: CycleExecutionSummary | undefined,
+  previousSameMode: CycleExecutionSummary | undefined,
   stagnationStrike: number,
 ): CycleExecutionSummary {
   const qualityDeltaRaw = previous ? execution.aggregate.averageScore - previous.averageScore : execution.aggregate.averageScore;
@@ -710,8 +711,13 @@ function summarizeCycle(
   if (!execution.aggregate.hotFirstOnlyAllProfiles) {
     kpiViolations.push("hotFirstOnlyAllProfiles is false");
   }
-  if (previous && execution.aggregate.nameQualityAverage < previous.nameQualityAverage) {
-    kpiViolations.push(`nameQualityAverage regressed: ${execution.aggregate.nameQualityAverage} < ${previous.nameQualityAverage}`);
+  if (
+    previousSameMode &&
+    execution.aggregate.nameQualityAverage < Number((previousSameMode.nameQualityAverage - 0.0001).toFixed(4))
+  ) {
+    kpiViolations.push(
+      `nameQualityAverage regressed in ${cycleMode} mode: ${execution.aggregate.nameQualityAverage} < ${previousSameMode.nameQualityAverage}`,
+    );
   }
 
   return {
@@ -750,6 +756,22 @@ function summarizeCycle(
     kpiPassed: kpiViolations.length === 0,
     kpiViolations,
   };
+}
+
+function findPreviousCycleByMode(
+  summaries: readonly CycleExecutionSummary[],
+  cycleMode: "fast" | "full",
+): CycleExecutionSummary | undefined {
+  for (let index = summaries.length - 1; index >= 0; index -= 1) {
+    const summary = summaries[index];
+    if (!summary) {
+      continue;
+    }
+    if (summary.cycleMode === cycleMode) {
+      return summary;
+    }
+  }
+  return undefined;
 }
 
 function finalizeManualRefactorCandidate(source: ManualRefactorAccumulator): ManualRefactorCandidate {
@@ -914,6 +936,7 @@ async function run(): Promise<void> {
     const autoHotFocus = buildAutoHotFocusFromExecution(execution, cli.fastFocusCount);
     const previousStagnationStrike = previousSummary ? previousSummary.stagnationStrike : 0;
     const cyclePromotionBudget = resolveCyclePromotionBudget(cli.promotionBudgetPerCycle, previousStagnationStrike);
+    const previousSameMode = findPreviousCycleByMode(cycleSummaries, cycleMode);
 
     const promotion = await applyMergedEvidencePromotion({
       mergedEvidencePath: execution.mergedEvidencePath,
@@ -942,6 +965,7 @@ async function run(): Promise<void> {
       promotion,
       adaptiveWeights,
       previousSummary,
+      previousSameMode,
       previousStagnationStrike,
     );
     cycleSummaries.push(summary);
