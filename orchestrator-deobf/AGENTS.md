@@ -232,6 +232,14 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: avoids false checkpoint failures caused by comparing strict full-suite cycles against fast-cycle metrics directly.
 - Mode-aware checkpoint behavior validated on `max-cycles=4` run (`3 fast + 1 full`): full cycle no longer trips false KPI regression and run stops on stagnation rule instead.
   Verified reason: checkpoint quality comparison is now semantically correct across cycle modes.
+- Manual worst-file seeding now has a critical layer (`top 5` by quality score) in emitter planning.
+  Verified reason: targeted heavy passes (full-lift pressure, import-noise caps, domain local rename) are now concentrated only on highest-impact modules.
+- Critical hot modules now enforce strict namespace import-noise fail-fast in quality emit (`service <= 8`, `store <= 10`).
+  Verified reason: prevents readability regressions in worst files and keeps top hot modules import-hygiene bounded per cycle.
+- Targeted local rename in critical hot store/service modules now includes behavior semantics (`role + io-signature + side-effects`) in generated identifier stems.
+  Verified reason: local names shift from generic mechanical tails to action-oriented stems (`Orchestrate/Mutate/Parse/Emit/...`) with deterministic stability tags.
+- Cohesion merge/split now uses explicit boundary tags (`state/event/route/mixed/domain`) from signal graph.
+  Verified reason: module partitioning is less random and more aligned to state/event boundaries, reducing glue-heavy mixed-domain buckets.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.

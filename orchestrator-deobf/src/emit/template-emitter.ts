@@ -88,6 +88,11 @@ interface ManualRefactorCandidatesModel {
   candidates: ManualRefactorCandidate[];
 }
 
+interface ManualHotTargets {
+  hotSeedFamilies: Set<string>;
+  criticalHotFilePaths: Set<string>;
+}
+
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
@@ -99,6 +104,7 @@ const HOT_FIRST_REGENERATION_ENABLED = true;
 const HOT_FIRST_MIN_TARGET_FILES = 5;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
+const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 5;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -1614,24 +1620,34 @@ function applyHotSeedPriority(modulePlans: ModulePlan[], hotSeedFamilies: Readon
   }));
 }
 
-async function loadManualHotSeedFamilies(
+async function loadManualHotTargets(
   manualRefactorCandidatesPath: string | undefined,
-): Promise<Set<string>> {
+): Promise<ManualHotTargets> {
   const seedFamilies = new Set<string>();
+  const criticalHotFilePaths = new Set<string>();
   if (!manualRefactorCandidatesPath || manualRefactorCandidatesPath.length < 1) {
-    return seedFamilies;
+    return {
+      hotSeedFamilies: seedFamilies,
+      criticalHotFilePaths,
+    };
   }
   const exists = await fs
     .stat(manualRefactorCandidatesPath)
     .then(() => true)
     .catch(() => false);
   if (!exists) {
-    return seedFamilies;
+    return {
+      hotSeedFamilies: seedFamilies,
+      criticalHotFilePaths,
+    };
   }
 
   const report = await readJsonFile<ManualRefactorCandidatesModel>(manualRefactorCandidatesPath);
   if (!report || !Array.isArray(report.candidates)) {
-    return seedFamilies;
+    return {
+      hotSeedFamilies: seedFamilies,
+      criticalHotFilePaths,
+    };
   }
 
   const candidates = [...report.candidates]
@@ -1646,10 +1662,18 @@ async function loadManualHotSeedFamilies(
     })
     .slice(0, HOT_FIRST_MAX_TARGET_FILES);
 
+  const criticalCandidates = candidates.slice(0, Math.min(HOT_FIRST_CRITICAL_TOP_WORST_COUNT, candidates.length));
+  for (const candidate of criticalCandidates) {
+    criticalHotFilePaths.add(candidate.filePath.replace(/\\/g, "/").toLowerCase());
+  }
+
   for (const candidate of candidates) {
     seedFamilies.add(hotFamilyKeyFromFilePath(candidate.filePath));
   }
-  return seedFamilies;
+  return {
+    hotSeedFamilies: seedFamilies,
+    criticalHotFilePaths,
+  };
 }
 
 function isHotFirstCandidate(plan: ModulePlan, entry: ModuleQualityEntry): boolean {
@@ -1686,6 +1710,7 @@ function applyFileQualityRerender(
   bindingByKey: Map<string, LiftedSymbolBinding>,
   statementBudget: number,
   hotSeedFamilies: ReadonlySet<string>,
+  criticalHotFilePaths: ReadonlySet<string>,
 ): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
   if (modulePlans.length === 0) {
     return {
@@ -1720,6 +1745,22 @@ function applyFileQualityRerender(
   const candidatePool = hotCandidates.length > 0 ? hotCandidates : sortedCandidates;
   const selectedCandidates: ModuleQualityEntry[] = [];
   const selectedModuleIds = new Set<string>();
+  if (criticalHotFilePaths.size > 0) {
+    const criticalCandidates = candidatePool.filter((entry) => {
+      const normalized = entry.filePath.replace(/\\/g, "/").toLowerCase();
+      return criticalHotFilePaths.has(normalized);
+    });
+    for (const candidate of criticalCandidates) {
+      if (selectedCandidates.length >= targetCount) {
+        break;
+      }
+      if (selectedModuleIds.has(candidate.moduleId)) {
+        continue;
+      }
+      selectedModuleIds.add(candidate.moduleId);
+      selectedCandidates.push(candidate);
+    }
+  }
   if (hotSeedFamilies.size > 0) {
     const seededCandidates = candidatePool.filter((entry) => {
       const plan = planByModuleId.get(entry.moduleId);
@@ -1841,6 +1882,54 @@ function buildCohesionTokensForSymbol(
     .filter((token) => !SIGNAL_TOKEN_STOPWORDS.has(token))
     .slice(0, 6);
   return tokens;
+}
+
+function resolveBoundaryTagForSymbol(
+  symbol: OwnershipRecord,
+  signalContext: EmitterSignalContext,
+): "state-boundary" | "event-boundary" | "route-boundary" | "mixed-boundary" | "domain-boundary" {
+  const signal = signalContext.symbolSignalByKey.get(symbol.symbolKey);
+  if (!signal) {
+    return "domain-boundary";
+  }
+  const hasState = signal.stateTokens.length >= 2;
+  const hasEvent = signal.eventFlowScore >= 0.58;
+  const hasRoute = signal.routeFlowScore >= 0.58;
+  if ((hasState && hasEvent) || (hasState && hasRoute) || (hasEvent && hasRoute)) {
+    return "mixed-boundary";
+  }
+  if (hasState) {
+    return "state-boundary";
+  }
+  if (hasEvent) {
+    return "event-boundary";
+  }
+  if (hasRoute) {
+    return "route-boundary";
+  }
+  return "domain-boundary";
+}
+
+function resolveBoundaryTagForPlan(
+  plan: ModulePlan,
+  signalContext: EmitterSignalContext,
+): "state-boundary" | "event-boundary" | "route-boundary" | "mixed-boundary" | "domain-boundary" {
+  const countByBoundary = new Map<string, number>();
+  for (const symbol of plan.symbols) {
+    const boundary = resolveBoundaryTagForSymbol(symbol, signalContext);
+    countByBoundary.set(boundary, (countByBoundary.get(boundary) ?? 0) + 1);
+  }
+  let bestBoundary: "state-boundary" | "event-boundary" | "route-boundary" | "mixed-boundary" | "domain-boundary" =
+    "domain-boundary";
+  let bestCount = 0;
+  for (const boundary of ["mixed-boundary", "state-boundary", "event-boundary", "route-boundary", "domain-boundary"] as const) {
+    const count = countByBoundary.get(boundary) ?? 0;
+    if (count > bestCount) {
+      bestCount = count;
+      bestBoundary = boundary;
+    }
+  }
+  return bestBoundary;
 }
 
 function tokenOverlapRatio(left: string[], right: string[]): number {
@@ -2044,9 +2133,11 @@ function splitPlanByCohesion(
   for (const symbol of plan.symbols) {
     const tokens = buildCohesionTokensForSymbol(symbol, renameHintsBySymbolKey, signalContext);
     const head = tokens[0] ?? "domain";
-    const bucket = buckets.get(head) ?? [];
+    const boundary = resolveBoundaryTagForSymbol(symbol, signalContext);
+    const bucketKey = `${boundary}:${head}`;
+    const bucket = buckets.get(bucketKey) ?? [];
     bucket.push(symbol);
-    buckets.set(head, bucket);
+    buckets.set(bucketKey, bucket);
   }
   const maxBucketCount = forceSplit ? Math.min(5, maxPartsForArchetype(plan.archetype)) : 2;
   const rankedBuckets = [...buckets.entries()]
@@ -2062,7 +2153,9 @@ function splitPlanByCohesion(
       continue;
     }
     const [token, symbols] = bucket;
-    const partTopic = sanitizeSegment(`${plan.topic}-${token}`, plan.topic);
+    const boundaryToken = token.split(":")[0] ?? "domain";
+    const topicToken = token.split(":")[1] ?? "domain";
+    const partTopic = sanitizeSegment(`${plan.topic}-${boundaryToken}-${topicToken}`, plan.topic);
     parts.push({
       ...plan,
       topic: partTopic,
@@ -2118,8 +2211,15 @@ function applyCohesionMergeSplit(
       const currentTokens = dedupeNameTokens(current.topic.split("-").filter((token) => token.length > 0));
       const candidateTokens = dedupeNameTokens(candidate.topic.split("-").filter((token) => token.length > 0));
       const topicOverlap = tokenOverlapRatio(currentTokens, candidateTokens);
+      const currentBoundary = resolveBoundaryTagForPlan(current, signalContext);
+      const candidateBoundary = resolveBoundaryTagForPlan(candidate, signalContext);
+      const compatibleBoundary =
+        currentBoundary === candidateBoundary ||
+        currentBoundary === "domain-boundary" ||
+        candidateBoundary === "domain-boundary";
       const canMerge =
         combinedSize <= Math.min(MODULE_MERGE_MAX_SYMBOLS, Math.floor(budget * 1.35)) &&
+        compatibleBoundary &&
         topicOverlap >= COHESION_MERGE_THRESHOLD &&
         current.symbols.length <= Math.max(16, Math.floor(budget * 0.8)) &&
         candidate.symbols.length <= Math.max(16, Math.floor(budget * 0.8));
@@ -2446,6 +2546,7 @@ function buildQualityModuleContent(
   chunkTopicTokensById: Map<string, string[]>,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   signalContext: EmitterSignalContext,
+  criticalHotFilePaths: ReadonlySet<string>,
 ): QualityModuleBuildResult {
   if (symbols.length === 0) {
     throw new Error(`buildQualityModuleContent: module ${plan.moduleId} has no symbols`);
@@ -2582,13 +2683,14 @@ function buildQualityModuleContent(
     sanitizeAliasTokens(tokens).filter((token) => !importAliasStopTokens.has(token));
   const normalizedHotFilePath = plan.filePath.replace(/\\/g, "/");
   const hotFocusModule = plan.hotPriority;
-  const targetedHotStoreModule = hotFocusModule && /(?:^|\/)store-state(?:-g\d+|-quality-\d+)?\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotStoreG003Module = hotFocusModule && /(?:^|\/)store-state-g003\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotServiceModule = hotFocusModule && /(?:^|\/)service-run\.ts$/i.test(normalizedHotFilePath);
+  const criticalTopWorstModule = hotFocusModule && criticalHotFilePaths.has(normalizedHotFilePath.toLowerCase());
+  const targetedHotStoreModule = criticalTopWorstModule && plan.archetype === "store";
+  const targetedHotStoreG003Module = criticalTopWorstModule && /(?:^|\/)store-state-g003\.ts$/i.test(normalizedHotFilePath);
+  const targetedHotServiceModule = criticalTopWorstModule && plan.archetype === "service";
   const targetedHotWorstStoreServiceModule =
-    hotFocusModule && /(?:^|\/)(?:store-state-g\d+|service-run)\.ts$/i.test(normalizedHotFilePath);
+    criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store");
   const targetedHotCriticalStoreServiceModule =
-    hotFocusModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
+    criticalTopWorstModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotPriorityStoreServiceModule = targetedHotCriticalStoreServiceModule || targetedHotStoreG003Module;
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
@@ -3827,6 +3929,118 @@ function buildQualityModuleContent(
     }
     return familyFallback;
   };
+  const inferBehaviorRoleToken = (
+    statementText: string,
+    referencedNames: ReadonlySet<string>,
+  ): "Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle" => {
+    const normalizedText = `${statementText}\n${[...referencedNames].join(" ")}`.toLowerCase();
+    const scoreByRole = new Map<"Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle", number>();
+    const add = (
+      role: "Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle",
+      signal: string,
+      weight = 1,
+    ): void => {
+      if (!normalizedText.includes(signal)) {
+        return;
+      }
+      scoreByRole.set(role, (scoreByRole.get(role) ?? 0) + weight);
+    };
+
+    add("Parse", "parse", 3);
+    add("Parse", "decode", 2);
+    add("Parse", "schema", 2);
+    add("Parse", "json", 1);
+    add("Parse", "token", 1);
+
+    add("Select", "get", 1);
+    add("Select", "select", 2);
+    add("Select", "query", 2);
+    add("Select", "read", 1);
+    add("Select", "find", 1);
+
+    add("Mutate", "set", 1);
+    add("Mutate", "update", 2);
+    add("Mutate", "write", 2);
+    add("Mutate", "save", 2);
+    add("Mutate", "assign", 2);
+    add("Mutate", "dispatch", 2);
+    add("Mutate", "reducer", 2);
+
+    add("Emit", "emit", 3);
+    add("Emit", "publish", 2);
+    add("Emit", "event", 2);
+    add("Emit", "notify", 2);
+    add("Emit", "channel", 1);
+
+    add("Adapt", "ipc", 2);
+    add("Adapt", "rpc", 2);
+    add("Adapt", "transport", 2);
+    add("Adapt", "adapter", 2);
+    add("Adapt", "bridge", 2);
+    add("Adapt", "request", 1);
+    add("Adapt", "response", 1);
+
+    add("Orchestrate", "await", 2);
+    add("Orchestrate", "promise", 1);
+    add("Orchestrate", "flow", 2);
+    add("Orchestrate", "route", 1);
+    add("Orchestrate", "navigate", 1);
+    add("Orchestrate", "queue", 1);
+
+    const callMatches = normalizedText.match(/\b[a-z_$][a-z0-9_$]*\s*\(/g);
+    if (callMatches && callMatches.length >= 4) {
+      scoreByRole.set("Orchestrate", (scoreByRole.get("Orchestrate") ?? 0) + 2);
+    }
+
+    let bestRole: "Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle" = "Handle";
+    let bestScore = 0;
+    for (const role of ["Mutate", "Emit", "Adapt", "Parse", "Select", "Orchestrate", "Handle"] as const) {
+      const score = scoreByRole.get(role) ?? 0;
+      if (score > bestScore) {
+        bestScore = score;
+        bestRole = role;
+      }
+    }
+    return bestScore >= 2 ? bestRole : "Handle";
+  };
+  const inferIoSignatureToken = (
+    statementText: string,
+    referencedNames: ReadonlySet<string>,
+  ): "Request" | "Payload" | "Result" | "Stateful" | "None" => {
+    const normalizedText = `${statementText}\n${[...referencedNames].join(" ")}`.toLowerCase();
+    if (
+      normalizedText.includes("request") ||
+      normalizedText.includes("response") ||
+      normalizedText.includes("endpoint") ||
+      normalizedText.includes("url")
+    ) {
+      return "Request";
+    }
+    if (
+      normalizedText.includes("payload") ||
+      normalizedText.includes("body") ||
+      normalizedText.includes("params") ||
+      normalizedText.includes("options")
+    ) {
+      return "Payload";
+    }
+    if (
+      normalizedText.includes("return") ||
+      normalizedText.includes("result") ||
+      normalizedText.includes("resolve")
+    ) {
+      return "Result";
+    }
+    if (
+      normalizedText.includes("state") ||
+      normalizedText.includes("store") ||
+      normalizedText.includes("cache") ||
+      normalizedText.includes("dispatch")
+    ) {
+      return "Stateful";
+    }
+    return "None";
+  };
   const applyTargetedHotLocalDomainRenamePass = (content: string): string => {
     if (!targetedHotLocalRenameEnabled || !targetedHotWorstStoreServiceModule || content.length < 1) {
       return content;
@@ -3981,11 +4195,14 @@ function buildQualityModuleContent(
       } else if (entry.family === "Runtime" && (domainToken === "state" || domainToken === "runtime")) {
         domainToken = "core";
       }
+      const behaviorRole = inferBehaviorRoleToken(entry.statementText, entry.referencedNames);
+      const ioSignature = inferIoSignatureToken(entry.statementText, entry.referencedNames);
       const familyToken = entry.family.toLowerCase();
       const domainStem = domainToken.toLowerCase() === familyToken ? "" : toPascalCase(domainToken);
+      const ioStem = ioSignature === "None" ? "" : ioSignature;
       const shortTag = alphabeticStableSuffix(`${plan.moduleId}:${entry.originalName}:${domainToken}`, 2).toUpperCase();
       const candidate = normalizeTargetedAliasBase(
-        sanitizeIdentifier(`${entry.prefix}${entry.family}${domainStem}Local${shortTag}`),
+        sanitizeIdentifier(`${entry.prefix}${entry.family}${behaviorRole}${domainStem}${ioStem}Local${shortTag}`),
       );
       const resolved = nextUniqueIdentifier(compactIdentifier(candidate, 40), usedNames);
       if (resolved === entry.originalName) {
@@ -4843,7 +5060,7 @@ function buildQualityModuleContent(
         return new Set<string>();
       }
       const currentNamespaceCount = metadataByAlias.size;
-      const targetNamespaceCount = targetedHotServiceModule ? 10 : targetedHotStoreG003Module ? 11 : 12;
+      const targetNamespaceCount = targetedHotServiceModule ? 8 : targetedHotStoreG003Module ? 9 : 10;
       if (currentNamespaceCount <= targetNamespaceCount) {
         return new Set<string>();
       }
@@ -5126,7 +5343,7 @@ function buildQualityModuleContent(
         }
         namespaceImports.set(namedBindings.name.text, { modulePath: moduleSpecifier.text, statement });
       }
-      const targetNamespaceCount = targetedHotStoreG003Module ? 12 : targetedHotStoreModule ? 13 : 12;
+      const targetNamespaceCount = targetedHotServiceModule ? 8 : targetedHotStoreG003Module ? 9 : 10;
       if (namespaceImports.size <= targetNamespaceCount) {
         return contentText;
       }
@@ -7553,6 +7770,15 @@ function buildQualityModuleContent(
       );
     }
   }
+  const namespaceImportCount = (moduleContent.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
+  if (targetedHotWorstStoreServiceModule) {
+    const namespaceImportCap = targetedHotServiceModule ? 8 : 10;
+    if (namespaceImportCount > namespaceImportCap) {
+      throw new Error(
+        `buildQualityModuleContent: import-noise cap failed for ${plan.moduleId} (${namespaceImportCount} namespace imports > ${namespaceImportCap})`,
+      );
+    }
+  }
   return {
     content: moduleContent,
     assetFiles,
@@ -8076,7 +8302,9 @@ export async function emitTemplateProject(
   if (monolithTopicHints.bySymbolKey.size < 1 && monolithTopicHints.bySymbolName.size < 1) {
     throw new Error("emitTemplateProject: monolith-first mode requires non-empty monolith layout hints");
   }
-  const hotSeedFamilies = await loadManualHotSeedFamilies(manualRefactorCandidatesPath);
+  const hotTargets = await loadManualHotTargets(manualRefactorCandidatesPath);
+  const hotSeedFamilies = hotTargets.hotSeedFamilies;
+  const criticalHotFilePaths = hotTargets.criticalHotFilePaths;
   const preliftRawPlans = buildModulePlans(
     ownershipModel,
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
@@ -8159,6 +8387,7 @@ export async function emitTemplateProject(
     astLift.symbolBindingByKey,
     statementBudget,
     hotSeedFamilies,
+    criticalHotFilePaths,
   );
   const qualityModulePlans = qualityPass.modulePlans;
   const emittedAssetContentByPath = new Map<string, string>();
@@ -8175,6 +8404,7 @@ export async function emitTemplateProject(
       chunkTopicTokensById,
       domainRenameHints,
       signalContext,
+      criticalHotFilePaths,
     );
     await writeTextFile(absoluteFilePath, moduleBuildResult.content);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
