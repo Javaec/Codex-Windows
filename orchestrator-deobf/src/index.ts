@@ -78,6 +78,7 @@ interface CliOptions {
   seed: number;
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
+  enableWakaru: boolean;
   promotionBudget: number;
   enableJavascriptDeobfuscator: boolean;
   enableSynchrony: boolean;
@@ -104,6 +105,8 @@ function printUsage(): void {
     "  --run-id <id>",
     "  --seed <n>",
     "  --wakaru-concurrency <n>",
+    "  --enable-wakaru",
+    "  --disable-wakaru",
     "  --promotion-budget <n>",
     "  --enable-javascript-deobfuscator",
     "  --enable-synchrony",
@@ -179,6 +182,7 @@ function parseCli(argv: string[]): CliOptions {
   let seed = 424242;
   let forceOverwriteOutputs = true;
   let wakaruConcurrency = 1;
+  let enableWakaru = true;
   let promotionBudget = 180;
   let enableJavascriptDeobfuscator = true;
   let enableSynchrony = true;
@@ -247,6 +251,14 @@ function parseCli(argv: string[]): CliOptions {
           throw new Error("--promotion-budget must be >= 1");
         }
         index += 1;
+        break;
+      }
+      case "--enable-wakaru": {
+        enableWakaru = true;
+        break;
+      }
+      case "--disable-wakaru": {
+        enableWakaru = false;
         break;
       }
       case "--enable-javascript-deobfuscator": {
@@ -382,6 +394,7 @@ function parseCli(argv: string[]): CliOptions {
     seed,
     forceOverwriteOutputs,
     wakaruConcurrency,
+    enableWakaru,
     promotionBudget,
     enableJavascriptDeobfuscator,
     enableSynchrony,
@@ -438,6 +451,9 @@ function shouldUseAsarJavascriptForArtifacts(extractedRootDirectory: string, fil
 }
 
 const MINIMAL_RETENTION_PRUNE_RELATIVE_PATHS = [
+  "naming-memory.snapshot.json",
+  "stages",
+  "green-gates-logs",
   path.join("artifacts", "asar-extract"),
   path.join("artifacts", "webcrack"),
   path.join("artifacts", "wakaru"),
@@ -647,6 +663,7 @@ async function run(): Promise<void> {
   const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
   const bootstrapSnapshotMode = namingMemoryProfile.seededFrom !== "existing";
   const effectiveStageCacheEnabled = bootstrapSnapshotMode ? false : cli.stageCacheEnabled;
+  const effectiveEnableWakaru = cli.enableWakaru;
   const effectiveEnableJavascriptDeobfuscator = cli.enableJavascriptDeobfuscator;
   const effectiveEnableSynchrony = cli.enableSynchrony;
   const effectiveEnableUnwebpackSourcemap = cli.enableUnwebpackSourcemap;
@@ -679,6 +696,7 @@ async function run(): Promise<void> {
     flags: {
       forceOverwriteOutputs: cli.forceOverwriteOutputs,
       wakaruConcurrency: cli.wakaruConcurrency,
+      enableWakaru: effectiveEnableWakaru,
       promotionBudget: cli.promotionBudget,
       coverageLineageId,
       namingMemoryProfilePath: namingMemoryProfile.profilePath,
@@ -774,6 +792,7 @@ async function run(): Promise<void> {
   );
 
   const wakaruInput: WakaruStageInput = {
+    enabled: effectiveEnableWakaru,
     sourceJsPath: webcrackOutput.primaryOutputJsPath,
     outputDirectory: path.join(artifactsDirectory, "wakaru"),
     forceOverwriteOutputDirectory: cli.forceOverwriteOutputs,
@@ -860,16 +879,18 @@ async function run(): Promise<void> {
     baseConfidence: 0.92,
   });
 
-  const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);
-  for (const wakaruFile of wakaruFiles) {
-    pushEvidenceSource(evidenceSources, {
-      tool: "wakaru",
-      stageId: "wakaru",
-      lineageId: "main-entry",
-      filePath: wakaruFile,
-      sourceKind: inferSourceKind(wakaruFile),
-      baseConfidence: 0.9,
-    });
+  if (wakaruOutput.status === "executed") {
+    const wakaruFiles = await listWakaruOutputs(wakaruOutput.outputDirectory, wakaruOutput.outputFiles);
+    for (const wakaruFile of wakaruFiles) {
+      pushEvidenceSource(evidenceSources, {
+        tool: "wakaru",
+        stageId: "wakaru",
+        lineageId: "main-entry",
+        filePath: wakaruFile,
+        sourceKind: inferSourceKind(wakaruFile),
+        baseConfidence: 0.9,
+      });
+    }
   }
 
   if (javascriptDeobfuscatorOutput.status === "executed") {

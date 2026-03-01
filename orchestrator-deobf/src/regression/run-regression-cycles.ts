@@ -150,6 +150,9 @@ const FIXED_REGRESSION_PROFILE_IDS = [
   "core-runtime-probe-soft",
 ] as const;
 const PRUNED_RUN_ARTIFACT_RELATIVE_PATHS = [
+  "naming-memory.snapshot.json",
+  "stages",
+  "green-gates-logs",
   "artifacts",
   path.join("artifacts", "asar-extract"),
   path.join("artifacts", "webcrack"),
@@ -229,6 +232,7 @@ function buildFastCycleSuite(suite: RegressionSuite, fastProfileId: string): Reg
         ...baseProfile,
         flags: {
           ...baseProfile.flags,
+          enableWakaru: false,
           enableJavascriptDeobfuscator: false,
           enableSynchrony: false,
           enableUnwebpackSourcemap: false,

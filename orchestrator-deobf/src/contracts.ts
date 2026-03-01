@@ -57,6 +57,7 @@ export interface InputArtifacts {
 export interface RunFlags {
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
+  enableWakaru: boolean;
   promotionBudget: number;
   coverageLineageId: string;
   namingMemoryProfilePath: string;
@@ -162,6 +163,7 @@ export interface MonolithPassStageOutput {
 }
 
 export interface WakaruStageInput {
+  enabled: boolean;
   sourceJsPath: string;
   outputDirectory: string;
   forceOverwriteOutputDirectory: boolean;
@@ -169,10 +171,12 @@ export interface WakaruStageInput {
 }
 
 export interface WakaruStageOutput {
+  status: OptionalStageStatus;
   outputDirectory: string;
   producedFileCount: number;
   producedJsFileCount: number;
   outputFiles: string[];
+  reason: string;
 }
 
 export interface JavascriptDeobfuscatorStageInput {

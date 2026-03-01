@@ -1,6 +1,7 @@
 import { ToolWeights } from "../contracts";
 
 export interface RegressionProfileFlags {
+  enableWakaru: boolean;
   enableJavascriptDeobfuscator: boolean;
   enableSynchrony: boolean;
   enableUnwebpackSourcemap: boolean;

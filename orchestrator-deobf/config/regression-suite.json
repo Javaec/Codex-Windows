@@ -5,6 +5,7 @@
       "id": "core-no-binary",
       "description": "Core pipeline with strict emitter and no optional deobf accelerators.",
       "flags": {
+        "enableWakaru": true,
         "enableJavascriptDeobfuscator": false,
         "enableSynchrony": false,
         "enableUnwebpackSourcemap": false,
@@ -20,6 +21,7 @@
       "id": "core-no-binary-no-pretty",
       "description": "Core pipeline with lower statement budget to stress module splitting and quality gates.",
       "flags": {
+        "enableWakaru": true,
         "enableJavascriptDeobfuscator": false,
         "enableSynchrony": false,
         "enableUnwebpackSourcemap": false,
@@ -35,6 +37,7 @@
       "id": "core-no-binary-top120",
       "description": "Core pipeline with larger statement budget to validate top-heavy symbol ownership behavior.",
       "flags": {
+        "enableWakaru": true,
         "enableJavascriptDeobfuscator": false,
         "enableSynchrony": false,
         "enableUnwebpackSourcemap": false,
@@ -50,6 +53,7 @@
       "id": "core-runtime-probe-soft",
       "description": "Core pipeline with sourcemap probing enabled and wider statement budget for runtime health checks.",
       "flags": {
+        "enableWakaru": true,
         "enableJavascriptDeobfuscator": false,
         "enableSynchrony": false,
         "enableUnwebpackSourcemap": true,

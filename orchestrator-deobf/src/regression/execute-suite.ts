@@ -237,6 +237,8 @@ function buildProfileArgs(
   args.push("--gate-mode", options.gateMode);
   args.push("--artifact-retention", options.artifactRetention);
 
+  appendFlag(args, profile.flags.enableWakaru, "--enable-wakaru");
+  appendFlag(args, !profile.flags.enableWakaru, "--disable-wakaru");
   appendFlag(args, profile.flags.enableJavascriptDeobfuscator, "--enable-javascript-deobfuscator");
   appendFlag(args, profile.flags.enableSynchrony, "--enable-synchrony");
   appendFlag(args, profile.flags.enableUnwebpackSourcemap, "--enable-unwebpack-sourcemap");

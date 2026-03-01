@@ -49,6 +49,7 @@ function parseProfile(input: unknown, index: number): RegressionProfile {
     id: assertString(`profiles[${index}].id`, payload["id"]),
     description: assertString(`profiles[${index}].description`, payload["description"]),
     flags: {
+      enableWakaru: assertBoolean(`profiles[${index}].flags.enableWakaru`, parsedFlags["enableWakaru"]),
       enableJavascriptDeobfuscator: assertBoolean(
         `profiles[${index}].flags.enableJavascriptDeobfuscator`,
         parsedFlags["enableJavascriptDeobfuscator"],

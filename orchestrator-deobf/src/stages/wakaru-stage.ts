@@ -27,15 +27,29 @@ async function buildWakaruOutput(input: WakaruStageInput): Promise<WakaruStageOu
   const files = await listFilesRecursive(input.outputDirectory);
   const jsFiles = files.filter((file) => isJavascriptFile(file.relativePath));
   return {
+    status: "executed",
     outputDirectory: input.outputDirectory,
     producedFileCount: files.length,
     producedJsFileCount: jsFiles.length,
     outputFiles: files.map((file) => path.relative(input.outputDirectory, file.absolutePath).split(path.sep).join("/")),
+    reason: "",
   };
 }
 
 async function executeWakaru(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<WakaruStageInput>(request.inputPath);
+  if (!input.enabled) {
+    const output: WakaruStageOutput = {
+      status: "skipped",
+      outputDirectory: input.outputDirectory,
+      producedFileCount: 0,
+      producedJsFileCount: 0,
+      outputFiles: [],
+      reason: "disabled by run flag",
+    };
+    await writeJsonFile(request.outputPath, output);
+    return;
+  }
   await fs.stat(input.sourceJsPath);
   await prepareOutputDirectory(input.outputDirectory, input.forceOverwriteOutputDirectory);
 
@@ -65,8 +79,14 @@ export const wakaruStage: PipelineStage = {
     version: 1,
     key: async (inputUnknown: unknown): Promise<string> => {
       const input = inputUnknown as WakaruStageInput;
+      if (!input.enabled) {
+        return JSON.stringify({
+          enabled: false,
+        });
+      }
       const digest = await hashFileSha256(input.sourceJsPath);
       return JSON.stringify({
+        enabled: input.enabled,
         sourceSha256: digest.sha256,
         sourceBytes: digest.bytes,
         concurrency: input.concurrency,
@@ -78,6 +98,16 @@ export const wakaruStage: PipelineStage = {
     },
     rehydrateOutput: async (inputUnknown: unknown): Promise<WakaruStageOutput> => {
       const input = inputUnknown as WakaruStageInput;
+      if (!input.enabled) {
+        return {
+          status: "skipped",
+          outputDirectory: input.outputDirectory,
+          producedFileCount: 0,
+          producedJsFileCount: 0,
+          outputFiles: [],
+          reason: "disabled by run flag",
+        };
+      }
       return await buildWakaruOutput(input);
     },
   } as StageCachePlan<unknown>,

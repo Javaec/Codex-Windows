@@ -212,6 +212,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: increases rename updates per cycle without allowing quality regressions or generic-name fallback.
 - Promotion selector now enforces a minimum update share (`selected != currentName`) before insert-heavy picks, and aggressive fallback prioritizes low-quality entries globally (not only current hot-focus list).
   Verified reason: stabilized `promotionUpdatedCount` growth (e.g. `133` updates in fast single-cycle run) instead of insert-only cycles.
+- Wakaru is now controllable by run/profile flag (`enableWakaru`) and fast-cycle profile forces it off.
+  Verified reason: strict fast loop now runs with two core adapters (`asar + webcrack`) for lower runtime/I/O, while full checkpoints keep broader evidence coverage.
+- Minimal artifact retention now prunes heavy run payload files/directories including `naming-memory.snapshot.json`, `stages`, and `green-gates-logs`.
+  Verified reason: removed largest per-run disk contributor and reduced run footprint from hundreds of MB to sub-MB in minimal mode.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.
