@@ -261,3 +261,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - type-hint propagation for local variable declarations,
   - function-body semantic rename pass (`role + domain + io-signature`).
   Verified reason: raises real-logic density and function readability in worst store/service files without enabling noisy rewrites for non-hot modules.
+- Critical top-5 hot modules now also run behavior-cluster function extraction:
+  - safe conversion of selected `const foo = (...) => ...` function variables to named function declarations,
+  - deterministic cluster ordering by behavior role/domain/family.
+  Verified reason: reduces glue-style wrapper surface and improves readability/structure inside worst service/store modules while preserving non-hot stability.

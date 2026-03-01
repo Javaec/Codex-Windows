@@ -106,6 +106,7 @@ const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
 const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 5;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
+const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
 const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
@@ -2693,7 +2694,6 @@ function buildQualityModuleContent(
     criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store");
   const targetedHotCriticalStoreServiceModule =
     criticalTopWorstModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
-  const targetedHotPriorityStoreServiceModule = targetedHotCriticalStoreServiceModule || targetedHotStoreG003Module;
   const targetedHotLocalRenameEnabled =
     (plan.archetype === "service" || plan.archetype === "store") &&
     (targetedHotStoreModule || targetedHotServiceModule);
@@ -5134,6 +5134,251 @@ function buildQualityModuleContent(
       ts.factory.updateSourceFile(sourceFile, nextStatements),
     );
   };
+  const applyCriticalBehaviorClusterFunctionExtraction = (content: string): string => {
+    if (!targetedHotWorstStoreServiceModule || content.length < 1) {
+      return content;
+    }
+    const sourceFile = ts.createSourceFile(
+      `${plan.moduleId}.ts`,
+      content,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const exportedNames = collectTopLevelExportedNames(sourceFile);
+    const collectAssignedIdentifierNames = (source: ts.SourceFile): Set<string> => {
+      const assigned = new Set<string>();
+      const isAssignmentOperatorKind = (kind: ts.SyntaxKind): boolean =>
+        kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+      const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && isAssignmentOperatorKind(node.operatorToken.kind)) {
+          if (ts.isIdentifier(node.left)) {
+            assigned.add(node.left.text);
+          }
+        } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+          if (
+            (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
+            ts.isIdentifier(node.operand)
+          ) {
+            assigned.add(node.operand.text);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      return assigned;
+    };
+    const assignedNames = collectAssignedIdentifierNames(sourceFile);
+    const usesLexicalCaptureRestrictedForArrow = (node: ts.Node): boolean => {
+      let restricted = false;
+      const visit = (child: ts.Node): void => {
+        if (restricted) {
+          return;
+        }
+        if (
+          child.kind === ts.SyntaxKind.ThisKeyword ||
+          child.kind === ts.SyntaxKind.SuperKeyword ||
+          child.kind === ts.SyntaxKind.NewKeyword
+        ) {
+          restricted = true;
+          return;
+        }
+        if (ts.isIdentifier(child) && child.text === "arguments" && isIdentifierReference(child)) {
+          restricted = true;
+          return;
+        }
+        ts.forEachChild(child, visit);
+      };
+      visit(node);
+      return restricted;
+    };
+    interface BehaviorClusterDescriptor {
+      role: "Orchestrate" | "Parse" | "Select" | "Mutate" | "Emit" | "Adapt" | "Handle";
+      domain: string;
+      family: TargetedCoreFamily;
+      name: string;
+    }
+    interface ConvertibleFunctionCandidate {
+      sourceIndex: number;
+      sourceStatement: ts.VariableStatement;
+      declaration: ts.VariableDeclaration;
+      functionLike: ts.ArrowFunction | ts.FunctionExpression;
+      quality: number;
+      descriptor: BehaviorClusterDescriptor;
+    }
+    const describeBehaviorCluster = (name: string, statementText: string, referencedNames: ReadonlySet<string>): BehaviorClusterDescriptor => {
+      const family = inferTargetedCoreLocalFamily(statementText);
+      const role = inferBehaviorRoleToken(statementText, referencedNames);
+      const inferredDomain = inferTargetedHotDomainLocalToken(statementText, referencedNames, family);
+      const normalizedDomain =
+        inferredDomain.length < 3 || targetedHotWeakTokenSet.has(inferredDomain.toLowerCase())
+          ? pickPlanDomainToken(`${name}:cluster-domain`)
+          : inferredDomain.toLowerCase();
+      return {
+        role,
+        domain: normalizedDomain,
+        family,
+        name,
+      };
+    };
+    const isSafeFunctionVariableCandidate = (statement: ts.VariableStatement): ConvertibleFunctionCandidate | undefined => {
+      if (hasExportModifier(statement)) {
+        return undefined;
+      }
+      if (!(statement.declarationList.flags & ts.NodeFlags.Const) || statement.declarationList.declarations.length !== 1) {
+        return undefined;
+      }
+      const declaration = statement.declarationList.declarations[0];
+      if (!declaration || !ts.isIdentifier(declaration.name) || !declaration.initializer) {
+        return undefined;
+      }
+      const localName = declaration.name.text;
+      if (exportedNames.has(localName) || assignedNames.has(localName) || RESERVED_IDENTIFIERS.has(localName)) {
+        return undefined;
+      }
+      const initializer = declaration.initializer;
+      if (!ts.isArrowFunction(initializer) && !ts.isFunctionExpression(initializer)) {
+        return undefined;
+      }
+      if (ts.isFunctionExpression(initializer) && initializer.name && initializer.name.text !== localName) {
+        return undefined;
+      }
+      if (ts.isArrowFunction(initializer) && usesLexicalCaptureRestrictedForArrow(initializer.body)) {
+        return undefined;
+      }
+      const statementText = statement.getText(sourceFile);
+      const referencedNames = collectStatementReferencedNames(statement);
+      return {
+        sourceIndex: sourceFile.statements.indexOf(statement),
+        sourceStatement: statement,
+        declaration,
+        functionLike: initializer,
+        quality: scoreNameQuality(localName),
+        descriptor: describeBehaviorCluster(localName, statementText, referencedNames),
+      };
+    };
+    const functionVariableCandidates: ConvertibleFunctionCandidate[] = [];
+    for (const statement of sourceFile.statements) {
+      if (!ts.isVariableStatement(statement)) {
+        continue;
+      }
+      const candidate = isSafeFunctionVariableCandidate(statement);
+      if (candidate) {
+        functionVariableCandidates.push(candidate);
+      }
+    }
+    const selectedVariableCandidates = functionVariableCandidates
+      .sort((left, right) => {
+        if (left.quality !== right.quality) {
+          return left.quality - right.quality;
+        }
+        return left.descriptor.name.localeCompare(right.descriptor.name);
+      })
+      .slice(0, HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED);
+    const selectedVariableStatementSet = new Set<ts.Statement>(selectedVariableCandidates.map((candidate) => candidate.sourceStatement));
+    const candidateByStatement = new Map<ts.Statement, ConvertibleFunctionCandidate>();
+    for (const candidate of selectedVariableCandidates) {
+      candidateByStatement.set(candidate.sourceStatement, candidate);
+    }
+
+    const toFunctionDeclaration = (candidate: ConvertibleFunctionCandidate): ts.FunctionDeclaration | undefined => {
+      const functionLike = candidate.functionLike;
+      const localName = candidate.declaration.name;
+      if (!ts.isIdentifier(localName)) {
+        return undefined;
+      }
+      const body = ts.isBlock(functionLike.body)
+        ? functionLike.body
+        : ts.factory.createBlock([ts.factory.createReturnStatement(functionLike.body)], true);
+      const asteriskToken = ts.isFunctionExpression(functionLike) ? functionLike.asteriskToken : undefined;
+      return ts.factory.createFunctionDeclaration(
+        undefined,
+        asteriskToken,
+        ts.factory.createIdentifier(localName.text),
+        functionLike.typeParameters,
+        functionLike.parameters,
+        functionLike.type,
+        body,
+      );
+    };
+
+    const roleOrder = new Map<BehaviorClusterDescriptor["role"], number>([
+      ["Orchestrate", 0],
+      ["Mutate", 1],
+      ["Adapt", 2],
+      ["Parse", 3],
+      ["Select", 4],
+      ["Emit", 5],
+      ["Handle", 6],
+    ]);
+    interface ClusteredFunctionEntry {
+      statement: ts.FunctionDeclaration;
+      descriptor: BehaviorClusterDescriptor;
+    }
+    const importStatements: ts.Statement[] = [];
+    const otherStatements: ts.Statement[] = [];
+    const clusteredFunctions: ClusteredFunctionEntry[] = [];
+    for (const statement of sourceFile.statements) {
+      if (ts.isImportDeclaration(statement)) {
+        importStatements.push(statement);
+        continue;
+      }
+      if (ts.isFunctionDeclaration(statement) && statement.name && statement.body && !hasExportModifier(statement)) {
+        const descriptor = describeBehaviorCluster(
+          statement.name.text,
+          statement.getText(sourceFile),
+          collectStatementReferencedNames(statement),
+        );
+        clusteredFunctions.push({
+          statement,
+          descriptor,
+        });
+        continue;
+      }
+      if (selectedVariableStatementSet.has(statement)) {
+        const candidate = candidateByStatement.get(statement);
+        if (!candidate) {
+          otherStatements.push(statement);
+          continue;
+        }
+        const extracted = toFunctionDeclaration(candidate);
+        if (!extracted) {
+          otherStatements.push(statement);
+          continue;
+        }
+        clusteredFunctions.push({
+          statement: extracted,
+          descriptor: candidate.descriptor,
+        });
+        continue;
+      }
+      otherStatements.push(statement);
+    }
+    if (clusteredFunctions.length < 1) {
+      return content;
+    }
+    const sortedFunctions = clusteredFunctions.sort((left, right) => {
+      const leftRole = roleOrder.get(left.descriptor.role) ?? 99;
+      const rightRole = roleOrder.get(right.descriptor.role) ?? 99;
+      if (leftRole !== rightRole) {
+        return leftRole - rightRole;
+      }
+      if (left.descriptor.domain !== right.descriptor.domain) {
+        return left.descriptor.domain.localeCompare(right.descriptor.domain);
+      }
+      if (left.descriptor.family !== right.descriptor.family) {
+        return left.descriptor.family.localeCompare(right.descriptor.family);
+      }
+      return left.descriptor.name.localeCompare(right.descriptor.name);
+    });
+    return ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(
+      ts.factory.updateSourceFile(sourceFile, [
+        ...importStatements,
+        ...sortedFunctions.map((entry) => entry.statement),
+        ...otherStatements,
+      ]),
+    );
+  };
   const applyCriticalFunctionBodyNamingPass = (content: string): string => {
     if (!targetedHotWorstStoreServiceModule || content.length < 1) {
       return content;
@@ -6698,7 +6943,7 @@ function buildQualityModuleContent(
       requiredImportLocals.size >= HEAVY_CHUNK_IMPORT_FALLBACK_IDENTIFIER_THRESHOLD;
     const targetedHotFullLiftEnabled = targetedHotWorstStoreServiceModule;
     const targetedHotAggressiveFullLift = targetedHotWorstStoreServiceModule;
-    const targetedHotUltraFullLift = targetedHotPriorityStoreServiceModule;
+    const targetedHotUltraFullLift = targetedHotWorstStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const disableBulkChunkIndexInline = targetedHotStoreModule;
     const strictFullLiftDeclarationsOnly = true;
@@ -8209,10 +8454,12 @@ function buildQualityModuleContent(
   const qualityPassContent = applyImportHygienePass(
     applyCriticalFunctionBodyNamingPass(
       applyCriticalTypeHintPropagation(
-        applyCriticalLocalAstInlinePlanner(
-          applyTargetedHotLocalDomainRenamePass(
-            applyTargetedHotCoreFamilySweep(
-              applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+        applyCriticalBehaviorClusterFunctionExtraction(
+          applyCriticalLocalAstInlinePlanner(
+            applyTargetedHotLocalDomainRenamePass(
+              applyTargetedHotCoreFamilySweep(
+                applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
+              ),
             ),
           ),
         ),
