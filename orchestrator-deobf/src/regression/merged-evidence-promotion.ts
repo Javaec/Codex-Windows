@@ -40,6 +40,7 @@ const MIN_PROMOTION_QUALITY = 0.56;
 const MIN_MONOTONIC_UPDATES_PER_CYCLE = 80;
 const AGGRESSIVE_AUTO_RENAME_MIN_BUDGET = 64;
 const AGGRESSIVE_AUTO_RENAME_MAX_BUDGET = 220;
+const FORCE_QUALITY_UPLIFT_THRESHOLD = 0.76;
 const PROVENANCE_SOURCE_WEIGHTS: Readonly<Record<string, number>> = {
   asar: 0.76,
   webcrack: 1,
@@ -549,7 +550,11 @@ function applyAggressiveHotFocusRenameFallback(
     }
     const candidateQuality = scoreNameQuality(candidateName);
     const isCurrentGeneric = isGenericName(entry.currentName);
-    if (!isCurrentGeneric && candidateQuality <= currentQuality + 0.005) {
+    const forceQualityUplift = currentQuality < FORCE_QUALITY_UPLIFT_THRESHOLD;
+    if (!isCurrentGeneric && !forceQualityUplift && candidateQuality <= currentQuality + 0.005) {
+      continue;
+    }
+    if (forceQualityUplift && candidateQuality <= currentQuality + 0.001) {
       continue;
     }
     const candidateScore = clamp(Math.max(entry.currentScore + 0.002, candidateQuality * 0.86));

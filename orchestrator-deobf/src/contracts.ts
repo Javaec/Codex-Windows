@@ -29,6 +29,8 @@ export type OptionalStageStatus = "executed" | "skipped";
 export type LayerId = "main" | "renderer" | "services" | "tauri";
 export type ArchetypeId = "hook" | "service" | "ui" | "transport" | "store";
 export type OutputProfile = "latest" | "regression-latest";
+export type GateMode = "full" | "light";
+export type ArtifactRetentionMode = "debug" | "minimal";
 
 export interface ToolVersionEntry {
   packageName: string;
@@ -71,6 +73,8 @@ export interface RunFlags {
   outputProfile: OutputProfile;
   statementBudget: number;
   weightsConfigPath: string;
+  gateMode: GateMode;
+  artifactRetention: ArtifactRetentionMode;
 }
 
 export interface RunManifest {
@@ -369,6 +373,7 @@ export interface QualityGatesStageInput {
   stableOutputRoot: string;
   stableOutputProfile: OutputProfile;
   qualityReportPath: string;
+  validationMode: GateMode;
 }
 
 export interface QualityGatesStageOutput {
@@ -377,6 +382,7 @@ export interface QualityGatesStageOutput {
   checkedFileCount: number;
   violations: string[];
   stableProjectDirectory: string;
+  validationMode: GateMode;
 }
 
 export interface GreenGateCommandResult {
@@ -390,6 +396,7 @@ export interface GreenGateStageInput {
   projectDirectory: string;
   logDirectory: string;
   outputReportPath: string;
+  gateMode: GateMode;
 }
 
 export interface GreenGateStageOutput {
@@ -399,6 +406,7 @@ export interface GreenGateStageOutput {
   runtimeLogPath: string;
   runtimeErrorCount: number;
   runtimeWarningCount: number;
+  gateMode: GateMode;
 }
 
 export interface OptionalStageSnapshot {

@@ -183,6 +183,8 @@ async function run(): Promise<void> {
     suiteRunId: cli.suiteRunId,
     outputProfile: "regression-latest",
     outputDirectory: cli.outputRoot,
+    gateMode: "full",
+    artifactRetention: "minimal",
   });
 
   await writeJsonFile(cli.baselinePath, execution);

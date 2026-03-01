@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { RunMetrics, ToolWeights } from "../contracts";
+import { ArtifactRetentionMode, GateMode, RunMetrics, ToolWeights } from "../contracts";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { scoreNameQuality } from "../ir/name-quality";
 import { SemanticIrModel } from "../ir/semantic-ir";
@@ -164,6 +164,8 @@ export interface ExecuteRegressionSuiteOptions {
   suiteRunId: string;
   outputProfile: "regression-latest";
   outputDirectory: string;
+  gateMode: GateMode;
+  artifactRetention: ArtifactRetentionMode;
 }
 
 function formatNowUtc(): string {
@@ -232,6 +234,8 @@ function buildProfileArgs(
   args.push("--wakaru-concurrency", String(profile.flags.wakaruConcurrency));
   args.push("--statement-budget", String(profile.flags.statementBudget));
   args.push("--unwebpack-sourcemap-max-maps", String(profile.flags.unwebpackSourcemapMaxMaps));
+  args.push("--gate-mode", options.gateMode);
+  args.push("--artifact-retention", options.artifactRetention);
 
   appendFlag(args, profile.flags.enableJavascriptDeobfuscator, "--enable-javascript-deobfuscator");
   appendFlag(args, profile.flags.enableSynchrony, "--enable-synchrony");

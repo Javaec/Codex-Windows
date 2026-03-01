@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import {
+  GateMode,
   GreenGateCommandResult,
   GreenGateStageInput,
   GreenGateStageOutput,
@@ -91,16 +92,30 @@ function analyzeRuntimeLogs(payload: string): { runtimeErrorCount: number; runti
   };
 }
 
+function validateGateMode(mode: GateMode): boolean {
+  return mode === "full" || mode === "light";
+}
+
 async function executeGreenGates(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<GreenGateStageInput>(request.inputPath);
+  if (!validateGateMode(input.gateMode)) {
+    throw new Error(`green-gates: unsupported mode ${input.gateMode}`);
+  }
   await ensureDirectory(input.logDirectory);
-  const commands: Array<{ command: string; args: string[]; label: string }> = [
-    { command: "npm", args: ["install", "--include=dev", "--no-audit", "--no-fund"], label: "01-npm-install" },
-    { command: "npm", args: ["run", "typecheck"], label: "02-typecheck" },
-    { command: "npm", args: ["run", "lint"], label: "03-eslint" },
-    { command: "npm", args: ["run", "build"], label: "04-build" },
-    { command: "npm", args: ["run", "dev:smoke"], label: "05-dev-smoke" },
-  ];
+  const commands: Array<{ command: string; args: string[]; label: string }> =
+    input.gateMode === "full"
+      ? [
+          { command: "npm", args: ["install", "--include=dev", "--no-audit", "--no-fund"], label: "01-npm-install" },
+          { command: "npm", args: ["run", "typecheck"], label: "02-typecheck" },
+          { command: "npm", args: ["run", "lint"], label: "03-eslint" },
+          { command: "npm", args: ["run", "build"], label: "04-build" },
+          { command: "npm", args: ["run", "dev:smoke"], label: "05-dev-smoke" },
+        ]
+      : [
+          { command: "npm", args: ["install", "--include=dev", "--no-audit", "--no-fund"], label: "01-npm-install" },
+          { command: "npm", args: ["run", "typecheck"], label: "02-typecheck" },
+          { command: "npm", args: ["run", "dev:smoke"], label: "03-dev-smoke" },
+        ];
 
   const checkedCommands: GreenGateCommandResult[] = [];
   let runtimeLogPath = "";
@@ -118,7 +133,7 @@ async function executeGreenGates(request: StageExecutionRequest): Promise<void> 
       logPath,
     });
 
-    if (command.label === "05-dev-smoke") {
+    if (command.label.endsWith("dev-smoke")) {
       runtimeLogPath = logPath;
       const runtimeAnalysis = analyzeRuntimeLogs(`${result.stdout}\n${result.stderr}`);
       runtimeErrorCount = runtimeAnalysis.runtimeErrorCount;
@@ -136,6 +151,7 @@ async function executeGreenGates(request: StageExecutionRequest): Promise<void> 
     runtimeLogPath,
     runtimeErrorCount,
     runtimeWarningCount,
+    gateMode: input.gateMode,
   };
   await writeJsonFile(input.outputReportPath, output);
   await writeJsonFile(request.outputPath, output);

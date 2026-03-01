@@ -10,8 +10,10 @@ import {
   DecisionDashboardStageInput,
   DecisionDashboardStageOutput,
   EvidenceSourceFile,
+  ArtifactRetentionMode,
   EvidenceStoreStageInput,
   EvidenceStoreStageOutput,
+  GateMode,
   GreenGateStageInput,
   GreenGateStageOutput,
   JavascriptDeobfuscatorStageInput,
@@ -89,6 +91,8 @@ interface CliOptions {
   outputProfile: OutputProfile;
   statementBudget: number;
   weightsConfigPath: string;
+  gateMode: GateMode;
+  artifactRetention: ArtifactRetentionMode;
 }
 
 function printUsage(): void {
@@ -116,6 +120,8 @@ function printUsage(): void {
     "  --profile <latest|regression-latest>",
     "  --statement-budget <n>",
     "  --weights-config <path>",
+    "  --gate-mode <full|light>",
+    "  --artifact-retention <debug|minimal>",
     "  --no-force-overwrite",
     "",
     "Example:",
@@ -153,6 +159,20 @@ function parseOutputProfile(value: string): OutputProfile {
   throw new Error(`Invalid --profile value: ${value}`);
 }
 
+function parseGateMode(value: string): GateMode {
+  if (value === "full" || value === "light") {
+    return value;
+  }
+  throw new Error(`Invalid --gate-mode value: ${value}`);
+}
+
+function parseArtifactRetention(value: string): ArtifactRetentionMode {
+  if (value === "debug" || value === "minimal") {
+    return value;
+  }
+  throw new Error(`Invalid --artifact-retention value: ${value}`);
+}
+
 function parseCli(argv: string[]): CliOptions {
   let snapshotAsarPath = "";
   let runId = buildDefaultRunId();
@@ -172,6 +192,8 @@ function parseCli(argv: string[]): CliOptions {
   let outputProfile: OutputProfile = "latest";
   let statementBudget = 32;
   let weightsConfigPath = "";
+  let gateMode: GateMode = "full";
+  let artifactRetention: ArtifactRetentionMode = "debug";
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -314,6 +336,24 @@ function parseCli(argv: string[]): CliOptions {
         index += 1;
         break;
       }
+      case "--gate-mode": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --gate-mode");
+        }
+        gateMode = parseGateMode(value);
+        index += 1;
+        break;
+      }
+      case "--artifact-retention": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --artifact-retention");
+        }
+        artifactRetention = parseArtifactRetention(value);
+        index += 1;
+        break;
+      }
       case "--no-force-overwrite": {
         forceOverwriteOutputs = false;
         break;
@@ -355,6 +395,8 @@ function parseCli(argv: string[]): CliOptions {
     outputProfile,
     statementBudget,
     weightsConfigPath,
+    gateMode,
+    artifactRetention,
   };
 }
 
@@ -393,6 +435,27 @@ function shouldUseAsarJavascriptForArtifacts(extractedRootDirectory: string, fil
     return true;
   }
   return false;
+}
+
+const MINIMAL_RETENTION_PRUNE_RELATIVE_PATHS = [
+  path.join("artifacts", "asar-extract"),
+  path.join("artifacts", "webcrack"),
+  path.join("artifacts", "wakaru"),
+  path.join("artifacts", "javascript-deobfuscator"),
+  path.join("artifacts", "synchrony"),
+  path.join("artifacts", "unwebpack-sourcemap"),
+  path.join("artifacts", "project", "src", "chunks"),
+  path.join("artifacts", "project", "src", "chunks-ts"),
+] as const;
+
+async function applyArtifactRetention(runDirectory: string, retention: ArtifactRetentionMode): Promise<void> {
+  if (retention !== "minimal") {
+    return;
+  }
+  for (const relativePath of MINIMAL_RETENTION_PRUNE_RELATIVE_PATHS) {
+    const absolutePath = path.join(runDirectory, relativePath);
+    await fs.rm(absolutePath, { recursive: true, force: true });
+  }
 }
 
 async function listWakaruOutputs(outputDirectory: string, outputFiles: string[]): Promise<string[]> {
@@ -584,9 +647,9 @@ async function run(): Promise<void> {
   const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
   const bootstrapSnapshotMode = namingMemoryProfile.seededFrom !== "existing";
   const effectiveStageCacheEnabled = bootstrapSnapshotMode ? false : cli.stageCacheEnabled;
-  const effectiveEnableJavascriptDeobfuscator = true;
-  const effectiveEnableSynchrony = true;
-  const effectiveEnableUnwebpackSourcemap = true;
+  const effectiveEnableJavascriptDeobfuscator = cli.enableJavascriptDeobfuscator;
+  const effectiveEnableSynchrony = cli.enableSynchrony;
+  const effectiveEnableUnwebpackSourcemap = cli.enableUnwebpackSourcemap;
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
     manifestVersion: 9,
@@ -632,6 +695,8 @@ async function run(): Promise<void> {
       outputProfile: cli.outputProfile,
       statementBudget: cli.statementBudget,
       weightsConfigPath: toolWeightsConfig.path,
+      gateMode: cli.gateMode,
+      artifactRetention: cli.artifactRetention,
     },
     inputs: {
       snapshotAsarPath: cli.snapshotAsarPath,
@@ -1029,6 +1094,7 @@ async function run(): Promise<void> {
     stableOutputRoot: path.join(projectRoot, "output"),
     stableOutputProfile: cli.outputProfile,
     qualityReportPath: path.join(runDirectory, "quality-gates.json"),
+    validationMode: cli.gateMode,
   };
   const qualityGatesOutput = await runStage<QualityGatesStageInput, QualityGatesStageOutput>(
     qualityGatesStage,
@@ -1043,6 +1109,7 @@ async function run(): Promise<void> {
     projectDirectory: qualityGatesOutput.stableProjectDirectory,
     logDirectory: path.join(runDirectory, "green-gates-logs"),
     outputReportPath: path.join(runDirectory, "green-gates.json"),
+    gateMode: cli.gateMode,
   };
   const greenGatesOutput = await runStage<GreenGateStageInput, GreenGateStageOutput>(
     greenGatesStage,
@@ -1120,6 +1187,7 @@ async function run(): Promise<void> {
   };
   const summaryPath = path.join(runDirectory, "summary.json");
   await writeJsonFile(summaryPath, summary);
+  await applyArtifactRetention(runDirectory, cli.artifactRetention);
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
 

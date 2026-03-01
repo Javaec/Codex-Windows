@@ -198,6 +198,20 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: full-lift budget is concentrated on chunks that back the current worst hot files, raising useful logic density in those modules.
 - Monolith-first is now strict in quality emit: `emitTemplateProject` fails fast when monolith layout hints are empty.
   Verified reason: keeps topic/path synthesis anchored to monolith signal source-of-truth instead of fallback drift.
+- Pipeline now supports two execution modes end-to-end:
+  - `full`: full quality + green gates (`typecheck/lint/build/dev-smoke`),
+  - `light`: fast-cycle gates (`typecheck/dev-smoke`) with reduced quality checks.
+  Verified reason: fast iterations stay cheap, while periodic full checkpoints preserve reliability.
+- Artifact retention is now explicit per run (`debug|minimal`).
+  Verified reason: `minimal` prunes heavy adapter/chunk artifacts after summary generation to keep disk usage predictable on frequent cycles.
+- Regression cycles now run in mixed mode:
+  - fast cycles: one profile (`core-no-binary` by default), light gates, minimal artifacts,
+  - checkpoint cycles: full suite (4 profiles), full gates, minimal artifacts.
+  Verified reason: keeps signal quality while reducing per-cycle runtime/cost and improving iteration speed.
+- Aggressive promotion now has a forced quality-uplift rule for weak current names (`quality < 0.76`) under hot-focus context.
+  Verified reason: increases rename updates per cycle without allowing quality regressions or generic-name fallback.
+- ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
+  Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.
   Verified reason: reduces noisy cross-chunk inlining and keeps non-hot files cleaner and more stable.
 - Regression cycle aggregate now tracks/guards hot-first discipline (`hotFocusFileAverage`, `hotFirstOnlyAllProfiles`) and fails KPI when profile output leaves hot-first mode.

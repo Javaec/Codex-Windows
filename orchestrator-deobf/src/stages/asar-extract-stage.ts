@@ -44,6 +44,17 @@ function selectEntryFile(jsFiles: FileEntry[], entryFileHints: string[]): FileEn
   throw new Error(`Unable to resolve entry JS file using hints: ${entryFileHints.join(", ")}`);
 }
 
+function isRelevantPipelinePath(relativePath: string): boolean {
+  const normalized = normalizePath(relativePath).toLowerCase();
+  if (normalized.startsWith(".vite/build/")) {
+    return true;
+  }
+  if (normalized.startsWith("webview/assets/")) {
+    return true;
+  }
+  return false;
+}
+
 async function buildAsarExtractOutput(input: AsarExtractStageInput): Promise<AsarExtractStageOutput> {
   const files = await listFilesRecursive(input.extractDirectory);
   const jsFiles = files.filter((file) => isJavascriptFile(file.relativePath));
@@ -60,8 +71,14 @@ async function buildAsarExtractOutput(input: AsarExtractStageInput): Promise<Asa
     extractedMapFileCount: mapFiles.length,
     selectedEntryJsPath: selectedEntry.absolutePath,
     selectedEntryJsRelativePath: selectedEntry.relativePath,
-    discoveredJsFiles: jsFiles.map((file) => file.absolutePath).sort((left, right) => left.localeCompare(right)),
-    discoveredMapFiles: mapFiles.map((file) => file.absolutePath).sort((left, right) => left.localeCompare(right)),
+    discoveredJsFiles: jsFiles
+      .filter((file) => isRelevantPipelinePath(file.relativePath))
+      .map((file) => file.absolutePath)
+      .sort((left, right) => left.localeCompare(right)),
+    discoveredMapFiles: mapFiles
+      .filter((file) => isRelevantPipelinePath(file.relativePath))
+      .map((file) => file.absolutePath)
+      .sort((left, right) => left.localeCompare(right)),
   };
 }
 

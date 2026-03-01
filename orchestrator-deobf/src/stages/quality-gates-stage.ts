@@ -4,7 +4,7 @@ import { ChunkArtifactModel } from "../ir/chunk-artifact-model";
 import { copyTreeDeterministic } from "../utils/copy-tree";
 import { readJsonFile, writeJsonFile, ensureDirectory } from "../utils/fs-json";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
-import { OutputProfile, QualityGatesStageInput, QualityGatesStageOutput } from "../contracts";
+import { GateMode, OutputProfile, QualityGatesStageInput, QualityGatesStageOutput } from "../contracts";
 
 interface EmittedFilesIndex {
   files: string[];
@@ -19,6 +19,10 @@ const HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX = 12;
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
+}
+
+function validateGateMode(mode: GateMode): boolean {
+  return mode === "full" || mode === "light";
 }
 
 function validateFileOrdering(files: string[]): string[] {
@@ -256,15 +260,20 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   if (!validateOutputProfile(input.stableOutputProfile)) {
     violations.push(`unsupported output profile: ${input.stableOutputProfile}`);
   }
+  if (!validateGateMode(input.validationMode)) {
+    violations.push(`unsupported quality-gate mode: ${input.validationMode}`);
+  }
 
   violations.push(...validateFileOrdering(emittedFilesIndex.files));
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
   violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
-  violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
-  violations.push(...(await validateHotModuleNamespaceImportBudget(input.outputProjectDirectory, emittedFilesIndex.files)));
-  violations.push(...(await validateStaticPayloadExtraction(input.outputProjectDirectory, emittedFilesIndex.files)));
+  if (input.validationMode === "full") {
+    violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
+    violations.push(...(await validateHotModuleNamespaceImportBudget(input.outputProjectDirectory, emittedFilesIndex.files)));
+    violations.push(...(await validateStaticPayloadExtraction(input.outputProjectDirectory, emittedFilesIndex.files)));
+  }
   violations.push(...validateChunkArtifacts(chunkArtifacts));
 
   const stableProfileDirectory = path.join(input.stableOutputRoot, input.stableOutputProfile);
@@ -282,6 +291,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   const report = {
     generatedAtIso: new Date().toISOString(),
     passed: violations.length === 0,
+    validationMode: input.validationMode,
     checkedFileCount: emittedFilesIndex.files.length,
     violations,
     stableProjectDirectory,
@@ -295,6 +305,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   const output: QualityGatesStageOutput = {
     qualityReportPath: input.qualityReportPath,
     passed: true,
+    validationMode: input.validationMode,
     checkedFileCount: emittedFilesIndex.files.length,
     violations: [],
     stableProjectDirectory,

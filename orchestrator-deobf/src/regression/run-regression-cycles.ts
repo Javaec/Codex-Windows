@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { ToolWeights } from "../contracts";
+import { ArtifactRetentionMode, GateMode, ToolWeights } from "../contracts";
 import { cleanupKeepLastN } from "./cleanup";
 import { executeRegressionSuite, RegressionSuiteExecution } from "./execute-suite";
 import { applyMergedEvidencePromotion, ApplyMergedEvidencePromotionResult } from "./merged-evidence-promotion";
@@ -21,6 +21,9 @@ interface CliOptions {
   stagnationLimit: number;
   suiteRunPrefix: string;
   promotionBudgetPerCycle: number;
+  fastProfileId: string;
+  fullCheckpointEvery: number;
+  fastFocusCount: number;
 }
 
 interface AdaptiveProfileWeightsResult {
@@ -32,6 +35,8 @@ interface AdaptiveProfileWeightsResult {
 interface CycleExecutionSummary {
   cycleIndex: number;
   suiteRunId: string;
+  cycleMode: "fast" | "full";
+  profileCount: number;
   averageScore: number;
   nameQualityAverage: number;
   proxyInQualityAverage: number;
@@ -69,6 +74,9 @@ interface CycleReport {
   maxCycles: number;
   stagnationLimit: number;
   promotionBudgetPerCycle: number;
+  fastProfileId: string;
+  fullCheckpointEvery: number;
+  fastFocusCount: number;
   kpiTargets: {
     classCoverage: number;
     functionCoverage: number;
@@ -199,6 +207,40 @@ function validateFixedRegressionProfiles(suite: RegressionSuite): void {
   }
 }
 
+function resolveCycleMode(cycleIndex: number, fullCheckpointEvery: number): "fast" | "full" {
+  if (fullCheckpointEvery <= 1) {
+    return "full";
+  }
+  if (cycleIndex % fullCheckpointEvery === 0) {
+    return "full";
+  }
+  return "fast";
+}
+
+function buildFastCycleSuite(suite: RegressionSuite, fastProfileId: string): RegressionSuite {
+  const baseProfile = suite.profiles.find((profile) => profile.id === fastProfileId);
+  if (!baseProfile) {
+    throw new Error(`fast profile "${fastProfileId}" not found in regression suite`);
+  }
+  return {
+    version: suite.version,
+    profiles: [
+      {
+        ...baseProfile,
+        flags: {
+          ...baseProfile.flags,
+          enableJavascriptDeobfuscator: false,
+          enableSynchrony: false,
+          enableUnwebpackSourcemap: false,
+          unwebpackSourcemapMaxMaps: 1,
+          statementBudget: Math.max(20, Math.min(28, baseProfile.flags.statementBudget)),
+          wakaruConcurrency: Math.max(1, Math.min(2, baseProfile.flags.wakaruConcurrency)),
+        },
+      },
+    ],
+  };
+}
+
 function parseIntegerOption(token: string, value: string, minimum: number): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < minimum) {
@@ -291,6 +333,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let stagnationLimit = 3;
   let suiteRunPrefix = "cycle";
   let promotionBudgetPerCycle = 140;
+  let fastProfileId = "core-no-binary";
+  let fullCheckpointEvery = 3;
+  let fastFocusCount = 8;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -385,6 +430,33 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--fast-profile-id": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --fast-profile-id");
+        }
+        fastProfileId = value;
+        index += 1;
+        break;
+      }
+      case "--full-checkpoint-every": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --full-checkpoint-every");
+        }
+        fullCheckpointEvery = parseIntegerOption("--full-checkpoint-every", value, 1);
+        index += 1;
+        break;
+      }
+      case "--fast-focus-count": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --fast-focus-count");
+        }
+        fastFocusCount = parseIntegerOption("--fast-focus-count", value, 1);
+        index += 1;
+        break;
+      }
       case "--help": {
         const usage = [
           "Usage:",
@@ -400,6 +472,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           "  --stagnation-limit <n>",
           "  --suite-run-prefix <token>",
           "  --promotion-budget-per-cycle <n>",
+          "  --fast-profile-id <profile-id>",
+          "  --full-checkpoint-every <n>",
+          "  --fast-focus-count <n>",
         ].join("\n");
         process.stdout.write(`${usage}\n`);
         process.exit(0);
@@ -425,6 +500,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     stagnationLimit,
     suiteRunPrefix,
     promotionBudgetPerCycle,
+    fastProfileId,
+    fullCheckpointEvery,
+    fastFocusCount,
   };
 }
 
@@ -467,7 +545,13 @@ function buildAdaptiveWeights(
   }
   const profileExecution = previousExecution.profiles.find((entry) => entry.profileId === profile.id);
   if (!profileExecution) {
-    throw new Error(`adaptive-weights: missing previous profile execution for ${profile.id}`);
+    return {
+      weights: { ...baseWeights },
+      performanceScale: 1,
+      flagScale: buildFlagScale(profile),
+      referenceScore: 0,
+      referenceAverageScore: previousExecution.aggregate.averageScore,
+    };
   }
   const referenceAverageScore = previousExecution.aggregate.averageScore;
   const referenceScore = profileExecution.score.total;
@@ -549,6 +633,8 @@ async function createAdaptiveProfileWeights(
 function summarizeCycle(
   cycleIndex: number,
   suiteRunId: string,
+  cycleMode: "fast" | "full",
+  profileCount: number,
   execution: RegressionSuiteExecution,
   promotion: ApplyMergedEvidencePromotionResult,
   adaptiveWeights: AdaptiveProfileWeightsResult,
@@ -612,6 +698,8 @@ function summarizeCycle(
   return {
     cycleIndex,
     suiteRunId,
+    cycleMode,
+    profileCount,
     averageScore: execution.aggregate.averageScore,
     nameQualityAverage: execution.aggregate.nameQualityAverage,
     proxyInQualityAverage: execution.aggregate.proxyInQualityAverage,
@@ -778,10 +866,14 @@ async function run(): Promise<void> {
 
   for (let cycleIndex = 1; cycleIndex <= cli.maxCycles; cycleIndex += 1) {
     const cycleRunId = `${baseRunToken}-c${String(cycleIndex).padStart(2, "0")}`;
+    const cycleMode = resolveCycleMode(cycleIndex, cli.fullCheckpointEvery);
+    const cycleSuite = cycleMode === "full" ? suite : buildFastCycleSuite(suite, cli.fastProfileId);
+    const cycleGateMode: GateMode = cycleMode === "full" ? "full" : "light";
+    const cycleArtifactRetention: ArtifactRetentionMode = "minimal";
     const adaptiveWeights = await createAdaptiveProfileWeights(
       cli.outputRoot,
       cycleRunId,
-      suite,
+      cycleSuite,
       baseWeights,
       previousExecution,
     );
@@ -789,15 +881,17 @@ async function run(): Promise<void> {
     const execution = await executeRegressionSuite({
       projectRoot,
       snapshotAsarPath: cli.snapshotAsarPath,
-      suite,
+      suite: cycleSuite,
       weightsConfigPath: cli.weightsConfigPath,
       profileWeightsConfigPathByProfileId: adaptiveWeights.weightsByProfileId,
       suiteRunId: cycleRunId,
       outputProfile: "regression-latest",
       outputDirectory: cli.outputRoot,
+      gateMode: cycleGateMode,
+      artifactRetention: cycleArtifactRetention,
     });
 
-    const autoHotFocus = buildAutoHotFocusFromExecution(execution, 5);
+    const autoHotFocus = buildAutoHotFocusFromExecution(execution, cli.fastFocusCount);
 
     const promotion = await applyMergedEvidencePromotion({
       mergedEvidencePath: execution.mergedEvidencePath,
@@ -820,6 +914,8 @@ async function run(): Promise<void> {
     const summary = summarizeCycle(
       cycleIndex,
       cycleRunId,
+      cycleMode,
+      cycleSuite.profiles.length,
       execution,
       promotion,
       adaptiveWeights,
@@ -858,6 +954,9 @@ async function run(): Promise<void> {
     maxCycles: cli.maxCycles,
     stagnationLimit: cli.stagnationLimit,
     promotionBudgetPerCycle: cli.promotionBudgetPerCycle,
+    fastProfileId: cli.fastProfileId,
+    fullCheckpointEvery: cli.fullCheckpointEvery,
+    fastFocusCount: cli.fastFocusCount,
     kpiTargets: {
       classCoverage: KPI_TARGET_CLASS_COVERAGE,
       functionCoverage: KPI_TARGET_FUNCTION_COVERAGE,

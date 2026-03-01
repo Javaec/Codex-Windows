@@ -59,7 +59,10 @@ function lowQualitySymbolCount(ownershipModel: OwnershipModel): number {
 }
 
 function buildHealth(greenGates: GreenGateStageOutput): boolean {
-  const required = ["npm run typecheck", "npm run lint", "npm run build"];
+  const required =
+    greenGates.gateMode === "light"
+      ? ["npm run typecheck"]
+      : ["npm run typecheck", "npm run lint", "npm run build"];
   for (const command of required) {
     const matched = greenGates.checkedCommands.find((entry) => entry.command === command);
     if (!matched || matched.exitCode !== 0) {

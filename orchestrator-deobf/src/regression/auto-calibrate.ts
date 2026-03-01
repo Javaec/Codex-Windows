@@ -283,6 +283,8 @@ async function runCandidate(
       suiteRunId: `${calibrationRunId}-${candidateLabel}`,
       outputProfile: "regression-latest",
       outputDirectory: path.join(candidateRoot, "suite-runs"),
+      gateMode: "full",
+      artifactRetention: "minimal",
     });
     const score = scoreExecution(execution);
     return {
