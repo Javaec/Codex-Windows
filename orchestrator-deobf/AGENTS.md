@@ -216,6 +216,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: strict fast loop now runs with two core adapters (`asar + webcrack`) for lower runtime/I/O, while full checkpoints keep broader evidence coverage.
 - Minimal artifact retention now prunes heavy run payload files/directories including `naming-memory.snapshot.json`, `stages`, and `green-gates-logs`.
   Verified reason: removed largest per-run disk contributor and reduced run footprint from hundreds of MB to sub-MB in minimal mode.
+- Hot-only rerender window is widened in quality emitter (`min 8`, `max 12`).
+  Verified reason: increases per-cycle pressure on worst files so readability improvements land faster without re-enabling blanket regeneration.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.
