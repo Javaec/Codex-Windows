@@ -96,6 +96,16 @@ interface CliOptions {
   artifactRetention: ArtifactRetentionMode;
 }
 
+interface MonolithSymbolTableEntry {
+  symbolKey: string;
+  kind: "class" | "function" | "callable-variable" | "variable";
+  finalName: string;
+}
+
+interface MonolithSymbolTableModel {
+  entries: MonolithSymbolTableEntry[];
+}
+
 function printUsage(): void {
   const usage = [
     "Usage:",
@@ -437,6 +447,44 @@ async function fileExists(filePath: string): Promise<boolean> {
     .stat(filePath)
     .then(() => true)
     .catch(() => false);
+}
+
+async function assertMonolithCoverageGate(
+  monolithSymbolTablePath: string,
+  coverageNamedSemanticIrPath: string,
+): Promise<void> {
+  const symbolTable = await readJsonFile<MonolithSymbolTableModel>(monolithSymbolTablePath);
+  const coverageSemanticIr = await readJsonFile<SemanticIrModel>(coverageNamedSemanticIrPath);
+  const coverageSymbolByKey = new Map<string, string>();
+  for (const symbol of coverageSemanticIr.symbols) {
+    coverageSymbolByKey.set(symbol.symbolKey, symbol.name);
+  }
+
+  const classAndFunctionEntries = symbolTable.entries.filter(
+    (entry) => entry.kind === "class" || entry.kind === "function" || entry.kind === "callable-variable",
+  );
+  const missingKeys = classAndFunctionEntries
+    .map((entry) => entry.symbolKey)
+    .filter((symbolKey) => !coverageSymbolByKey.has(symbolKey));
+  if (missingKeys.length > 0) {
+    const preview = missingKeys.slice(0, 12).join(", ");
+    throw new Error(
+      `monolith-first coverage gate failed: ${missingKeys.length} class/function symbol(s) missing in coverage semantic IR (${preview})`,
+    );
+  }
+
+  const unnamedKeys = classAndFunctionEntries
+    .filter((entry) => {
+      const coverageName = coverageSymbolByKey.get(entry.symbolKey);
+      return !coverageName || coverageName.trim().length < 1;
+    })
+    .map((entry) => entry.symbolKey);
+  if (unnamedKeys.length > 0) {
+    const preview = unnamedKeys.slice(0, 12).join(", ");
+    throw new Error(
+      `monolith-first coverage gate failed: ${unnamedKeys.length} class/function symbol(s) have empty names (${preview})`,
+    );
+  }
 }
 
 function shouldUseAsarJavascriptForArtifacts(extractedRootDirectory: string, filePath: string): boolean {
@@ -992,6 +1040,7 @@ async function run(): Promise<void> {
       cacheEnabled: effectiveStageCacheEnabled,
     },
   );
+  await assertMonolithCoverageGate(monolithCensusOutput.symbolTablePath, namingMemoryOutput.coverageNamedSemanticIrPath);
   if (namingMemoryProfile.profilePath !== namingMemoryProfile.legacyPath) {
     await fs.copyFile(namingMemoryProfile.profilePath, namingMemoryProfile.legacyPath);
   }

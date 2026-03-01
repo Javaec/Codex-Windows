@@ -218,6 +218,16 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: removed largest per-run disk contributor and reduced run footprint from hundreds of MB to sub-MB in minimal mode.
 - Hot-only rerender window is widened in quality emitter (`min 8`, `max 12`).
   Verified reason: increases per-cycle pressure on worst files so readability improvements land faster without re-enabling blanket regeneration.
+- Hot-first-only target window is now strict `top 5..10` worst files per cycle.
+  Verified reason: keeps each cycle focused on the worst quality modules and avoids broad churn.
+- Monolith-first coverage gate is now hard before emitter: all class/function anchors from `monolith-census` must exist and be named in coverage semantic IR.
+  Verified reason: guarantees monolith coverage is complete before any TS synthesis starts.
+- Fast cycles now checkpoint full suite every 4 cycles by default and expose `promotionBudgetUsed` per cycle.
+  Verified reason: keeps fast loop cheaper while preserving deterministic periodic full validation.
+- Promotion budget now auto-scales up under stagnation strikes (`+40` per strike, capped), then resets when progress resumes.
+  Verified reason: increases rename pressure only when quality/high-confidence growth stalls, without manual tuning.
+- Quality emit now disables namespace import-shaping for non-hot modules and enforces strict full-lift declaration path (no chunk import fallback in quality path).
+  Verified reason: reduces non-hot import-noise and keeps TS output centered on lifted declarations instead of noisy fallback glue.
 - ASAR extract stage now indexes only pipeline-relevant JS/map paths (`.vite/build/*`, `webview/assets/*`) for downstream planning.
   Verified reason: reduces noisy index payload and focuses evidence/planning on useful bundle surfaces.
 - Non-hot quality modules no longer use chunk-index inline as a default path; inline lift is reserved for hot-focus modules.

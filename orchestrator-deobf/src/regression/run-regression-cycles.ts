@@ -37,6 +37,7 @@ interface CycleExecutionSummary {
   suiteRunId: string;
   cycleMode: "fast" | "full";
   profileCount: number;
+  promotionBudgetUsed: number;
   averageScore: number;
   nameQualityAverage: number;
   proxyInQualityAverage: number;
@@ -143,6 +144,8 @@ const KPI_TARGET_FUNCTION_COVERAGE = 0.95;
 const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 0.95;
 const KPI_TARGET_VARIABLE_COVERAGE = 0.7;
 const KPI_TARGET_PROXY_IN_QUALITY_COUNT = 0;
+const PROMOTION_BUDGET_STAGNATION_STEP = 40;
+const PROMOTION_BUDGET_STAGNATION_MAX = 320;
 const FIXED_REGRESSION_PROFILE_IDS = [
   "core-no-binary",
   "core-no-binary-no-pretty",
@@ -245,6 +248,17 @@ function buildFastCycleSuite(suite: RegressionSuite, fastProfileId: string): Reg
   };
 }
 
+function resolveCyclePromotionBudget(baseBudget: number, previousStagnationStrike: number): number {
+  if (baseBudget < 1) {
+    throw new Error(`resolveCyclePromotionBudget: base budget must be >= 1, got ${baseBudget}`);
+  }
+  if (previousStagnationStrike < 1) {
+    return baseBudget;
+  }
+  const boosted = baseBudget + PROMOTION_BUDGET_STAGNATION_STEP * previousStagnationStrike;
+  return Math.min(PROMOTION_BUDGET_STAGNATION_MAX, boosted);
+}
+
 function parseIntegerOption(token: string, value: string, minimum: number): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < minimum) {
@@ -338,7 +352,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let suiteRunPrefix = "cycle";
   let promotionBudgetPerCycle = 140;
   let fastProfileId = "core-no-binary";
-  let fullCheckpointEvery = 3;
+  let fullCheckpointEvery = 4;
   let fastFocusCount = 8;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -639,6 +653,7 @@ function summarizeCycle(
   suiteRunId: string,
   cycleMode: "fast" | "full",
   profileCount: number,
+  promotionBudgetUsed: number,
   execution: RegressionSuiteExecution,
   promotion: ApplyMergedEvidencePromotionResult,
   adaptiveWeights: AdaptiveProfileWeightsResult,
@@ -704,6 +719,7 @@ function summarizeCycle(
     suiteRunId,
     cycleMode,
     profileCount,
+    promotionBudgetUsed,
     averageScore: execution.aggregate.averageScore,
     nameQualityAverage: execution.aggregate.nameQualityAverage,
     proxyInQualityAverage: execution.aggregate.proxyInQualityAverage,
@@ -896,13 +912,15 @@ async function run(): Promise<void> {
     });
 
     const autoHotFocus = buildAutoHotFocusFromExecution(execution, cli.fastFocusCount);
+    const previousStagnationStrike = previousSummary ? previousSummary.stagnationStrike : 0;
+    const cyclePromotionBudget = resolveCyclePromotionBudget(cli.promotionBudgetPerCycle, previousStagnationStrike);
 
     const promotion = await applyMergedEvidencePromotion({
       mergedEvidencePath: execution.mergedEvidencePath,
       namingMemoryPath: namingMemoryProfile.profilePath,
       legacyNamingMemoryPath: namingMemoryProfile.legacyPath,
       runId: `${cycleRunId}:merged-evidence-promotion`,
-      promotionBudget: cli.promotionBudgetPerCycle,
+      promotionBudget: cyclePromotionBudget,
       hotFocusSymbolKeys: autoHotFocus.symbolKeys,
       hotFocusBiasTokens: autoHotFocus.biasTokens,
     });
@@ -914,17 +932,17 @@ async function run(): Promise<void> {
       canonicalManualRefactorCandidatesPath,
     );
 
-    const previousStrike = previousSummary ? previousSummary.stagnationStrike : 0;
     const summary = summarizeCycle(
       cycleIndex,
       cycleRunId,
       cycleMode,
       cycleSuite.profiles.length,
+      cyclePromotionBudget,
       execution,
       promotion,
       adaptiveWeights,
       previousSummary,
-      previousStrike,
+      previousStagnationStrike,
     );
     cycleSummaries.push(summary);
     previousSummary = summary;

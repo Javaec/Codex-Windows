@@ -96,8 +96,8 @@ const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const HOT_FIRST_REGENERATION_ENABLED = true;
-const HOT_FIRST_MIN_TARGET_FILES = 8;
-const HOT_FIRST_MAX_TARGET_FILES = 12;
+const HOT_FIRST_MIN_TARGET_FILES = 5;
+const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
@@ -5928,13 +5928,12 @@ function buildQualityModuleContent(
 
   const isChunkTsModulePath = (modulePath: string): boolean => modulePath.includes("/chunks-ts/");
   const shouldUseNamespaceImportShaping = (modulePath: string, importedName: string): boolean => {
-    if (isChunkTsModulePath(modulePath)) {
-      return true;
+    const chunkTsModulePath = isChunkTsModulePath(modulePath);
+    const chunkIndexModulePath = isChunkIndexModulePath(modulePath);
+    if (!chunkTsModulePath && !chunkIndexModulePath) {
+      return false;
     }
-    if (isChunkIndexModulePath(modulePath)) {
-      return true;
-    }
-    if (!isChunkTsModulePath(modulePath)) {
+    if (!plan.hotPriority) {
       return false;
     }
     if (OBFUSCATED_ALIAS_STYLE_PATTERN.test(importedName)) {
@@ -5946,7 +5945,7 @@ function buildQualityModuleContent(
     if (/^[a-z][A-Z]$/.test(importedName)) {
       return true;
     }
-    return false;
+    return chunkIndexModulePath || chunkTsModulePath;
   };
 
   const registerDependencyImportNeed = (need: ChunkImportNeed): void => {
@@ -6007,7 +6006,9 @@ function buildQualityModuleContent(
     const targetedHotUltraFullLift = targetedHotPriorityStoreServiceModule;
     const targetedHotServiceSafeLift = targetedHotServiceModule;
     const disableBulkChunkIndexInline = targetedHotStoreModule;
+    const strictFullLiftDeclarationsOnly = true;
     const preferChunkImportFallback =
+      !strictFullLiftDeclarationsOnly &&
       (plan.archetype === "service" || plan.archetype === "store") &&
       extremeChunkSelection &&
       !targetedHotFullLiftEnabled;
