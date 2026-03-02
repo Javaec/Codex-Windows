@@ -287,6 +287,7 @@ async function runGenerator(
     "--artifact-retention",
     "minimal",
     "--enable-manual-sync",
+    "--allow-after-freeze",
     "--manual-sync-root",
     cli.manualSyncRootPath,
   ];

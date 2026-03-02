@@ -98,6 +98,7 @@ interface CliOptions {
   artifactRetention: ArtifactRetentionMode;
   manualSyncEnabled: boolean;
   manualSyncRootPath: string;
+  allowAfterFreeze: boolean;
 }
 
 interface MonolithSymbolTableEntry {
@@ -142,6 +143,7 @@ function printUsage(): void {
     "  --manual-sync-root <path>",
     "  --enable-manual-sync",
     "  --disable-manual-sync",
+    "  --allow-after-freeze",
     "  --no-force-overwrite",
     "",
     "Example:",
@@ -217,6 +219,7 @@ function parseCli(argv: string[]): CliOptions {
   let artifactRetention: ArtifactRetentionMode = "debug";
   let manualSyncEnabled = true;
   let manualSyncRootPath = "";
+  let allowAfterFreeze = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -402,6 +405,10 @@ function parseCli(argv: string[]): CliOptions {
         manualSyncEnabled = false;
         break;
       }
+      case "--allow-after-freeze": {
+        allowAfterFreeze = true;
+        break;
+      }
       case "--no-force-overwrite": {
         forceOverwriteOutputs = false;
         break;
@@ -448,6 +455,7 @@ function parseCli(argv: string[]): CliOptions {
     artifactRetention,
     manualSyncEnabled,
     manualSyncRootPath,
+    allowAfterFreeze,
   };
 }
 
@@ -541,6 +549,7 @@ const MINIMAL_RETENTION_PRUNE_RELATIVE_PATHS = [
   path.join("artifacts", "project", "artifacts", "chunks"),
   path.join("artifacts", "project", "artifacts", "chunks-ts"),
 ] as const;
+const MANUAL_FIRST_FREEZE_RELATIVE_PATH = path.join("shared", "manual-sync", "manual-first-freeze.json");
 
 async function applyArtifactRetention(runDirectory: string, retention: ArtifactRetentionMode): Promise<void> {
   if (retention !== "minimal") {
@@ -726,6 +735,13 @@ function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[]
 async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2));
   const projectRoot = path.resolve(__dirname, "..");
+  const manualFirstFreezePath = path.join(projectRoot, MANUAL_FIRST_FREEZE_RELATIVE_PATH);
+  const manualFirstFreezeExists = await fileExists(manualFirstFreezePath);
+  if (manualFirstFreezeExists && !cli.allowAfterFreeze) {
+    throw new Error(
+      `manual-first freeze is active at ${manualFirstFreezePath}; pass --allow-after-freeze to run generator explicitly.`,
+    );
+  }
   const resolvedManualSyncRootPath =
     cli.manualSyncRootPath.length > 0 ? cli.manualSyncRootPath : defaultManualSyncRootPath(projectRoot);
   const manualSyncPaths = resolveManualSyncPaths(projectRoot, resolvedManualSyncRootPath);
@@ -806,6 +822,7 @@ async function run(): Promise<void> {
       weightsConfigPath: toolWeightsConfig.path,
       gateMode: cli.gateMode,
       artifactRetention: cli.artifactRetention,
+      allowAfterFreeze: cli.allowAfterFreeze,
       manualSyncEnabled: cli.manualSyncEnabled,
       manualSyncRootPath: manualSyncPaths.rootPath,
       manualSyncSymbolNameOverridesPath: manualSyncPaths.symbolNameOverridesPath,
@@ -1231,6 +1248,8 @@ async function run(): Promise<void> {
   const qualityGatesInput: QualityGatesStageInput = {
     chunkArtifactsPath: chunkArtifactModelOutput.outputFilePath,
     emittedFilesIndexPath: templateEmitterOutput.emittedFilesIndexPath,
+    fileQualityReportPath: templateEmitterOutput.fileQualityReportPath,
+    structureContractPath: path.join(projectRoot, "config", "codexmonitor-structure-contract.json"),
     outputProjectDirectory: templateEmitterOutput.outputProjectDirectory,
     stableOutputRoot: path.join(projectRoot, "output"),
     stableOutputProfile: cli.outputProfile,

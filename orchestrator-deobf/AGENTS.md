@@ -419,3 +419,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - stop-rule stagnation now tracks quality + nameQuality + high-confidence deltas,
   - stagnation freeze writes `shared/manual-sync/manual-first-freeze.json` and blocks new cycles unless `--allow-after-freeze`.
   Verified reason: automates transition from generator-iteration to manual-first mode without silent drift.
+- Structural quality is now contract-driven and freeze-aware:
+  - `config/codexmonitor-structure-contract.json` is the only source for allowed domain roots, archetype path rules, forbidden technical paths, and hot-file limits,
+  - quality-gates stage reads this contract and fails fast on any structural violation,
+  - generator/regression runs are freeze-by-default and require explicit `--allow-after-freeze`.
+  Verified reason: keeps generated `src/*` aligned to CodexMonitor-like layout and prevents accidental iterations after manual-first freeze.

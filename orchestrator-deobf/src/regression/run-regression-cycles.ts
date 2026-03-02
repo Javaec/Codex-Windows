@@ -1055,6 +1055,7 @@ async function run(): Promise<void> {
       outputDirectory: cli.outputRoot,
       gateMode: cycleGateMode,
       artifactRetention: cycleArtifactRetention,
+      allowAfterFreeze: cli.allowAfterFreeze,
     });
 
     const autoHotFocus = buildAutoHotFocusFromExecution(execution, cli.fastFocusCount);

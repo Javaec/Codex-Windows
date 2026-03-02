@@ -170,6 +170,7 @@ export interface ExecuteRegressionSuiteOptions {
   outputDirectory: string;
   gateMode: GateMode;
   artifactRetention: ArtifactRetentionMode;
+  allowAfterFreeze?: boolean;
 }
 
 function formatNowUtc(): string {
@@ -249,6 +250,7 @@ function buildProfileArgs(
   appendFlag(args, profile.flags.javascriptDeobfuscatorParseAsModule, "--javascript-deobfuscator-module");
   appendFlag(args, profile.flags.synchronyRename, "--synchrony-rename");
   appendFlag(args, profile.flags.synchronyLoose, "--synchrony-loose");
+  appendFlag(args, options.allowAfterFreeze === true, "--allow-after-freeze");
   return args;
 }
 

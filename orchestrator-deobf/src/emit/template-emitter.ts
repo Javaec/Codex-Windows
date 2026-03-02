@@ -114,6 +114,10 @@ interface ManualRefactorCandidatesModel {
 interface ManualHotTargets {
   hotSeedFamilies: Set<string>;
   criticalHotFilePaths: Set<string>;
+  criticalHotSelectionKeys: Set<string>;
+  preferredHotFilePaths: Set<string>;
+  preferredHotSelectionKeys: Set<string>;
+  strictHotSelection: boolean;
 }
 
 interface ManualModulePathOverridePlacement {
@@ -1954,13 +1958,32 @@ function hotFamilyKeyFromFilePath(filePath: string): string {
     .replace(/-g\d+$/i, "");
 }
 
-function applyHotSeedPriority(modulePlans: ModulePlan[], hotSeedFamilies: ReadonlySet<string>): ModulePlan[] {
-  if (hotSeedFamilies.size < 1) {
+function normalizeHotFilePath(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+
+function hotSelectionKeyFromFilePath(filePath: string): string {
+  return normalizeHotFilePath(filePath)
+    .replace(/-cohesion-\d+(?=\.ts$)/i, "")
+    .replace(/-part-\d+(?=\.ts$)/i, "");
+}
+
+function applyHotSeedPriority(
+  modulePlans: ModulePlan[],
+  hotSeedFamilies: ReadonlySet<string>,
+  preferredHotFilePaths: ReadonlySet<string>,
+  preferredHotSelectionKeys: ReadonlySet<string>,
+): ModulePlan[] {
+  if (hotSeedFamilies.size < 1 && preferredHotFilePaths.size < 1 && preferredHotSelectionKeys.size < 1) {
     return modulePlans;
   }
   return modulePlans.map((plan) => ({
     ...plan,
-    hotPriority: plan.hotPriority || hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath)),
+    hotPriority:
+      plan.hotPriority ||
+      preferredHotFilePaths.has(normalizeHotFilePath(plan.filePath)) ||
+      preferredHotSelectionKeys.has(hotSelectionKeyFromFilePath(plan.filePath)) ||
+      hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath)),
   }));
 }
 
@@ -1969,10 +1992,17 @@ async function loadManualHotTargets(
 ): Promise<ManualHotTargets> {
   const seedFamilies = new Set<string>();
   const criticalHotFilePaths = new Set<string>();
+  const criticalHotSelectionKeys = new Set<string>();
+  const preferredHotFilePaths = new Set<string>();
+  const preferredHotSelectionKeys = new Set<string>();
   if (!manualRefactorCandidatesPath || manualRefactorCandidatesPath.length < 1) {
     return {
       hotSeedFamilies: seedFamilies,
       criticalHotFilePaths,
+      criticalHotSelectionKeys,
+      preferredHotFilePaths,
+      preferredHotSelectionKeys,
+      strictHotSelection: false,
     };
   }
   const exists = await fs
@@ -1983,6 +2013,10 @@ async function loadManualHotTargets(
     return {
       hotSeedFamilies: seedFamilies,
       criticalHotFilePaths,
+      criticalHotSelectionKeys,
+      preferredHotFilePaths,
+      preferredHotSelectionKeys,
+      strictHotSelection: false,
     };
   }
 
@@ -1991,6 +2025,10 @@ async function loadManualHotTargets(
     return {
       hotSeedFamilies: seedFamilies,
       criticalHotFilePaths,
+      criticalHotSelectionKeys,
+      preferredHotFilePaths,
+      preferredHotSelectionKeys,
+      strictHotSelection: false,
     };
   }
 
@@ -2008,15 +2046,22 @@ async function loadManualHotTargets(
 
   const criticalCandidates = candidates.slice(0, Math.min(HOT_FIRST_CRITICAL_TOP_WORST_COUNT, candidates.length));
   for (const candidate of criticalCandidates) {
-    criticalHotFilePaths.add(candidate.filePath.replace(/\\/g, "/").toLowerCase());
+    criticalHotFilePaths.add(normalizeHotFilePath(candidate.filePath));
+    criticalHotSelectionKeys.add(hotSelectionKeyFromFilePath(candidate.filePath));
   }
 
   for (const candidate of candidates) {
+    preferredHotFilePaths.add(normalizeHotFilePath(candidate.filePath));
+    preferredHotSelectionKeys.add(hotSelectionKeyFromFilePath(candidate.filePath));
     seedFamilies.add(hotFamilyKeyFromFilePath(candidate.filePath));
   }
   return {
     hotSeedFamilies: seedFamilies,
     criticalHotFilePaths,
+    criticalHotSelectionKeys,
+    preferredHotFilePaths,
+    preferredHotSelectionKeys,
+    strictHotSelection: preferredHotFilePaths.size > 0,
   };
 }
 
@@ -2055,6 +2100,10 @@ function applyFileQualityRerender(
   statementBudget: number,
   hotSeedFamilies: ReadonlySet<string>,
   criticalHotFilePaths: ReadonlySet<string>,
+  criticalHotSelectionKeys: ReadonlySet<string>,
+  preferredHotFilePaths: ReadonlySet<string>,
+  preferredHotSelectionKeys: ReadonlySet<string>,
+  strictHotSelection: boolean,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   signalContext: EmitterSignalContext,
 ): {
@@ -2094,13 +2143,31 @@ function applyFileQualityRerender(
       return isHotFirstCandidate(plan, entry);
     })
     : sortedCandidates;
-  const candidatePool = hotCandidates.length > 0 ? hotCandidates : sortedCandidates;
+  const baseCandidatePool = hotCandidates.length > 0 ? hotCandidates : sortedCandidates;
+  const preferredCandidatePool = preferredHotFilePaths.size > 0 || preferredHotSelectionKeys.size > 0
+    ? baseCandidatePool.filter((entry) => {
+      const normalizedPath = normalizeHotFilePath(entry.filePath);
+      if (preferredHotFilePaths.has(normalizedPath)) {
+        return true;
+      }
+      return preferredHotSelectionKeys.has(hotSelectionKeyFromFilePath(entry.filePath));
+    })
+    : baseCandidatePool;
+  const candidatePool = preferredCandidatePool.length > 0 ? preferredCandidatePool : baseCandidatePool;
+  if (strictHotSelection && (preferredHotFilePaths.size > 0 || preferredHotSelectionKeys.size > 0) && preferredCandidatePool.length < 1) {
+    process.stderr.write(
+      `[template-emitter] strict hot selection fallback: no live modules matched manual-refactor candidates; using current worst candidates\n`,
+    );
+  }
   const selectedCandidates: ModuleQualityEntry[] = [];
   const selectedModuleIds = new Set<string>();
   if (criticalHotFilePaths.size > 0) {
     const criticalCandidates = candidatePool.filter((entry) => {
-      const normalized = entry.filePath.replace(/\\/g, "/").toLowerCase();
-      return criticalHotFilePaths.has(normalized);
+      const normalized = normalizeHotFilePath(entry.filePath);
+      if (criticalHotFilePaths.has(normalized)) {
+        return true;
+      }
+      return criticalHotSelectionKeys.has(hotSelectionKeyFromFilePath(entry.filePath));
     });
     for (const candidate of criticalCandidates) {
       if (selectedCandidates.length >= targetCount) {
@@ -7908,14 +7975,16 @@ function buildQualityModuleContent(
       }
       const helperSuffixBase = mode === "dependency-closure" ? "closure" : "runtime";
       const helperSuffix = sanitizeSegment(`${helperSuffixBase}-${passTag}`, helperSuffixBase);
-      const helperStem = sanitizeSegment(
-        `${shardBaseStem}-${cluster.clusterKey}-${helperSuffix}`,
-        `${shardBaseStem}-${helperSuffix}-${String(clusterIndex + 1).padStart(2, "0")}`,
+      const moduleScopeStem = sanitizeSegment(
+        plan.filePath.replace(/\\/g, "/").replace(/^src\//i, "").replace(/\.ts$/i, "").replace(/\//g, "-"),
+        shardBaseStem,
       );
-      const runtimeDirectory =
-        targetedQualityShardModule && plan.archetype === "store"
-          ? path.join(outputProjectDirectory, "artifacts", "runtime", "store")
-          : path.join(outputProjectDirectory, "artifacts", "runtime", "vendor", plan.layer, plan.archetype);
+      const clusterOrdinal = String(clusterIndex + 1).padStart(2, "0");
+      const helperStem = sanitizeSegment(
+        `${moduleScopeStem}-${cluster.clusterKey}-${clusterOrdinal}-${helperSuffix}`,
+        `${moduleScopeStem}-${helperSuffix}-${clusterOrdinal}`,
+      );
+      const runtimeDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "vendor", plan.layer, plan.archetype);
       const helperAbsolutePath = path.join(runtimeDirectory, `${helperStem}.ts`);
       const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
       const helperSource = ts.factory.updateSourceFile(sourceFile, [...helperImportStatements, ...exportedClusterStatements]);
@@ -13114,6 +13183,10 @@ export async function emitTemplateProject(
   const hotTargets = await loadManualHotTargets(manualRefactorCandidatesPath);
   const hotSeedFamilies = hotTargets.hotSeedFamilies;
   const criticalHotFilePaths = hotTargets.criticalHotFilePaths;
+  const criticalHotSelectionKeys = hotTargets.criticalHotSelectionKeys;
+  const preferredHotFilePaths = hotTargets.preferredHotFilePaths;
+  const preferredHotSelectionKeys = hotTargets.preferredHotSelectionKeys;
+  const strictHotSelection = hotTargets.strictHotSelection;
   const preliftRawPlans = buildModulePlans(
     ownershipModel,
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
@@ -13127,7 +13200,12 @@ export async function emitTemplateProject(
     domainRenameHints,
     signalContext,
   );
-  const preliftPrioritizedPlans = applyHotSeedPriority(preliftCohesionPlans, hotSeedFamilies);
+  const preliftPrioritizedPlans = applyHotSeedPriority(
+    preliftCohesionPlans,
+    hotSeedFamilies,
+    preferredHotFilePaths,
+    preferredHotSelectionKeys,
+  );
   const priorityChunkIds = resolvePriorityChunkIdsFromHotPlans(chunkArtifacts, preliftPrioritizedPlans);
 
   const astLift = await buildAstLiftResult(chunkArtifacts, ownershipModel, {
@@ -13201,13 +13279,22 @@ export async function emitTemplateProject(
     domainRenameHints,
     signalContext,
   );
-  const qualityPrioritizedPlans = applyHotSeedPriority(qualityCohesionPlans, hotSeedFamilies);
+  const qualityPrioritizedPlans = applyHotSeedPriority(
+    qualityCohesionPlans,
+    hotSeedFamilies,
+    preferredHotFilePaths,
+    preferredHotSelectionKeys,
+  );
   const qualityPass = applyFileQualityRerender(
     qualityPrioritizedPlans,
     astLift.symbolBindingByKey,
     statementBudget,
     hotSeedFamilies,
     criticalHotFilePaths,
+    criticalHotSelectionKeys,
+    preferredHotFilePaths,
+    preferredHotSelectionKeys,
+    strictHotSelection,
     domainRenameHints,
     signalContext,
   );

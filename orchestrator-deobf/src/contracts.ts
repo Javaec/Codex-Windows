@@ -76,6 +76,7 @@ export interface RunFlags {
   weightsConfigPath: string;
   gateMode: GateMode;
   artifactRetention: ArtifactRetentionMode;
+  allowAfterFreeze: boolean;
   manualSyncEnabled: boolean;
   manualSyncRootPath: string;
   manualSyncSymbolNameOverridesPath: string;
@@ -394,6 +395,8 @@ export interface TemplateEmitterStageOutput {
 export interface QualityGatesStageInput {
   chunkArtifactsPath: string;
   emittedFilesIndexPath: string;
+  fileQualityReportPath: string;
+  structureContractPath: string;
   outputProjectDirectory: string;
   stableOutputRoot: string;
   stableOutputProfile: OutputProfile;

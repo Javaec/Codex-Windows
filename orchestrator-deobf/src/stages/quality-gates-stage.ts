@@ -10,34 +10,54 @@ interface EmittedFilesIndex {
   files: string[];
 }
 
-const GENERIC_PATH_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
-const GENERIC_PATH_ALLOWLIST = new Set<string>(["index.html", "src/index.css", "src/types.ts"]);
+interface StructureContractRule {
+  root: string;
+  regex: string;
+  description: string;
+}
+
+interface StructureContractHotFileLimit {
+  maxLines: number;
+  maxNamespaceImports: number;
+  minLiftedCoverage: number;
+}
+
+interface StructureContractHotFileLimitOverride {
+  pattern: string;
+  maxLines?: number;
+  maxNamespaceImports?: number;
+  minLiftedCoverage?: number;
+}
+
+interface CodexMonitorStructureContract {
+  version: number;
+  genericPathSegments: string[];
+  genericPathAllowlist: string[];
+  domainSourceRoots: string[];
+  allowedSourceFiles: string[];
+  forbiddenTechnicalPrefixes: string[];
+  forbiddenPathSegments: string[];
+  archetypePathRules: StructureContractRule[];
+  hotFileLimits: {
+    targetMin: number;
+    targetMax: number;
+    defaults: StructureContractHotFileLimit;
+    overrides: StructureContractHotFileLimitOverride[];
+  };
+}
+
+interface FileQualityEntrySnapshot {
+  filePath: string;
+  liftedCoverage: number;
+  hotFocus?: boolean;
+}
+
+interface FileQualityReportSnapshot {
+  files: FileQualityEntrySnapshot[];
+}
+
 const INLINE_LITERAL_PAYLOAD_THRESHOLD = 4096;
 const INLINE_JSON_PAYLOAD_THRESHOLD = 1800;
-const HOT_STORE_NAMESPACE_IMPORT_MAX = 14;
-const HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX = 12;
-const FORBIDDEN_TECHNICAL_SOURCE_PREFIXES = [
-  "src/chunks-ts/",
-  "src/runtime/",
-  "src/services/store/runtime/",
-] as const;
-const STRUCTURE_ALLOWLIST_ROOT_FILES = new Set<string>([
-  "src/main.tsx",
-  "src/app.tsx",
-  "src/index.css",
-  "src/types.ts",
-  "src/vite-env.d.ts",
-  "src/env.d.ts",
-]);
-const TECHNICAL_SEGMENT_BLOCKLIST = new Set<string>([
-  "runtime",
-  "chunks",
-  "chunk",
-  "artifacts",
-  "sources",
-  "bridges",
-  "bridge",
-]);
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
@@ -45,6 +65,105 @@ function validateOutputProfile(profile: OutputProfile): boolean {
 
 function validateGateMode(mode: GateMode): boolean {
   return mode === "full" || mode === "light";
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function toLowerSet(values: readonly string[]): Set<string> {
+  return new Set(values.map((entry) => normalizeRelativePath(entry).toLowerCase()));
+}
+
+function assertPositiveNumber(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`invalid structure contract value for ${name}: ${String(value)}`);
+  }
+}
+
+function globPatternToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "\u0000")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\u0000/g, ".*");
+  return new RegExp(`^${escaped}$`, "i");
+}
+
+function matchesPathPattern(relativePath: string, pattern: string): boolean {
+  const normalizedPath = normalizeRelativePath(relativePath).toLowerCase();
+  const normalizedPattern = pattern.trim();
+  if (normalizedPattern.length < 1) {
+    return false;
+  }
+  if (normalizedPattern.startsWith("regex:")) {
+    const source = normalizedPattern.slice("regex:".length);
+    const regex = new RegExp(source, "i");
+    return regex.test(normalizedPath);
+  }
+  return globPatternToRegExp(normalizedPattern.toLowerCase()).test(normalizedPath);
+}
+
+function validateStructureContractModel(contract: CodexMonitorStructureContract): void {
+  if (contract.version !== 1) {
+    throw new Error(`unsupported structure contract version: ${String(contract.version)}`);
+  }
+  if (!Array.isArray(contract.domainSourceRoots) || contract.domainSourceRoots.length < 1) {
+    throw new Error("structure contract: domainSourceRoots must be non-empty");
+  }
+  if (!Array.isArray(contract.archetypePathRules) || contract.archetypePathRules.length < 1) {
+    throw new Error("structure contract: archetypePathRules must be non-empty");
+  }
+  assertPositiveNumber("hotFileLimits.targetMin", contract.hotFileLimits.targetMin);
+  assertPositiveNumber("hotFileLimits.targetMax", contract.hotFileLimits.targetMax);
+  if (contract.hotFileLimits.targetMin > contract.hotFileLimits.targetMax) {
+    throw new Error("structure contract: hotFileLimits.targetMin must be <= targetMax");
+  }
+  assertPositiveNumber("hotFileLimits.defaults.maxLines", contract.hotFileLimits.defaults.maxLines);
+  assertPositiveNumber("hotFileLimits.defaults.maxNamespaceImports", contract.hotFileLimits.defaults.maxNamespaceImports);
+  if (
+    !Number.isFinite(contract.hotFileLimits.defaults.minLiftedCoverage) ||
+    contract.hotFileLimits.defaults.minLiftedCoverage < 0 ||
+    contract.hotFileLimits.defaults.minLiftedCoverage > 1
+  ) {
+    throw new Error("structure contract: hotFileLimits.defaults.minLiftedCoverage must be within [0..1]");
+  }
+  for (const rule of contract.archetypePathRules) {
+    if (!rule.root || !rule.regex || !rule.description) {
+      throw new Error("structure contract: archetypePathRules entries must define root/regex/description");
+    }
+    new RegExp(rule.regex, "i");
+  }
+  for (const override of contract.hotFileLimits.overrides) {
+    if (!override.pattern || override.pattern.trim().length < 1) {
+      throw new Error("structure contract: hotFileLimits.overrides.pattern is required");
+    }
+    matchesPathPattern("src/services/store/sample.ts", override.pattern);
+    if (typeof override.maxLines === "number") {
+      assertPositiveNumber("hotFileLimits.overrides.maxLines", override.maxLines);
+    }
+    if (typeof override.maxNamespaceImports === "number") {
+      assertPositiveNumber("hotFileLimits.overrides.maxNamespaceImports", override.maxNamespaceImports);
+    }
+    if (typeof override.minLiftedCoverage === "number") {
+      if (override.minLiftedCoverage < 0 || override.minLiftedCoverage > 1) {
+        throw new Error("structure contract: hotFileLimits.overrides.minLiftedCoverage must be within [0..1]");
+      }
+    }
+  }
+}
+
+async function loadStructureContract(contractPath: string): Promise<CodexMonitorStructureContract> {
+  const exists = await fs
+    .stat(contractPath)
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    throw new Error(`missing structure contract: ${contractPath}`);
+  }
+  const contract = await readJsonFile<CodexMonitorStructureContract>(contractPath);
+  validateStructureContractModel(contract);
+  return contract;
 }
 
 function validateFileOrdering(files: string[]): string[] {
@@ -63,17 +182,19 @@ function validateFileOrdering(files: string[]): string[] {
   return violations;
 }
 
-function validateGenericPathNoise(files: string[]): string[] {
+function validateGenericPathNoise(files: string[], contract: CodexMonitorStructureContract): string[] {
   const violations: string[] = [];
+  const genericSegments = new Set(contract.genericPathSegments.map((entry) => entry.toLowerCase()));
+  const allowlist = toLowerSet(contract.genericPathAllowlist);
   for (const relativePath of files) {
-    const normalizedPath = relativePath.replace(/\\/g, "/").toLowerCase();
-    if (GENERIC_PATH_ALLOWLIST.has(normalizedPath)) {
+    const normalizedPath = normalizeRelativePath(relativePath).toLowerCase();
+    if (allowlist.has(normalizedPath)) {
       continue;
     }
-    const segments = relativePath.split("/");
+    const segments = normalizeRelativePath(relativePath).split("/");
     for (const segment of segments) {
       const lower = segment.replace(/\.[^.]+$/, "").toLowerCase();
-      if (GENERIC_PATH_SEGMENTS.has(lower)) {
+      if (genericSegments.has(lower)) {
         violations.push(`generic path segment blocked: ${relativePath}`);
       }
     }
@@ -110,11 +231,12 @@ function validateNoSpeculativeTsModules(files: string[]): string[] {
   return violations;
 }
 
-function validateNoTechnicalLayerInSource(files: string[]): string[] {
+function validateNoTechnicalLayerInSource(files: string[], contract: CodexMonitorStructureContract): string[] {
   const violations: string[] = [];
+  const forbiddenPrefixes = contract.forbiddenTechnicalPrefixes.map((entry) => normalizeRelativePath(entry).toLowerCase());
   for (const relativePath of files) {
-    const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
-    for (const forbiddenPrefix of FORBIDDEN_TECHNICAL_SOURCE_PREFIXES) {
+    const normalized = normalizeRelativePath(relativePath).toLowerCase();
+    for (const forbiddenPrefix of forbiddenPrefixes) {
       if (normalized.startsWith(forbiddenPrefix)) {
         violations.push(`technical layer is not allowed in source tree: ${relativePath}`);
         break;
@@ -124,27 +246,18 @@ function validateNoTechnicalLayerInSource(files: string[]): string[] {
   return violations;
 }
 
-function validateStrictDomainSourceStructure(files: string[]): string[] {
+function validateStrictDomainSourceStructure(files: string[], contract: CodexMonitorStructureContract): string[] {
   const violations: string[] = [];
+  const allowlist = toLowerSet(contract.allowedSourceFiles);
+  const domainRoots = contract.domainSourceRoots.map((entry) => normalizeRelativePath(entry).toLowerCase());
   for (const relativePath of files) {
-    const normalized = relativePath.replace(/\\/g, "/");
+    const normalized = normalizeRelativePath(relativePath);
     const lower = normalized.toLowerCase();
-    if (STRUCTURE_ALLOWLIST_ROOT_FILES.has(lower)) {
+    if (allowlist.has(lower)) {
       continue;
     }
-    if (lower.startsWith("src/main/lib/")) {
-      continue;
-    }
-    if (lower.startsWith("src/renderer/features/")) {
-      continue;
-    }
-    if (lower.startsWith("src/services/")) {
-      continue;
-    }
-    if (lower.startsWith("src-tauri-adapter/")) {
-      continue;
-    }
-    if (lower.startsWith("assets/")) {
+    const isInDomainRoot = domainRoots.some((root) => lower.startsWith(root));
+    if (isInDomainRoot) {
       continue;
     }
     if (!lower.startsWith("src/") && !lower.startsWith("src-tauri-adapter/")) {
@@ -155,19 +268,19 @@ function validateStrictDomainSourceStructure(files: string[]): string[] {
   return violations;
 }
 
-function validateTechnicalSegmentsInDomainPaths(files: string[]): string[] {
+function validateTechnicalSegmentsInDomainPaths(files: string[], contract: CodexMonitorStructureContract): string[] {
   const violations: string[] = [];
+  const forbiddenSegments = new Set(contract.forbiddenPathSegments.map((entry) => entry.toLowerCase()));
   for (const relativePath of files) {
     if (!isQualitySourceModule(relativePath)) {
       continue;
     }
-    const segments = relativePath
-      .replace(/\\/g, "/")
+    const segments = normalizeRelativePath(relativePath)
       .toLowerCase()
       .split("/")
       .map((segment) => segment.replace(/\.[^.]+$/, ""));
     for (const segment of segments) {
-      if (!TECHNICAL_SEGMENT_BLOCKLIST.has(segment)) {
+      if (!forbiddenSegments.has(segment)) {
         continue;
       }
       violations.push(`strict structural gate blocked technical segment in domain path: ${relativePath}`);
@@ -197,29 +310,28 @@ function isQualitySourceModule(relativePath: string): boolean {
   return false;
 }
 
-function validateArchetypePathDiscipline(files: string[]): string[] {
+function validateArchetypePathDiscipline(
+  files: string[],
+  contract: CodexMonitorStructureContract,
+): string[] {
   const violations: string[] = [];
+  const compiledRules = contract.archetypePathRules.map((rule) => ({
+    root: normalizeRelativePath(rule.root).toLowerCase(),
+    regex: new RegExp(rule.regex, "i"),
+    description: rule.description,
+  }));
   for (const relativePath of files) {
     if (!isQualitySourceModule(relativePath)) {
       continue;
     }
-    const normalized = relativePath.replace(/\\/g, "/");
-    if (normalized.startsWith("src/")) {
-      if (normalized.startsWith("src/main/") && !/^src\/main\/lib\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
-        violations.push(`main layer path must match src/main/lib/<family>/*: ${relativePath}`);
-      }
-      if (normalized.startsWith("src/renderer/") && !/^src\/renderer\/features\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
-        violations.push(`renderer layer path must match src/renderer/features/<family>/*: ${relativePath}`);
-      }
-      if (normalized.startsWith("src/services/") && !/^src\/services\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
-        violations.push(`services layer path must match src/services/<family>/*: ${relativePath}`);
-      }
+    const normalized = normalizeRelativePath(relativePath);
+    const lower = normalized.toLowerCase();
+    const matchedRule = compiledRules.find((rule) => lower.startsWith(rule.root));
+    if (!matchedRule) {
       continue;
     }
-    if (normalized.startsWith("src-tauri-adapter/")) {
-      if (!/^src-tauri-adapter\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
-        violations.push(`tauri layer path must match src-tauri-adapter/<family>/*: ${relativePath}`);
-      }
+    if (!matchedRule.regex.test(normalized)) {
+      violations.push(`${matchedRule.description}: ${relativePath}`);
     }
   }
   return violations;
@@ -273,30 +385,76 @@ async function validateNoProxyInQuality(outputProjectDirectory: string, files: s
   return violations;
 }
 
-function resolveNamespaceImportLimit(relativePath: string): number {
-  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
-  if (/^src\/services\/store\/store-state-g\d+\.ts$/.test(normalized)) {
-    return HOT_STORE_NAMESPACE_IMPORT_MAX;
-  }
-  if (normalized === "src/services/service/service-run.ts") {
-    return HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX;
-  }
-  return 0;
-}
-
-async function validateHotModuleNamespaceImportBudget(outputProjectDirectory: string, files: string[]): Promise<string[]> {
-  const violations: string[] = [];
-  for (const relativePath of files) {
-    const limit = resolveNamespaceImportLimit(relativePath);
-    if (limit < 1) {
+function resolveHotFileLimitRule(
+  relativePath: string,
+  contract: CodexMonitorStructureContract,
+): StructureContractHotFileLimit {
+  const defaults = contract.hotFileLimits.defaults;
+  for (const override of contract.hotFileLimits.overrides) {
+    if (!matchesPathPattern(relativePath, override.pattern)) {
       continue;
     }
+    return {
+      maxLines: typeof override.maxLines === "number" ? Math.trunc(override.maxLines) : defaults.maxLines,
+      maxNamespaceImports: typeof override.maxNamespaceImports === "number"
+        ? Math.trunc(override.maxNamespaceImports)
+        : defaults.maxNamespaceImports,
+      minLiftedCoverage: typeof override.minLiftedCoverage === "number"
+        ? Number(override.minLiftedCoverage.toFixed(4))
+        : defaults.minLiftedCoverage,
+    };
+  }
+  return {
+    maxLines: Math.trunc(defaults.maxLines),
+    maxNamespaceImports: Math.trunc(defaults.maxNamespaceImports),
+    minLiftedCoverage: Number(defaults.minLiftedCoverage.toFixed(4)),
+  };
+}
+
+async function validateHotFileLimits(
+  outputProjectDirectory: string,
+  fileQualityReport: FileQualityReportSnapshot,
+  contract: CodexMonitorStructureContract,
+): Promise<string[]> {
+  const violations: string[] = [];
+  const hotFiles = fileQualityReport.files.filter((entry) => entry.hotFocus === true);
+  const hotCount = hotFiles.length;
+  if (hotCount < contract.hotFileLimits.targetMin) {
+    violations.push(
+      `hot file target underflow: ${hotCount} < ${contract.hotFileLimits.targetMin}`,
+    );
+  }
+  if (hotCount > contract.hotFileLimits.targetMax) {
+    violations.push(
+      `hot file target overflow: ${hotCount} > ${contract.hotFileLimits.targetMax}`,
+    );
+  }
+  for (const hotFile of hotFiles) {
+    const relativePath = normalizeRelativePath(hotFile.filePath);
+    const limit = resolveHotFileLimitRule(relativePath, contract);
     const absolutePath = path.join(outputProjectDirectory, relativePath);
+    const exists = await fs
+      .stat(absolutePath)
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) {
+      violations.push(`hot file missing in output project: ${relativePath}`);
+      continue;
+    }
     const content = await fs.readFile(absolutePath, "utf8");
+    const lineCount = content.split(/\r?\n/).length;
+    if (lineCount > limit.maxLines) {
+      violations.push(`hot-file max-lines exceeded: ${relativePath} (${lineCount} > ${limit.maxLines})`);
+    }
     const namespaceImportCount = (content.match(/^import\s+\*\s+as\s+[A-Za-z_$][A-Za-z0-9_$]*\s+from\s+/gm) || []).length;
-    if (namespaceImportCount > limit) {
+    if (namespaceImportCount > limit.maxNamespaceImports) {
       violations.push(
-        `hot-module namespace-import budget exceeded: ${relativePath} (${namespaceImportCount} > ${limit})`,
+        `hot-file namespace-import budget exceeded: ${relativePath} (${namespaceImportCount} > ${limit.maxNamespaceImports})`,
+      );
+    }
+    if (hotFile.liftedCoverage < limit.minLiftedCoverage) {
+      violations.push(
+        `hot-file min lifted coverage violated: ${relativePath} (${hotFile.liftedCoverage} < ${limit.minLiftedCoverage})`,
       );
     }
   }
@@ -329,6 +487,8 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   const input = await readJsonFile<QualityGatesStageInput>(request.inputPath);
   const chunkArtifacts = await readJsonFile<ChunkArtifactModel>(input.chunkArtifactsPath);
   const emittedFilesIndex = await readJsonFile<EmittedFilesIndex>(input.emittedFilesIndexPath);
+  const structureContract = await loadStructureContract(input.structureContractPath);
+  const fileQualityReport = await readJsonFile<FileQualityReportSnapshot>(input.fileQualityReportPath);
 
   const violations: string[] = [];
   if (!validateOutputProfile(input.stableOutputProfile)) {
@@ -339,16 +499,16 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   }
 
   violations.push(...validateFileOrdering(emittedFilesIndex.files));
-  violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
+  violations.push(...validateGenericPathNoise(emittedFilesIndex.files, structureContract));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
-  violations.push(...validateNoTechnicalLayerInSource(emittedFilesIndex.files));
-  violations.push(...validateStrictDomainSourceStructure(emittedFilesIndex.files));
-  violations.push(...validateTechnicalSegmentsInDomainPaths(emittedFilesIndex.files));
-  violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
+  violations.push(...validateNoTechnicalLayerInSource(emittedFilesIndex.files, structureContract));
+  violations.push(...validateStrictDomainSourceStructure(emittedFilesIndex.files, structureContract));
+  violations.push(...validateTechnicalSegmentsInDomainPaths(emittedFilesIndex.files, structureContract));
+  violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files, structureContract));
+  violations.push(...(await validateHotFileLimits(input.outputProjectDirectory, fileQualityReport, structureContract)));
   if (input.validationMode === "full") {
     violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
-    violations.push(...(await validateHotModuleNamespaceImportBudget(input.outputProjectDirectory, emittedFilesIndex.files)));
     violations.push(...(await validateStaticPayloadExtraction(input.outputProjectDirectory, emittedFilesIndex.files)));
   }
   violations.push(...validateChunkArtifacts(chunkArtifacts));
