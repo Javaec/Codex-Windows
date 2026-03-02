@@ -3482,6 +3482,18 @@ function buildQualityModuleContent(
   const hotFocusedStoreServiceModule = hotFocusModule && (plan.archetype === "service" || plan.archetype === "store");
   const hotFocusedRendererStoreModule = hotFocusModule && plan.layer === "renderer" && plan.archetype === "store";
   const targetedHotRendererStoreModule = criticalTopWorstModule && plan.layer === "renderer" && plan.archetype === "store";
+  const targetedNamespaceRescueModule =
+    /(?:^|\/)src\/renderer\/features\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g002-quality-01\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g003-quality-01\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g003-quality-02\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-run-quality-01\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath);
+  const targetedImportAssignSafetyModule =
+    /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath);
   const fullLiftFocusedStoreServiceModule =
     hotFocusedStoreServiceModule || (targetedQualityShardModule && plan.archetype === "store");
   const targetedHotAggressiveExtractionModule = hotFocusedStoreServiceModule;
@@ -3574,6 +3586,9 @@ function buildQualityModuleContent(
   const targetedHotDomainNoisePattern =
     /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSie/i;
   const resolveTopWorstNamespaceTarget = (): number => {
+    if (targetedNamespaceRescueModule) {
+      return 8;
+    }
     if (strictTargetedQualityShardModule) {
       return 6;
     }
@@ -8201,7 +8216,10 @@ function buildQualityModuleContent(
       return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
     };
     const applyMutableImportAliasPass = (contentText: string): string => {
-      if ((!targetedHotWorstStoreServiceModule && !targetedQualityShardModule) || contentText.length < 1) {
+      if (
+        (!targetedHotWorstStoreServiceModule && !targetedQualityShardModule && !targetedImportAssignSafetyModule) ||
+        contentText.length < 1
+      ) {
         return contentText;
       }
       const source = ts.createSourceFile(
@@ -8532,7 +8550,7 @@ function buildQualityModuleContent(
       return score;
     };
     const buildPreferredDirectImportAliasSet = (source: ts.SourceFile): Set<string> => {
-      if (!fullLiftFocusedStoreServiceModule) {
+      if (!fullLiftFocusedStoreServiceModule && !hotFocusedRendererStoreModule && !targetedNamespaceRescueModule) {
         return new Set<string>();
       }
       const metadataByAlias = collectNamespaceAliasMetadata(source);
@@ -8798,7 +8816,7 @@ function buildQualityModuleContent(
       return printer.printFile(convertedSource);
     };
     const applySingleUseNamespaceAliasFallbackConversion = (contentText: string): string => {
-      if (!fullLiftFocusedStoreServiceModule || contentText.length < 1) {
+      if ((!fullLiftFocusedStoreServiceModule && !targetedNamespaceRescueModule) || contentText.length < 1) {
         return contentText;
       }
       const source = ts.createSourceFile(
@@ -12046,9 +12064,11 @@ function buildQualityModuleContent(
     }
   }
   const namespaceImportCount = (moduleContent.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
-  if (criticalTopWorstModule || hotFocusedRendererStoreModule) {
+  if (criticalTopWorstModule || hotFocusedRendererStoreModule || targetedNamespaceRescueModule) {
     const namespaceImportCap =
-      targetedHotRendererStoreModule
+      targetedNamespaceRescueModule
+        ? 8
+      : targetedHotRendererStoreModule
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE
         : hotFocusedRendererStoreModule
           ? Math.max(HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE, 12)

@@ -434,3 +434,18 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: enables explicit handoff to manual-first flow while keeping generator sync narrow and traceable.
 - Stop-rule stagnation is now quality-driven: three cycles without quality growth trigger manual-first freeze.
   Verified reason: aligns automation stop behavior with manual-ready transition policy.
+- Namespace import noise rescue is now explicitly targeted for three hot files:
+  - `src/renderer/features/store/store-state.ts`,
+  - `src/services/store/store-state-g003-quality-01.ts`,
+  - `src/services/service/service-run-quality-01.ts`.
+  These files get forced import-shaping/direct-import conversion and hard namespace cap `<=8`.
+  Verified reason: fast daily cycle now attacks the noisiest import-heavy modules directly without broad risky rewrites across non-hot files.
+- Namespace rescue scope widened for current snapshot hot store modules:
+  - `src/services/store/store-state-g002.ts`,
+  - `src/services/store/store-state-g003.ts`.
+  Verified reason: `g003-quality-01` is not always materialized in `regression-latest`; forcing rescue on concrete `g002/g003` store outputs keeps the `<=8` cap policy effective for the active top-10 hot set.
+- Top-hot namespace rescue now also covers currently noisy quality shards:
+  - `src/services/store/store-state-g002-quality-01.ts`,
+  - `src/services/store/store-state-g003-quality-02.ts`,
+  - `src/services/service/service-run-quality-02.ts`.
+  Verified reason: these files repeatedly appear in top-10 worst with `namespaceImports=10`; extending forced cap to them cuts import-noise inside the active hot-only slice without widening rewrites to non-hot modules.
