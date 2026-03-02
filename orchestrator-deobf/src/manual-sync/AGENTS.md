@@ -14,6 +14,7 @@ Implement deterministic import/export bridges between generated project output a
 - Keep output deterministic (stable sorting and stable merge behavior).
 - Contract law is strict: `contractVersion=2`, `migrationVersion=1`.
 - Migration is explicit through `manual-sync:migrate`; runtime does not auto-heal old schemas.
+- Reverse sync root is fixed: only `shared/manual-sync/*` is allowed (custom root paths are rejected).
 
 ## Sync Contract Flow
 1. Generator emits `runtime/manual-sync-index.json`.
@@ -32,6 +33,10 @@ Implement deterministic import/export bridges between generated project output a
 ## Stale Cleanup
 - Export pass removes stale override entries that no longer match current snapshot.
 - Rekey by fingerprint is allowed only for unique high-score matches; ambiguous matches are dropped.
+- Stale cleanup is mandatory in `manual-sync:export` and is reported in `last-export-report.json`.
+
+## Promotion Rule
+- Merged-evidence top-N promotion applies only when `selected != currentName` and candidate has positive quality uplift (or non-generic upgrade).
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

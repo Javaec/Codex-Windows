@@ -101,6 +101,8 @@ interface CycleReport {
   finalBaselinePath: string;
   namingMemoryProfilePath: string;
   manualRefactorCandidatesPath: string;
+  manualReadyBacklogPath?: string;
+  manualReadySlicePath?: string;
   manualFirstFreezePath?: string;
   transitionMode: "generator-active" | "manual-first-frozen";
 }
@@ -146,6 +148,24 @@ interface ManualRefactorCandidatesReport {
   suiteRunId: string;
   candidateCount: number;
   candidates: ManualRefactorCandidate[];
+}
+
+interface ManualReadyBacklogReport {
+  generatedAtIso: string;
+  snapshotAsarPath: string;
+  transitionMode: "generator-active" | "manual-first-frozen";
+  syncContractRoot: string;
+  manualRefactor: Array<{
+    filePath: string;
+    averageScore: number;
+    averageNameQuality: number;
+    averageLiftedCoverage: number;
+    averageSymbolCount: number;
+  }>;
+  generatorSync: Array<{
+    focus: string;
+    reason: string;
+  }>;
 }
 
 interface ManualFirstFreezeMarker {
@@ -335,7 +355,7 @@ async function writeManualFirstFreezeMarker(
   const marker: ManualFirstFreezeMarker = {
     version: 1,
     generatedAtIso: new Date().toISOString(),
-    reason: "stop-rule reached: 3 cycles without quality/high-confidence growth",
+    reason: "stop-rule reached: 3 cycles without quality growth",
     stopReason,
     completedCycles: report.completedCycles,
     snapshotAsarPath: report.snapshotAsarPath,
@@ -776,7 +796,7 @@ function summarizeCycle(
     : execution.aggregate.worstFileDecileScoreAverage;
   const fileQualityDelta = Number(fileQualityDeltaRaw.toFixed(4));
   const fileQualityBaselineGuardPassed = true;
-  const strike = previous && qualityDelta <= 0 && nameQualityDelta <= 0 && highConfidenceDelta <= 0
+  const strike = previous && qualityDelta <= 0
     ? stagnationStrike + 1
     : 0;
 
@@ -997,6 +1017,109 @@ async function publishManualRefactorCandidates(
   await writeJsonFile(destinationReportPath, report);
 }
 
+function buildGeneratorSyncBacklog(latestSummary: CycleExecutionSummary): Array<{ focus: string; reason: string }> {
+  const items: Array<{ focus: string; reason: string }> = [];
+  if (latestSummary.promotionUpdatedCount < 1) {
+    items.push({
+      focus: "promotion-uplift",
+      reason: "promotionUpdatedCount is zero; retune merge scoring for selected != currentName updates.",
+    });
+  }
+  if (latestSummary.hotFocusFileAverage < KPI_TARGET_HOT_FOCUS_FILE_MIN) {
+    items.push({
+      focus: "hot-selection",
+      reason: `hot focus files below target (${latestSummary.hotFocusFileAverage} < ${KPI_TARGET_HOT_FOCUS_FILE_MIN}).`,
+    });
+  }
+  if (!latestSummary.kpiPassed) {
+    items.push({
+      focus: "kpi-gates",
+      reason: `latest cycle has KPI violations: ${latestSummary.kpiViolations.join("; ")}`,
+    });
+  }
+  if (latestSummary.stagnationStrike >= 2) {
+    items.push({
+      focus: "stop-rule-risk",
+      reason: `stagnation strike is ${latestSummary.stagnationStrike}; generator may freeze next cycle.`,
+    });
+  }
+  if (items.length < 1) {
+    items.push({
+      focus: "sync-hygiene",
+      reason: "keep generator sync minimal; prioritize manual refactor stream.",
+    });
+  }
+  return items;
+}
+
+async function writeManualReadyArtifacts(
+  projectRoot: string,
+  snapshotAsarPath: string,
+  transitionMode: "generator-active" | "manual-first-frozen",
+  manualRefactorCandidatesPath: string,
+  cycleSummaries: readonly CycleExecutionSummary[],
+): Promise<{ backlogPath: string; slicePath: string }> {
+  const candidateReport = await readJsonFile<ManualRefactorCandidatesReport>(manualRefactorCandidatesPath);
+  const manualRefactor = [...candidateReport.candidates]
+    .sort((left, right) => {
+      if (left.averageScore !== right.averageScore) {
+        return left.averageScore - right.averageScore;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    })
+    .slice(0, 24)
+    .map((entry) => ({
+      filePath: entry.filePath,
+      averageScore: entry.averageScore,
+      averageNameQuality: entry.averageNameQuality,
+      averageLiftedCoverage: entry.averageLiftedCoverage,
+      averageSymbolCount: entry.averageSymbolCount,
+    }));
+  const latestSummary = cycleSummaries.length > 0
+    ? cycleSummaries[cycleSummaries.length - 1]
+    : undefined;
+  if (!latestSummary) {
+    throw new Error("writeManualReadyArtifacts: missing cycle summary");
+  }
+  const generatorSync = buildGeneratorSyncBacklog(latestSummary);
+  const syncContractRoot = path.join(projectRoot, "shared", "manual-sync");
+
+  const backlogReport: ManualReadyBacklogReport = {
+    generatedAtIso: new Date().toISOString(),
+    snapshotAsarPath,
+    transitionMode,
+    syncContractRoot,
+    manualRefactor,
+    generatorSync,
+  };
+  const backlogPath = path.join(projectRoot, "regression", "manual-ready-backlog.json");
+  await writeJsonFile(backlogPath, backlogReport);
+
+  const slicePath = path.join(projectRoot, "regression", "manual-ready-slice.json");
+  await writeJsonFile(slicePath, {
+    generatedAtIso: new Date().toISOString(),
+    snapshotAsarPath,
+    transitionMode,
+    syncContractRoot,
+    stableSlice: {
+      nameQualityAverage: latestSummary.nameQualityAverage,
+      averageScore: latestSummary.averageScore,
+      proxyInQualityAverage: latestSummary.proxyInQualityAverage,
+      classCoverageAverage: latestSummary.classCoverageAverage,
+      functionCoverageAverage: latestSummary.functionCoverageAverage,
+      variableCoverageAverage: latestSummary.variableCoverageAverage,
+      hotFocusFileAverage: latestSummary.hotFocusFileAverage,
+      kpiPassed: latestSummary.kpiPassed,
+    },
+    topManualCandidates: manualRefactor.slice(0, 10),
+  });
+
+  return {
+    backlogPath,
+    slicePath,
+  };
+}
+
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
@@ -1154,6 +1277,16 @@ async function run(): Promise<void> {
     report.manualFirstFreezePath = manualFirstFreezePath;
     report.transitionMode = "manual-first-frozen";
   }
+
+  const manualReadyArtifacts = await writeManualReadyArtifacts(
+    projectRoot,
+    cli.snapshotAsarPath,
+    report.transitionMode,
+    manualRefactorCandidatesPath,
+    cycleSummaries,
+  );
+  report.manualReadyBacklogPath = manualReadyArtifacts.backlogPath;
+  report.manualReadySlicePath = manualReadyArtifacts.slicePath;
 
   const reportPath = path.join(path.dirname(cli.baselinePath), "cycle-report.json");
   await writeJsonFile(reportPath, report);

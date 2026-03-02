@@ -424,3 +424,13 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - quality-gates stage reads this contract and fails fast on any structural violation,
   - generator/regression runs are freeze-by-default and require explicit `--allow-after-freeze`.
   Verified reason: keeps generated `src/*` aligned to CodexMonitor-like layout and prevents accidental iterations after manual-first freeze.
+- Quality synthesis now applies guarded rename/extraction passes with per-pass rollback.
+  - each pass is syntax-checked and quality-guarded (name-quality, low-quality identifier growth, import noise, size growth),
+  - degrading pass output is rolled back immediately for that module.
+  Verified reason: keeps aggressive top-hot transformations stable and prevents local pass regressions from polluting final quality output.
+- Regression cycles now emit manual-ready transition artifacts:
+  - `regression/manual-ready-backlog.json` split into `manualRefactor` and `generatorSync` streams,
+  - `regression/manual-ready-slice.json` with current stable-slice metrics and top manual candidates.
+  Verified reason: enables explicit handoff to manual-first flow while keeping generator sync narrow and traceable.
+- Stop-rule stagnation is now quality-driven: three cycles without quality growth trigger manual-first freeze.
+  Verified reason: aligns automation stop behavior with manual-ready transition policy.

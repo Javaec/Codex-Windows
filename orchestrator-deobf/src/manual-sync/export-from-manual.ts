@@ -77,6 +77,12 @@ interface ExportReport {
   generatedProjectPath: string;
   manualProjectPath: string;
   mergedEvidencePath?: string;
+  staleCleanupMandatory: true;
+  staleCleanupExecuted: {
+    symbolRemoved: number;
+    pathRemoved: number;
+    surfaceRemoved: number;
+  };
   symbolNameCreated: number;
   symbolNameUpdated: number;
   symbolNameRemoved: number;
@@ -572,6 +578,11 @@ function applyMergedEvidencePromotion(
     if (candidateName === currentName) {
       continue;
     }
+    const currentQuality = currentName.length > 0 ? scoreNameQuality(currentName) : 0;
+    const nonGenericUpgrade = currentName.length > 0 && isGenericName(currentName) && !isGenericName(candidateName);
+    if (currentName.length > 0 && !nonGenericUpgrade && quality <= currentQuality + 0.0005) {
+      continue;
+    }
     if (currentName.length > 0 && isGenericName(candidateName) && !isGenericName(currentName)) {
       continue;
     }
@@ -973,6 +984,12 @@ async function run(): Promise<void> {
     generatedProjectPath: cli.generatedProjectPath,
     manualProjectPath: cli.manualProjectPath,
     mergedEvidencePath: cli.mergedEvidencePath,
+    staleCleanupMandatory: true,
+    staleCleanupExecuted: {
+      symbolRemoved: cleanedSymbol.removed,
+      pathRemoved: cleanedPath.removed,
+      surfaceRemoved: cleanedSurface.removed,
+    },
     symbolNameCreated: mergedSymbolRaw.created,
     symbolNameUpdated: mergedSymbolRaw.updated,
     symbolNameRemoved: cleanedSymbol.removed,

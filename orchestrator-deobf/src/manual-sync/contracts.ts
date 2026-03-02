@@ -106,7 +106,13 @@ export function defaultManualSyncRootPath(projectRoot: string): string {
 }
 
 export function resolveManualSyncPaths(projectRoot: string, explicitRootPath: string): ManualSyncPaths {
-  const rootPath = path.resolve(explicitRootPath || defaultManualSyncRootPath(projectRoot));
+  const defaultRootPath = path.resolve(defaultManualSyncRootPath(projectRoot));
+  const rootPath = path.resolve(explicitRootPath || defaultRootPath);
+  if (rootPath !== defaultRootPath) {
+    throw new Error(
+      `resolveManualSyncPaths: reverse sync contract is fixed to ${defaultRootPath}; custom manual-sync root is not allowed (${rootPath})`,
+    );
+  }
   return {
     rootPath,
     symbolNameOverridesPath: path.join(rootPath, "symbol-name-overrides.json"),

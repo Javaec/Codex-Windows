@@ -6290,7 +6290,8 @@ function buildQualityModuleContent(
   };
   const applyTargetedStoreShardRoleAwareBodyRenamePass = (content: string): string => {
     const roleAwareBodyRenameEnabled = (
-      criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store")
+      hotFocusedStoreServiceModule ||
+      hotFocusedRendererStoreModule
     ) || (targetedQualityShardModule && plan.archetype === "store");
     if (!roleAwareBodyRenameEnabled || content.length < 1) {
       return content;
@@ -7980,9 +7981,12 @@ function buildQualityModuleContent(
         shardBaseStem,
       );
       const clusterOrdinal = String(clusterIndex + 1).padStart(2, "0");
+      const clusterFingerprint = shortStableHash(
+        orderedClusterStatements.map((statement) => statement.getText(sourceFile)).join("\n"),
+      ).slice(0, 8);
       const helperStem = sanitizeSegment(
-        `${moduleScopeStem}-${cluster.clusterKey}-${clusterOrdinal}-${helperSuffix}`,
-        `${moduleScopeStem}-${helperSuffix}-${clusterOrdinal}`,
+        `${moduleScopeStem}-${cluster.clusterKey}-${clusterOrdinal}-${clusterFingerprint}-${helperSuffix}`,
+        `${moduleScopeStem}-${helperSuffix}-${clusterOrdinal}-${clusterFingerprint}`,
       );
       const runtimeDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "vendor", plan.layer, plan.archetype);
       const helperAbsolutePath = path.join(runtimeDirectory, `${helperStem}.ts`);
@@ -11850,33 +11854,160 @@ function buildQualityModuleContent(
     return rewrittenContent;
   };
 
-  const qualityPassContent = enforceTargetedStoreShardFunctionLengthCap(
-    applyImportHygienePass(
-      applyTargetedStoreShardDomainHelperHoist(
-        applyTargetedStoreShardRoleAwareBodyRenamePass(
-          applyTargetedStoreShardAggressiveExtractionSweep(
-            applyTargetedStoreShardLongFunctionClusterSplit(
-              applyTargetedStoreShardFunctionBodyClusterExtractionSweep(
-                applyCriticalFunctionBodyNamingPass(
-                  applyCriticalTypeHintPropagation(
-                    applyCriticalBehaviorClusterFunctionExtraction(
-                      applyCriticalLocalAstInlinePlanner(
-                        applyTargetedHotLocalDomainRenamePass(
-                          applyTargetedHotCoreFamilySweep(
-                            applyTargetedHotResidualLocalNoiseSweep(applyTargetedHotFinalContentPass(lines.join("\n"))),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+  interface GuardedPassPolicy {
+    requireNameQualityUplift: boolean;
+    limitLowQualityIdentifierGrowth: boolean;
+    maxLowQualityIdentifierGrowth: number;
+    maxLineGrowthRatio: number;
+    maxNamespaceImportGrowth: number;
+  }
+  interface GuardedPassMetrics {
+    averageNameQuality: number;
+    lowQualityIdentifierCount: number;
+    lineCount: number;
+    namespaceImportCount: number;
+  }
+  const collectGuardIdentifierTokens = (contentText: string): string[] => {
+    const identifierPattern = /\b[$A-Za-z_][$A-Za-z0-9_]*\b/g;
+    const tokens = contentText.match(identifierPattern) ?? [];
+    const filtered = tokens.filter((token) => token.length > 2 && !RESERVED_IDENTIFIERS.has(token));
+    const unique = [...new Set(filtered)];
+    unique.sort((left, right) => left.localeCompare(right));
+    return unique;
+  };
+  const measureGuardedPassMetrics = (contentText: string): GuardedPassMetrics => {
+    const identifiers = collectGuardIdentifierTokens(contentText);
+    const qualityScores = identifiers.map((token) => scoreNameQuality(token));
+    const qualitySum = qualityScores.reduce((sum, entry) => sum + entry, 0);
+    const averageNameQuality = qualityScores.length > 0 ? clamp(qualitySum / qualityScores.length) : 0;
+    const lowQualityIdentifierCount = qualityScores.filter((score) => score < 0.78).length;
+    const lineCount = contentText.length > 0 ? contentText.split(/\r?\n/).length : 0;
+    const namespaceImportCount = (contentText.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
+    return {
+      averageNameQuality,
+      lowQualityIdentifierCount,
+      lineCount,
+      namespaceImportCount,
+    };
+  };
+  const shouldRollbackGuardedPass = (
+    before: GuardedPassMetrics,
+    after: GuardedPassMetrics,
+    policy: GuardedPassPolicy,
+  ): boolean => {
+    if (policy.requireNameQualityUplift && after.averageNameQuality + 0.0005 < before.averageNameQuality) {
+      return true;
+    }
+    if (
+      policy.limitLowQualityIdentifierGrowth &&
+      after.lowQualityIdentifierCount > before.lowQualityIdentifierCount + Math.max(0, policy.maxLowQualityIdentifierGrowth)
+    ) {
+      return true;
+    }
+    const maxLineCount = Math.floor(before.lineCount * policy.maxLineGrowthRatio + 48);
+    if (before.lineCount > 0 && after.lineCount > maxLineCount) {
+      return true;
+    }
+    if (after.namespaceImportCount > before.namespaceImportCount + Math.max(0, policy.maxNamespaceImportGrowth)) {
+      return true;
+    }
+    return false;
+  };
+  const applyGuardedPass = (
+    passName: string,
+    contentText: string,
+    transform: (input: string) => string,
+    policy: GuardedPassPolicy,
+  ): { content: string; rolledBack: boolean } => {
+    if (contentText.length < 1) {
+      return {
+        content: contentText,
+        rolledBack: false,
+      };
+    }
+    const transformed = transform(contentText);
+    if (transformed === contentText) {
+      return {
+        content: contentText,
+        rolledBack: false,
+      };
+    }
+    const virtualPath = `${plan.moduleId}.${sanitizeSegment(passName, "pass-guard")}.ts`;
+    if (!isSyntacticallyValidTsContent(virtualPath, transformed)) {
+      return {
+        content: contentText,
+        rolledBack: true,
+      };
+    }
+    const beforeMetrics = measureGuardedPassMetrics(contentText);
+    const afterMetrics = measureGuardedPassMetrics(transformed);
+    if (shouldRollbackGuardedPass(beforeMetrics, afterMetrics, policy)) {
+      return {
+        content: contentText,
+        rolledBack: true,
+      };
+    }
+    return {
+      content: transformed,
+      rolledBack: false,
+    };
+  };
+  const renameGuardPolicy: GuardedPassPolicy = {
+    requireNameQualityUplift: true,
+    limitLowQualityIdentifierGrowth: true,
+    maxLowQualityIdentifierGrowth: 6,
+    maxLineGrowthRatio: 1.2,
+    maxNamespaceImportGrowth: 1,
+  };
+  const structureGuardPolicy: GuardedPassPolicy = {
+    requireNameQualityUplift: false,
+    limitLowQualityIdentifierGrowth: false,
+    maxLowQualityIdentifierGrowth: 24,
+    maxLineGrowthRatio: 1.65,
+    maxNamespaceImportGrowth: 4,
+  };
+  const hygieneGuardPolicy: GuardedPassPolicy = {
+    requireNameQualityUplift: false,
+    limitLowQualityIdentifierGrowth: false,
+    maxLowQualityIdentifierGrowth: 12,
+    maxLineGrowthRatio: 1.1,
+    maxNamespaceImportGrowth: 0,
+  };
+  const guardedPassPipeline: Array<{
+    passName: string;
+    transform: (input: string) => string;
+    policy: GuardedPassPolicy;
+  }> = [
+    { passName: "targetedHotFinalContent", transform: applyTargetedHotFinalContentPass, policy: structureGuardPolicy },
+    { passName: "targetedHotResidualLocalNoise", transform: applyTargetedHotResidualLocalNoiseSweep, policy: renameGuardPolicy },
+    { passName: "targetedHotCoreFamilySweep", transform: applyTargetedHotCoreFamilySweep, policy: renameGuardPolicy },
+    { passName: "targetedHotLocalDomainRename", transform: applyTargetedHotLocalDomainRenamePass, policy: renameGuardPolicy },
+    { passName: "criticalLocalAstInlinePlanner", transform: applyCriticalLocalAstInlinePlanner, policy: structureGuardPolicy },
+    { passName: "criticalBehaviorClusterExtraction", transform: applyCriticalBehaviorClusterFunctionExtraction, policy: structureGuardPolicy },
+    { passName: "criticalTypeHintPropagation", transform: applyCriticalTypeHintPropagation, policy: renameGuardPolicy },
+    { passName: "criticalFunctionBodyNaming", transform: applyCriticalFunctionBodyNamingPass, policy: renameGuardPolicy },
+    { passName: "storeShardBodyClusterExtraction", transform: applyTargetedStoreShardFunctionBodyClusterExtractionSweep, policy: structureGuardPolicy },
+    { passName: "storeShardLongFunctionSplit", transform: applyTargetedStoreShardLongFunctionClusterSplit, policy: structureGuardPolicy },
+    { passName: "storeShardAggressiveExtraction", transform: applyTargetedStoreShardAggressiveExtractionSweep, policy: structureGuardPolicy },
+    { passName: "storeShardRoleAwareBodyRename", transform: applyTargetedStoreShardRoleAwareBodyRenamePass, policy: renameGuardPolicy },
+    { passName: "storeShardDomainHelperHoist", transform: applyTargetedStoreShardDomainHelperHoist, policy: structureGuardPolicy },
+    { passName: "importHygienePreCap", transform: applyImportHygienePass, policy: hygieneGuardPolicy },
+  ];
+  let qualityPassContent = lines.join("\n");
+  let guardedRollbackCount = 0;
+  for (const pass of guardedPassPipeline) {
+    const guardedResult = applyGuardedPass(pass.passName, qualityPassContent, pass.transform, pass.policy);
+    if (guardedResult.rolledBack) {
+      guardedRollbackCount += 1;
+    }
+    qualityPassContent = guardedResult.content;
+  }
+  qualityPassContent = enforceTargetedStoreShardFunctionLengthCap(qualityPassContent);
+  if (guardedRollbackCount > 0 && hotFocusModule) {
+    process.stderr.write(
+      `[template-emitter] roundtrip guard rolled back ${guardedRollbackCount} pass(es) for ${plan.filePath}\n`,
+    );
+  }
   const vendorSplitResult = applyTargetedG003VendorSplit(qualityPassContent);
   if (vendorSplitResult.vendorAssetFile) {
     const existingVendorAsset = assetFilesByPath.get(vendorSplitResult.vendorAssetFile.absolutePath);
