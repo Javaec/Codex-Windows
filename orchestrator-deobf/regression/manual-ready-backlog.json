@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-02T20:39:01.531Z",
+  "generatedAtIso": "2026-03-02T21:22:34.777Z",
   "generatorSync": [
     {
       "focus": "sync-hygiene",
@@ -10,9 +10,9 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.7641,
-      "averageSymbolCount": 92,
-      "filePath": "src/services/store/store-state-quality-01.ts"
+      "averageScore": 0.8065,
+      "averageSymbolCount": 184,
+      "filePath": "src/services/store/store-state.ts"
     },
     {
       "averageLiftedCoverage": 1,
@@ -31,37 +31,16 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8094,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-02.ts"
+      "averageScore": 0.8103,
+      "averageSymbolCount": 240,
+      "filePath": "src/services/store/store-state-g002.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8094,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g003-quality-02.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8113,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8125,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g003-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8488,
-      "averageSymbolCount": 92,
-      "filePath": "src/services/store/store-state-quality-02.ts"
+      "averageScore": 0.811,
+      "averageSymbolCount": 240,
+      "filePath": "src/services/store/store-state-g003.ts"
     },
     {
       "averageLiftedCoverage": 1,
