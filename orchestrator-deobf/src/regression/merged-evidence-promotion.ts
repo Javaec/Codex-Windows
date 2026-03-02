@@ -769,7 +769,11 @@ export async function applyMergedEvidencePromotion(
     currentScoreBySymbolKey,
     hotFocusSymbolKeys,
   );
-  const selectedPromotionCandidates = selectPromotionCandidates(promotionCandidates, options.promotionBudget);
+  const selectedPromotionCandidates = selectPromotionCandidates(promotionCandidates, options.promotionBudget)
+    .filter((candidate) => {
+      const currentName = currentNameBySymbolKey.get(candidate.symbol.symbolKey) ?? "";
+      return currentName !== candidate.symbol.symbolName;
+    });
   const selectedCandidates = selectedPromotionCandidates.map((entry) => entry.symbol);
   const syntheticSemanticIr = buildSyntheticSemanticIr(selectedPromotionCandidates);
   const updateResult = updateNamingMemory(namingMemory, syntheticSemanticIr, options.runId);

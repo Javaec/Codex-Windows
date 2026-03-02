@@ -9,7 +9,11 @@
     "start": "node dist/index.js",
     "regression:suite": "node dist/regression/run-regression-suite.js",
     "regression:calibrate": "node dist/regression/auto-calibrate.js",
-    "regression:cycles": "node dist/regression/run-regression-cycles.js"
+    "regression:cycles": "node dist/regression/run-regression-cycles.js",
+    "manual-sync:export": "node dist/manual-sync/export-from-manual.js",
+    "manual-sync:validate": "node dist/manual-sync/validate-contracts.js",
+    "manual-sync:migrate": "node dist/manual-sync/migrate-manual-sync.js",
+    "manual-sync:roundtrip": "node dist/manual-sync/roundtrip-check.js"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",

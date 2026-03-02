@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import { RunMetrics } from "../contracts";
 import { SemanticIrModel } from "../ir/semantic-ir";
 import { OwnershipModel } from "../ir/ownership-model";
-import { GreenGateStageOutput, MonolithCensusStageOutput, QualityGatesStageOutput } from "../contracts";
+import {
+  GreenGateStageOutput,
+  MonolithCensusStageOutput,
+  NamingMemoryStageOutput,
+  QualityGatesStageOutput,
+  TemplateEmitterStageOutput,
+} from "../contracts";
 import { scoreNameQuality } from "../ir/name-quality";
 
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
@@ -214,6 +220,8 @@ export function buildRunMetrics(
   qualityOwnershipModel: OwnershipModel,
   qualityGates: QualityGatesStageOutput,
   greenGates: GreenGateStageOutput,
+  namingMemory: NamingMemoryStageOutput,
+  templateEmitter: TemplateEmitterStageOutput,
 ): RunMetrics {
   const symbolTableEntries = loadSymbolTableEntries(monolithCensus);
   const classSemanticCoverage = classCoverage(symbolTableEntries);
@@ -238,6 +246,12 @@ export function buildRunMetrics(
     proxyInQualityCount: proxyInQualityViolationCount(qualityGates),
     lowQualitySymbolCount: lowQualitySymbolCount(qualityOwnershipModel),
     coverageLowQualitySymbolCount: lowQualitySymbolCount(coverageOwnershipModel),
+    manualSyncAppliedCount: namingMemory.manualSyncAppliedCount + templateEmitter.manualSyncModulePathAppliedCount,
+    manualSyncRejectedCount: namingMemory.manualSyncRejectedCount + templateEmitter.manualSyncModulePathRejectedCount,
+    manualSyncConflictResolvedCount:
+      namingMemory.manualSyncConflictResolvedCount + templateEmitter.manualSyncModulePathConflictResolvedCount,
+    manualSyncFingerprintResolvedCount:
+      namingMemory.manualSyncFingerprintResolvedCount + templateEmitter.manualSyncModulePathFingerprintResolvedCount,
     layerCoverage: coverageByLayer(qualityOwnershipModel),
     archetypeCoverage: coverageByArchetype(qualityOwnershipModel),
   };

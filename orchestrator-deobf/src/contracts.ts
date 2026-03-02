@@ -76,6 +76,10 @@ export interface RunFlags {
   weightsConfigPath: string;
   gateMode: GateMode;
   artifactRetention: ArtifactRetentionMode;
+  manualSyncEnabled: boolean;
+  manualSyncRootPath: string;
+  manualSyncSymbolNameOverridesPath: string;
+  manualSyncModulePathOverridesPath: string;
 }
 
 export interface RunManifest {
@@ -303,6 +307,9 @@ export interface NamingMemoryStageInput {
   runId: string;
   monolithSymbolTablePath: string;
   promotionBudget: number;
+  manualSyncSymbolNameOverridesPath?: string;
+  manualSyncSymbolNameOverridesDigest?: string;
+  manualSyncAppliedReportPath?: string;
 }
 
 export interface NamingMemoryStageOutput {
@@ -321,6 +328,12 @@ export interface NamingMemoryStageOutput {
   baselineQualityBefore: number;
   baselineQualityAfter: number;
   baselineGuardPassed: boolean;
+  manualSyncAppliedCount: number;
+  manualSyncRejectedCount: number;
+  manualSyncConflictResolvedCount: number;
+  manualSyncFingerprintResolvedCount: number;
+  manualSyncSymbolNameOverridesPath?: string;
+  manualSyncAppliedReportPath?: string;
 }
 
 export interface OwnershipResolverStageInput {
@@ -354,6 +367,9 @@ export interface TemplateEmitterStageInput {
   monolithLayoutHintsPath: string;
   manualRefactorCandidatesPath?: string;
   manualRefactorCandidatesDigest?: string;
+  manualSyncModulePathOverridesPath?: string;
+  manualSyncModulePathOverridesDigest?: string;
+  manualSyncModulePathAppliedReportPath?: string;
   outputProjectDirectory: string;
   statementBudget: number;
   emittedFilesIndexPath: string;
@@ -368,6 +384,11 @@ export interface TemplateEmitterStageOutput {
   fileQualityReportPath: string;
   rerenderedModuleCount: number;
   hotChunkCount: number;
+  manualSyncModulePathAppliedCount: number;
+  manualSyncModulePathRejectedCount: number;
+  manualSyncModulePathConflictResolvedCount: number;
+  manualSyncModulePathFingerprintResolvedCount: number;
+  manualSyncModulePathAppliedReportPath?: string;
 }
 
 export interface QualityGatesStageInput {
@@ -460,6 +481,10 @@ export interface RunMetrics {
   proxyInQualityCount: number;
   lowQualitySymbolCount: number;
   coverageLowQualitySymbolCount: number;
+  manualSyncAppliedCount: number;
+  manualSyncRejectedCount: number;
+  manualSyncConflictResolvedCount: number;
+  manualSyncFingerprintResolvedCount: number;
   layerCoverage: Record<LayerId, number>;
   archetypeCoverage: Record<ArchetypeId, number>;
 }

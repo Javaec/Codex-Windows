@@ -258,6 +258,12 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Quality emit now disables namespace import-shaping for non-hot modules and enforces strict full-lift declaration path (no chunk import fallback in quality path).
   Verified reason: reduces non-hot import-noise and keeps TS output centered on lifted declarations instead of noisy fallback glue.
 - KPI monotonicity is now mode-aware in regression cycles (`fast` compared with previous `fast`, `full` with previous `full`).
+- Hot extraction/quarantine is now extended from strict store shards to all hot-focus `store/service` modules (top hot contour), including renderer-store hot files.
+  Verified reason: dependency-closure and runtime-quarantine passes now run for hot store/service modules, not only `strictTargetedQualityShardModule`, so parser/runtime-heavy blocks are moved out of top hot files earlier.
+- Runtime quarantine output is now layer/archetype scoped under `artifacts/runtime/vendor/<layer>/<archetype>/*` for non-strict shard modules.
+  Verified reason: parser/runtime vendor clusters are isolated outside `src/*` with clearer ownership boundaries and less cross-layer leakage.
+- Renderer store hot modules now participate in aggressive import-shaping targets and dedicated namespace caps.
+  Verified reason: `src/renderer/features/store/store-state-quality-01.ts` namespace imports were reduced from `17` to `9` in full regression run (`run-20260302-top10-runtime-pass-v2`) while green/quality gates stayed green.
   Verified reason: removes false stop-rule triggers caused by comparing fast-cycle metrics against full-checkpoint cycles.
 - Reference-path-map-first module placement is now active in emitter plan identity and initial plan build.
   Verified reason: generated quality modules are anchored to reference-style directories (`src/main/lib/*`, `src/renderer/features/*`, `src/services/*`, `src-tauri-adapter/*`) instead of generic `layer/archetype` fallbacks.
@@ -386,3 +392,30 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - stronger dependency-closure thresholds/passes (G002-specific constants),
   - role/io rename now also covers local variable symbols inside function bodies (type-aware stems `List/Map/Flag/Count/Text/Result`).
   Verified result: `src/services/store/store-state-g002-quality-02.ts` reduced to ~573 lines with additional semantic local names (`storeLocal*`) and improved hot-shard readability.
+- Manual-sync contract layer is now strict-law and versioned:
+  - required header: `contractVersion=2`, `migrationVersion=1`,
+  - explicit migration command `manual-sync:migrate` (no runtime auto-fallback),
+  - pre-run validation gate in `index.ts` blocks generation on invalid contracts,
+  - full applied report now merges symbol + module-path results into `runs/<id>/manual-sync-applied.json`.
+  Verified reason: manual-first workflow survives snapshot obfuscation changes with deterministic back-sync and auditable failures.
+- Manual override resolution now supports fingerprint conflict recovery:
+  - symbol fingerprint built from declaration role/api/mutation + call/state neighborhood,
+  - unknown symbol keys can be remapped by unique fingerprint match in naming and module-path apply passes,
+  - ambiguous matches are rejected with explicit reasons.
+  Verified reason: manual mappings keep applying across snapshot re-obfuscation without silent wrong remaps.
+- Manual-sync contracts are now enforced as a stable cross-phase bridge:
+  - `shared/manual-sync/symbol-name-overrides.json` is consumed by naming-memory stage,
+  - `shared/manual-sync/module-path-overrides.json` is consumed by template-emitter planning,
+  - generator emits `runtime/manual-sync-index.json` for sync-back mapping,
+  - `manual-sync:export` + `manual-sync:validate` support deterministic import/export workflow.
+  Verified reason: manual-first refactor can continuously feed improvements back into generator mappings without losing decisions on snapshot updates.
+- Manual-sync export now includes stronger domain contract scope:
+  - `module-surface-overrides.json` (export surface + owner layer) is generated/validated alongside symbol/path overrides,
+  - export can consume `merged-evidence.json` for strict top-N promotion (`selected != currentName` only),
+  - stale cleanup removes outdated override entries against current snapshot with fingerprint-based rekey when unambiguous.
+  Verified reason: keeps manual-sync contracts aligned with snapshot drift while preserving deterministic, fail-fast behavior.
+- Regression cycles now enforce transition-ready KPI/stop discipline for manual-first handoff:
+  - KPI gate targets: class/function/function-class coverage `=1.0`, variables `>=0.5`, hot-focus range `5..10`, build/dev green,
+  - stop-rule stagnation now tracks quality + nameQuality + high-confidence deltas,
+  - stagnation freeze writes `shared/manual-sync/manual-first-freeze.json` and blocks new cycles unless `--allow-after-freeze`.
+  Verified reason: automates transition from generator-iteration to manual-first mode without silent drift.

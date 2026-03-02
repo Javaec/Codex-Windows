@@ -21,6 +21,23 @@ const FORBIDDEN_TECHNICAL_SOURCE_PREFIXES = [
   "src/runtime/",
   "src/services/store/runtime/",
 ] as const;
+const STRUCTURE_ALLOWLIST_ROOT_FILES = new Set<string>([
+  "src/main.tsx",
+  "src/app.tsx",
+  "src/index.css",
+  "src/types.ts",
+  "src/vite-env.d.ts",
+  "src/env.d.ts",
+]);
+const TECHNICAL_SEGMENT_BLOCKLIST = new Set<string>([
+  "runtime",
+  "chunks",
+  "chunk",
+  "artifacts",
+  "sources",
+  "bridges",
+  "bridge",
+]);
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
@@ -102,6 +119,59 @@ function validateNoTechnicalLayerInSource(files: string[]): string[] {
         violations.push(`technical layer is not allowed in source tree: ${relativePath}`);
         break;
       }
+    }
+  }
+  return violations;
+}
+
+function validateStrictDomainSourceStructure(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    const normalized = relativePath.replace(/\\/g, "/");
+    const lower = normalized.toLowerCase();
+    if (STRUCTURE_ALLOWLIST_ROOT_FILES.has(lower)) {
+      continue;
+    }
+    if (lower.startsWith("src/main/lib/")) {
+      continue;
+    }
+    if (lower.startsWith("src/renderer/features/")) {
+      continue;
+    }
+    if (lower.startsWith("src/services/")) {
+      continue;
+    }
+    if (lower.startsWith("src-tauri-adapter/")) {
+      continue;
+    }
+    if (lower.startsWith("assets/")) {
+      continue;
+    }
+    if (!lower.startsWith("src/") && !lower.startsWith("src-tauri-adapter/")) {
+      continue;
+    }
+    violations.push(`strict structural gate blocked non-domain source path: ${relativePath}`);
+  }
+  return violations;
+}
+
+function validateTechnicalSegmentsInDomainPaths(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    if (!isQualitySourceModule(relativePath)) {
+      continue;
+    }
+    const segments = relativePath
+      .replace(/\\/g, "/")
+      .toLowerCase()
+      .split("/")
+      .map((segment) => segment.replace(/\.[^.]+$/, ""));
+    for (const segment of segments) {
+      if (!TECHNICAL_SEGMENT_BLOCKLIST.has(segment)) {
+        continue;
+      }
+      violations.push(`strict structural gate blocked technical segment in domain path: ${relativePath}`);
+      break;
     }
   }
   return violations;
@@ -273,6 +343,8 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
   violations.push(...validateNoTechnicalLayerInSource(emittedFilesIndex.files));
+  violations.push(...validateStrictDomainSourceStructure(emittedFilesIndex.files));
+  violations.push(...validateTechnicalSegmentsInDomainPaths(emittedFilesIndex.files));
   violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
   if (input.validationMode === "full") {
     violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));

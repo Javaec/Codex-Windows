@@ -9,6 +9,14 @@ import { isGenericName, scoreNameQuality } from "../ir/name-quality";
 import { SemanticIrModel } from "../ir/semantic-ir";
 import { buildMonolithLayoutHintMaps, MonolithLayoutHintsModel } from "../ir/monolith-layout";
 import { buildAstLiftResult, LiftedChunkArtifact, LiftedSymbolBinding } from "../lift/ast-lift";
+import {
+  ManualSyncSymbolFingerprint,
+  inferArchetypeFromModuleFilePath,
+  inferLayerFromModuleFilePath,
+  normalizeModuleFilePath,
+  readManualSyncModulePathOverrides,
+} from "../manual-sync/contracts";
+import { buildManualSyncSymbolFingerprint, resolveSymbolByManualFingerprint } from "../manual-sync/fingerprint";
 import { ensureCleanDirectory, ensureDirectory, readJsonFile } from "../utils/fs-json";
 import { resolveReferenceAnchoredDirectory } from "./reference-path-map";
 
@@ -19,6 +27,11 @@ export interface TemplateEmitResult {
   fileQualityReportPath: string;
   rerenderedModuleCount: number;
   hotChunkCount: number;
+  manualSyncModulePathAppliedCount: number;
+  manualSyncModulePathRejectedCount: number;
+  manualSyncModulePathConflictResolvedCount: number;
+  manualSyncModulePathFingerprintResolvedCount: number;
+  manualSyncModulePathAppliedReportPath?: string;
 }
 
 interface ModulePlan {
@@ -75,9 +88,18 @@ interface EmittedAssetFile {
   content: string;
 }
 
+interface ModuleSymbolExportEntry {
+  symbolKey: string;
+  exportName: string;
+  localIdentifier: string;
+  chunkId: string;
+  sourceIdentifier: string;
+}
+
 interface QualityModuleBuildResult {
   content: string;
   assetFiles: EmittedAssetFile[];
+  symbolExports: ModuleSymbolExportEntry[];
 }
 
 interface ManualRefactorCandidate {
@@ -94,6 +116,49 @@ interface ManualHotTargets {
   criticalHotFilePaths: Set<string>;
 }
 
+interface ManualModulePathOverridePlacement {
+  inputSymbolKey: string;
+  symbolKey: string;
+  filePath: string;
+  layer?: LayerId;
+  archetype?: ArchetypeId;
+  topic?: string;
+  confidence: number;
+  resolution: "symbol-key" | "fingerprint";
+  resolutionScore: number;
+  resolutionSecondBestScore: number;
+}
+
+interface ManualModulePathOverrideRejected {
+  inputSymbolKey: string;
+  filePath: string;
+  reason: string;
+}
+
+interface ManualModulePathOverrideLoadResult {
+  overridesBySymbolKey: Map<string, ManualModulePathOverridePlacement>;
+  applied: ManualModulePathOverridePlacement[];
+  rejected: ManualModulePathOverrideRejected[];
+  sourcePath?: string;
+}
+
+interface ManualSyncSymbolExportEntry {
+  symbolKey: string;
+  exportName: string;
+  localIdentifier: string;
+  chunkId: string;
+  sourceIdentifier: string;
+  symbolFingerprint: ManualSyncSymbolFingerprint;
+}
+
+interface ManualSyncModuleExportIndexEntry {
+  moduleId: string;
+  layer: LayerId;
+  archetype: ArchetypeId;
+  filePath: string;
+  symbolExports: ManualSyncSymbolExportEntry[];
+}
+
 const GENERIC_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const LAYER_ORDER: LayerId[] = ["main", "renderer", "services", "tauri"];
 const ARCHETYPE_ORDER: ArchetypeId[] = ["hook", "service", "ui", "transport", "store"];
@@ -102,12 +167,13 @@ const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const HOT_FIRST_REGENERATION_ENABLED = true;
-const HOT_FIRST_MIN_TARGET_FILES = 10;
+const HOT_FIRST_MIN_TARGET_FILES = 5;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 1;
 const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 10;
 const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE = 10;
 const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER = 9;
+const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE = 8;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
 const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
 const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
@@ -145,6 +211,19 @@ const HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION = 1;
 const HOT_STORE_SHARD_BODY_EXTRACTION_STRICT_PASSES = 2;
 const HOT_STORE_SHARD_BODY_EXTRACTION_PRIMARY_PASSES = 4;
 const HOT_STORE_SHARD_BODY_EXTRACTION_G002_PASSES = 8;
+const HOT_TOP_WORST_DEPENDENCY_MIN_LINES = 20;
+const HOT_TOP_WORST_RUNTIME_MIN_LINES = 18;
+const HOT_TOP_WORST_DEPENDENCY_CLUSTER_MAX_MODULES = 8;
+const HOT_TOP_WORST_RUNTIME_CLUSTER_MAX_MODULES = 6;
+const HOT_TOP_WORST_DEPENDENCY_CLOSURE_MAX_STATEMENTS = 220;
+const HOT_TOP_WORST_RUNTIME_CLUSTER_MAX_STATEMENTS = 160;
+const HOT_TOP_WORST_CLUSTER_EXTRACTION_PASSES = 8;
+const HOT_TOP_WORST_BODY_EXTRACTION_MIN_FUNCTION_LINES = 12;
+const HOT_TOP_WORST_BODY_EXTRACTION_MIN_CLUSTER_LINES = 8;
+const HOT_TOP_WORST_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS = 24;
+const HOT_TOP_WORST_BODY_EXTRACTION_MAX_OUTPUTS = 8;
+const HOT_TOP_WORST_BODY_EXTRACTION_MAX_PER_FUNCTION = 3;
+const HOT_TOP_WORST_BODY_EXTRACTION_PASSES = 6;
 const SYMBOL_EXPORT_MIN_QUALITY = 0.74;
 const NOISE_NAME_TOKENS = new Set<string>(["module", "symbol", "entry"]);
 const SIGNAL_TOKEN_STOPWORDS = new Set<string>([
@@ -1577,37 +1656,243 @@ function splitTopicSymbols(symbols: OwnershipRecord[], chunkBudget: number, arch
   return splitBalanced(symbols, targetPartCount);
 }
 
+async function loadManualModulePathOverrides(
+  manualSyncModulePathOverridesPath: string | undefined,
+  semanticIr: SemanticIrModel,
+): Promise<ManualModulePathOverrideLoadResult> {
+  const overridesBySymbolKey = new Map<string, ManualModulePathOverridePlacement>();
+  const applied: ManualModulePathOverridePlacement[] = [];
+  const rejected: ManualModulePathOverrideRejected[] = [];
+  const emptyResult: ManualModulePathOverrideLoadResult = {
+    overridesBySymbolKey,
+    applied,
+    rejected,
+    sourcePath: undefined,
+  };
+  if (!manualSyncModulePathOverridesPath || manualSyncModulePathOverridesPath.length < 1) {
+    return emptyResult;
+  }
+  const model = await readManualSyncModulePathOverrides(manualSyncModulePathOverridesPath);
+  if (!model) {
+    return emptyResult;
+  }
+  const semanticSymbolKeys = new Set(semanticIr.symbols.map((symbol) => symbol.symbolKey));
+  const declarationFingerprintsBySymbolKey = new Map(
+    semanticIr.declarationFingerprints.map((fingerprint) => [
+      fingerprint.symbolKey,
+      buildManualSyncSymbolFingerprint(fingerprint),
+    ]),
+  );
+  const claimedSymbolKeys = new Set<string>();
+  for (const entry of model.overrides) {
+    if (!entry || entry.enabled === false) {
+      continue;
+    }
+    const inputSymbolKey = typeof entry.symbolKey === "string" ? entry.symbolKey.trim() : "";
+    if (inputSymbolKey.length < 1) {
+      throw new Error(`loadManualModulePathOverrides: missing symbolKey in ${manualSyncModulePathOverridesPath}`);
+    }
+    const rawFilePath = typeof entry.filePath === "string" ? entry.filePath.trim() : "";
+    if (rawFilePath.length < 1) {
+      throw new Error(`loadManualModulePathOverrides: missing filePath for ${inputSymbolKey}`);
+    }
+    const normalizedFilePath = normalizeModuleFilePath(rawFilePath);
+    const inferredLayer = inferLayerFromModuleFilePath(normalizedFilePath);
+    const inferredArchetype = inferArchetypeFromModuleFilePath(normalizedFilePath);
+    if (entry.layer && inferredLayer && entry.layer !== inferredLayer) {
+      throw new Error(
+        `loadManualModulePathOverrides: layer mismatch for ${inputSymbolKey}: entry=${entry.layer} inferred=${inferredLayer} path=${normalizedFilePath}`,
+      );
+    }
+    if (entry.archetype && inferredArchetype && entry.archetype !== inferredArchetype) {
+      throw new Error(
+        `loadManualModulePathOverrides: archetype mismatch for ${inputSymbolKey}: entry=${entry.archetype} inferred=${inferredArchetype} path=${normalizedFilePath}`,
+      );
+    }
+    let resolvedSymbolKey = inputSymbolKey;
+    let resolution: ManualModulePathOverridePlacement["resolution"] = "symbol-key";
+    let resolutionScore = 1;
+    let resolutionSecondBestScore = 0;
+    if (!semanticSymbolKeys.has(inputSymbolKey)) {
+      if (!entry.symbolFingerprint) {
+        rejected.push({
+          inputSymbolKey,
+          filePath: normalizedFilePath,
+          reason: "missing-symbol-and-fingerprint",
+        });
+        continue;
+      }
+      const fingerprintResolution = resolveSymbolByManualFingerprint(
+        entry.symbolFingerprint,
+        declarationFingerprintsBySymbolKey,
+        claimedSymbolKeys,
+        0.74,
+        0.05,
+      );
+      if (!fingerprintResolution) {
+        rejected.push({
+          inputSymbolKey,
+          filePath: normalizedFilePath,
+          reason: "fingerprint-no-unique-match",
+        });
+        continue;
+      }
+      resolvedSymbolKey = fingerprintResolution.symbolKey;
+      resolution = "fingerprint";
+      resolutionScore = fingerprintResolution.score;
+      resolutionSecondBestScore = fingerprintResolution.secondBestScore;
+    }
+    if (claimedSymbolKeys.has(resolvedSymbolKey)) {
+      rejected.push({
+        inputSymbolKey,
+        filePath: normalizedFilePath,
+        reason: "resolved-symbol-already-claimed",
+      });
+      continue;
+    }
+    claimedSymbolKeys.add(resolvedSymbolKey);
+    const placement: ManualModulePathOverridePlacement = {
+      inputSymbolKey,
+      symbolKey: resolvedSymbolKey,
+      filePath: normalizedFilePath,
+      layer: entry.layer ?? inferredLayer,
+      archetype: entry.archetype ?? inferredArchetype,
+      topic:
+        typeof entry.topic === "string" && entry.topic.trim().length > 0
+          ? sanitizeSegment(entry.topic.trim(), "domain")
+          : undefined,
+      confidence: Math.max(0, Math.min(1, entry.confidence)),
+      resolution,
+      resolutionScore,
+      resolutionSecondBestScore,
+    };
+    overridesBySymbolKey.set(resolvedSymbolKey, placement);
+    applied.push(placement);
+  }
+  return {
+    overridesBySymbolKey,
+    applied: applied.sort((left, right) => left.symbolKey.localeCompare(right.symbolKey)),
+    rejected: rejected.sort((left, right) => left.inputSymbolKey.localeCompare(right.inputSymbolKey)),
+    sourcePath: manualSyncModulePathOverridesPath,
+  };
+}
+
+function resolveSymbolFingerprintMap(
+  semanticIr: SemanticIrModel,
+): Map<string, ManualSyncSymbolFingerprint> {
+  const bySymbolKey = new Map<string, ManualSyncSymbolFingerprint>();
+  for (const fingerprint of semanticIr.declarationFingerprints) {
+    bySymbolKey.set(fingerprint.symbolKey, buildManualSyncSymbolFingerprint(fingerprint));
+  }
+  return bySymbolKey;
+}
+
+function buildManualSyncSymbolExportEntries(
+  symbolExports: readonly ModuleSymbolExportEntry[],
+  symbolFingerprintByKey: ReadonlyMap<string, ManualSyncSymbolFingerprint>,
+): ManualSyncSymbolExportEntry[] {
+  const entries: ManualSyncSymbolExportEntry[] = [];
+  for (const entry of symbolExports) {
+    const symbolFingerprint = symbolFingerprintByKey.get(entry.symbolKey);
+    if (!symbolFingerprint) {
+      throw new Error(`buildManualSyncSymbolExportEntries: missing declaration fingerprint for ${entry.symbolKey}`);
+    }
+    entries.push({
+      symbolKey: entry.symbolKey,
+      exportName: entry.exportName,
+      localIdentifier: entry.localIdentifier,
+      chunkId: entry.chunkId,
+      sourceIdentifier: entry.sourceIdentifier,
+      symbolFingerprint,
+    });
+  }
+  return entries;
+}
+
 function buildModulePlans(
   ownershipModel: OwnershipModel,
   statementBudget: number,
   renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
   monolithTopicHints: MonolithTopicHints,
+  modulePathOverridesBySymbolKey: ReadonlyMap<string, ManualModulePathOverridePlacement>,
 ): ModulePlan[] {
-  const buckets = new Map<string, OwnershipRecord[]>();
+  interface ModulePlanBucket {
+    layer: LayerId;
+    archetype: ArchetypeId;
+    topic: string;
+    manualFilePath?: string;
+    symbols: OwnershipRecord[];
+  }
+  const buckets = new Map<string, ModulePlanBucket>();
   const sortedSymbols = [...ownershipModel.symbols].sort((left, right) => left.symbolKey.localeCompare(right.symbolKey));
   for (const symbol of sortedSymbols) {
     assertArchetypeLayerCompatibility(symbol.layer, symbol.archetype, symbol.symbolKey);
-    const topic = topicSegmentForSymbol(symbol, renameHintsBySymbolKey, monolithTopicHints);
-    const key = `${symbol.layer}::${symbol.archetype}::${topic}`;
+    const override = modulePathOverridesBySymbolKey.get(symbol.symbolKey);
+    let layer = symbol.layer;
+    let archetype = symbol.archetype;
+    let topic = topicSegmentForSymbol(symbol, renameHintsBySymbolKey, monolithTopicHints);
+    let manualFilePath: string | undefined;
+    if (override) {
+      if (override.layer) {
+        layer = override.layer;
+      }
+      if (override.archetype) {
+        archetype = override.archetype;
+      }
+      if (override.filePath.length > 0) {
+        manualFilePath = override.filePath;
+        const inferredLayer = inferLayerFromModuleFilePath(manualFilePath);
+        if (inferredLayer) {
+          layer = inferredLayer;
+        }
+        const inferredArchetype = inferArchetypeFromModuleFilePath(manualFilePath);
+        if (inferredArchetype) {
+          archetype = inferredArchetype;
+        }
+        topic = sanitizeSegment(
+          override.topic && override.topic.length > 0
+            ? override.topic
+            : topicSegmentFromFilePath(manualFilePath, archetype),
+          fallbackTopicByArchetype(archetype),
+        );
+      } else if (override.topic && override.topic.length > 0) {
+        topic = sanitizeSegment(override.topic, fallbackTopicByArchetype(archetype));
+      }
+      assertArchetypeLayerCompatibility(layer, archetype, symbol.symbolKey);
+    }
+    const key = manualFilePath
+      ? `${layer}::${archetype}::manual::${manualFilePath.toLowerCase()}`
+      : `${layer}::${archetype}::${topic}`;
     const existing = buckets.get(key);
     if (existing) {
-      existing.push(symbol);
+      existing.symbols.push(symbol);
       continue;
     }
-    buckets.set(key, [symbol]);
+    buckets.set(key, {
+      layer,
+      archetype,
+      topic,
+      manualFilePath,
+      symbols: [symbol],
+    });
   }
 
   const plans: ModulePlan[] = [];
   for (const layer of LAYER_ORDER) {
     for (const archetype of ARCHETYPE_ORDER) {
-      const groupedByTopic = [...buckets.entries()]
-        .filter(([key]) => key.startsWith(`${layer}::${archetype}::`))
-        .sort(([left], [right]) => left.localeCompare(right));
-      for (const [topicKey, symbols] of groupedByTopic) {
+      const groupedByTopic = [...buckets.values()]
+        .filter((bucket) => bucket.layer === layer && bucket.archetype === archetype)
+        .sort((left, right) => {
+          const leftKey = left.manualFilePath ?? left.topic;
+          const rightKey = right.manualFilePath ?? right.topic;
+          return leftKey.localeCompare(rightKey);
+        });
+      for (const bucket of groupedByTopic) {
+        const symbols = bucket.symbols;
         if (symbols.length === 0) {
           continue;
         }
-        const topic = topicKey.split("::")[2] ?? fallbackTopicByArchetype(archetype);
+        const topic = bucket.topic;
         const byName = [...symbols].sort((left, right) => left.symbolName.localeCompare(right.symbolName));
         const chunkBudget = statementBudgetForArchetype(archetype, statementBudget);
         const chunks = splitTopicSymbols(byName, chunkBudget, archetype);
@@ -1618,17 +1903,23 @@ function buildModulePlans(
           }
           const hasMultipleParts = chunks.length > 1;
           const partSuffix = hasMultipleParts ? `-part-${String(partIndex + 1).padStart(3, "0")}` : "";
-          const moduleFileName = buildModuleFileName(archetype, topic, partSuffix);
           const modulePartId = hasMultipleParts ? `:part-${String(partIndex + 1).padStart(3, "0")}` : "";
-          const referenceAnchoredDirectory = resolveReferenceAnchoredDirectory(layer, archetype, topic);
+          const moduleFilePath = bucket.manualFilePath
+            ? hasMultipleParts
+              ? bucket.manualFilePath.replace(/\.ts$/, `${partSuffix}.ts`)
+              : bucket.manualFilePath
+            : `${resolveReferenceAnchoredDirectory(layer, archetype, topic)}/${buildModuleFileName(archetype, topic, partSuffix)}.ts`;
+          const manualModuleIdTag = bucket.manualFilePath
+            ? `:manual-${shortStableHash(bucket.manualFilePath).slice(0, 8)}`
+            : "";
           plans.push({
             layer,
             archetype,
             clusterId: topic,
             topic,
-            moduleId: `${layer}:${archetype}:${topic}${modulePartId}`,
+            moduleId: `${layer}:${archetype}:${topic}${manualModuleIdTag}${modulePartId}`,
             symbols: partSymbols,
-            filePath: `${referenceAnchoredDirectory}/${moduleFileName}.ts`,
+            filePath: moduleFilePath,
             hotPriority: false,
           });
         }
@@ -2978,6 +3269,7 @@ function buildQualityModuleContent(
   }
 
   interface ExportEntry {
+    symbolKey: string;
     exportName: string;
     chunkId: string;
     sourceIdentifier: string;
@@ -3120,8 +3412,12 @@ function buildQualityModuleContent(
   const targetedHotServiceModule = criticalTopWorstModule && plan.archetype === "service";
   const targetedHotWorstStoreServiceModule =
     criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store");
+  const hotFocusedStoreServiceModule = hotFocusModule && (plan.archetype === "service" || plan.archetype === "store");
+  const hotFocusedRendererStoreModule = hotFocusModule && plan.layer === "renderer" && plan.archetype === "store";
+  const targetedHotRendererStoreModule = criticalTopWorstModule && plan.layer === "renderer" && plan.archetype === "store";
   const fullLiftFocusedStoreServiceModule =
-    targetedHotWorstStoreServiceModule || (targetedQualityShardModule && plan.archetype === "store");
+    hotFocusedStoreServiceModule || (targetedQualityShardModule && plan.archetype === "store");
+  const targetedHotAggressiveExtractionModule = hotFocusedStoreServiceModule;
   const targetedHotCriticalStoreServiceModule =
     criticalTopWorstModule && /(?:^|\/)(?:store-state-g002|service-run)\.ts$/i.test(normalizedHotFilePath);
   const targetedHotLocalRenameEnabled =
@@ -3210,6 +3506,30 @@ function buildQualityModuleContent(
     /(?:EventFlowNode|Abnormal(?:Exit)?|NneTne|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSieLocal[A-Za-z0-9]{2,}|(?:store|service)(?:[A-Z][a-z]{2}){2,}Local[A-Za-z0-9]{2,}|[a-z]Qe[A-Za-z0-9]{2,})/i;
   const targetedHotDomainNoisePattern =
     /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSie/i;
+  const resolveTopWorstNamespaceTarget = (): number => {
+    if (strictTargetedQualityShardModule) {
+      return 6;
+    }
+    if (!criticalTopWorstModule && !hotFocusedRendererStoreModule) {
+      return 10;
+    }
+    if (targetedHotRendererStoreModule) {
+      return 8;
+    }
+    if (hotFocusedRendererStoreModule) {
+      return 9;
+    }
+    if (targetedHotServiceModule) {
+      return 8;
+    }
+    if (targetedHotStoreG003Module) {
+      return 9;
+    }
+    if (targetedHotWorstStoreServiceModule) {
+      return 9;
+    }
+    return 9;
+  };
   const maxConsonantRunLength = (token: string): number => {
     let best = 0;
     let current = 0;
@@ -6220,44 +6540,58 @@ function buildQualityModuleContent(
     return diagnostics.every((diagnostic) => diagnostic.category !== ts.DiagnosticCategory.Error);
   };
   const applyTargetedStoreShardFunctionBodyClusterExtraction = (content: string): string => {
-    if (!strictTargetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    const strictStoreShardBodyExtraction = strictTargetedQualityShardModule && plan.archetype === "store";
+    const hotWorstBodyExtraction = targetedHotAggressiveExtractionModule;
+    if ((!strictStoreShardBodyExtraction && !hotWorstBodyExtraction) || content.length < 1) {
       return content;
     }
     const strictPrimaryBodyExtraction = strictPrimaryStoreQualityShardModule;
     const strictG002BodyExtraction = strictG002StoreQualityShardModule;
-    const bodyMinFunctionLines = strictTargetedQualityShardModule
+    const bodyMinFunctionLines = strictStoreShardBodyExtraction
       ? strictPrimaryBodyExtraction
         ? Math.max(8, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_FUNCTION_LINES - 10)
         : strictG002BodyExtraction
           ? Math.max(9, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_FUNCTION_LINES - 10)
           : Math.max(12, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_FUNCTION_LINES - 6)
-      : HOT_STORE_SHARD_BODY_EXTRACTION_MIN_FUNCTION_LINES;
-    const bodyMinClusterLines = strictTargetedQualityShardModule
+      : hotWorstBodyExtraction
+        ? HOT_TOP_WORST_BODY_EXTRACTION_MIN_FUNCTION_LINES
+        : HOT_STORE_SHARD_BODY_EXTRACTION_MIN_FUNCTION_LINES;
+    const bodyMinClusterLines = strictStoreShardBodyExtraction
       ? strictPrimaryBodyExtraction
         ? Math.max(6, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_CLUSTER_LINES - 8)
         : strictG002BodyExtraction
           ? Math.max(6, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_CLUSTER_LINES - 8)
           : Math.max(8, HOT_STORE_SHARD_BODY_EXTRACTION_MIN_CLUSTER_LINES - 4)
-      : HOT_STORE_SHARD_BODY_EXTRACTION_MIN_CLUSTER_LINES;
-    const bodyMaxOutputs = strictTargetedQualityShardModule
+      : hotWorstBodyExtraction
+        ? HOT_TOP_WORST_BODY_EXTRACTION_MIN_CLUSTER_LINES
+        : HOT_STORE_SHARD_BODY_EXTRACTION_MIN_CLUSTER_LINES;
+    const bodyMaxOutputs = strictStoreShardBodyExtraction
       ? strictPrimaryBodyExtraction
         ? Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_OUTPUTS, 14)
         : strictG002BodyExtraction
           ? Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_OUTPUTS, 10)
           : Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_OUTPUTS, 6)
-      : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_OUTPUTS;
-    const bodyMaxPerFunction = strictTargetedQualityShardModule
+      : hotWorstBodyExtraction
+        ? HOT_TOP_WORST_BODY_EXTRACTION_MAX_OUTPUTS
+        : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_OUTPUTS;
+    const bodyMaxPerFunction = strictStoreShardBodyExtraction
       ? strictPrimaryBodyExtraction
         ? Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION, 5)
         : strictG002BodyExtraction
           ? Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION, 3)
           : Math.max(HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION, 2)
-      : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION;
-    const allowNonRuntimeClusters = strictTargetedQualityShardModule;
-    const bodyMaxClusterStatements = strictPrimaryBodyExtraction
-      ? HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS + 14
-      : strictG002BodyExtraction
-        ? HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS + 8
+      : hotWorstBodyExtraction
+        ? HOT_TOP_WORST_BODY_EXTRACTION_MAX_PER_FUNCTION
+        : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_PER_FUNCTION;
+    const allowNonRuntimeClusters = strictStoreShardBodyExtraction || hotWorstBodyExtraction;
+    const bodyMaxClusterStatements = strictStoreShardBodyExtraction
+      ? strictPrimaryBodyExtraction
+        ? HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS + 14
+        : strictG002BodyExtraction
+          ? HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS + 8
+          : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS
+      : hotWorstBodyExtraction
+        ? HOT_TOP_WORST_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS
         : HOT_STORE_SHARD_BODY_EXTRACTION_MAX_CLUSTER_STATEMENTS;
     const sourceFile = ts.createSourceFile(
       `${plan.moduleId}.ts`,
@@ -6733,14 +7067,18 @@ function buildQualityModuleContent(
     );
   };
   const applyTargetedStoreShardFunctionBodyClusterExtractionSweep = (content: string): string => {
-    if (!strictTargetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    const strictStoreShardBodyExtraction = strictTargetedQualityShardModule && plan.archetype === "store";
+    const hotWorstBodyExtraction = targetedHotAggressiveExtractionModule;
+    if ((!strictStoreShardBodyExtraction && !hotWorstBodyExtraction) || content.length < 1) {
       return content;
     }
-    const passCount = strictPrimaryStoreQualityShardModule
-      ? HOT_STORE_SHARD_BODY_EXTRACTION_PRIMARY_PASSES
-      : strictG002StoreQualityShardModule
-        ? HOT_STORE_SHARD_BODY_EXTRACTION_G002_PASSES
-        : HOT_STORE_SHARD_BODY_EXTRACTION_STRICT_PASSES;
+    const passCount = strictStoreShardBodyExtraction
+      ? strictPrimaryStoreQualityShardModule
+        ? HOT_STORE_SHARD_BODY_EXTRACTION_PRIMARY_PASSES
+        : strictG002StoreQualityShardModule
+          ? HOT_STORE_SHARD_BODY_EXTRACTION_G002_PASSES
+          : HOT_STORE_SHARD_BODY_EXTRACTION_STRICT_PASSES
+      : HOT_TOP_WORST_BODY_EXTRACTION_PASSES;
     let next = content;
     for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
       const rewritten = applyTargetedStoreShardFunctionBodyClusterExtraction(next);
@@ -6752,9 +7090,12 @@ function buildQualityModuleContent(
     return next;
   };
   const enforceTargetedStoreShardFunctionLengthCap = (content: string): string => {
-    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    if ((!targetedQualityShardModule && !targetedHotAggressiveExtractionModule) || content.length < 1) {
       return content;
     }
+    const functionMaxLines = targetedHotAggressiveExtractionModule
+      ? Math.min(HOT_STORE_SHARD_FUNCTION_MAX_LINES, 1100)
+      : HOT_STORE_SHARD_FUNCTION_MAX_LINES;
     const source = ts.createSourceFile(
       `${plan.moduleId}.ts`,
       content,
@@ -6766,7 +7107,7 @@ function buildQualityModuleContent(
     for (const statement of source.statements) {
       if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
         const lineCount = countNodeLines(statement, source);
-        if (lineCount > HOT_STORE_SHARD_FUNCTION_MAX_LINES) {
+        if (lineCount > functionMaxLines) {
           violations.push(`${statement.name.text}:${lineCount}`);
         }
         continue;
@@ -6782,7 +7123,7 @@ function buildQualityModuleContent(
           continue;
         }
         const lineCount = countNodeLines(declaration.initializer, source);
-        if (lineCount > HOT_STORE_SHARD_FUNCTION_MAX_LINES) {
+        if (lineCount > functionMaxLines) {
           violations.push(`${declaration.name.text}:${lineCount}`);
         }
       }
@@ -6795,7 +7136,7 @@ function buildQualityModuleContent(
     return content;
   };
   const applyTargetedStoreShardLongFunctionClusterSplit = (content: string): string => {
-    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    if ((!targetedQualityShardModule && !targetedHotAggressiveExtractionModule) || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -6882,10 +7223,7 @@ function buildQualityModuleContent(
         `${shardBaseStem}-cluster-${String(groupIndex + 1).padStart(2, "0")}`,
       );
       const helperAbsolutePath = path.join(
-        outputProjectDirectory,
-        "src",
-        "services",
-        "store",
+        path.dirname(moduleAbsolutePath),
         "helpers",
         `${helperStem}.ts`,
       );
@@ -6972,7 +7310,7 @@ function buildQualityModuleContent(
     return rewritten;
   };
   const applyTargetedStoreShardDomainHelperHoist = (content: string): string => {
-    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    if ((!targetedQualityShardModule && !targetedHotAggressiveExtractionModule) || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -6996,7 +7334,9 @@ function buildQualityModuleContent(
       }
       const name = statement.name.text;
       const runtimeLike =
-        /^(?:store)(?:Runtime|Core|Architecture|Agent|Page|Arc|Apl|Angular|Base|Clone|Cytoscape|Treemap)/.test(name) ||
+        /^(?:store|service|renderer)(?:Runtime|Core|Architecture|Agent|Page|Arc|Apl|Angular|Base|Clone|Cytoscape|Treemap|Parser|Vendor)/.test(
+          name,
+        ) ||
         scoreNameQuality(name) < HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD;
       if (!runtimeLike) {
         continue;
@@ -7022,7 +7362,7 @@ function buildQualityModuleContent(
     const selectedSet = new Set<ts.Statement>(selectedHelpers);
     const shardBaseStem = sanitizeSegment(path.basename(normalizedHotFilePath, ".ts"), "store-shard");
     const helperStem = sanitizeSegment(`${shardBaseStem}-domain-helpers`, `${shardBaseStem}-helpers`);
-    const helperAbsolutePath = path.join(outputProjectDirectory, "src", "services", "store", "helpers", `${helperStem}.ts`);
+    const helperAbsolutePath = path.join(path.dirname(moduleAbsolutePath), "helpers", `${helperStem}.ts`);
     const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
     const helperPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
     const helperStatements = selectedHelpers
@@ -7130,7 +7470,11 @@ function buildQualityModuleContent(
   };
   const isStoreShardRuntimeLikeName = (name: string): boolean => {
     const normalized = name.toLowerCase();
-    if (/^(?:store)(?:runtime|core|architecture|agent|page|arc|apl|angular|base|clone|cytoscape|treemap)/.test(name)) {
+    if (
+      /^(?:store|service|renderer)(?:runtime|core|architecture|agent|page|arc|apl|angular|base|clone|cytoscape|treemap|parser|vendor)/i.test(
+        name,
+      )
+    ) {
       return true;
     }
     if (
@@ -7257,9 +7601,10 @@ function buildQualityModuleContent(
     mode: "dependency-closure" | "runtime-quarantine",
     passTag: string,
   ): string => {
-    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    if ((!targetedQualityShardModule && !targetedHotAggressiveExtractionModule) || content.length < 1) {
       return content;
     }
+    const hotWorstExtraction = targetedHotAggressiveExtractionModule;
     const sourceFile = ts.createSourceFile(
       `${plan.moduleId}.ts`,
       content,
@@ -7309,10 +7654,14 @@ function buildQualityModuleContent(
         : strictG002StoreQualityShardModule
           ? HOT_STORE_SHARD_DEPENDENCY_G002_MIN_LINES
           : HOT_STORE_SHARD_DEPENDENCY_STRICT_MIN_LINES
-      : HOT_STORE_SHARD_LONG_FUNCTION_LINES;
+      : hotWorstExtraction
+        ? HOT_TOP_WORST_DEPENDENCY_MIN_LINES
+        : HOT_STORE_SHARD_LONG_FUNCTION_LINES;
     const runtimeMinLines = strictTargetedQualityShardModule
       ? HOT_STORE_SHARD_RUNTIME_STRICT_MIN_LINES
-      : HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES;
+      : hotWorstExtraction
+        ? HOT_TOP_WORST_RUNTIME_MIN_LINES
+        : HOT_STORE_SHARD_RUNTIME_CLUSTER_MIN_LINES;
     const maxClusters =
       mode === "dependency-closure"
         ? strictTargetedQualityShardModule
@@ -7321,10 +7670,14 @@ function buildQualityModuleContent(
             : strictG002StoreQualityShardModule
               ? HOT_STORE_SHARD_DEPENDENCY_G002_MAX_MODULES
             : HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_MODULES
-          : HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES
+          : hotWorstExtraction
+            ? HOT_TOP_WORST_DEPENDENCY_CLUSTER_MAX_MODULES
+            : HOT_STORE_SHARD_DEPENDENCY_CLUSTER_MAX_MODULES
         : strictTargetedQualityShardModule
           ? HOT_STORE_SHARD_RUNTIME_STRICT_MAX_MODULES
-          : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES;
+          : hotWorstExtraction
+            ? HOT_TOP_WORST_RUNTIME_CLUSTER_MAX_MODULES
+            : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_MODULES;
     const maxClosureStatements =
       mode === "dependency-closure"
         ? strictTargetedQualityShardModule
@@ -7333,10 +7686,14 @@ function buildQualityModuleContent(
             : strictG002StoreQualityShardModule
               ? HOT_STORE_SHARD_DEPENDENCY_G002_MAX_STATEMENTS
             : HOT_STORE_SHARD_DEPENDENCY_STRICT_MAX_STATEMENTS
-          : HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS
+          : hotWorstExtraction
+            ? HOT_TOP_WORST_DEPENDENCY_CLOSURE_MAX_STATEMENTS
+            : HOT_STORE_SHARD_DEPENDENCY_CLOSURE_MAX_STATEMENTS
         : strictTargetedQualityShardModule
           ? HOT_STORE_SHARD_RUNTIME_STRICT_MAX_STATEMENTS
-          : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS;
+          : hotWorstExtraction
+            ? HOT_TOP_WORST_RUNTIME_CLUSTER_MAX_STATEMENTS
+            : HOT_STORE_SHARD_RUNTIME_CLUSTER_MAX_STATEMENTS;
     const rootCandidates: ClusterRootCandidate[] = [];
     const pushRootCandidate = (
       statement: ts.Statement,
@@ -7555,7 +7912,10 @@ function buildQualityModuleContent(
         `${shardBaseStem}-${cluster.clusterKey}-${helperSuffix}`,
         `${shardBaseStem}-${helperSuffix}-${String(clusterIndex + 1).padStart(2, "0")}`,
       );
-      const runtimeDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "store");
+      const runtimeDirectory =
+        targetedQualityShardModule && plan.archetype === "store"
+          ? path.join(outputProjectDirectory, "artifacts", "runtime", "store")
+          : path.join(outputProjectDirectory, "artifacts", "runtime", "vendor", plan.layer, plan.archetype);
       const helperAbsolutePath = path.join(runtimeDirectory, `${helperStem}.ts`);
       const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
       const helperSource = ts.factory.updateSourceFile(sourceFile, [...helperImportStatements, ...exportedClusterStatements]);
@@ -7639,7 +7999,9 @@ function buildQualityModuleContent(
         : strictG002StoreQualityShardModule
           ? HOT_STORE_SHARD_CLUSTER_EXTRACTION_G002_PASSES
         : HOT_STORE_SHARD_CLUSTER_EXTRACTION_STRICT_PASSES
-      : HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES;
+      : targetedHotAggressiveExtractionModule
+        ? HOT_TOP_WORST_CLUSTER_EXTRACTION_PASSES
+        : HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES;
     for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
       const rewritten = applyStoreShardClusterExtraction(next, "dependency-closure", `p${String(passIndex + 1).padStart(2, "0")}`);
       if (rewritten === next) {
@@ -7657,7 +8019,9 @@ function buildQualityModuleContent(
         : strictG002StoreQualityShardModule
           ? HOT_STORE_SHARD_CLUSTER_EXTRACTION_G002_PASSES
         : HOT_STORE_SHARD_CLUSTER_EXTRACTION_STRICT_PASSES
-      : HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES;
+      : targetedHotAggressiveExtractionModule
+        ? HOT_TOP_WORST_CLUSTER_EXTRACTION_PASSES
+        : HOT_STORE_SHARD_CLUSTER_EXTRACTION_PASSES;
     for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
       const rewritten = applyStoreShardClusterExtraction(next, "runtime-quarantine", `p${String(passIndex + 1).padStart(2, "0")}`);
       if (rewritten === next) {
@@ -7670,7 +8034,7 @@ function buildQualityModuleContent(
   const applyTargetedStoreShardAggressiveExtractionSweep = (content: string): string => {
     const dependencyFirst = applyTargetedStoreShardDependencyClosureExtraction(content);
     const runtimeSweep = applyTargetedStoreShardRuntimeClusterQuarantine(dependencyFirst);
-    if (!strictTargetedQualityShardModule) {
+    if (!strictTargetedQualityShardModule && !targetedHotAggressiveExtractionModule) {
       return runtimeSweep;
     }
     return applyTargetedStoreShardDependencyClosureExtraction(runtimeSweep);
@@ -8103,13 +8467,7 @@ function buildQualityModuleContent(
         return new Set<string>();
       }
       const currentNamespaceCount = metadataByAlias.size;
-      const targetNamespaceCount = strictTargetedQualityShardModule
-        ? 6
-        : targetedHotServiceModule
-          ? 8
-          : targetedHotStoreG003Module
-            ? 9
-            : 10;
+      const targetNamespaceCount = resolveTopWorstNamespaceTarget();
       if (currentNamespaceCount <= targetNamespaceCount) {
         return new Set<string>();
       }
@@ -8392,13 +8750,7 @@ function buildQualityModuleContent(
         }
         namespaceImports.set(namedBindings.name.text, { modulePath: moduleSpecifier.text, statement });
       }
-      const targetNamespaceCount = strictTargetedQualityShardModule
-        ? 6
-        : targetedHotServiceModule
-          ? 8
-          : targetedHotStoreG003Module
-            ? 9
-            : 10;
+      const targetNamespaceCount = resolveTopWorstNamespaceTarget();
       if (namespaceImports.size <= targetNamespaceCount) {
         return contentText;
       }
@@ -10293,6 +10645,7 @@ function buildQualityModuleContent(
       chunkTopicTokensById,
     );
     exportEntries.push({
+      symbolKey: symbol.symbolKey,
       exportName,
       chunkId: liftBinding.chunkId,
       sourceIdentifier: liftBinding.sourceIdentifier,
@@ -11493,9 +11846,13 @@ function buildQualityModuleContent(
     }
   }
   const namespaceImportCount = (moduleContent.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
-  if (criticalTopWorstModule) {
+  if (criticalTopWorstModule || hotFocusedRendererStoreModule) {
     const namespaceImportCap =
-      plan.archetype === "service" || plan.archetype === "store"
+      targetedHotRendererStoreModule
+        ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE
+        : hotFocusedRendererStoreModule
+          ? Math.max(HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE, 12)
+        : plan.archetype === "service" || plan.archetype === "store"
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE
         : HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER;
     if (namespaceImportCount > namespaceImportCap) {
@@ -11504,9 +11861,17 @@ function buildQualityModuleContent(
       );
     }
   }
+  const symbolExports: ModuleSymbolExportEntry[] = canonicalizedExportEntries.map((entry) => ({
+    symbolKey: entry.symbolKey,
+    exportName: entry.exportName,
+    localIdentifier: entry.localIdentifier,
+    chunkId: entry.chunkId,
+    sourceIdentifier: entry.sourceIdentifier,
+  }));
   return {
     content: moduleContent,
     assetFiles,
+    symbolExports,
   };
 }
 
@@ -12693,6 +13058,8 @@ export async function emitTemplateProject(
   outputProjectDirectory: string,
   statementBudget: number,
   manualRefactorCandidatesPath?: string,
+  manualSyncModulePathOverridesPath?: string,
+  manualSyncModulePathAppliedReportPath?: string,
 ): Promise<TemplateEmitResult> {
   await ensureCleanDirectory(outputProjectDirectory);
   const emittedFiles: string[] = [];
@@ -12741,6 +13108,9 @@ export async function emitTemplateProject(
   if (monolithTopicHints.bySymbolKey.size < 1 && monolithTopicHints.bySymbolName.size < 1) {
     throw new Error("emitTemplateProject: monolith-first mode requires non-empty monolith layout hints");
   }
+  const modulePathOverrides = await loadManualModulePathOverrides(manualSyncModulePathOverridesPath, semanticIr);
+  const modulePathOverridesBySymbolKey = modulePathOverrides.overridesBySymbolKey;
+  const symbolFingerprintByKey = resolveSymbolFingerprintMap(semanticIr);
   const hotTargets = await loadManualHotTargets(manualRefactorCandidatesPath);
   const hotSeedFamilies = hotTargets.hotSeedFamilies;
   const criticalHotFilePaths = hotTargets.criticalHotFilePaths;
@@ -12749,6 +13119,7 @@ export async function emitTemplateProject(
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
     domainRenameHints,
     monolithTopicHints,
+    modulePathOverridesBySymbolKey,
   );
   const preliftCohesionPlans = applyCohesionMergeSplit(
     preliftRawPlans,
@@ -12822,6 +13193,7 @@ export async function emitTemplateProject(
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),
     domainRenameHints,
     monolithTopicHints,
+    modulePathOverridesBySymbolKey,
   );
   const qualityCohesionPlans = applyCohesionMergeSplit(
     qualityRawPlans,
@@ -12845,6 +13217,7 @@ export async function emitTemplateProject(
     ...qualityPass.criticalTopWorstFilePaths,
   ]);
   const emittedAssetContentByPath = new Map<string, string>();
+  const manualSyncModuleExportIndexEntries: ManualSyncModuleExportIndexEntry[] = [];
 
   for (const plan of qualityModulePlans) {
     const absoluteFilePath = path.join(outputProjectDirectory, plan.filePath);
@@ -12875,6 +13248,17 @@ export async function emitTemplateProject(
       : normalizedModuleContent;
     await writeTextFile(absoluteFilePath, emittedModuleContent);
     emittedFiles.push(toProjectRelative(outputProjectDirectory, absoluteFilePath));
+    const manualSyncSymbolExports = buildManualSyncSymbolExportEntries(
+      moduleBuildResult.symbolExports,
+      symbolFingerprintByKey,
+    );
+    manualSyncModuleExportIndexEntries.push({
+      moduleId: plan.moduleId,
+      layer: plan.layer,
+      archetype: plan.archetype,
+      filePath: plan.filePath.replace(/\\/g, "/"),
+      symbolExports: manualSyncSymbolExports,
+    });
     for (const assetFile of moduleBuildResult.assetFiles) {
       const existing = emittedAssetContentByPath.get(assetFile.absolutePath);
       if (existing) {
@@ -12893,6 +13277,51 @@ export async function emitTemplateProject(
       }
       emittedAssetContentByPath.set(assetFile.absolutePath, assetFile.content);
     }
+  }
+
+  const manualSyncIndexPath = path.join(outputProjectDirectory, "runtime", "manual-sync-index.json");
+  const sortedManualSyncModuleEntries = [...manualSyncModuleExportIndexEntries].sort((left, right) => {
+    if (left.filePath !== right.filePath) {
+      return left.filePath.localeCompare(right.filePath);
+    }
+    return left.moduleId.localeCompare(right.moduleId);
+  });
+  await writeTextFile(
+    manualSyncIndexPath,
+    `${JSON.stringify(
+      {
+        version: 2,
+        generatedAtIso: new Date().toISOString(),
+        moduleCount: sortedManualSyncModuleEntries.length,
+        symbolExportCount: sortedManualSyncModuleEntries.reduce(
+          (count, entry) => count + entry.symbolExports.length,
+          0,
+        ),
+        modules: sortedManualSyncModuleEntries,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  emittedFiles.push(toProjectRelative(outputProjectDirectory, manualSyncIndexPath));
+  if (manualSyncModulePathAppliedReportPath && manualSyncModulePathAppliedReportPath.length > 0) {
+    await writeTextFile(
+      manualSyncModulePathAppliedReportPath,
+      `${JSON.stringify(
+        {
+          generatedAtIso: new Date().toISOString(),
+          sourcePath: modulePathOverrides.sourcePath,
+          appliedCount: modulePathOverrides.applied.length,
+          rejectedCount: modulePathOverrides.rejected.length,
+          conflictResolvedCount: modulePathOverrides.applied.filter((entry) => entry.inputSymbolKey !== entry.symbolKey).length,
+          fingerprintResolvedCount: modulePathOverrides.applied.filter((entry) => entry.resolution === "fingerprint").length,
+          applied: modulePathOverrides.applied,
+          rejected: modulePathOverrides.rejected,
+        },
+        null,
+        2,
+      )}\n`,
+    );
   }
 
   const sortedAssetFiles = [...emittedAssetContentByPath.entries()].sort(([left], [right]) => left.localeCompare(right));
@@ -12944,5 +13373,13 @@ export async function emitTemplateProject(
     fileQualityReportPath,
     rerenderedModuleCount: qualityPass.rerenderedModuleCount,
     hotChunkCount: astLift.hotChunkIds.length,
+    manualSyncModulePathAppliedCount: modulePathOverrides.applied.length,
+    manualSyncModulePathRejectedCount: modulePathOverrides.rejected.length,
+    manualSyncModulePathConflictResolvedCount: modulePathOverrides.applied.filter((entry) => entry.inputSymbolKey !== entry.symbolKey).length,
+    manualSyncModulePathFingerprintResolvedCount: modulePathOverrides.applied.filter((entry) => entry.resolution === "fingerprint").length,
+    manualSyncModulePathAppliedReportPath:
+      manualSyncModulePathAppliedReportPath && manualSyncModulePathAppliedReportPath.length > 0
+        ? manualSyncModulePathAppliedReportPath
+        : undefined,
   };
 }

@@ -1,0 +1,87 @@
+{
+  "afterMetrics": {
+    "archetypeCoverage": {
+      "hook": 7,
+      "service": 212,
+      "store": 829,
+      "transport": 12,
+      "ui": 9
+    },
+    "buildHealth": true,
+    "classCoverage": 1,
+    "coverageLowQualitySymbolCount": 0,
+    "coverageNameQuality": 0.8367,
+    "coverageSymbols": 13314,
+    "devHealth": true,
+    "functionClassCoverage": 1,
+    "functionCoverage": 1,
+    "genericPathNoiseCount": 0,
+    "highConfidenceSymbols": 553,
+    "layerCoverage": {
+      "main": 12,
+      "renderer": 181,
+      "services": 876,
+      "tauri": 0
+    },
+    "lowQualitySymbolCount": 0,
+    "manualSyncAppliedCount": 0,
+    "manualSyncConflictResolvedCount": 0,
+    "manualSyncFingerprintResolvedCount": 0,
+    "manualSyncRejectedCount": 0,
+    "mappedFiles": 48,
+    "mappedSymbols": 1069,
+    "nameQuality": 0.7924,
+    "proxyInQualityCount": 0,
+    "variableCoverage": 1
+  },
+  "afterRunId": "step34-rt-after-20260302-172212",
+  "beforeMetrics": {
+    "archetypeCoverage": {
+      "hook": 7,
+      "service": 212,
+      "store": 829,
+      "transport": 12,
+      "ui": 9
+    },
+    "buildHealth": true,
+    "classCoverage": 1,
+    "coverageLowQualitySymbolCount": 0,
+    "coverageNameQuality": 0.8367,
+    "coverageSymbols": 13314,
+    "devHealth": true,
+    "functionClassCoverage": 1,
+    "functionCoverage": 1,
+    "genericPathNoiseCount": 0,
+    "highConfidenceSymbols": 553,
+    "layerCoverage": {
+      "main": 12,
+      "renderer": 181,
+      "services": 876,
+      "tauri": 0
+    },
+    "lowQualitySymbolCount": 0,
+    "manualSyncAppliedCount": 0,
+    "manualSyncConflictResolvedCount": 0,
+    "manualSyncFingerprintResolvedCount": 0,
+    "manualSyncRejectedCount": 0,
+    "mappedFiles": 48,
+    "mappedSymbols": 1069,
+    "nameQuality": 0.7924,
+    "proxyInQualityCount": 0,
+    "variableCoverage": 1
+  },
+  "beforeRunId": "step34-rt-before-20260302-171746",
+  "deltas": {
+    "classCoverage": 0,
+    "functionCoverage": 0,
+    "mappedSymbols": 0,
+    "nameQuality": 0,
+    "proxyInQualityCount": 0,
+    "variableCoverage": 0
+  },
+  "generatedAtIso": "2026-03-02T17:26:39.157Z",
+  "manualProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+  "passed": true,
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "violations": []
+}

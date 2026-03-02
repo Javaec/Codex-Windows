@@ -150,6 +150,10 @@ export interface RegressionSuiteExecution {
     hotFocusFileAverage: number;
     hotFirstOnlyAllProfiles: boolean;
     hotChunkAverage: number;
+    manualSyncAppliedAverage: number;
+    manualSyncRejectedAverage: number;
+    manualSyncConflictResolvedAverage: number;
+    manualSyncFingerprintResolvedAverage: number;
     buildHealthAllGreen: boolean;
     devHealthAllGreen: boolean;
   };
@@ -456,6 +460,14 @@ function aggregateExecutions(executions: RegressionProfileExecution[]): Regressi
     hotFocusFileAverage: average(executions.map((entry) => entry.fileQuality.hotFocusFileCount)),
     hotFirstOnlyAllProfiles: executions.every((entry) => entry.fileQuality.hotFirstOnly),
     hotChunkAverage: average(executions.map((entry) => entry.fileQuality.hotChunkCount)),
+    manualSyncAppliedAverage: average(executions.map((entry) => entry.metrics.manualSyncAppliedCount)),
+    manualSyncRejectedAverage: average(executions.map((entry) => entry.metrics.manualSyncRejectedCount)),
+    manualSyncConflictResolvedAverage: average(
+      executions.map((entry) => entry.metrics.manualSyncConflictResolvedCount),
+    ),
+    manualSyncFingerprintResolvedAverage: average(
+      executions.map((entry) => entry.metrics.manualSyncFingerprintResolvedCount),
+    ),
     buildHealthAllGreen: executions.every((entry) => entry.metrics.buildHealth),
     devHealthAllGreen: executions.every((entry) => entry.metrics.devHealth),
   };

@@ -1,0 +1,19 @@
+{
+  "generatedAtIso": "2026-03-02T17:22:12.482Z",
+  "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+  "lengthMismatches": [],
+  "manualProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+  "missingModuleFiles": [],
+  "pathCreated": 0,
+  "pathRekeyed": 0,
+  "pathRemoved": 0,
+  "pathUpdated": 0,
+  "surfaceCreated": 7,
+  "surfaceRemoved": 2,
+  "surfaceUpdated": 9,
+  "symbolNameCreated": 0,
+  "symbolNamePromotedFromMergedEvidence": 0,
+  "symbolNameRekeyed": 0,
+  "symbolNameRemoved": 0,
+  "symbolNameUpdated": 0
+}

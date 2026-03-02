@@ -1,0 +1,22 @@
+{
+  "completedCycles": 4,
+  "generatedAtIso": "2026-03-02T18:37:07.711Z",
+  "lastCycle": {
+    "cycleIndex": 4,
+    "cycleMode": "fast",
+    "highConfidenceDeltaFromPrevious": 0,
+    "highConfidenceSymbolsAverage": 553,
+    "nameQualityAverage": 0.8013,
+    "nameQualityDeltaFromPrevious": 0,
+    "qualityDeltaFromPrevious": 0,
+    "stagnationStrike": 3
+  },
+  "manualSyncRootPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync",
+  "namingMemoryProfilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-021bdb2f7755.json",
+  "reason": "stop-rule reached: 3 cycles without quality/high-confidence growth",
+  "reverseSyncPolicy": "shared/manual-sync/* only",
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "stopReason": "stagnation_limit_reached:3",
+  "transition": "manual-first",
+  "version": 1
+}

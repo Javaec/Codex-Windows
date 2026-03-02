@@ -12,6 +12,8 @@ import {
   NamingMemoryEntry,
   updateNamingMemory,
 } from "../ir/naming-memory";
+import { ManualSyncSymbolFingerprint, readManualSyncSymbolNameOverrides } from "../manual-sync/contracts";
+import { buildManualSyncSymbolFingerprint, resolveSymbolByManualFingerprint } from "../manual-sync/fingerprint";
 import { PipelineStage, StageExecutionRequest } from "./stage-runner";
 
 interface MonolithSymbolTableEntry {
@@ -81,6 +83,37 @@ interface PromotionBudgetCandidate {
 interface SemanticSeedMaps {
   directBySymbolKey: Map<string, NamingSeedCandidate>;
   promotionBySymbolKey: Map<string, NamingSeedCandidate>;
+}
+
+interface ManualSyncAppliedEntry {
+  inputSymbolKey: string;
+  resolvedSymbolKey: string;
+  preferredName: string;
+  confidence: number;
+  evidence: string;
+  provenance: string;
+  updatedAtIso: string;
+  resolution: "symbol-key" | "fingerprint";
+  resolutionScore: number;
+  resolutionSecondBestScore: number;
+  appliedAs: "direct" | "promotion";
+}
+
+interface ManualSyncRejectedEntry {
+  inputSymbolKey: string;
+  preferredName: string;
+  reason: string;
+}
+
+interface ManualSyncSeedMaps {
+  directBySymbolKey: Map<string, NamingSeedCandidate>;
+  promotionBySymbolKey: Map<string, NamingSeedCandidate>;
+  applied: ManualSyncAppliedEntry[];
+  rejected: ManualSyncRejectedEntry[];
+  manualNameBySymbolKey: Map<string, string>;
+  conflictResolvedCount: number;
+  fingerprintResolvedCount: number;
+  sourcePath?: string;
 }
 
 const PROMOTION_MIN_QUALITY_GAIN = 0.001;
@@ -882,6 +915,237 @@ async function readSeedMap(symbolTablePath: string, typingHints: TypingHintMaps)
   };
 }
 
+function applyManualNamingAuthority(
+  semanticIr: SemanticIrModel,
+  manualNameBySymbolKey: ReadonlyMap<string, string>,
+): SemanticIrModel {
+  if (manualNameBySymbolKey.size < 1) {
+    return semanticIr;
+  }
+  const symbols = semanticIr.symbols.map((symbol) => {
+    const manualName = manualNameBySymbolKey.get(symbol.symbolKey);
+    if (!manualName) {
+      return symbol;
+    }
+    return {
+      ...symbol,
+      name: manualName,
+      quality: Math.max(symbol.quality, scoreNameQuality(manualName)),
+      confidence: Math.max(symbol.confidence, 0.92),
+    };
+  });
+  const declarations = semanticIr.domainDeclarations.map((declaration) => {
+    const manualName = manualNameBySymbolKey.get(declaration.symbolKey);
+    if (!manualName) {
+      return declaration;
+    }
+    return {
+      ...declaration,
+      symbolName: manualName,
+      confidence: Math.max(declaration.confidence, 0.92),
+    };
+  });
+  const declarationFingerprints = semanticIr.declarationFingerprints.map((fingerprint) => {
+    const manualName = manualNameBySymbolKey.get(fingerprint.symbolKey);
+    if (!manualName) {
+      return fingerprint;
+    }
+    return {
+      ...fingerprint,
+      symbolName: manualName,
+      confidence: Math.max(fingerprint.confidence, 0.92),
+    };
+  });
+  return {
+    ...semanticIr,
+    symbols,
+    domainDeclarations: declarations,
+    declarationFingerprints,
+  };
+}
+
+function resolveManualSymbolKey(
+  entrySymbolKey: string,
+  symbolFingerprint: ManualSyncSymbolFingerprint | undefined,
+  semanticSymbolKeys: ReadonlySet<string>,
+  declarationFingerprintsBySymbolKey: ReadonlyMap<string, ManualSyncSymbolFingerprint>,
+  claimedSymbolKeys: ReadonlySet<string>,
+): {
+  resolvedSymbolKey: string;
+  resolution: "symbol-key" | "fingerprint";
+  resolutionScore: number;
+  resolutionSecondBestScore: number;
+} | undefined {
+  if (semanticSymbolKeys.has(entrySymbolKey) && !claimedSymbolKeys.has(entrySymbolKey)) {
+    return {
+      resolvedSymbolKey: entrySymbolKey,
+      resolution: "symbol-key",
+      resolutionScore: 1,
+      resolutionSecondBestScore: 0,
+    };
+  }
+  if (!symbolFingerprint) {
+    return undefined;
+  }
+  const resolved = resolveSymbolByManualFingerprint(
+    symbolFingerprint,
+    declarationFingerprintsBySymbolKey,
+    claimedSymbolKeys,
+    0.74,
+    0.05,
+  );
+  if (!resolved) {
+    return undefined;
+  }
+  return {
+    resolvedSymbolKey: resolved.symbolKey,
+    resolution: "fingerprint",
+    resolutionScore: resolved.score,
+    resolutionSecondBestScore: resolved.secondBestScore,
+  };
+}
+
+async function readManualSyncSeedMaps(
+  manualSyncSymbolNameOverridesPath: string | undefined,
+  semanticIr: SemanticIrModel,
+): Promise<ManualSyncSeedMaps> {
+  const emptyResult: ManualSyncSeedMaps = {
+    directBySymbolKey: new Map<string, NamingSeedCandidate>(),
+    promotionBySymbolKey: new Map<string, NamingSeedCandidate>(),
+    applied: [],
+    rejected: [],
+    manualNameBySymbolKey: new Map<string, string>(),
+    conflictResolvedCount: 0,
+    fingerprintResolvedCount: 0,
+    sourcePath: undefined,
+  };
+  if (!manualSyncSymbolNameOverridesPath || manualSyncSymbolNameOverridesPath.length < 1) {
+    return emptyResult;
+  }
+  const model = await readManualSyncSymbolNameOverrides(manualSyncSymbolNameOverridesPath);
+  if (!model) {
+    return emptyResult;
+  }
+  const directBySymbolKey = new Map<string, NamingSeedCandidate>();
+  const promotionBySymbolKey = new Map<string, NamingSeedCandidate>();
+  const manualNameBySymbolKey = new Map<string, string>();
+  const applied: ManualSyncAppliedEntry[] = [];
+  const rejected: ManualSyncRejectedEntry[] = [];
+  const semanticSymbolKeys = new Set(semanticIr.symbols.map((symbol) => symbol.symbolKey));
+  const declarationFingerprintsBySymbolKey = new Map(
+    semanticIr.declarationFingerprints.map((fingerprint) => [
+      fingerprint.symbolKey,
+      buildManualSyncSymbolFingerprint(fingerprint),
+    ]),
+  );
+  const claimedSymbolKeys = new Set<string>();
+  let conflictResolvedCount = 0;
+  let fingerprintResolvedCount = 0;
+  for (const entry of model.overrides) {
+    if (!entry || entry.enabled === false) {
+      continue;
+    }
+    const inputSymbolKey = typeof entry.symbolKey === "string" ? entry.symbolKey.trim() : "";
+    const preferredName = typeof entry.preferredName === "string" ? entry.preferredName.trim() : "";
+    if (inputSymbolKey.length < 1) {
+      rejected.push({
+        inputSymbolKey: "",
+        preferredName,
+        reason: "missing-symbol-key",
+      });
+      continue;
+    }
+    if (!isIdentifierName(preferredName)) {
+      rejected.push({
+        inputSymbolKey,
+        preferredName,
+        reason: "invalid-identifier",
+      });
+      continue;
+    }
+    if (isGenericName(preferredName)) {
+      rejected.push({
+        inputSymbolKey,
+        preferredName,
+        reason: "generic-name",
+      });
+      continue;
+    }
+    if (claimedSymbolKeys.has(inputSymbolKey)) {
+      rejected.push({
+        inputSymbolKey,
+        preferredName,
+        reason: "resolved-symbol-already-claimed",
+      });
+      continue;
+    }
+    const resolved = resolveManualSymbolKey(
+      inputSymbolKey,
+      entry.symbolFingerprint,
+      semanticSymbolKeys,
+      declarationFingerprintsBySymbolKey,
+      claimedSymbolKeys,
+    );
+    if (!resolved) {
+      rejected.push({
+        inputSymbolKey,
+        preferredName,
+        reason: "missing-symbol-in-semantic-ir",
+      });
+      continue;
+    }
+    const resolvedSymbolKey = resolved.resolvedSymbolKey;
+    claimedSymbolKeys.add(resolvedSymbolKey);
+    if (resolved.resolution === "fingerprint") {
+      conflictResolvedCount += 1;
+      fingerprintResolvedCount += 1;
+    } else if (resolvedSymbolKey !== inputSymbolKey) {
+      conflictResolvedCount += 1;
+    }
+
+    const quality = scoreNameQuality(preferredName);
+    const confidence = clamp(entry.confidence);
+    const directCandidate: NamingSeedCandidate = {
+      name: preferredName,
+      confidence,
+      source: "direct",
+      signalScore: clamp(Math.max(0.72, quality * 0.88)),
+    };
+    const promotionCandidate: NamingSeedCandidate = {
+      name: preferredName,
+      confidence: clamp(Math.max(confidence, 0.94)),
+      source: "promotion",
+      signalScore: clamp(Math.max(directCandidate.signalScore, 0.9)),
+    };
+    directBySymbolKey.set(resolvedSymbolKey, directCandidate);
+    promotionBySymbolKey.set(resolvedSymbolKey, promotionCandidate);
+    manualNameBySymbolKey.set(resolvedSymbolKey, preferredName);
+    applied.push({
+      inputSymbolKey,
+      resolvedSymbolKey,
+      preferredName,
+      confidence,
+      evidence: typeof entry.evidence === "string" && entry.evidence.trim().length > 0 ? entry.evidence : "manual-sync",
+      provenance: entry.provenance,
+      updatedAtIso: entry.updatedAtIso,
+      resolution: resolved.resolution,
+      resolutionScore: resolved.resolutionScore,
+      resolutionSecondBestScore: resolved.resolutionSecondBestScore,
+      appliedAs: "direct",
+    });
+  }
+  return {
+    directBySymbolKey,
+    promotionBySymbolKey,
+    applied: applied.sort((left, right) => left.resolvedSymbolKey.localeCompare(right.resolvedSymbolKey)),
+    rejected: rejected.sort((left, right) => left.inputSymbolKey.localeCompare(right.inputSymbolKey)),
+    manualNameBySymbolKey,
+    conflictResolvedCount,
+    fingerprintResolvedCount,
+    sourcePath: manualSyncSymbolNameOverridesPath,
+  };
+}
+
 async function executeNamingMemory(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<NamingMemoryStageInput>(request.inputPath);
   if (input.promotionBudget < 1) {
@@ -891,14 +1155,25 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
   const namingMemory = await readNamingMemoryFromPath(input.namingMemoryPath);
   const typingHints = await readTypingHintMaps(input.monolithTypingHintsPath);
   const seedMap = await readSeedMap(input.monolithSymbolTablePath, typingHints);
-  const semanticSeedMaps = buildSemanticSeedMaps(semanticIr);
+  const manualSyncSeedMaps = await readManualSyncSeedMaps(input.manualSyncSymbolNameOverridesPath, semanticIr);
+  const semanticIrWithManualAuthority = applyManualNamingAuthority(semanticIr, manualSyncSeedMaps.manualNameBySymbolKey);
+  const semanticSeedMaps = buildSemanticSeedMaps(semanticIrWithManualAuthority);
   const mergedDirectBySymbolKey = mergeSeedMaps(seedMap.directBySymbolKey, semanticSeedMaps.directBySymbolKey);
   const mergedPromotionBySymbolKey = mergeSeedMaps(seedMap.promotionBySymbolKey, semanticSeedMaps.promotionBySymbolKey);
-  const coverageSemanticIr = augmentCoverageSemanticIrWithMonolithVariables(semanticIr, mergedDirectBySymbolKey);
+  for (const [symbolKey, seed] of manualSyncSeedMaps.directBySymbolKey) {
+    mergedDirectBySymbolKey.set(symbolKey, seed);
+  }
+  for (const [symbolKey, seed] of manualSyncSeedMaps.promotionBySymbolKey) {
+    mergedPromotionBySymbolKey.set(symbolKey, seed);
+  }
+  const coverageSemanticIr = applyManualNamingAuthority(
+    augmentCoverageSemanticIrWithMonolithVariables(semanticIrWithManualAuthority, mergedDirectBySymbolKey),
+    manualSyncSeedMaps.manualNameBySymbolKey,
+  );
   const coverageSeedMap = buildCoverageSeedMap(coverageSemanticIr, mergedDirectBySymbolKey, mergedPromotionBySymbolKey);
   const coverageNamedSemanticIr = applyCoverageNaming(coverageSemanticIr, coverageSeedMap);
   const promotionSelection = selectPromotionSeeds(
-    semanticIr,
+    semanticIrWithManualAuthority,
     namingMemory,
     mergedDirectBySymbolKey,
     mergedPromotionBySymbolKey,
@@ -911,14 +1186,17 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
   for (const [symbolKey, candidate] of promotionSelection.selectedBySymbolKey) {
     seedBySymbolKey.set(symbolKey, pickStrongerSeed(seedBySymbolKey.get(symbolKey), candidate));
   }
+  for (const [symbolKey, candidate] of manualSyncSeedMaps.directBySymbolKey) {
+    seedBySymbolKey.set(symbolKey, candidate);
+  }
   const memoryBySymbolKey = buildMemoryEntryMap(namingMemory);
-  const baselineQualityBefore = averageQualityForSemanticSymbols(semanticIr, (symbolKey, fallbackName) => {
+  const baselineQualityBefore = averageQualityForSemanticSymbols(semanticIrWithManualAuthority, (symbolKey, fallbackName) => {
     const memoryEntry = memoryBySymbolKey.get(symbolKey);
     return memoryEntry ? memoryEntry.currentName : fallbackName;
   });
 
-  const updateResult = updateNamingMemory(namingMemory, semanticIr, input.runId, seedBySymbolKey);
-  const namedSemanticIr = applyNamingMemory(semanticIr, updateResult.namingMemory);
+  const updateResult = updateNamingMemory(namingMemory, semanticIrWithManualAuthority, input.runId, seedBySymbolKey);
+  const namedSemanticIr = applyNamingMemory(semanticIrWithManualAuthority, updateResult.namingMemory);
   const baselineQualityAfter = averageQualityForSemanticSymbols(namedSemanticIr, (_symbolKey, fallbackName) => fallbackName);
   const baselineGuardPassed = baselineQualityAfter + 0.0001 >= baselineQualityBefore;
   if (!baselineGuardPassed) {
@@ -935,6 +1213,19 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
   await writeJsonFile(input.snapshotPath, updateResult.namingMemory);
   await writeJsonFile(input.namedSemanticIrPath, namedSemanticIr);
   await writeJsonFile(input.coverageNamedSemanticIrPath, coverageNamedSemanticIr);
+  if (input.manualSyncAppliedReportPath && input.manualSyncAppliedReportPath.length > 0) {
+    await fs.mkdir(path.dirname(input.manualSyncAppliedReportPath), { recursive: true });
+    await writeJsonFile(input.manualSyncAppliedReportPath, {
+      generatedAtIso: new Date().toISOString(),
+      sourcePath: manualSyncSeedMaps.sourcePath,
+      appliedCount: manualSyncSeedMaps.applied.length,
+      rejectedCount: manualSyncSeedMaps.rejected.length,
+      conflictResolvedCount: manualSyncSeedMaps.conflictResolvedCount,
+      fingerprintResolvedCount: manualSyncSeedMaps.fingerprintResolvedCount,
+      applied: manualSyncSeedMaps.applied,
+      rejected: manualSyncSeedMaps.rejected,
+    });
+  }
 
   const output: NamingMemoryStageOutput = {
     namingMemoryPath: input.namingMemoryPath,
@@ -952,6 +1243,15 @@ async function executeNamingMemory(request: StageExecutionRequest): Promise<void
     baselineQualityBefore,
     baselineQualityAfter,
     baselineGuardPassed,
+    manualSyncAppliedCount: manualSyncSeedMaps.applied.length,
+    manualSyncRejectedCount: manualSyncSeedMaps.rejected.length,
+    manualSyncConflictResolvedCount: manualSyncSeedMaps.conflictResolvedCount,
+    manualSyncFingerprintResolvedCount: manualSyncSeedMaps.fingerprintResolvedCount,
+    manualSyncSymbolNameOverridesPath: manualSyncSeedMaps.sourcePath,
+    manualSyncAppliedReportPath:
+      input.manualSyncAppliedReportPath && input.manualSyncAppliedReportPath.length > 0
+        ? input.manualSyncAppliedReportPath
+        : undefined,
   };
   await writeJsonFile(request.outputPath, output);
 }

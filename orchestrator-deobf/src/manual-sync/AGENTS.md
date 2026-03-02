@@ -1,0 +1,39 @@
+# AGENTS.md
+
+## Purpose
+Implement deterministic import/export bridges between generated project output and manual project decisions.
+
+## Modules
+- `contracts.ts`: typed contract models, path resolution, normalization, and strict readers.
+- `export-from-manual.ts`: export script that derives symbol/path overrides from manual project exports.
+
+## Design Rules
+- Fail fast on malformed contract entries.
+- Keep one source of truth for manual decisions in `shared/manual-sync/*`.
+- Do not mutate semantic IR directly in this layer; only provide deterministic inputs for stages.
+- Keep output deterministic (stable sorting and stable merge behavior).
+- Contract law is strict: `contractVersion=2`, `migrationVersion=1`.
+- Migration is explicit through `manual-sync:migrate`; runtime does not auto-heal old schemas.
+
+## Sync Contract Flow
+1. Generator emits `runtime/manual-sync-index.json`.
+2. Manual project evolves.
+3. `manual-sync:export` updates:
+   - `shared/manual-sync/symbol-name-overrides.json`,
+   - `shared/manual-sync/module-path-overrides.json`,
+   - `shared/manual-sync/module-surface-overrides.json`.
+4. Next run imports these contracts in naming-memory and emitter stages.
+
+## Quality Guard
+- `manual-sync:roundtrip` is the mandatory safety loop for export changes:
+  - `export -> apply -> regenerate -> diff`,
+  - fail-fast on quality regression (`nameQuality`, coverage, build/dev health, proxy count).
+
+## Stale Cleanup
+- Export pass removes stale override entries that no longer match current snapshot.
+- Rekey by fingerprint is allowed only for unique high-score matches; ambiguous matches are dropped.
+
+## Resolution Rules
+- Manual overrides always have higher priority than generated quality/coverage naming.
+- Missing symbol keys may be resolved by declaration fingerprint match (`AST role/api/mutation + call/state neighborhood`).
+- Ambiguous fingerprint matches are rejected (no silent fallback).

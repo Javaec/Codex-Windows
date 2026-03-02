@@ -22,6 +22,8 @@ async function executeTemplateEmitter(request: StageExecutionRequest): Promise<v
     input.outputProjectDirectory,
     input.statementBudget,
     input.manualRefactorCandidatesPath,
+    input.manualSyncModulePathOverridesPath,
+    input.manualSyncModulePathAppliedReportPath,
   );
   const emittedFiles = [...new Set(emitResult.emittedFiles)].sort((left, right) => left.localeCompare(right));
 
@@ -39,6 +41,11 @@ async function executeTemplateEmitter(request: StageExecutionRequest): Promise<v
     fileQualityReportPath: emitResult.fileQualityReportPath,
     rerenderedModuleCount: emitResult.rerenderedModuleCount,
     hotChunkCount: emitResult.hotChunkCount,
+    manualSyncModulePathAppliedCount: emitResult.manualSyncModulePathAppliedCount,
+    manualSyncModulePathRejectedCount: emitResult.manualSyncModulePathRejectedCount,
+    manualSyncModulePathConflictResolvedCount: emitResult.manualSyncModulePathConflictResolvedCount,
+    manualSyncModulePathFingerprintResolvedCount: emitResult.manualSyncModulePathFingerprintResolvedCount,
+    manualSyncModulePathAppliedReportPath: emitResult.manualSyncModulePathAppliedReportPath,
   };
   await writeJsonFile(request.outputPath, output);
 }

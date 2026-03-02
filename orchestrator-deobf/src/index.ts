@@ -71,6 +71,8 @@ import { templateEmitterStage } from "./stages/template-emitter-stage";
 import { qualityGatesStage } from "./stages/quality-gates-stage";
 import { greenGatesStage } from "./stages/green-gates-stage";
 import { decisionDashboardStage } from "./stages/decision-dashboard-stage";
+import { defaultManualSyncRootPath, resolveManualSyncPaths } from "./manual-sync/contracts";
+import { validateManualSyncContracts } from "./manual-sync/validator";
 
 interface CliOptions {
   snapshotAsarPath: string;
@@ -94,6 +96,8 @@ interface CliOptions {
   weightsConfigPath: string;
   gateMode: GateMode;
   artifactRetention: ArtifactRetentionMode;
+  manualSyncEnabled: boolean;
+  manualSyncRootPath: string;
 }
 
 interface MonolithSymbolTableEntry {
@@ -135,6 +139,9 @@ function printUsage(): void {
     "  --weights-config <path>",
     "  --gate-mode <full|light>",
     "  --artifact-retention <debug|minimal>",
+    "  --manual-sync-root <path>",
+    "  --enable-manual-sync",
+    "  --disable-manual-sync",
     "  --no-force-overwrite",
     "",
     "Example:",
@@ -208,6 +215,8 @@ function parseCli(argv: string[]): CliOptions {
   let weightsConfigPath = "";
   let gateMode: GateMode = "full";
   let artifactRetention: ArtifactRetentionMode = "debug";
+  let manualSyncEnabled = true;
+  let manualSyncRootPath = "";
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -376,6 +385,23 @@ function parseCli(argv: string[]): CliOptions {
         index += 1;
         break;
       }
+      case "--manual-sync-root": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --manual-sync-root");
+        }
+        manualSyncRootPath = path.resolve(value);
+        index += 1;
+        break;
+      }
+      case "--enable-manual-sync": {
+        manualSyncEnabled = true;
+        break;
+      }
+      case "--disable-manual-sync": {
+        manualSyncEnabled = false;
+        break;
+      }
       case "--no-force-overwrite": {
         forceOverwriteOutputs = false;
         break;
@@ -420,6 +446,8 @@ function parseCli(argv: string[]): CliOptions {
     weightsConfigPath,
     gateMode,
     artifactRetention,
+    manualSyncEnabled,
+    manualSyncRootPath,
   };
 }
 
@@ -698,6 +726,9 @@ function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[]
 async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2));
   const projectRoot = path.resolve(__dirname, "..");
+  const resolvedManualSyncRootPath =
+    cli.manualSyncRootPath.length > 0 ? cli.manualSyncRootPath : defaultManualSyncRootPath(projectRoot);
+  const manualSyncPaths = resolveManualSyncPaths(projectRoot, resolvedManualSyncRootPath);
   const runsRoot = path.join(projectRoot, "runs");
   const runDirectory = path.join(runsRoot, cli.runId);
   const artifactsDirectory = path.join(runDirectory, "artifacts");
@@ -706,6 +737,16 @@ async function run(): Promise<void> {
   await ensureDirectory(runsRoot);
   await ensureDirectory(runDirectory);
   await ensureDirectory(artifactsDirectory);
+  if (cli.manualSyncEnabled) {
+    const validation = await validateManualSyncContracts(projectRoot, manualSyncPaths.rootPath, { requireFiles: true });
+    if (validation.errors.length > 0) {
+      const preview = validation.errors
+        .slice(0, 12)
+        .map((issue) => `[${issue.source}] ${issue.message}`)
+        .join("; ");
+      throw new Error(`manual-sync pre-run gate failed: ${validation.errors.length} error(s): ${preview}`);
+    }
+  }
 
   const inputArtifact = await hashFileSha256(cli.snapshotAsarPath);
   const snapshotKey = inputArtifact.sha256.slice(0, 12);
@@ -719,7 +760,7 @@ async function run(): Promise<void> {
   const effectiveEnableUnwebpackSourcemap = cli.enableUnwebpackSourcemap;
   const tools = await resolveToolVersions(projectRoot);
   const manifest: RunManifest = {
-    manifestVersion: 9,
+    manifestVersion: 11,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
@@ -765,6 +806,10 @@ async function run(): Promise<void> {
       weightsConfigPath: toolWeightsConfig.path,
       gateMode: cli.gateMode,
       artifactRetention: cli.artifactRetention,
+      manualSyncEnabled: cli.manualSyncEnabled,
+      manualSyncRootPath: manualSyncPaths.rootPath,
+      manualSyncSymbolNameOverridesPath: manualSyncPaths.symbolNameOverridesPath,
+      manualSyncModulePathOverridesPath: manualSyncPaths.modulePathOverridesPath,
     },
     inputs: {
       snapshotAsarPath: cli.snapshotAsarPath,
@@ -1023,6 +1068,20 @@ async function run(): Promise<void> {
     cacheEnabled: effectiveStageCacheEnabled,
   });
 
+  const manualSyncSymbolNameOverridesExists =
+    cli.manualSyncEnabled && (await fileExists(manualSyncPaths.symbolNameOverridesPath));
+  const manualSyncSymbolNameOverridesDigest = manualSyncSymbolNameOverridesExists
+    ? (await hashFileSha256(manualSyncPaths.symbolNameOverridesPath)).sha256
+    : "";
+  const manualSyncModulePathOverridesExists =
+    cli.manualSyncEnabled && (await fileExists(manualSyncPaths.modulePathOverridesPath));
+  const manualSyncModulePathOverridesDigest = manualSyncModulePathOverridesExists
+    ? (await hashFileSha256(manualSyncPaths.modulePathOverridesPath)).sha256
+    : "";
+  const manualSyncSymbolAppliedReportPath = path.join(runDirectory, "manual-sync-symbol-applied.json");
+  const manualSyncModuleAppliedReportPath = path.join(runDirectory, "manual-sync-module-path-applied.json");
+  const manualSyncFullAppliedReportPath = path.join(runDirectory, "manual-sync-applied.json");
+
   const namingMemoryInput: NamingMemoryStageInput = {
     semanticIrPath: semanticIrOutput.outputFilePath,
     namingMemoryPath: namingMemoryProfile.profilePath,
@@ -1033,6 +1092,11 @@ async function run(): Promise<void> {
     runId: cli.runId,
     monolithSymbolTablePath: monolithCensusOutput.symbolTablePath,
     promotionBudget: cli.promotionBudget,
+    manualSyncSymbolNameOverridesPath: manualSyncSymbolNameOverridesExists
+      ? manualSyncPaths.symbolNameOverridesPath
+      : undefined,
+    manualSyncSymbolNameOverridesDigest: manualSyncSymbolNameOverridesDigest,
+    manualSyncAppliedReportPath: manualSyncSymbolAppliedReportPath,
   };
   const namingMemoryOutput = await runStage<NamingMemoryStageInput, NamingMemoryStageOutput>(
     namingMemoryStage,
@@ -1146,6 +1210,11 @@ async function run(): Promise<void> {
     monolithLayoutHintsPath: monolithPassOutput.outputFilePath,
     manualRefactorCandidatesPath: manualRefactorCandidatesExists ? manualRefactorCandidatesPath : undefined,
     manualRefactorCandidatesDigest,
+    manualSyncModulePathOverridesPath: manualSyncModulePathOverridesExists
+      ? manualSyncPaths.modulePathOverridesPath
+      : undefined,
+    manualSyncModulePathOverridesDigest: manualSyncModulePathOverridesDigest,
+    manualSyncModulePathAppliedReportPath: manualSyncModuleAppliedReportPath,
     outputProjectDirectory: path.join(artifactsDirectory, "project"),
     statementBudget: cli.statementBudget,
     emittedFilesIndexPath: path.join(artifactsDirectory, "emitted-files.json"),
@@ -1192,6 +1261,33 @@ async function run(): Promise<void> {
     },
   );
 
+  const symbolAppliedReport = await readJsonFile<Record<string, unknown>>(manualSyncSymbolAppliedReportPath).catch(() => ({}));
+  const moduleAppliedReport = await readJsonFile<Record<string, unknown>>(manualSyncModuleAppliedReportPath).catch(() => ({}));
+  await writeJsonFile(manualSyncFullAppliedReportPath, {
+    generatedAtIso: new Date().toISOString(),
+    symbolNameOverrides: symbolAppliedReport,
+    modulePathOverrides: moduleAppliedReport,
+    totals: {
+      appliedCount:
+        (typeof namingMemoryOutput.manualSyncAppliedCount === "number" ? namingMemoryOutput.manualSyncAppliedCount : 0) +
+        (typeof templateEmitterOutput.manualSyncModulePathAppliedCount === "number"
+          ? templateEmitterOutput.manualSyncModulePathAppliedCount
+          : 0),
+      rejectedCount:
+        (typeof namingMemoryOutput.manualSyncRejectedCount === "number" ? namingMemoryOutput.manualSyncRejectedCount : 0) +
+        (typeof templateEmitterOutput.manualSyncModulePathRejectedCount === "number"
+          ? templateEmitterOutput.manualSyncModulePathRejectedCount
+          : 0),
+      fingerprintResolvedCount:
+        (typeof namingMemoryOutput.manualSyncFingerprintResolvedCount === "number"
+          ? namingMemoryOutput.manualSyncFingerprintResolvedCount
+          : 0) +
+        (typeof templateEmitterOutput.manualSyncModulePathFingerprintResolvedCount === "number"
+          ? templateEmitterOutput.manualSyncModulePathFingerprintResolvedCount
+          : 0),
+    },
+  });
+
   const namedSemanticIr = await readJsonFile<SemanticIrModel>(namingMemoryOutput.qualityNamedSemanticIrPath);
   const runMetrics = buildRunMetrics(
     monolithCensusOutput,
@@ -1200,6 +1296,8 @@ async function run(): Promise<void> {
     qualityOwnershipModel,
     qualityGatesOutput,
     greenGatesOutput,
+    namingMemoryOutput,
+    templateEmitterOutput,
   );
   const runMetricsPath = path.join(runDirectory, "run-metrics.json");
   await writeJsonFile(runMetricsPath, runMetrics);

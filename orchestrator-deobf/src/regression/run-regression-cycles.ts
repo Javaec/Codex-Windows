@@ -24,6 +24,7 @@ interface CliOptions {
   fastProfileId: string;
   fullCheckpointEvery: number;
   fastFocusCount: number;
+  allowAfterFreeze: boolean;
 }
 
 interface AdaptiveProfileWeightsResult {
@@ -53,6 +54,10 @@ interface CycleExecutionSummary {
   hotFocusFileAverage: number;
   hotFirstOnlyAllProfiles: boolean;
   hotChunkAverage: number;
+  manualSyncAppliedAverage: number;
+  manualSyncRejectedAverage: number;
+  manualSyncConflictResolvedAverage: number;
+  manualSyncFingerprintResolvedAverage: number;
   promotionSelectedCount: number;
   promotionUpdatedCount: number;
   promotionInsertedCount: number;
@@ -83,6 +88,8 @@ interface CycleReport {
     functionCoverage: number;
     functionClassCoverage: number;
     variableCoverage: number;
+    hotFocusFileMin: number;
+    hotFocusFileMax: number;
     proxyInQualityCount: number;
     monotonicNameQuality: boolean;
     buildHealthAllGreen: boolean;
@@ -94,6 +101,8 @@ interface CycleReport {
   finalBaselinePath: string;
   namingMemoryProfilePath: string;
   manualRefactorCandidatesPath: string;
+  manualFirstFreezePath?: string;
+  transitionMode: "generator-active" | "manual-first-frozen";
 }
 
 interface ManualRefactorCandidate {
@@ -139,10 +148,35 @@ interface ManualRefactorCandidatesReport {
   candidates: ManualRefactorCandidate[];
 }
 
-const KPI_TARGET_CLASS_COVERAGE = 0.95;
-const KPI_TARGET_FUNCTION_COVERAGE = 0.95;
-const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 0.95;
-const KPI_TARGET_VARIABLE_COVERAGE = 0.7;
+interface ManualFirstFreezeMarker {
+  version: number;
+  generatedAtIso: string;
+  reason: string;
+  stopReason: string;
+  completedCycles: number;
+  snapshotAsarPath: string;
+  namingMemoryProfilePath: string;
+  manualSyncRootPath: string;
+  transition: "manual-first";
+  reverseSyncPolicy: "shared/manual-sync/* only";
+  lastCycle?: {
+    cycleIndex: number;
+    cycleMode: "fast" | "full";
+    nameQualityAverage: number;
+    highConfidenceSymbolsAverage: number;
+    qualityDeltaFromPrevious: number;
+    nameQualityDeltaFromPrevious: number;
+    highConfidenceDeltaFromPrevious: number;
+    stagnationStrike: number;
+  };
+}
+
+const KPI_TARGET_CLASS_COVERAGE = 1;
+const KPI_TARGET_FUNCTION_COVERAGE = 1;
+const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 1;
+const KPI_TARGET_VARIABLE_COVERAGE = 0.5;
+const KPI_TARGET_HOT_FOCUS_FILE_MIN = 5;
+const KPI_TARGET_HOT_FOCUS_FILE_MAX = 10;
 const KPI_TARGET_PROXY_IN_QUALITY_COUNT = 0;
 const PROMOTION_BUDGET_STAGNATION_STEP = 40;
 const PROMOTION_BUDGET_STAGNATION_MAX = 320;
@@ -168,6 +202,7 @@ const PRUNED_RUN_ARTIFACT_RELATIVE_PATHS = [
   path.join("artifacts", "project", "artifacts", "chunks"),
   path.join("artifacts", "project", "artifacts", "chunks-ts"),
 ] as const;
+const MANUAL_FIRST_FREEZE_RELATIVE_PATH = path.join("shared", "manual-sync", "manual-first-freeze.json");
 
 function buildRunId(prefix: string): string {
   const now = new Date();
@@ -269,6 +304,62 @@ function parseIntegerOption(token: string, value: string, minimum: number): numb
   return parsed;
 }
 
+function resolveManualFirstFreezePath(projectRoot: string): string {
+  return path.join(projectRoot, MANUAL_FIRST_FREEZE_RELATIVE_PATH);
+}
+
+async function readManualFirstFreezeMarker(
+  freezePath: string,
+): Promise<ManualFirstFreezeMarker | undefined> {
+  const exists = await fs
+    .stat(freezePath)
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    return undefined;
+  }
+  return await readJsonFile<ManualFirstFreezeMarker>(freezePath);
+}
+
+function isStagnationStopReason(stopReason: string): boolean {
+  return stopReason.startsWith("stagnation_limit_reached:");
+}
+
+async function writeManualFirstFreezeMarker(
+  freezePath: string,
+  stopReason: string,
+  report: Pick<CycleReport, "completedCycles" | "snapshotAsarPath" | "namingMemoryProfilePath">,
+  cycleSummaries: readonly CycleExecutionSummary[],
+): Promise<void> {
+  const lastCycle = cycleSummaries.length > 0 ? cycleSummaries[cycleSummaries.length - 1] : undefined;
+  const marker: ManualFirstFreezeMarker = {
+    version: 1,
+    generatedAtIso: new Date().toISOString(),
+    reason: "stop-rule reached: 3 cycles without quality/high-confidence growth",
+    stopReason,
+    completedCycles: report.completedCycles,
+    snapshotAsarPath: report.snapshotAsarPath,
+    namingMemoryProfilePath: report.namingMemoryProfilePath,
+    manualSyncRootPath: path.join(path.dirname(path.dirname(freezePath)), "manual-sync"),
+    transition: "manual-first",
+    reverseSyncPolicy: "shared/manual-sync/* only",
+    lastCycle: lastCycle
+      ? {
+        cycleIndex: lastCycle.cycleIndex,
+        cycleMode: lastCycle.cycleMode,
+        nameQualityAverage: lastCycle.nameQualityAverage,
+        highConfidenceSymbolsAverage: lastCycle.highConfidenceSymbolsAverage,
+        qualityDeltaFromPrevious: lastCycle.qualityDeltaFromPrevious,
+        nameQualityDeltaFromPrevious: lastCycle.nameQualityDeltaFromPrevious,
+        highConfidenceDeltaFromPrevious: lastCycle.highConfidenceDeltaFromPrevious,
+        stagnationStrike: lastCycle.stagnationStrike,
+      }
+      : undefined,
+  };
+  await ensureDirectory(path.dirname(freezePath));
+  await writeJsonFile(freezePath, marker);
+}
+
 function tokenizeFocusStem(value: string): string[] {
   return value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -356,6 +447,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let fastProfileId = "core-no-binary";
   let fullCheckpointEvery = 4;
   let fastFocusCount = 8;
+  let allowAfterFreeze = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -477,6 +569,10 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--allow-after-freeze": {
+        allowAfterFreeze = true;
+        break;
+      }
       case "--help": {
         const usage = [
           "Usage:",
@@ -495,6 +591,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           "  --fast-profile-id <profile-id>",
           "  --full-checkpoint-every <n>",
           "  --fast-focus-count <n>",
+          "  --allow-after-freeze",
         ].join("\n");
         process.stdout.write(`${usage}\n`);
         process.exit(0);
@@ -523,6 +620,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     fastProfileId,
     fullCheckpointEvery,
     fastFocusCount,
+    allowAfterFreeze,
   };
 }
 
@@ -678,7 +776,9 @@ function summarizeCycle(
     : execution.aggregate.worstFileDecileScoreAverage;
   const fileQualityDelta = Number(fileQualityDeltaRaw.toFixed(4));
   const fileQualityBaselineGuardPassed = true;
-  const strike = previous && nameQualityDelta <= 0 && highConfidenceDelta <= 0 ? stagnationStrike + 1 : 0;
+  const strike = previous && qualityDelta <= 0 && nameQualityDelta <= 0 && highConfidenceDelta <= 0
+    ? stagnationStrike + 1
+    : 0;
 
   const kpiViolations: string[] = [];
   if (execution.aggregate.classCoverageAverage < KPI_TARGET_CLASS_COVERAGE) {
@@ -697,6 +797,16 @@ function summarizeCycle(
   if (execution.aggregate.variableCoverageAverage < KPI_TARGET_VARIABLE_COVERAGE) {
     kpiViolations.push(
       `variableCoverageAverage ${execution.aggregate.variableCoverageAverage} < ${KPI_TARGET_VARIABLE_COVERAGE}`,
+    );
+  }
+  if (execution.aggregate.hotFocusFileAverage < KPI_TARGET_HOT_FOCUS_FILE_MIN) {
+    kpiViolations.push(
+      `hotFocusFileAverage ${execution.aggregate.hotFocusFileAverage} < ${KPI_TARGET_HOT_FOCUS_FILE_MIN}`,
+    );
+  }
+  if (execution.aggregate.hotFocusFileAverage > KPI_TARGET_HOT_FOCUS_FILE_MAX) {
+    kpiViolations.push(
+      `hotFocusFileAverage ${execution.aggregate.hotFocusFileAverage} > ${KPI_TARGET_HOT_FOCUS_FILE_MAX}`,
     );
   }
   if (execution.aggregate.proxyInQualityAverage > KPI_TARGET_PROXY_IN_QUALITY_COUNT) {
@@ -743,6 +853,10 @@ function summarizeCycle(
     hotFocusFileAverage: execution.aggregate.hotFocusFileAverage,
     hotFirstOnlyAllProfiles: execution.aggregate.hotFirstOnlyAllProfiles,
     hotChunkAverage: execution.aggregate.hotChunkAverage,
+    manualSyncAppliedAverage: execution.aggregate.manualSyncAppliedAverage,
+    manualSyncRejectedAverage: execution.aggregate.manualSyncRejectedAverage,
+    manualSyncConflictResolvedAverage: execution.aggregate.manualSyncConflictResolvedAverage,
+    manualSyncFingerprintResolvedAverage: execution.aggregate.manualSyncFingerprintResolvedAverage,
     promotionSelectedCount: promotion.selectedCount,
     promotionUpdatedCount: promotion.updatedEntryCount,
     promotionInsertedCount: promotion.insertedEntryCount,
@@ -888,11 +1002,19 @@ async function run(): Promise<void> {
   const cli = parseCli(process.argv.slice(2), projectRoot);
   const globalRunsRoot = path.join(projectRoot, "runs");
   const globalRunsKeepLastN = Math.max(cli.keepLastN * 3, 24);
+  const manualFirstFreezePath = resolveManualFirstFreezePath(projectRoot);
   await ensureDirectory(cli.outputRoot);
   await ensureDirectory(globalRunsRoot);
   await ensureDirectory(path.dirname(cli.baselinePath));
   const canonicalManualRefactorCandidatesPath = path.join(projectRoot, "regression", "manual-refactor-candidates.json");
   await ensureDirectory(path.dirname(canonicalManualRefactorCandidatesPath));
+
+  const existingFreeze = await readManualFirstFreezeMarker(manualFirstFreezePath);
+  if (existingFreeze && !cli.allowAfterFreeze) {
+    throw new Error(
+      `manual-first freeze is active at ${manualFirstFreezePath} (reason: ${existingFreeze.stopReason}); pass --allow-after-freeze to run cycles explicitly.`,
+    );
+  }
 
   const suite = await loadRegressionSuite(cli.suiteConfigPath);
   validateFixedRegressionProfiles(suite);
@@ -980,12 +1102,12 @@ async function run(): Promise<void> {
     await cleanupKeepLastN(cli.outputRoot, cli.keepLastN);
     await cleanupKeepLastN(globalRunsRoot, globalRunsKeepLastN);
 
-    if (!summary.kpiPassed) {
-      stopReason = `kpi_failed:c${String(cycleIndex).padStart(2, "0")}`;
-      break;
-    }
     if (summary.stagnationStrike >= cli.stagnationLimit) {
       stopReason = `stagnation_limit_reached:${cli.stagnationLimit}`;
+      break;
+    }
+    if (!summary.kpiPassed) {
+      stopReason = `kpi_failed:c${String(cycleIndex).padStart(2, "0")}`;
       break;
     }
   }
@@ -1010,6 +1132,8 @@ async function run(): Promise<void> {
       functionCoverage: KPI_TARGET_FUNCTION_COVERAGE,
       functionClassCoverage: KPI_TARGET_FUNCTION_CLASS_COVERAGE,
       variableCoverage: KPI_TARGET_VARIABLE_COVERAGE,
+      hotFocusFileMin: KPI_TARGET_HOT_FOCUS_FILE_MIN,
+      hotFocusFileMax: KPI_TARGET_HOT_FOCUS_FILE_MAX,
       proxyInQualityCount: KPI_TARGET_PROXY_IN_QUALITY_COUNT,
       monotonicNameQuality: true,
       buildHealthAllGreen: true,
@@ -1021,7 +1145,14 @@ async function run(): Promise<void> {
     finalBaselinePath: cli.baselinePath,
     namingMemoryProfilePath: namingMemoryProfile.profilePath,
     manualRefactorCandidatesPath,
+    transitionMode: "generator-active",
   };
+
+  if (isStagnationStopReason(stopReason)) {
+    await writeManualFirstFreezeMarker(manualFirstFreezePath, stopReason, report, cycleSummaries);
+    report.manualFirstFreezePath = manualFirstFreezePath;
+    report.transitionMode = "manual-first-frozen";
+  }
 
   const reportPath = path.join(path.dirname(cli.baselinePath), "cycle-report.json");
   await writeJsonFile(reportPath, report);

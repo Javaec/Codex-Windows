@@ -1,5 +1,5 @@
 {
-  "candidateCount": 14,
+  "candidateCount": 13,
   "candidates": [
     {
       "averageConfidence": 0.6305,
@@ -120,7 +120,7 @@
       "averageNameQuality": 0.78,
       "averageScore": 0.7714,
       "averageSymbolCount": 83,
-      "filePath": "src/renderer/store/store-state-quality-01.ts",
+      "filePath": "src/renderer/features/store/store-state-quality-01.ts",
       "minScore": 0.7714,
       "moduleIds": [
         "renderer:store:state:quality-01"
@@ -224,7 +224,7 @@
       "averageNameQuality": 0.78,
       "averageScore": 0.8072,
       "averageSymbolCount": 12,
-      "filePath": "src/main/transport/transport-bridge.ts",
+      "filePath": "src/main/lib/transport/transport-bridge.ts",
       "minScore": 0.8072,
       "moduleIds": [
         "main:transport:transport-bridge"
@@ -816,104 +816,12 @@
       ]
     },
     {
-      "averageConfidence": 0.6891,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.88,
-      "averageScore": 0.8243,
-      "averageSymbolCount": 71,
-      "filePath": "src/services/service/service-run-quality-01.ts",
-      "minScore": 0.8243,
-      "moduleIds": [
-        "services:service:run:quality-01"
-      ],
-      "profiles": [
-        "core-no-binary"
-      ],
-      "rerenderedHits": 1,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ],
-      "symbolKeys": [
-        "main-entry-asar:021bdb2f7755:symbol:113",
-        "main-entry-asar:021bdb2f7755:symbol:117",
-        "main-entry-asar:021bdb2f7755:symbol:119",
-        "main-entry-asar:021bdb2f7755:symbol:124",
-        "main-entry-asar:021bdb2f7755:symbol:143",
-        "main-entry-asar:021bdb2f7755:symbol:145",
-        "main-entry-asar:021bdb2f7755:symbol:15",
-        "main-entry-asar:021bdb2f7755:symbol:154",
-        "main-entry-asar:021bdb2f7755:symbol:16",
-        "main-entry-asar:021bdb2f7755:symbol:161",
-        "main-entry-asar:021bdb2f7755:symbol:163",
-        "main-entry-asar:021bdb2f7755:symbol:167",
-        "main-entry-asar:021bdb2f7755:symbol:168",
-        "main-entry-asar:021bdb2f7755:symbol:174",
-        "main-entry-asar:021bdb2f7755:symbol:192",
-        "main-entry-asar:021bdb2f7755:symbol:205",
-        "main-entry-asar:021bdb2f7755:symbol:209",
-        "main-entry-asar:021bdb2f7755:symbol:21",
-        "main-entry-asar:021bdb2f7755:symbol:222",
-        "main-entry-asar:021bdb2f7755:symbol:226",
-        "main-entry-asar:021bdb2f7755:symbol:255",
-        "main-entry-asar:021bdb2f7755:symbol:256",
-        "main-entry-asar:021bdb2f7755:symbol:26",
-        "main-entry-asar:021bdb2f7755:symbol:263",
-        "main-entry-asar:021bdb2f7755:symbol:264",
-        "main-entry-asar:021bdb2f7755:symbol:265",
-        "main-entry-asar:021bdb2f7755:symbol:267",
-        "main-entry-asar:021bdb2f7755:symbol:269",
-        "main-entry-asar:021bdb2f7755:symbol:270",
-        "main-entry-asar:021bdb2f7755:symbol:273",
-        "main-entry-asar:021bdb2f7755:symbol:278",
-        "main-entry-asar:021bdb2f7755:symbol:279",
-        "main-entry-asar:021bdb2f7755:symbol:280",
-        "main-entry-asar:021bdb2f7755:symbol:283",
-        "main-entry-asar:021bdb2f7755:symbol:295",
-        "main-entry-asar:021bdb2f7755:symbol:296",
-        "main-entry-asar:021bdb2f7755:symbol:298",
-        "main-entry-asar:021bdb2f7755:symbol:303",
-        "main-entry-asar:021bdb2f7755:symbol:306",
-        "main-entry-asar:021bdb2f7755:symbol:308",
-        "main-entry-asar:021bdb2f7755:symbol:310",
-        "main-entry-asar:021bdb2f7755:symbol:320",
-        "main-entry-asar:021bdb2f7755:symbol:324",
-        "main-entry-asar:021bdb2f7755:symbol:330",
-        "main-entry-asar:021bdb2f7755:symbol:331",
-        "main-entry-asar:021bdb2f7755:symbol:332",
-        "main-entry-asar:021bdb2f7755:symbol:333",
-        "main-entry-asar:021bdb2f7755:symbol:336",
-        "main-entry-asar:021bdb2f7755:symbol:344",
-        "main-entry-asar:021bdb2f7755:symbol:346",
-        "main-entry-asar:021bdb2f7755:symbol:349",
-        "main-entry-asar:021bdb2f7755:symbol:350",
-        "main-entry-asar:021bdb2f7755:symbol:352",
-        "main-entry-asar:021bdb2f7755:symbol:353",
-        "main-entry-asar:021bdb2f7755:symbol:354",
-        "main-entry-asar:021bdb2f7755:symbol:355",
-        "main-entry-asar:021bdb2f7755:symbol:357",
-        "main-entry-asar:021bdb2f7755:symbol:359",
-        "main-entry-asar:021bdb2f7755:symbol:361",
-        "main-entry-asar:021bdb2f7755:symbol:362",
-        "main-entry-asar:021bdb2f7755:symbol:364",
-        "main-entry-asar:021bdb2f7755:symbol:365",
-        "main-entry-asar:021bdb2f7755:symbol:367",
-        "main-entry-asar:021bdb2f7755:symbol:372",
-        "main-entry-asar:021bdb2f7755:symbol:375",
-        "main-entry-asar:021bdb2f7755:symbol:383",
-        "main-entry-asar:021bdb2f7755:symbol:387",
-        "main-entry-asar:021bdb2f7755:symbol:389",
-        "main-entry-asar:021bdb2f7755:symbol:392",
-        "main-entry-asar:021bdb2f7755:symbol:394",
-        "main-entry-asar:021bdb2f7755:symbol:396"
-      ]
-    },
-    {
       "averageConfidence": 0.8249,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
       "averageScore": 0.8477,
       "averageSymbolCount": 82,
-      "filePath": "src/renderer/store/store-state-quality-02.ts",
+      "filePath": "src/renderer/features/store/store-state-quality-02.ts",
       "minScore": 0.8477,
       "moduleIds": [
         "renderer:store:state:quality-02"
@@ -1124,24 +1032,118 @@
       ]
     },
     {
-      "averageConfidence": 0.7828,
+      "averageConfidence": 0.7611,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.8646,
-      "averageSymbolCount": 71,
-      "filePath": "src/services/service/service-run-quality-02.ts",
-      "minScore": 0.8646,
+      "averageScore": 0.8553,
+      "averageSymbolCount": 5,
+      "filePath": "src/services/service/service-run-cohesion-02.ts",
+      "minScore": 0.8553,
       "moduleIds": [
-        "services:service:run:quality-02"
+        "services:service:run:cohesion-02"
       ],
       "profiles": [
         "core-no-binary"
       ],
-      "rerenderedHits": 1,
+      "rerenderedHits": 0,
       "stableProjects": [
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
+        "main-entry-asar:021bdb2f7755:symbol:113",
+        "main-entry-asar:021bdb2f7755:symbol:15",
+        "main-entry-asar:021bdb2f7755:symbol:16",
+        "main-entry:symbol:15",
+        "main-entry:symbol:16"
+      ]
+    },
+    {
+      "averageConfidence": 0.7827,
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.88,
+      "averageScore": 0.8645,
+      "averageSymbolCount": 207,
+      "filePath": "src/services/service/service-run-cohesion-01.ts",
+      "minScore": 0.8645,
+      "moduleIds": [
+        "services:service:run:cohesion-01"
+      ],
+      "profiles": [
+        "core-no-binary"
+      ],
+      "rerenderedHits": 0,
+      "stableProjects": [
+        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
+      ],
+      "symbolKeys": [
+        "main-entry-asar:021bdb2f7755:symbol:117",
+        "main-entry-asar:021bdb2f7755:symbol:119",
+        "main-entry-asar:021bdb2f7755:symbol:124",
+        "main-entry-asar:021bdb2f7755:symbol:143",
+        "main-entry-asar:021bdb2f7755:symbol:145",
+        "main-entry-asar:021bdb2f7755:symbol:154",
+        "main-entry-asar:021bdb2f7755:symbol:161",
+        "main-entry-asar:021bdb2f7755:symbol:163",
+        "main-entry-asar:021bdb2f7755:symbol:167",
+        "main-entry-asar:021bdb2f7755:symbol:168",
+        "main-entry-asar:021bdb2f7755:symbol:174",
+        "main-entry-asar:021bdb2f7755:symbol:192",
+        "main-entry-asar:021bdb2f7755:symbol:205",
+        "main-entry-asar:021bdb2f7755:symbol:209",
+        "main-entry-asar:021bdb2f7755:symbol:21",
+        "main-entry-asar:021bdb2f7755:symbol:222",
+        "main-entry-asar:021bdb2f7755:symbol:226",
+        "main-entry-asar:021bdb2f7755:symbol:255",
+        "main-entry-asar:021bdb2f7755:symbol:256",
+        "main-entry-asar:021bdb2f7755:symbol:26",
+        "main-entry-asar:021bdb2f7755:symbol:263",
+        "main-entry-asar:021bdb2f7755:symbol:264",
+        "main-entry-asar:021bdb2f7755:symbol:265",
+        "main-entry-asar:021bdb2f7755:symbol:267",
+        "main-entry-asar:021bdb2f7755:symbol:269",
+        "main-entry-asar:021bdb2f7755:symbol:270",
+        "main-entry-asar:021bdb2f7755:symbol:273",
+        "main-entry-asar:021bdb2f7755:symbol:278",
+        "main-entry-asar:021bdb2f7755:symbol:279",
+        "main-entry-asar:021bdb2f7755:symbol:280",
+        "main-entry-asar:021bdb2f7755:symbol:283",
+        "main-entry-asar:021bdb2f7755:symbol:295",
+        "main-entry-asar:021bdb2f7755:symbol:296",
+        "main-entry-asar:021bdb2f7755:symbol:298",
+        "main-entry-asar:021bdb2f7755:symbol:303",
+        "main-entry-asar:021bdb2f7755:symbol:306",
+        "main-entry-asar:021bdb2f7755:symbol:308",
+        "main-entry-asar:021bdb2f7755:symbol:310",
+        "main-entry-asar:021bdb2f7755:symbol:320",
+        "main-entry-asar:021bdb2f7755:symbol:324",
+        "main-entry-asar:021bdb2f7755:symbol:330",
+        "main-entry-asar:021bdb2f7755:symbol:331",
+        "main-entry-asar:021bdb2f7755:symbol:332",
+        "main-entry-asar:021bdb2f7755:symbol:333",
+        "main-entry-asar:021bdb2f7755:symbol:336",
+        "main-entry-asar:021bdb2f7755:symbol:344",
+        "main-entry-asar:021bdb2f7755:symbol:346",
+        "main-entry-asar:021bdb2f7755:symbol:349",
+        "main-entry-asar:021bdb2f7755:symbol:350",
+        "main-entry-asar:021bdb2f7755:symbol:352",
+        "main-entry-asar:021bdb2f7755:symbol:353",
+        "main-entry-asar:021bdb2f7755:symbol:354",
+        "main-entry-asar:021bdb2f7755:symbol:355",
+        "main-entry-asar:021bdb2f7755:symbol:357",
+        "main-entry-asar:021bdb2f7755:symbol:359",
+        "main-entry-asar:021bdb2f7755:symbol:361",
+        "main-entry-asar:021bdb2f7755:symbol:362",
+        "main-entry-asar:021bdb2f7755:symbol:364",
+        "main-entry-asar:021bdb2f7755:symbol:365",
+        "main-entry-asar:021bdb2f7755:symbol:367",
+        "main-entry-asar:021bdb2f7755:symbol:372",
+        "main-entry-asar:021bdb2f7755:symbol:375",
+        "main-entry-asar:021bdb2f7755:symbol:383",
+        "main-entry-asar:021bdb2f7755:symbol:387",
+        "main-entry-asar:021bdb2f7755:symbol:389",
+        "main-entry-asar:021bdb2f7755:symbol:392",
+        "main-entry-asar:021bdb2f7755:symbol:394",
+        "main-entry-asar:021bdb2f7755:symbol:396",
         "main-entry-asar:021bdb2f7755:symbol:408",
         "main-entry-asar:021bdb2f7755:symbol:411",
         "main-entry-asar:021bdb2f7755:symbol:412",
@@ -1182,9 +1184,7 @@
         "main-entry:symbol:119",
         "main-entry:symbol:143",
         "main-entry:symbol:145",
-        "main-entry:symbol:15",
         "main-entry:symbol:154",
-        "main-entry:symbol:16",
         "main-entry:symbol:161",
         "main-entry:symbol:163",
         "main-entry:symbol:167",
@@ -1212,28 +1212,7 @@
         "main-entry:symbol:283",
         "main-entry:symbol:288",
         "main-entry:symbol:295",
-        "main-entry:symbol:296"
-      ]
-    },
-    {
-      "averageConfidence": 0.8759,
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.88,
-      "averageScore": 0.9047,
-      "averageSymbolCount": 70,
-      "filePath": "src/services/service/service-run-quality-03.ts",
-      "minScore": 0.9047,
-      "moduleIds": [
-        "services:service:run:quality-03"
-      ],
-      "profiles": [
-        "core-no-binary"
-      ],
-      "rerenderedHits": 1,
-      "stableProjects": [
-        "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
-      ],
-      "symbolKeys": [
+        "main-entry:symbol:296",
         "main-entry:symbol:298",
         "main-entry:symbol:303",
         "main-entry:symbol:306",
@@ -1312,7 +1291,7 @@
       "averageNameQuality": 0.88,
       "averageScore": 0.9242,
       "averageSymbolCount": 7,
-      "filePath": "src/renderer/hook/hook-render-view.ts",
+      "filePath": "src/renderer/features/ui/hook-render-view.ts",
       "minScore": 0.9242,
       "moduleIds": [
         "renderer:hook:render-view"
@@ -1340,7 +1319,7 @@
       "averageNameQuality": 0.88,
       "averageScore": 0.9317,
       "averageSymbolCount": 9,
-      "filePath": "src/renderer/ui/ui-render-view.ts",
+      "filePath": "src/renderer/features/ui/ui-render-view.ts",
       "minScore": 0.9317,
       "moduleIds": [
         "renderer:ui:render-view"
@@ -1365,6 +1344,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-03-02T09:40:35.588Z",
-  "suiteRunId": "cycle-20260302-093617-c01"
+  "generatedAtIso": "2026-03-02T18:42:08.020Z",
+  "suiteRunId": "step34-freeze-override-test-20260302-183757-c01"
 }
