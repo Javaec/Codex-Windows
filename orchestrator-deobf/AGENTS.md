@@ -268,6 +268,14 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: quality `src/*` now keeps domain modules only while technical scaffolding stays in artifact layer.
 - Quality gates now enforce structural source discipline: no `src/chunks-ts/*`, no `src/runtime/*`, no `src/services/store/runtime/*`.
   Verified reason: fail-fast prevents structural regression back to technical-source layouts and keeps output closer to 1code/CodexMonitor project shape.
+- Hot-first `top-10 worst` is now a hard critical contour for quality synthesis:
+  - rerender split prefers behavior-boundary cohesion (`splitPlanByCohesion`) with `hotPriority`,
+  - selected top-worst file paths are promoted into critical set for module build passes.
+  Verified reason: top noise modules are now explicitly forced through stronger split/full-lift and rename logic instead of generic balanced splitting.
+- Role/io body rename pass now applies to critical top-worst service/store modules (not only store quality shards).
+  Verified reason: local function/variable names inside heavy service/store bodies move toward domain role patterns (`serviceLocal*`, `storeBody*`) and stop being export-only renames.
+- Top-worst import-noise cap is now enforced in emitter only for critical top-worst modules (service/store stricter than baseline).
+  Verified reason: keeps hard pressure on worst readability hotspots without expanding strict caps to non-hot modules.
   Verified reason: avoids false checkpoint failures caused by comparing strict full-suite cycles against fast-cycle metrics directly.
 - Mode-aware checkpoint behavior validated on `max-cycles=4` run (`3 fast + 1 full`): full cycle no longer trips false KPI regression and run stops on stagnation rule instead.
   Verified reason: checkpoint quality comparison is now semantically correct across cycle modes.

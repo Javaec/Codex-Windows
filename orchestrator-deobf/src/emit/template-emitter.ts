@@ -106,6 +106,8 @@ const HOT_FIRST_MIN_TARGET_FILES = 10;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 1;
 const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 10;
+const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE = 10;
+const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER = 9;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
 const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
 const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
@@ -1762,12 +1764,20 @@ function applyFileQualityRerender(
   statementBudget: number,
   hotSeedFamilies: ReadonlySet<string>,
   criticalHotFilePaths: ReadonlySet<string>,
-): { modulePlans: ModulePlan[]; qualityEntries: ModuleQualityEntry[]; rerenderedModuleCount: number } {
+  renameHintsBySymbolKey: ReadonlyMap<string, DomainRenameHint>,
+  signalContext: EmitterSignalContext,
+): {
+  modulePlans: ModulePlan[];
+  qualityEntries: ModuleQualityEntry[];
+  rerenderedModuleCount: number;
+  criticalTopWorstFilePaths: string[];
+} {
   if (modulePlans.length === 0) {
     return {
       modulePlans: [],
       qualityEntries: [],
       rerenderedModuleCount: 0,
+      criticalTopWorstFilePaths: [],
     };
   }
 
@@ -1855,28 +1865,40 @@ function applyFileQualityRerender(
     if (targetPartCount <= 1 || plan.symbols.length <= 1) {
       continue;
     }
-    const parts = splitBalanced(plan.symbols, Math.min(maxPartsForArchetype(plan.archetype), targetPartCount));
-    if (parts.length <= 1) {
-      continue;
-    }
-    const nextPlans: ModulePlan[] = [];
-    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
-      const symbols = parts[partIndex];
-      if (!symbols || symbols.length === 0) {
+    const hotPlan: ModulePlan = {
+      ...plan,
+      hotPriority: true,
+    };
+    let nextPlans = splitPlanByCohesion(hotPlan, renameHintsBySymbolKey, signalContext);
+    if (nextPlans.length <= 1) {
+      const parts = splitBalanced(plan.symbols, Math.min(maxPartsForArchetype(plan.archetype), targetPartCount));
+      if (parts.length <= 1) {
         continue;
       }
-      const partSuffix = `-quality-${String(partIndex + 1).padStart(2, "0")}`;
-      const filePath = plan.filePath.replace(/\.ts$/, `${partSuffix}.ts`);
-      nextPlans.push({
-        layer: plan.layer,
-        archetype: plan.archetype,
-        clusterId: plan.clusterId,
-        topic: plan.topic,
-        moduleId: `${plan.moduleId}:quality-${String(partIndex + 1).padStart(2, "0")}`,
-        symbols,
-        filePath,
+      nextPlans = [];
+      for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        const symbols = parts[partIndex];
+        if (!symbols || symbols.length === 0) {
+          continue;
+        }
+        const partSuffix = `-quality-${String(partIndex + 1).padStart(2, "0")}`;
+        const filePath = plan.filePath.replace(/\.ts$/, `${partSuffix}.ts`);
+        nextPlans.push({
+          layer: plan.layer,
+          archetype: plan.archetype,
+          clusterId: plan.clusterId,
+          topic: plan.topic,
+          moduleId: `${plan.moduleId}:quality-${String(partIndex + 1).padStart(2, "0")}`,
+          symbols,
+          filePath,
+          hotPriority: true,
+        });
+      }
+    } else {
+      nextPlans = nextPlans.map((nextPlan) => ({
+        ...nextPlan,
         hotPriority: true,
-      });
+      }));
     }
     if (nextPlans.length > 1) {
       rerenderedPlanByModuleId.set(plan.moduleId, nextPlans);
@@ -1913,6 +1935,9 @@ function applyFileQualityRerender(
     modulePlans: finalPlans,
     qualityEntries,
     rerenderedModuleCount: rerenderedModuleIds.size,
+    criticalTopWorstFilePaths: selectedCandidates
+      .map((entry) => entry.filePath.replace(/\\/g, "/").toLowerCase())
+      .sort((left, right) => left.localeCompare(right)),
   };
 }
 
@@ -5877,7 +5902,10 @@ function buildQualityModuleContent(
     );
   };
   const applyTargetedStoreShardRoleAwareBodyRenamePass = (content: string): string => {
-    if (!targetedQualityShardModule || plan.archetype !== "store" || content.length < 1) {
+    const roleAwareBodyRenameEnabled = (
+      criticalTopWorstModule && (plan.archetype === "service" || plan.archetype === "store")
+    ) || (targetedQualityShardModule && plan.archetype === "store");
+    if (!roleAwareBodyRenameEnabled || content.length < 1) {
       return content;
     }
     const sourceFile = ts.createSourceFile(
@@ -6096,6 +6124,7 @@ function buildQualityModuleContent(
     }
     const renameMap = new Map<string, string>();
     const orderedCandidates = [...candidates].sort((left, right) => left.name.localeCompare(right.name));
+    const roleAwarePrefix = plan.archetype === "service" ? "service" : "store";
     for (const candidate of orderedCandidates) {
       if (renameMap.has(candidate.name)) {
         continue;
@@ -6113,8 +6142,8 @@ function buildQualityModuleContent(
       const baseName = normalizeTargetedAliasBase(
         sanitizeIdentifier(
           candidate.kind === "localVariable"
-            ? `storeLocal${role}${toPascalCase(normalizedDomain)}${candidate.variableTypeStem}${familyStem}${ioStem}`
-            : `storeBody${role}${toPascalCase(normalizedDomain)}${familyStem}${ioStem}`,
+            ? `${roleAwarePrefix}Local${role}${toPascalCase(normalizedDomain)}${candidate.variableTypeStem}${familyStem}${ioStem}`
+            : `${roleAwarePrefix}Body${role}${toPascalCase(normalizedDomain)}${familyStem}${ioStem}`,
         ),
       );
       const nextName = nextUniqueIdentifier(compactIdentifier(baseName, 46), usedNames);
@@ -11464,11 +11493,14 @@ function buildQualityModuleContent(
     }
   }
   const namespaceImportCount = (moduleContent.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
-  if (targetedHotWorstStoreServiceModule || strictTargetedQualityShardModule) {
-    const namespaceImportCap = strictTargetedQualityShardModule ? 8 : targetedHotServiceModule ? 8 : 10;
+  if (criticalTopWorstModule) {
+    const namespaceImportCap =
+      plan.archetype === "service" || plan.archetype === "store"
+        ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE
+        : HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER;
     if (namespaceImportCount > namespaceImportCap) {
       throw new Error(
-        `buildQualityModuleContent: import-noise cap failed for ${plan.moduleId} (${namespaceImportCount} namespace imports > ${namespaceImportCap})`,
+        `buildQualityModuleContent: top-worst import-noise cap failed for ${plan.moduleId} (${namespaceImportCount} namespace imports > ${namespaceImportCap})`,
       );
     }
   }
@@ -12804,8 +12836,14 @@ export async function emitTemplateProject(
     statementBudget,
     hotSeedFamilies,
     criticalHotFilePaths,
+    domainRenameHints,
+    signalContext,
   );
   const qualityModulePlans = qualityPass.modulePlans;
+  const effectiveCriticalHotFilePaths = new Set<string>([
+    ...criticalHotFilePaths,
+    ...qualityPass.criticalTopWorstFilePaths,
+  ]);
   const emittedAssetContentByPath = new Map<string, string>();
 
   for (const plan of qualityModulePlans) {
@@ -12820,7 +12858,7 @@ export async function emitTemplateProject(
       chunkTopicTokensById,
       domainRenameHints,
       signalContext,
-      criticalHotFilePaths,
+      effectiveCriticalHotFilePaths,
     );
     const normalizedModuleContent = applyLiftedChunkRuntimeEnumFallbacks(
       applyEsmRequireCompatibility(moduleBuildResult.content),
