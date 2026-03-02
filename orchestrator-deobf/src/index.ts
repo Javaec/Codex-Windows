@@ -510,6 +510,8 @@ const MINIMAL_RETENTION_PRUNE_RELATIVE_PATHS = [
   path.join("artifacts", "unwebpack-sourcemap"),
   path.join("artifacts", "project", "src", "chunks"),
   path.join("artifacts", "project", "src", "chunks-ts"),
+  path.join("artifacts", "project", "artifacts", "chunks"),
+  path.join("artifacts", "project", "artifacts", "chunks-ts"),
 ] as const;
 
 async function applyArtifactRetention(runDirectory: string, retention: ArtifactRetentionMode): Promise<void> {

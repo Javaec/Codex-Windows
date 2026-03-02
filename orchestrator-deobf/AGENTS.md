@@ -258,6 +258,16 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Quality emit now disables namespace import-shaping for non-hot modules and enforces strict full-lift declaration path (no chunk import fallback in quality path).
   Verified reason: reduces non-hot import-noise and keeps TS output centered on lifted declarations instead of noisy fallback glue.
 - KPI monotonicity is now mode-aware in regression cycles (`fast` compared with previous `fast`, `full` with previous `full`).
+  Verified reason: removes false stop-rule triggers caused by comparing fast-cycle metrics against full-checkpoint cycles.
+- Reference-path-map-first module placement is now active in emitter plan identity and initial plan build.
+  Verified reason: generated quality modules are anchored to reference-style directories (`src/main/lib/*`, `src/renderer/features/*`, `src/services/*`, `src-tauri-adapter/*`) instead of generic `layer/archetype` fallbacks.
+- Technical generation layers were moved out of quality `src/*` into `artifacts/*`:
+  - lifted chunks: `artifacts/chunks-ts/*`,
+  - runtime cluster helpers: `artifacts/runtime/store/*`,
+  - runtime source move cache: `artifacts/runtime/store-sources/*`.
+  Verified reason: quality `src/*` now keeps domain modules only while technical scaffolding stays in artifact layer.
+- Quality gates now enforce structural source discipline: no `src/chunks-ts/*`, no `src/runtime/*`, no `src/services/store/runtime/*`.
+  Verified reason: fail-fast prevents structural regression back to technical-source layouts and keeps output closer to 1code/CodexMonitor project shape.
   Verified reason: avoids false checkpoint failures caused by comparing strict full-suite cycles against fast-cycle metrics directly.
 - Mode-aware checkpoint behavior validated on `max-cycles=4` run (`3 fast + 1 full`): full cycle no longer trips false KPI regression and run stops on stagnation rule instead.
   Verified reason: checkpoint quality comparison is now semantically correct across cycle modes.

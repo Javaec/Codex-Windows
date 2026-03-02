@@ -10,6 +10,7 @@ import { SemanticIrModel } from "../ir/semantic-ir";
 import { buildMonolithLayoutHintMaps, MonolithLayoutHintsModel } from "../ir/monolith-layout";
 import { buildAstLiftResult, LiftedChunkArtifact, LiftedSymbolBinding } from "../lift/ast-lift";
 import { ensureCleanDirectory, ensureDirectory, readJsonFile } from "../utils/fs-json";
+import { resolveReferenceAnchoredDirectory } from "./reference-path-map";
 
 export interface TemplateEmitResult {
   emittedFiles: string[];
@@ -101,10 +102,10 @@ const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const HOT_FIRST_REGENERATION_ENABLED = true;
-const HOT_FIRST_MIN_TARGET_FILES = 5;
+const HOT_FIRST_MIN_TARGET_FILES = 10;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
-const HOT_FIRST_MIN_SYMBOL_COUNT = 8;
-const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 5;
+const HOT_FIRST_MIN_SYMBOL_COUNT = 1;
+const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 10;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
 const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
 const HOT_FUNCTION_BODY_NAME_QUALITY_THRESHOLD = 0.78;
@@ -1617,6 +1618,7 @@ function buildModulePlans(
           const partSuffix = hasMultipleParts ? `-part-${String(partIndex + 1).padStart(3, "0")}` : "";
           const moduleFileName = buildModuleFileName(archetype, topic, partSuffix);
           const modulePartId = hasMultipleParts ? `:part-${String(partIndex + 1).padStart(3, "0")}` : "";
+          const referenceAnchoredDirectory = resolveReferenceAnchoredDirectory(layer, archetype, topic);
           plans.push({
             layer,
             archetype,
@@ -1624,7 +1626,7 @@ function buildModulePlans(
             topic,
             moduleId: `${layer}:${archetype}:${topic}${modulePartId}`,
             symbols: partSymbols,
-            filePath: `${layerDirectory(layer)}/${archetype}/${moduleFileName}.ts`,
+            filePath: `${referenceAnchoredDirectory}/${moduleFileName}.ts`,
             hotPriority: false,
           });
         }
@@ -2054,10 +2056,11 @@ function mergeTopics(left: string, right: string, archetype: ArchetypeId): strin
 function rebuildModulePlanIdentity(plan: ModulePlan, groupIndex: number): ModulePlan {
   const mergeSuffix = groupIndex > 0 ? `-g${String(groupIndex + 1).padStart(3, "0")}` : "";
   const fileName = buildModuleFileName(plan.archetype, plan.topic, mergeSuffix);
+  const referenceAnchoredDirectory = resolveReferenceAnchoredDirectory(plan.layer, plan.archetype, plan.topic);
   return {
     ...plan,
     moduleId: `${plan.layer}:${plan.archetype}:${plan.topic}${mergeSuffix}`,
-    filePath: `${layerDirectory(plan.layer)}/${plan.archetype}/${fileName}.ts`,
+    filePath: `${referenceAnchoredDirectory}/${fileName}.ts`,
   };
 }
 
@@ -2187,7 +2190,7 @@ function splitPlanByCohesion(
   if (!targetedQualityShardPlan && plan.symbols.length < COHESION_SPLIT_MIN_SYMBOLS) {
     return [plan];
   }
-  const forceSplit = targetedQualityShardPlan || plan.symbols.length >= COHESION_FORCE_SPLIT_SYMBOLS;
+  const forceSplit = targetedQualityShardPlan || plan.hotPriority || plan.symbols.length >= COHESION_FORCE_SPLIT_SYMBOLS;
   const cohesion = moduleCohesionScore(plan, renameHintsBySymbolKey, signalContext);
   if (!targetedQualityShardPlan && !forceSplit && cohesion >= COHESION_SPLIT_THRESHOLD) {
     return [plan];
@@ -2399,7 +2402,7 @@ function buildGeneratedPackageJson(): string {
     '    "build": "tsc -p tsconfig.json",',
     '    "build:web": "vite build",',
     '    "preview": "vite preview",',
-    '    "lint": "eslint src src-tauri-adapter runtime/smoke-runner.mjs --ext .ts,.tsx,.mjs --ignore-pattern src/chunks-ts/** --ignore-pattern src/runtime/** --ignore-pattern dist/** --ignore-pattern artifacts/** --max-warnings=0",',
+    '    "lint": "eslint src src-tauri-adapter runtime/smoke-runner.mjs --ext .ts,.tsx,.mjs --ignore-pattern dist/** --ignore-pattern artifacts/** --max-warnings=0",',
     '    "dev:smoke": "node ./runtime/smoke-runner.mjs"',
     "  },",
     '  "devDependencies": {',
@@ -2445,7 +2448,7 @@ function buildGeneratedTsConfig(): string {
     '    "src-tauri-adapter/**/*.ts",',
     '    "env.d.ts"',
     "  ],",
-    '  "exclude": ["src/chunks-ts/**", "src/runtime/**", "dist/**", "artifacts/**", "node_modules/**"]',
+    '  "exclude": ["dist/**", "artifacts/**", "node_modules/**"]',
     "}",
     "",
   ].join("\n");
@@ -2666,7 +2669,7 @@ function buildEslintConfig(): string {
     "    },",
     "  },",
     "  {",
-    '    files: ["src/chunks-ts/**/*.ts"],',
+    '    files: ["artifacts/chunks-ts/**/*.ts"],',
     "    linterOptions: {",
     '      reportUnusedDisableDirectives: "off",',
     "    },",
@@ -2703,7 +2706,7 @@ function buildEslintConfig(): string {
     "  },",
     "  {",
     '    files: ["**/*.ts", "**/*.tsx"],',
-    '    ignores: ["src/chunks-ts/**/*.ts", "src/chunks-ts/**/*.tsx"],',
+    '    ignores: ["artifacts/chunks-ts/**/*.ts", "artifacts/chunks-ts/**/*.tsx"],',
     "    linterOptions: {",
     '      reportUnusedDisableDirectives: "off",',
     "    },",
@@ -7523,9 +7526,7 @@ function buildQualityModuleContent(
         `${shardBaseStem}-${cluster.clusterKey}-${helperSuffix}`,
         `${shardBaseStem}-${helperSuffix}-${String(clusterIndex + 1).padStart(2, "0")}`,
       );
-      const runtimeDirectory = strictTargetedQualityShardModule
-        ? path.join(outputProjectDirectory, "src", "runtime", "store")
-        : path.join(outputProjectDirectory, "src", "services", "store", "runtime");
+      const runtimeDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "store");
       const helperAbsolutePath = path.join(runtimeDirectory, `${helperStem}.ts`);
       const helperImportPath = toJsImportPath(moduleAbsolutePath, helperAbsolutePath);
       const helperSource = ts.factory.updateSourceFile(sourceFile, [...helperImportStatements, ...exportedClusterStatements]);
@@ -9006,7 +9007,7 @@ function buildQualityModuleContent(
     if (!moduleSpecifier.startsWith(".")) {
       return moduleSpecifier;
     }
-    const chunkModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", `${chunkId}.ts`);
+    const chunkModulePath = path.join(outputProjectDirectory, "artifacts", "chunks-ts", `${chunkId}.ts`);
     const normalizedSpecifier = /\.[cm]?[jt]sx?$/i.test(moduleSpecifier)
       ? moduleSpecifier.replace(/\.[cm]?[jt]sx?$/i, ".ts")
       : `${moduleSpecifier}.ts`;
@@ -10872,7 +10873,7 @@ function buildQualityModuleContent(
       return contentText;
     }
     const shardStem = sanitizeSegment(path.basename(normalizedHotFilePath, ".ts"), "store-shard");
-    const runtimeDirectory = path.join(outputProjectDirectory, "src", "runtime", "store");
+    const runtimeDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "store");
     const runtimeSourceDirectory = path.join(outputProjectDirectory, "artifacts", "runtime", "store-sources", shardStem);
     const runtimeDirectoryNormalized = runtimeDirectory.replace(/\\/g, "/").toLowerCase();
     const runtimeEntries = [...assetFilesByPath.entries()]
@@ -12552,7 +12553,7 @@ async function collectFilePathsRecursively(rootDirectory: string): Promise<strin
 }
 
 async function applyFinalChunkRuntimeFallbackPass(outputProjectDirectory: string): Promise<string[]> {
-  const chunkDirectory = path.join(outputProjectDirectory, "src", "chunks-ts");
+  const chunkDirectory = path.join(outputProjectDirectory, "artifacts", "chunks-ts");
   try {
     await fs.access(chunkDirectory);
   } catch {
@@ -12743,7 +12744,7 @@ export async function emitTemplateProject(
   const liftedChunkIds = new Set<string>();
   for (const liftedChunk of sharedHelperPool.liftedChunks) {
     liftedChunkIds.add(liftedChunk.chunkId);
-    const liftedPath = path.join(outputProjectDirectory, "src", "chunks-ts", `${liftedChunk.chunkId}.ts`);
+    const liftedPath = path.join(outputProjectDirectory, "artifacts", "chunks-ts", `${liftedChunk.chunkId}.ts`);
     const normalizedLiftedChunkContent = withTsNoCheckHeader(
       applyLiftedChunkRuntimeEnumFallbacks(applyEsmRequireCompatibility(liftedChunk.content)),
     );
@@ -12751,7 +12752,13 @@ export async function emitTemplateProject(
     emittedFiles.push(toProjectRelative(outputProjectDirectory, liftedPath));
   }
   if (sharedHelperPool.helperCount > 0) {
-    const helperModulePath = path.join(outputProjectDirectory, "src", "chunks-ts", "_shared", SHARED_HELPER_MODULE_FILENAME);
+    const helperModulePath = path.join(
+      outputProjectDirectory,
+      "artifacts",
+      "chunks-ts",
+      "_shared",
+      SHARED_HELPER_MODULE_FILENAME,
+    );
     await writeTextFile(helperModulePath, withTsNoCheckHeader(sharedHelperPool.helperModuleContent));
     emittedFiles.push(toProjectRelative(outputProjectDirectory, helperModulePath));
   }
@@ -12821,8 +12828,8 @@ export async function emitTemplateProject(
     const normalizedModulePath = absoluteFilePath.replace(/\\/g, "/").toLowerCase();
     const isTypeScriptModule = /\.[cm]?tsx?$/i.test(absoluteFilePath);
     const requiresTsNoCheckHeader = isTypeScriptModule && (
-      normalizedModulePath.includes("/src/chunks-ts/")
-      || normalizedModulePath.includes("/src/runtime/")
+      normalizedModulePath.includes("/artifacts/chunks-ts/")
+      || normalizedModulePath.includes("/artifacts/runtime/")
       || isRuntimeStoreSourceArtifactPath(absoluteFilePath)
     );
     const emittedModuleContent = requiresTsNoCheckHeader

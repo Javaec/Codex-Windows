@@ -12,11 +12,15 @@ interface EmittedFilesIndex {
 
 const GENERIC_PATH_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
 const GENERIC_PATH_ALLOWLIST = new Set<string>(["index.html", "src/index.css", "src/types.ts"]);
-const ARCHETYPE_SEGMENTS = new Set<string>(["hook", "service", "ui", "transport", "store"]);
 const INLINE_LITERAL_PAYLOAD_THRESHOLD = 4096;
 const INLINE_JSON_PAYLOAD_THRESHOLD = 1800;
 const HOT_STORE_NAMESPACE_IMPORT_MAX = 14;
 const HOT_SERVICE_RUN_NAMESPACE_IMPORT_MAX = 12;
+const FORBIDDEN_TECHNICAL_SOURCE_PREFIXES = [
+  "src/chunks-ts/",
+  "src/runtime/",
+  "src/services/store/runtime/",
+] as const;
 
 function validateOutputProfile(profile: OutputProfile): boolean {
   return profile === "latest" || profile === "regression-latest";
@@ -89,6 +93,20 @@ function validateNoSpeculativeTsModules(files: string[]): string[] {
   return violations;
 }
 
+function validateNoTechnicalLayerInSource(files: string[]): string[] {
+  const violations: string[] = [];
+  for (const relativePath of files) {
+    const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
+    for (const forbiddenPrefix of FORBIDDEN_TECHNICAL_SOURCE_PREFIXES) {
+      if (normalized.startsWith(forbiddenPrefix)) {
+        violations.push(`technical layer is not allowed in source tree: ${relativePath}`);
+        break;
+      }
+    }
+  }
+  return violations;
+}
+
 function isQualitySourceModule(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/");
   if (!normalized.endsWith(".ts")) {
@@ -117,39 +135,20 @@ function validateArchetypePathDiscipline(files: string[]): string[] {
     }
     const normalized = relativePath.replace(/\\/g, "/");
     if (normalized.startsWith("src/")) {
-      const segments = normalized.split("/");
-      if (segments.length < 4) {
-        violations.push(`quality module path is too short: ${relativePath}`);
-        continue;
+      if (normalized.startsWith("src/main/") && !/^src\/main\/lib\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
+        violations.push(`main layer path must match src/main/lib/<family>/*: ${relativePath}`);
       }
-      const layer = segments[1];
-      const archetype = segments[2];
-      if (!layer || !archetype) {
-        violations.push(`quality module path is malformed: ${relativePath}`);
-        continue;
+      if (normalized.startsWith("src/renderer/") && !/^src\/renderer\/features\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
+        violations.push(`renderer layer path must match src/renderer/features/<family>/*: ${relativePath}`);
       }
-      if (layer !== "main" && layer !== "renderer" && layer !== "services") {
-        violations.push(`unexpected quality layer in path: ${relativePath}`);
-        continue;
-      }
-      if (!ARCHETYPE_SEGMENTS.has(archetype)) {
-        violations.push(`quality module must be under archetype directory: ${relativePath}`);
+      if (normalized.startsWith("src/services/") && !/^src\/services\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
+        violations.push(`services layer path must match src/services/<family>/*: ${relativePath}`);
       }
       continue;
     }
     if (normalized.startsWith("src-tauri-adapter/")) {
-      const segments = normalized.split("/");
-      if (segments.length < 3) {
-        violations.push(`tauri quality module path is too short: ${relativePath}`);
-        continue;
-      }
-      const archetype = segments[1];
-      if (!archetype) {
-        violations.push(`tauri quality module path is malformed: ${relativePath}`);
-        continue;
-      }
-      if (!ARCHETYPE_SEGMENTS.has(archetype)) {
-        violations.push(`tauri module must be under archetype directory: ${relativePath}`);
+      if (!/^src-tauri-adapter\/[^/]+\/.+\.tsx?$/i.test(normalized)) {
+        violations.push(`tauri layer path must match src-tauri-adapter/<family>/*: ${relativePath}`);
       }
     }
   }
@@ -273,6 +272,7 @@ async function executeQualityGates(request: StageExecutionRequest): Promise<void
   violations.push(...validateGenericPathNoise(emittedFilesIndex.files));
   violations.push(...validateNoRuntimeJsInSourceTree(emittedFilesIndex.files));
   violations.push(...validateNoSpeculativeTsModules(emittedFilesIndex.files));
+  violations.push(...validateNoTechnicalLayerInSource(emittedFilesIndex.files));
   violations.push(...validateArchetypePathDiscipline(emittedFilesIndex.files));
   if (input.validationMode === "full") {
     violations.push(...(await validateNoProxyInQuality(input.outputProjectDirectory, emittedFilesIndex.files)));
