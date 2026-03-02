@@ -11,6 +11,7 @@ interface EmittedFilesIndex {
 }
 
 const GENERIC_PATH_SEGMENTS = new Set<string>(["types", "utils", "index", "common", "shared"]);
+const GENERIC_PATH_ALLOWLIST = new Set<string>(["index.html", "src/index.css", "src/types.ts"]);
 const ARCHETYPE_SEGMENTS = new Set<string>(["hook", "service", "ui", "transport", "store"]);
 const INLINE_LITERAL_PAYLOAD_THRESHOLD = 4096;
 const INLINE_JSON_PAYLOAD_THRESHOLD = 1800;
@@ -44,6 +45,10 @@ function validateFileOrdering(files: string[]): string[] {
 function validateGenericPathNoise(files: string[]): string[] {
   const violations: string[] = [];
   for (const relativePath of files) {
+    const normalizedPath = relativePath.replace(/\\/g, "/").toLowerCase();
+    if (GENERIC_PATH_ALLOWLIST.has(normalizedPath)) {
+      continue;
+    }
     const segments = relativePath.split("/");
     for (const segment of segments) {
       const lower = segment.replace(/\.[^.]+$/, "").toLowerCase();

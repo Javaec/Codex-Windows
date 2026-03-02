@@ -96,12 +96,23 @@ function validateGateMode(mode: GateMode): boolean {
   return mode === "full" || mode === "light";
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function executeGreenGates(request: StageExecutionRequest): Promise<void> {
   const input = await readJsonFile<GreenGateStageInput>(request.inputPath);
   if (!validateGateMode(input.gateMode)) {
     throw new Error(`green-gates: unsupported mode ${input.gateMode}`);
   }
   await ensureDirectory(input.logDirectory);
+  const distSourceDirectory = path.join(input.projectDirectory, "dist", "src");
+  const includeBuildInLightMode = input.gateMode === "light" && !(await pathExists(distSourceDirectory));
   const commands: Array<{ command: string; args: string[]; label: string }> =
     input.gateMode === "full"
       ? [
@@ -114,7 +125,8 @@ async function executeGreenGates(request: StageExecutionRequest): Promise<void> 
       : [
           { command: "npm", args: ["install", "--include=dev", "--no-audit", "--no-fund"], label: "01-npm-install" },
           { command: "npm", args: ["run", "typecheck"], label: "02-typecheck" },
-          { command: "npm", args: ["run", "dev:smoke"], label: "03-dev-smoke" },
+          ...(includeBuildInLightMode ? [{ command: "npm", args: ["run", "build"], label: "03-build" }] : []),
+          { command: "npm", args: ["run", "dev:smoke"], label: includeBuildInLightMode ? "04-dev-smoke" : "03-dev-smoke" },
         ];
 
   const checkedCommands: GreenGateCommandResult[] = [];
