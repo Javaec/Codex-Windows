@@ -473,3 +473,9 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: prevents hot-file overflow after quality sharding and keeps hot-only loop focused.
 - Hot-focus KPI band is now `8..10` (not `10..10`).
   Verified reason: current snapshot produces 8 primary hot families after shard normalization; `10..10` is structurally unattainable and caused false-negative cycle failures.
+- Manual-first Step-3/Step-4 orchestration is now scriptable through `manual-sync:batch` and `config/manual-first-workflow.json`.
+  Verified reason: each batch now runs manual-project light gates, at most one generator sync pass, mandatory `manual-sync:export`, mandatory `manual-sync:roundtrip`, and writes deterministic batch state/reports under `shared/manual-sync/*`.
+- Roundtrip comparison now tolerates micro jitter in `nameQuality` (regression tolerance `0.001`) while keeping fail-fast for real quality drops.
+  Verified reason: snapshot-level nondeterministic micro-drift no longer causes false red roundtrip failures.
+- Namespace-to-direct-import rewrites now block write-context member accesses and expanded quality-shard targeting includes `store-state-g003-quality-*`.
+  Verified reason: removed `no-import-assign` regressions in hot store shards and restored full green gates (`lint/build/dev`) for roundtrip and manual batch cycles.

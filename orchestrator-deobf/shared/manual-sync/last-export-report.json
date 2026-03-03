@@ -1,10 +1,10 @@
 {
-  "generatedAtIso": "2026-03-03T08:36:41.948Z",
+  "generatedAtIso": "2026-03-03T10:07:59.714Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
     {
       "filePath": "src/services/service/service-run-quality-03.ts",
-      "generatedExports": 14,
+      "generatedExports": 18,
       "manualExports": 13
     },
     {
@@ -14,27 +14,27 @@
     },
     {
       "filePath": "src/services/store/store-state-g002-quality-02.ts",
-      "generatedExports": 7,
+      "generatedExports": 9,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "generatedExports": 57,
+      "generatedExports": 66,
       "manualExports": 35
     },
     {
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "generatedExports": 51,
+      "generatedExports": 58,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "generatedExports": 9,
+      "generatedExports": 10,
       "manualExports": 26
     },
     {
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "generatedExports": 9,
+      "generatedExports": 8,
       "manualExports": 19
     }
   ],
@@ -42,30 +42,30 @@
   "missingModuleFiles": [
     "src/main/lib/transport/transport-bridge-quality-01.ts",
     "src/main/lib/transport/transport-bridge-quality-02.ts",
-    "src/renderer/features/hooks/hook-hooks-render-quality-01.ts",
-    "src/renderer/features/hooks/hook-hooks-render-quality-02.ts",
+    "src/renderer/features/hooks/hook-hooks-quality-01.ts",
+    "src/renderer/features/hooks/hook-hooks-quality-02.ts",
     "src/renderer/features/store/store-state-quality-01.ts",
     "src/renderer/features/store/store-state-quality-02.ts",
-    "src/renderer/features/ui/ui-components-quality-01.ts",
-    "src/renderer/features/ui/ui-components-quality-02.ts",
+    "src/renderer/features/ui/ui-components-render-quality-01.ts",
+    "src/renderer/features/ui/ui-components-render-quality-02.ts",
     "src/services/store/store-state-quality-03.ts"
   ],
-  "pathCreated": 23,
+  "pathCreated": 2,
   "pathRekeyed": 0,
-  "pathRemoved": 0,
-  "pathUpdated": 15,
+  "pathRemoved": 2,
+  "pathUpdated": 19,
   "staleCleanupExecuted": {
-    "pathRemoved": 0,
+    "pathRemoved": 2,
     "surfaceRemoved": 1,
-    "symbolRemoved": 35
+    "symbolRemoved": 22
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 5,
+  "surfaceCreated": 3,
   "surfaceRemoved": 1,
-  "surfaceUpdated": 9,
-  "symbolNameCreated": 47,
+  "surfaceUpdated": 11,
+  "symbolNameCreated": 28,
   "symbolNamePromotedFromMergedEvidence": 0,
-  "symbolNameRekeyed": 3,
-  "symbolNameRemoved": 35,
-  "symbolNameUpdated": 62
+  "symbolNameRekeyed": 4,
+  "symbolNameRemoved": 22,
+  "symbolNameUpdated": 94
 }

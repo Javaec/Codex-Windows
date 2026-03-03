@@ -1,12 +1,12 @@
 {
   "contractVersion": 2,
-  "generatedAtIso": "2026-03-03T08:36:41.938Z",
+  "generatedAtIso": "2026-03-03T10:07:59.704Z",
   "migrationVersion": 1,
   "overrides": [
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge1",
+      "evidence": "manual-sync-relocated:transportBridgeBridge2",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -33,12 +33,12 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:101",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge2",
+      "evidence": "manual-sync-relocated:transportBridgeBridge1",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -65,7 +65,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:108",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -126,7 +126,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:130",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -192,7 +192,7 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge3",
+      "evidence": "manual-sync-relocated:transportBridgeBridge6",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -219,7 +219,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:164",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -248,12 +248,12 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:18",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge4",
+      "evidence": "manual-sync-relocated:transportBridgeBridge3",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -280,7 +280,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:189",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -344,12 +344,12 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:242",
-      "updatedAtIso": "2026-03-03T08:36:41.916Z"
+      "updatedAtIso": "2026-03-03T10:07:59.682Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent1",
+      "evidence": "manual-sync-relocated:uiComponentsComponent2",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -376,7 +376,141 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:258",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeAngularService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "koe",
+          "xoe",
+          "yoe"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:303",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeDihfService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "nae",
+          "qoe",
+          "sae"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:308",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeAngularServiceLjg",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "bae",
+          "iae",
+          "rae"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:310",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeAService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "ace",
+          "ice",
+          "nce",
+          "oce",
+          "rce"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 3,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:336",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
     },
     {
       "confidence": 0.84,
@@ -410,7 +544,278 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge6",
+      "evidence": "manual-sync-relocated:servicePathRouteHeeDihfServiceGfm",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "hce",
+          "mce",
+          "roe",
+          "tce"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:344",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeCfmjwfbxService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "aae",
+          "bre",
+          "dae",
+          "eae",
+          "fae",
+          "foe",
+          "iae"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 4,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:349",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeAstroService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "ace",
+          "ice",
+          "nce",
+          "oce",
+          "rce"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 3,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:355",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "eue",
+          "nue",
+          "uue"
+        ],
+        "incomingBucket": 0,
+        "mutationProfile": "pure",
+        "outgoingBucket": 3,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:359",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeAServiceKjg",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "lue",
+          "mue",
+          "qce",
+          "sue"
+        ],
+        "incomingBucket": 2,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:372",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalATState",
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "jue",
+          "tue"
+        ],
+        "incomingBucket": 2,
+        "mutationProfile": "state-mutation",
+        "outgoingBucket": 0,
+        "parameterCount": 0,
+        "role": "store",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:382",
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeBslService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "aue",
+          "cue",
+          "due",
+          "iue"
+        ],
+        "incomingBucket": 2,
+        "mutationProfile": "pure",
+        "outgoingBucket": 4,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:392",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalATState",
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "nde",
+          "xpe"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "state-mutation",
+        "outgoingBucket": 1,
+        "parameterCount": 0,
+        "role": "store",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:477",
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:transportBridgeBridge4",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -437,12 +842,12 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:494",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent2",
+      "evidence": "manual-sync-relocated:uiComponentsComponent3",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -469,25 +874,25 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:75",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent3",
-      "filePath": "src/renderer/features/ui/ui-components.ts",
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalOKState",
+      "filePath": "src/services/store/store-state-g002-quality-02.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
-        "apiShape": "sync-function",
+        "apiShape": "class-constructor",
         "callTokens": [
           "xte",
           "yte"
         ],
         "incomingBucket": 0,
-        "mutationProfile": "local-mutation",
+        "mutationProfile": "state-mutation",
         "outgoingBucket": 2,
         "parameterCount": 0,
-        "role": "ui",
+        "role": "store",
         "stateTokens": [
           "abcdefghijklmnopqrstuvwxyz",
           "abnormal",
@@ -500,13 +905,13 @@
         ],
         "version": 1
       },
-      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:83",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "symbolKey": "main-entry:symbol:101",
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent4",
+      "evidence": "manual-sync-relocated:uiComponentsComponent3",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -533,7 +938,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:108",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
@@ -597,7 +1002,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:111",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
@@ -634,7 +1039,40 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent1",
+      "evidence": "manual-sync-relocated:servicePathRouteHeeARService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "hte",
+          "jte",
+          "vte"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:119",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:uiComponentsComponent4",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -661,12 +1099,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:124",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent2",
+      "evidence": "manual-sync-relocated:uiComponentsComponent1",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -693,22 +1131,22 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:135",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalUNState",
-      "filePath": "src/renderer/features/store/store-state.ts",
+      "evidence": "manual-sync-relocated:extendsSymbol2",
+      "filePath": "src/services/service/service-run-quality-01.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
-        "apiShape": "class-constructor",
+        "apiShape": "sync-function",
         "callTokens": [],
         "incomingBucket": 0,
-        "mutationProfile": "state-mutation",
+        "mutationProfile": "pure",
         "outgoingBucket": 0,
         "parameterCount": 0,
-        "role": "store",
+        "role": "orchestrator",
         "stateTokens": [
           "abcdefghijklmnopqrstuvwxyz",
           "abnormal",
@@ -721,8 +1159,41 @@
         ],
         "version": 1
       },
-      "symbolKey": "main-entry:symbol:187",
-      "updatedAtIso": "2026-03-03T08:33:07.588Z"
+      "symbolKey": "main-entry:symbol:15",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:servicePathRouteHeeHtmlService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "bne",
+          "ene",
+          "zne"
+        ],
+        "incomingBucket": 2,
+        "mutationProfile": "pure",
+        "outgoingBucket": 1,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:163",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
     },
     {
       "confidence": 0.84,
@@ -790,8 +1261,8 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalENState",
-      "filePath": "src/renderer/features/store/store-state.ts",
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalPKState",
+      "filePath": "src/services/store/store-state-quality-01.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
         "apiShape": "class-constructor",
@@ -816,12 +1287,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:231",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:51:40.809Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge1",
+      "evidence": "manual-sync-relocated:transportBridgeBridge6",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -848,7 +1319,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:242",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -942,7 +1413,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:258",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
@@ -974,13 +1445,13 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:264",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalDRStateGgh",
-      "filePath": "src/renderer/features/store/store-state.ts",
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalERState",
+      "filePath": "src/services/store/store-state-g003-quality-02.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
         "apiShape": "sync-function",
@@ -1005,12 +1476,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:276",
-      "updatedAtIso": "2026-03-03T08:33:07.589Z"
+      "updatedAtIso": "2026-03-03T08:51:40.809Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge2",
+      "evidence": "manual-sync-relocated:transportBridgeBridge3",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -1037,18 +1508,18 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:321",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalBladeState",
-      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalFNState",
+      "filePath": "src/renderer/features/store/store-state.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
         "apiShape": "sync-function",
         "callTokens": [
-          "mue"
+          "kae"
         ],
         "incomingBucket": 1,
         "mutationProfile": "state-mutation",
@@ -1067,8 +1538,71 @@
         ],
         "version": 1
       },
-      "symbolKey": "main-entry:symbol:385",
-      "updatedAtIso": "2026-03-03T08:36:41.918Z"
+      "symbolKey": "main-entry:symbol:323",
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:serviceC4diagramYg6gdrkoService",
+      "filePath": "src/services/service/service-run-quality-03.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [
+          "cce",
+          "nce",
+          "rce",
+          "tce"
+        ],
+        "incomingBucket": 2,
+        "mutationProfile": "pure",
+        "outgoingBucket": 2,
+        "parameterCount": 0,
+        "role": "orchestrator",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:354",
+      "updatedAtIso": "2026-03-03T09:07:03.479Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalPKState",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [],
+        "incomingBucket": 0,
+        "mutationProfile": "state-mutation",
+        "outgoingBucket": 0,
+        "parameterCount": 0,
+        "role": "store",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:38",
+      "updatedAtIso": "2026-03-03T10:04:00.384Z"
     },
     {
       "confidence": 0.84,
@@ -1104,7 +1638,7 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge3",
+      "evidence": "manual-sync-relocated:transportBridgeBridge5",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -1132,12 +1666,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:464",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:uiComponentsComponent4",
+      "evidence": "manual-sync-relocated:uiComponentsComponent1",
       "filePath": "src/renderer/features/ui/ui-components.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -1164,7 +1698,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:487",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T08:58:31.716Z"
     },
     {
       "confidence": 0.84,
@@ -1196,7 +1730,36 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:498",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalFNState",
+      "filePath": "src/renderer/features/store/store-state.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "class-constructor",
+        "callTokens": [],
+        "incomingBucket": 0,
+        "mutationProfile": "state-mutation",
+        "outgoingBucket": 0,
+        "parameterCount": 0,
+        "role": "store",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:503",
+      "updatedAtIso": "2026-03-03T10:04:00.383Z"
     },
     {
       "confidence": 0.84,
@@ -1230,8 +1793,8 @@
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalDRStateGjh",
-      "filePath": "src/renderer/features/store/store-state.ts",
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalDTState",
+      "filePath": "src/services/store/store-state-quality-02.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
         "apiShape": "class-constructor",
@@ -1256,7 +1819,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:68",
-      "updatedAtIso": "2026-03-03T08:33:07.589Z"
+      "updatedAtIso": "2026-03-03T10:07:59.684Z"
     },
     {
       "confidence": 0.84,
@@ -1288,12 +1851,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:75",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge5",
+      "evidence": "manual-sync-relocated:transportBridgeBridge1",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -1320,12 +1883,12 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:83",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:transportBridgeBridge6",
+      "evidence": "manual-sync-relocated:transportBridgeBridge2",
       "filePath": "src/main/lib/transport/transport-bridge.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
@@ -1352,7 +1915,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:86",
-      "updatedAtIso": "2026-03-03T08:36:41.917Z"
+      "updatedAtIso": "2026-03-03T10:07:59.683Z"
     }
   ]
 }

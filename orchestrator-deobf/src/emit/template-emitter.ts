@@ -2535,14 +2535,14 @@ function dedupeSymbolsByKey(symbols: OwnershipRecord[]): OwnershipRecord[] {
 
 function isTargetedQualityShardFilePath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
-  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-02|store-state-g002-quality-03)(?:-cohesion-\d+)?\.ts$/i.test(
+  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-02|store-state-g002-quality-03|store-state-g003-quality-01|store-state-g003-quality-02)(?:-cohesion-\d+)?\.ts$/i.test(
     normalized,
   );
 }
 
 function isPrimaryTargetedQualityShardFilePath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
-  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-02|store-state-g002-quality-03)(?:-cohesion-\d+)?\.ts$/i.test(
+  return /(?:^|\/)src\/services\/store\/(?:store-state-quality-01|store-state-quality-02|store-state-g002-quality-02|store-state-g002-quality-03|store-state-g003-quality-01|store-state-g003-quality-02)(?:-cohesion-\d+)?\.ts$/i.test(
     normalized,
   );
 }
@@ -3523,6 +3523,7 @@ function buildQualityModuleContent(
     /(?:^|\/)src\/renderer\/features\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/renderer\/features\/store\/store-state-quality-\d+\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-quality-03\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002-quality-01\.ts$/i.test(normalizedHotFilePath) ||
@@ -3530,13 +3531,16 @@ function buildQualityModuleContent(
     /(?:^|\/)src\/services\/store\/store-state-g003-quality-02\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-01\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath) ||
-    /(?:^|\/)src\/services\/service\/service-run-cohesion-\d+\.ts$/i.test(normalizedHotFilePath);
+    /(?:^|\/)src\/services\/service\/service-run-cohesion-\d+\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-domain-quality-\d+\.ts$/i.test(normalizedHotFilePath);
   const targetedHardInlineNamespaceModule =
     /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-quality-03\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath) ||
-    /(?:^|\/)src\/services\/service\/service-run-cohesion-01\.ts$/i.test(normalizedHotFilePath);
+    /(?:^|\/)src\/services\/service\/service-run-cohesion-01\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-domain-quality-01\.ts$/i.test(normalizedHotFilePath);
   const targetedImportAssignSafetyModule =
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath);
@@ -8591,6 +8595,40 @@ function buildQualityModuleContent(
       shapingDeclaration: ts.VariableDeclaration,
       bindingByImportedName: ReadonlyMap<string, string>,
     ): boolean => {
+      const isAssignmentOperatorToken = (tokenKind: ts.SyntaxKind): boolean =>
+        tokenKind === ts.SyntaxKind.EqualsToken ||
+        tokenKind === ts.SyntaxKind.PlusEqualsToken ||
+        tokenKind === ts.SyntaxKind.MinusEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskAsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.SlashEqualsToken ||
+        tokenKind === ts.SyntaxKind.PercentEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarEqualsToken ||
+        tokenKind === ts.SyntaxKind.CaretEqualsToken ||
+        tokenKind === ts.SyntaxKind.LessThanLessThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarBarEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+      const isNamespaceMemberWrite = (
+        expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+      ): boolean => {
+        const parent = expression.parent;
+        if (ts.isBinaryExpression(parent) && parent.left === expression && isAssignmentOperatorToken(parent.operatorToken.kind)) {
+          return true;
+        }
+        if ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && parent.operand === expression) {
+          if (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken) {
+            return true;
+          }
+        }
+        if (ts.isDeleteExpression(parent) && parent.expression === expression) {
+          return true;
+        }
+        return false;
+      };
       let onlyAllowed = true;
       const visit = (node: ts.Node): void => {
         if (!onlyAllowed) {
@@ -8604,7 +8642,7 @@ function buildQualityModuleContent(
             return;
           }
           if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
-            if (bindingByImportedName.has(parent.name.text)) {
+            if (bindingByImportedName.has(parent.name.text) && !isNamespaceMemberWrite(parent)) {
               ts.forEachChild(node, visit);
               return;
             }
@@ -8616,7 +8654,11 @@ function buildQualityModuleContent(
               : ts.isIdentifier(argument)
                 ? argument.text
                 : "";
-            if (importedName.length > 0 && bindingByImportedName.has(importedName)) {
+            if (
+              importedName.length > 0 &&
+              bindingByImportedName.has(importedName) &&
+              !isNamespaceMemberWrite(parent)
+            ) {
               ts.forEachChild(node, visit);
               return;
             }
@@ -8950,6 +8992,40 @@ function buildQualityModuleContent(
       if ((!fullLiftFocusedStoreServiceModule && !targetedNamespaceRescueModule) || contentText.length < 1) {
         return contentText;
       }
+      const isAssignmentOperatorToken = (tokenKind: ts.SyntaxKind): boolean =>
+        tokenKind === ts.SyntaxKind.EqualsToken ||
+        tokenKind === ts.SyntaxKind.PlusEqualsToken ||
+        tokenKind === ts.SyntaxKind.MinusEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskAsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.SlashEqualsToken ||
+        tokenKind === ts.SyntaxKind.PercentEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarEqualsToken ||
+        tokenKind === ts.SyntaxKind.CaretEqualsToken ||
+        tokenKind === ts.SyntaxKind.LessThanLessThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarBarEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+      const isNamespaceMemberWrite = (
+        expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+      ): boolean => {
+        const parent = expression.parent;
+        if (ts.isBinaryExpression(parent) && parent.left === expression && isAssignmentOperatorToken(parent.operatorToken.kind)) {
+          return true;
+        }
+        if ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && parent.operand === expression) {
+          if (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken) {
+            return true;
+          }
+        }
+        if (ts.isDeleteExpression(parent) && parent.expression === expression) {
+          return true;
+        }
+        return false;
+      };
       const source = ts.createSourceFile(
         `${plan.moduleId}.ts`,
         contentText,
@@ -9021,7 +9097,11 @@ function buildQualityModuleContent(
         if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
           const alias = node.expression.text;
           if (useInfoByAlias.has(alias)) {
-            recordImportedName(alias, node.name.text);
+            if (isNamespaceMemberWrite(node)) {
+              markUnsupported(alias);
+            } else {
+              recordImportedName(alias, node.name.text);
+            }
           }
         } else if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.argumentExpression) {
           const alias = node.expression.text;
@@ -9033,6 +9113,8 @@ function buildQualityModuleContent(
                 ? argument.text
                 : "";
             if (importedName.length < 1) {
+              markUnsupported(alias);
+            } else if (isNamespaceMemberWrite(node)) {
               markUnsupported(alias);
             } else {
               recordImportedName(alias, importedName);
@@ -9305,6 +9387,40 @@ function buildQualityModuleContent(
         }
         unsupportedAliases.add(alias);
       };
+      const isAssignmentOperatorToken = (tokenKind: ts.SyntaxKind): boolean =>
+        tokenKind === ts.SyntaxKind.EqualsToken ||
+        tokenKind === ts.SyntaxKind.PlusEqualsToken ||
+        tokenKind === ts.SyntaxKind.MinusEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.AsteriskAsteriskEqualsToken ||
+        tokenKind === ts.SyntaxKind.SlashEqualsToken ||
+        tokenKind === ts.SyntaxKind.PercentEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarEqualsToken ||
+        tokenKind === ts.SyntaxKind.CaretEqualsToken ||
+        tokenKind === ts.SyntaxKind.LessThanLessThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken ||
+        tokenKind === ts.SyntaxKind.BarBarEqualsToken ||
+        tokenKind === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
+        tokenKind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+      const isNamespaceMemberWrite = (
+        expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+      ): boolean => {
+        const parent = expression.parent;
+        if (ts.isBinaryExpression(parent) && parent.left === expression && isAssignmentOperatorToken(parent.operatorToken.kind)) {
+          return true;
+        }
+        if ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && parent.operand === expression) {
+          if (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken) {
+            return true;
+          }
+        }
+        if (ts.isDeleteExpression(parent) && parent.expression === expression) {
+          return true;
+        }
+        return false;
+      };
       const visitAliasAccesses = (node: ts.Node): void => {
         if (ts.isIdentifier(node) && isIdentifierReference(node) && namespaceAliasImports.has(node.text)) {
           const alias = node.text;
@@ -9315,12 +9431,18 @@ function buildQualityModuleContent(
             return;
           }
           if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
-            registerAliasAccess(alias, parent.name.text);
+            if (isNamespaceMemberWrite(parent)) {
+              unsupportedAliases.add(alias);
+            } else {
+              registerAliasAccess(alias, parent.name.text);
+            }
             ts.forEachChild(node, visitAliasAccesses);
             return;
           }
           if (ts.isElementAccessExpression(parent) && parent.expression === node && parent.argumentExpression) {
-            if (ts.isStringLiteralLike(parent.argumentExpression)) {
+            if (isNamespaceMemberWrite(parent)) {
+              unsupportedAliases.add(alias);
+            } else if (ts.isStringLiteralLike(parent.argumentExpression)) {
               registerAliasAccess(alias, parent.argumentExpression.text);
             } else {
               unsupportedAliases.add(alias);

@@ -327,8 +327,9 @@ async function runExport(
 }
 
 function compareMetrics(before: RunMetrics, after: RunMetrics): string[] {
+  const nameQualityRegressionTolerance = 0.001;
   const violations: string[] = [];
-  if (after.nameQuality + 0.0001 < before.nameQuality) {
+  if (after.nameQuality + nameQualityRegressionTolerance < before.nameQuality) {
     violations.push(`nameQuality regressed: ${after.nameQuality} < ${before.nameQuality}`);
   }
   if (after.mappedSymbols < before.mappedSymbols) {

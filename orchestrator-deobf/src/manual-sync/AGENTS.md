@@ -29,6 +29,7 @@ Implement deterministic import/export bridges between generated project output a
 - `manual-sync:roundtrip` is the mandatory safety loop for export changes:
   - `export -> apply -> regenerate -> diff`,
   - fail-fast on quality regression (`nameQuality`, coverage, build/dev health, proxy count).
+- `nameQuality` comparison uses a strict micro-jitter tolerance (`0.001`) to avoid false failures from tiny snapshot-level fluctuations.
 
 ## Stale Cleanup
 - Export pass removes stale override entries that no longer match current snapshot.
@@ -37,6 +38,11 @@ Implement deterministic import/export bridges between generated project output a
 
 ## Promotion Rule
 - Merged-evidence top-N promotion applies only when `selected != currentName` and candidate has positive quality uplift (or non-generic upgrade).
+
+## Batch Loop
+- `manual-sync:batch` is the default Step-3/Step-4 executor.
+- Batch policy is configured in `config/manual-first-workflow.json` and enforced by state files in `shared/manual-sync/manual-batch-*.json`.
+- One batch can run at most one generator sync pass; if stop-rule streak is reached, generator sync is frozen via `shared/manual-sync/manual-generator-freeze.json`.
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

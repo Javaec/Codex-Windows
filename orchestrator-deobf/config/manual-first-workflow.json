@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "domainSourceRoots": [
+    "src/main/",
+    "src/renderer/",
+    "src/services/",
+    "src-tauri-adapter/"
+  ],
+  "lightGateCommands": [
+    "npm run typecheck",
+    "npm run lint"
+  ],
+  "fullGateCommands": [
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run dev:smoke"
+  ],
+  "fullGateEveryBatches": 4,
+  "promotionTopN": 120,
+  "generatorSync": {
+    "enabled": true,
+    "maxPassesPerBatch": 1,
+    "stopAfterNoQualityGrowthBatches": 3,
+    "suiteRunPrefix": "manual-sync-cycle"
+  }
+}
