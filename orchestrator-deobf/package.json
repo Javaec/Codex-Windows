@@ -17,6 +17,7 @@
     "manual-sync:bootstrap": "node dist/manual-sync/bootstrap-manual-project.js",
     "manual-sync:hot-rescue": "node dist/manual-sync/manual-hot-rescue.js",
     "manual-sync:quarantine-imports": "node dist/manual-sync/quarantine-hot-imports.js",
+    "manual-sync:refactor-top-hot": "node dist/manual-sync/refactor-top-hot-manual.js",
     "manual-sync:batch": "node dist/manual-sync/manual-batch-cycle.js"
   },
   "devDependencies": {

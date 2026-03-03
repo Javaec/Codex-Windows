@@ -53,6 +53,11 @@ Implement deterministic import/export bridges between generated project output a
   - supports `--skip-unique` to process the next hot batch (`#6-#10`, etc.),
   - keeps business logic files with a single aggregated deps import.
   Verified reason: reduces import/runtime-vendor visual noise in hot manual files without changing function bodies.
+- Added targeted top-hot manual refactor pass (`manual-sync:refactor-top-hot`):
+  - extracts one dependency-closure behavior cluster per top-hot file into sibling `*-behavior-split.ts`,
+  - keeps refactor strictly manual-project scoped (no new generator fallback branches),
+  - emits `manual-top-hot-refactor-last-report.json` with before/after file metrics.
+  Verified reason: enables fast behavior-boundary split experiments on top-5 manual files while preserving strict manual-first workflow.
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

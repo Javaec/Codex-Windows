@@ -494,3 +494,7 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - heavy `artifacts/*` and payload imports move to sibling `*-deps.ts`,
   - hot domain files keep minimal import headers while logic stays unchanged.
   Verified reason: faster manual refactor throughput on top-hot files with lower visual import noise and stable green gates.
+- Added manual-only top-hot behavior split pass:
+  - `manual-sync:refactor-top-hot` extracts dependency-closure clusters into `*-behavior-split.ts` for top unique hot files,
+  - report: `shared/manual-sync/manual-top-hot-refactor-last-report.json`.
+  Verified reason: targeted readability improvements can be applied to manual project without broad generator refactors.

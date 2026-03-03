@@ -1,13 +1,13 @@
 {
-  "generatedAtIso": "2026-03-03T11:44:19.106Z",
+  "generatedAtIso": "2026-03-03T12:02:44.004Z",
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
   "stableSlice": {
-    "averageScore": 0.9686,
+    "averageScore": 0.9685,
     "classCoverageAverage": 1,
     "functionCoverageAverage": 1,
     "hotFocusFileAverage": 8,
     "kpiPassed": true,
-    "nameQualityAverage": 0.8253,
+    "nameQualityAverage": 0.8252,
     "proxyInQualityAverage": 0,
     "variableCoverageAverage": 1
   },
@@ -15,15 +15,15 @@
   "topManualCandidates": [
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7837,
+      "averageNameQuality": 0.7836,
       "averageScore": 0.7694,
-      "averageSymbolCount": 93,
+      "averageSymbolCount": 94,
       "filePath": "src/services/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7823,
-      "averageScore": 0.7709,
+      "averageScore": 0.7719,
       "averageSymbolCount": 75,
       "filePath": "src/renderer/features/store/store-state-quality-01.ts"
     },
@@ -44,22 +44,22 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8134,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8143,
+      "averageScore": 0.8135,
       "averageSymbolCount": 120,
       "filePath": "src/services/store/store-state-g002-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7855,
-      "averageScore": 0.8212,
-      "averageSymbolCount": 93,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8142,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7847,
+      "averageScore": 0.8213,
+      "averageSymbolCount": 94,
       "filePath": "src/services/store/store-state-quality-02.ts"
     },
     {
@@ -72,7 +72,7 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8477,
+      "averageScore": 0.8476,
       "averageSymbolCount": 75,
       "filePath": "src/renderer/features/store/store-state-quality-02.ts"
     },

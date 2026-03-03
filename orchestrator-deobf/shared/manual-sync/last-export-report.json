@@ -1,10 +1,10 @@
 {
-  "generatedAtIso": "2026-03-03T11:48:25.168Z",
+  "generatedAtIso": "2026-03-03T12:37:19.447Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
     {
       "filePath": "src/services/service/service-run-quality-03.ts",
-      "generatedExports": 17,
+      "generatedExports": 16,
       "manualExports": 13
     },
     {
@@ -14,27 +14,27 @@
     },
     {
       "filePath": "src/services/store/store-state-g002-quality-02.ts",
-      "generatedExports": 10,
+      "generatedExports": 6,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "generatedExports": 67,
+      "generatedExports": 62,
       "manualExports": 35
     },
     {
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "generatedExports": 60,
+      "generatedExports": 65,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "generatedExports": 11,
+      "generatedExports": 6,
       "manualExports": 26
     },
     {
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "generatedExports": 7,
+      "generatedExports": 11,
       "manualExports": 19
     }
   ],
@@ -50,22 +50,22 @@
     "src/renderer/features/ui/ui-components-render-quality-02.ts",
     "src/services/store/store-state-quality-03.ts"
   ],
-  "pathCreated": 3,
-  "pathRekeyed": 0,
-  "pathRemoved": 1,
-  "pathUpdated": 19,
+  "pathCreated": 1,
+  "pathRekeyed": 1,
+  "pathRemoved": 0,
+  "pathUpdated": 18,
   "staleCleanupExecuted": {
-    "pathRemoved": 1,
-    "surfaceRemoved": 1,
-    "symbolRemoved": 21
+    "pathRemoved": 0,
+    "surfaceRemoved": 6,
+    "symbolRemoved": 30
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 3,
-  "surfaceRemoved": 1,
-  "surfaceUpdated": 11,
-  "symbolNameCreated": 30,
+  "surfaceCreated": 6,
+  "surfaceRemoved": 6,
+  "surfaceUpdated": 10,
+  "symbolNameCreated": 21,
   "symbolNamePromotedFromMergedEvidence": 0,
-  "symbolNameRekeyed": 2,
-  "symbolNameRemoved": 21,
+  "symbolNameRekeyed": 6,
+  "symbolNameRemoved": 30,
   "symbolNameUpdated": 93
 }
