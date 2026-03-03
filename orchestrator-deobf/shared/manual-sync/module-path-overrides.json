@@ -1,6 +1,6 @@
 {
   "contractVersion": 2,
-  "generatedAtIso": "2026-03-03T13:12:21.711Z",
+  "generatedAtIso": "2026-03-03T13:25:21.869Z",
   "migrationVersion": 1,
   "overrides": [
     {
@@ -1795,35 +1795,6 @@
       },
       "symbolKey": "main-entry:symbol:498",
       "updatedAtIso": "2026-03-03T11:48:25.140Z"
-    },
-    {
-      "confidence": 0.84,
-      "enabled": true,
-      "evidence": "manual-sync-relocated:storePathRouteAbnormalFNState",
-      "filePath": "src/renderer/features/store/store-state.ts",
-      "provenance": "manual-export-unique-file",
-      "symbolFingerprint": {
-        "apiShape": "class-constructor",
-        "callTokens": [],
-        "incomingBucket": 0,
-        "mutationProfile": "state-mutation",
-        "outgoingBucket": 0,
-        "parameterCount": 0,
-        "role": "store",
-        "stateTokens": [
-          "abcdefghijklmnopqrstuvwxyz",
-          "abnormal",
-          "abort",
-          "aborted",
-          "before",
-          "error",
-          "exit",
-          "start"
-        ],
-        "version": 1
-      },
-      "symbolKey": "main-entry:symbol:503",
-      "updatedAtIso": "2026-03-03T11:44:21.810Z"
     },
     {
       "confidence": 0.84,
