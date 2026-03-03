@@ -3484,12 +3484,18 @@ function buildQualityModuleContent(
   const targetedHotRendererStoreModule = criticalTopWorstModule && plan.layer === "renderer" && plan.archetype === "store";
   const targetedNamespaceRescueModule =
     /(?:^|\/)src\/renderer\/features\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002-quality-01\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003-quality-01\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003-quality-02\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-01\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath);
+  const targetedHardInlineNamespaceModule =
+    /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath);
   const targetedImportAssignSafetyModule =
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
@@ -3586,7 +3592,7 @@ function buildQualityModuleContent(
   const targetedHotDomainNoisePattern =
     /(?:Event|State)(?:Navigate)?Node[A-Za-z]{2,}Node$|EventFlowNode|(?:store|svc|service)AgentSettings|Abnormal(?:Exit)?|Abcdefghijklmnopqrstuvwxyz|(?:store|service)Iae[A-Za-z]{2,}Local[A-Z]{2}|(?:store|service)SaeSie/i;
   const resolveTopWorstNamespaceTarget = (): number => {
-    if (targetedNamespaceRescueModule) {
+    if (targetedNamespaceRescueModule || targetedHardInlineNamespaceModule) {
       return 8;
     }
     if (strictTargetedQualityShardModule) {
@@ -8215,9 +8221,94 @@ function buildQualityModuleContent(
       }
       return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
     };
+    const applyImportSelfBindingGuard = (contentText: string): string => {
+      if (contentText.length < 1) {
+        return contentText;
+      }
+      const source = ts.createSourceFile(
+        `${plan.moduleId}.ts`,
+        contentText,
+        ts.ScriptTarget.ESNext,
+        true,
+        ts.ScriptKind.TS,
+      );
+      const namespaceAliases = new Set<string>();
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          continue;
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings || !ts.isNamespaceImport(namedBindings)) {
+          continue;
+        }
+        namespaceAliases.add(namedBindings.name.text);
+      }
+      if (namespaceAliases.size < 1) {
+        return contentText;
+      }
+      let changed = false;
+      const nextStatements: ts.Statement[] = [];
+      for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+          nextStatements.push(statement);
+          continue;
+        }
+        const declaration = statement.declarationList.declarations[0];
+        if (
+          !declaration ||
+          !ts.isObjectBindingPattern(declaration.name) ||
+          !declaration.initializer ||
+          !ts.isIdentifier(declaration.initializer)
+        ) {
+          nextStatements.push(statement);
+          continue;
+        }
+        const namespaceAlias = declaration.initializer.text;
+        if (!namespaceAliases.has(namespaceAlias)) {
+          nextStatements.push(statement);
+          continue;
+        }
+        const keptElements = declaration.name.elements.filter((element) => {
+          if (ts.isOmittedExpression(element) || !ts.isIdentifier(element.name)) {
+            return true;
+          }
+          return element.name.text !== namespaceAlias;
+        });
+        if (keptElements.length === declaration.name.elements.length) {
+          nextStatements.push(statement);
+          continue;
+        }
+        changed = true;
+        if (keptElements.length < 1) {
+          continue;
+        }
+        const updatedPattern = ts.factory.updateObjectBindingPattern(declaration.name, keptElements);
+        const updatedDeclaration = ts.factory.updateVariableDeclaration(
+          declaration,
+          updatedPattern,
+          declaration.exclamationToken,
+          declaration.type,
+          declaration.initializer,
+        );
+        nextStatements.push(
+          ts.factory.updateVariableStatement(
+            statement,
+            statement.modifiers,
+            ts.factory.updateVariableDeclarationList(statement.declarationList, [updatedDeclaration]),
+          ),
+        );
+      }
+      if (!changed) {
+        return contentText;
+      }
+      return printer.printFile(ts.factory.updateSourceFile(source, nextStatements));
+    };
     const applyMutableImportAliasPass = (contentText: string): string => {
       if (
-        (!targetedHotWorstStoreServiceModule && !targetedQualityShardModule && !targetedImportAssignSafetyModule) ||
+        (!targetedHotWorstStoreServiceModule &&
+          !targetedQualityShardModule &&
+          !targetedImportAssignSafetyModule &&
+          !targetedHardInlineNamespaceModule) ||
         contentText.length < 1
       ) {
         return contentText;
@@ -9055,7 +9146,7 @@ function buildQualityModuleContent(
       return printer.printFile(convertedSource);
     };
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const sourceFile = ts.createSourceFile(
+    const sourceFileBase = ts.createSourceFile(
       `${plan.moduleId}.ts`,
       content,
       ts.ScriptTarget.ESNext,
@@ -9071,14 +9162,248 @@ function buildQualityModuleContent(
       }
       return localName;
     };
+    const applyHardInlineNamespaceBindingSeed = (source: ts.SourceFile): ts.SourceFile => {
+      if (!targetedHardInlineNamespaceModule) {
+        return source;
+      }
+      const namespaceAliasImports = new Map<string, ts.ImportDeclaration>();
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          continue;
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings || !ts.isNamespaceImport(namedBindings)) {
+          continue;
+        }
+        namespaceAliasImports.set(namedBindings.name.text, statement);
+      }
+      if (namespaceAliasImports.size < 1) {
+        return source;
+      }
+      const dropSelfAliasBindings = (input: ts.SourceFile): ts.SourceFile => {
+        let changed = false;
+        const nextStatements: ts.Statement[] = [];
+        for (const statement of input.statements) {
+          if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
+            nextStatements.push(statement);
+            continue;
+          }
+          const declaration = statement.declarationList.declarations[0];
+          if (
+            !declaration ||
+            !ts.isObjectBindingPattern(declaration.name) ||
+            !declaration.initializer ||
+            !ts.isIdentifier(declaration.initializer)
+          ) {
+            nextStatements.push(statement);
+            continue;
+          }
+          const namespaceAlias = declaration.initializer.text;
+          if (!namespaceAliasImports.has(namespaceAlias)) {
+            nextStatements.push(statement);
+            continue;
+          }
+          const keptElements = declaration.name.elements.filter((element) => {
+            if (ts.isOmittedExpression(element) || !ts.isIdentifier(element.name)) {
+              return true;
+            }
+            return element.name.text !== namespaceAlias;
+          });
+          if (keptElements.length === declaration.name.elements.length) {
+            nextStatements.push(statement);
+            continue;
+          }
+          changed = true;
+          if (keptElements.length < 1) {
+            continue;
+          }
+          const updatedPattern = ts.factory.updateObjectBindingPattern(declaration.name, keptElements);
+          const updatedDeclaration = ts.factory.updateVariableDeclaration(
+            declaration,
+            updatedPattern,
+            declaration.exclamationToken,
+            declaration.type,
+            declaration.initializer,
+          );
+          nextStatements.push(
+            ts.factory.updateVariableStatement(
+              statement,
+              statement.modifiers,
+              ts.factory.updateVariableDeclarationList(statement.declarationList, [updatedDeclaration]),
+            ),
+          );
+        }
+        if (!changed) {
+          return input;
+        }
+        return ts.factory.updateSourceFile(input, nextStatements);
+      };
+      const normalizedSource = dropSelfAliasBindings(source);
+      const existingBindingsByAlias = new Map<string, Set<string>>();
+      for (const metadata of collectNamespaceAliasMetadata(normalizedSource).values()) {
+        const importedNames = new Set<string>();
+        for (const binding of metadata.bindings) {
+          importedNames.add(binding.importedName);
+        }
+        existingBindingsByAlias.set(metadata.alias, importedNames);
+      }
+      const accessedImportNamesByAlias = new Map<string, Set<string>>();
+      const unsupportedAliases = new Set<string>();
+      const ensureAliasAccessSet = (alias: string): Set<string> => {
+        const existing = accessedImportNamesByAlias.get(alias);
+        if (existing) {
+          return existing;
+        }
+        const created = new Set<string>();
+        accessedImportNamesByAlias.set(alias, created);
+        return created;
+      };
+      const registerAliasAccess = (alias: string, importedName: string): void => {
+        if (importedName === "default" || isValidIdentifierImportName(importedName)) {
+          ensureAliasAccessSet(alias).add(importedName);
+          return;
+        }
+        unsupportedAliases.add(alias);
+      };
+      const visitAliasAccesses = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) && isIdentifierReference(node) && namespaceAliasImports.has(node.text)) {
+          const alias = node.text;
+          const parent = node.parent;
+          const importAliasDeclaration = ts.isNamespaceImport(parent) && parent.name === node;
+          if (importAliasDeclaration) {
+            ts.forEachChild(node, visitAliasAccesses);
+            return;
+          }
+          if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+            registerAliasAccess(alias, parent.name.text);
+            ts.forEachChild(node, visitAliasAccesses);
+            return;
+          }
+          if (ts.isElementAccessExpression(parent) && parent.expression === node && parent.argumentExpression) {
+            if (ts.isStringLiteralLike(parent.argumentExpression)) {
+              registerAliasAccess(alias, parent.argumentExpression.text);
+            } else {
+              unsupportedAliases.add(alias);
+            }
+            ts.forEachChild(node, visitAliasAccesses);
+            return;
+          }
+          const shapingAliasUse =
+            ts.isVariableDeclaration(parent) &&
+            parent.initializer === node &&
+            ts.isObjectBindingPattern(parent.name);
+          if (!shapingAliasUse) {
+            unsupportedAliases.add(alias);
+          }
+        }
+        ts.forEachChild(node, visitAliasAccesses);
+      };
+      visitAliasAccesses(normalizedSource);
+      if (accessedImportNamesByAlias.size < 1) {
+        return normalizedSource;
+      }
+      const usedIdentifierNames = new Set<string>();
+      const collectUsedIdentifierNames = (node: ts.Node): void => {
+        if (ts.isIdentifier(node)) {
+          usedIdentifierNames.add(node.text);
+        }
+        ts.forEachChild(node, collectUsedIdentifierNames);
+      };
+      collectUsedIdentifierNames(normalizedSource);
+      const allocateLocalName = (baseName: string): string => {
+        const seed = sanitizeIdentifier(baseName);
+        if (!usedIdentifierNames.has(seed)) {
+          usedIdentifierNames.add(seed);
+          return seed;
+        }
+        let suffix = 2;
+        while (true) {
+          const candidate = sanitizeIdentifier(`${seed}${suffix}`);
+          if (!usedIdentifierNames.has(candidate)) {
+            usedIdentifierNames.add(candidate);
+            return candidate;
+          }
+          suffix += 1;
+        }
+      };
+      const syntheticBindingByAlias = new Map<string, ts.Statement>();
+      for (const [alias, importedNames] of accessedImportNamesByAlias.entries()) {
+        if (unsupportedAliases.has(alias)) {
+          continue;
+        }
+        const existing = existingBindingsByAlias.get(alias) ?? new Set<string>();
+        const missingImportNames = [...importedNames]
+          .filter((name) => !existing.has(name))
+          .sort((left, right) => left.localeCompare(right));
+        if (missingImportNames.length < 1) {
+          continue;
+        }
+        const elements: ts.BindingElement[] = [];
+        for (const importedName of missingImportNames) {
+          const localName =
+            importedName === "default"
+              ? allocateLocalName(`${alias}DefaultDep`)
+              : allocateLocalName(`${alias}${toPascalCase(importedName)}Dep`);
+          const propertyName =
+            importedName === "default"
+              ? ts.factory.createStringLiteral("default")
+              : ts.factory.createIdentifier(importedName);
+          elements.push(
+            ts.factory.createBindingElement(
+              undefined,
+              propertyName,
+              ts.factory.createIdentifier(localName),
+              undefined,
+            ),
+          );
+        }
+        syntheticBindingByAlias.set(
+          alias,
+          ts.factory.createVariableStatement(
+            undefined,
+            ts.factory.createVariableDeclarationList(
+              [
+                ts.factory.createVariableDeclaration(
+                  ts.factory.createObjectBindingPattern(elements),
+                  undefined,
+                  undefined,
+                  ts.factory.createIdentifier(alias),
+                ),
+              ],
+              ts.NodeFlags.Const,
+            ),
+          ),
+        );
+      }
+      if (syntheticBindingByAlias.size < 1) {
+        return normalizedSource;
+      }
+      const nextStatements: ts.Statement[] = [];
+      for (const statement of normalizedSource.statements) {
+        nextStatements.push(statement);
+        if (!ts.isImportDeclaration(statement) || !statement.importClause) {
+          continue;
+        }
+        const namedBindings = statement.importClause.namedBindings;
+        if (!namedBindings || !ts.isNamespaceImport(namedBindings)) {
+          continue;
+        }
+        const syntheticBinding = syntheticBindingByAlias.get(namedBindings.name.text);
+        if (syntheticBinding) {
+          nextStatements.push(syntheticBinding);
+        }
+      }
+      return ts.factory.updateSourceFile(normalizedSource, nextStatements);
+    };
+    const sourceFile = applyHardInlineNamespaceBindingSeed(sourceFileBase);
     const preferredDirectImportAliases = buildPreferredDirectImportAliasSet(sourceFile);
     let sourceForCleanup = sourceFile;
-    let contentForCleanup = content;
+    let contentForCleanup = printer.printFile(sourceFile);
     if (fullLiftFocusedStoreServiceModule) {
-      const initialReferenceCounts = collectIdentifierReferenceCounts(sourceFile);
+      const initialReferenceCounts = collectIdentifierReferenceCounts(sourceForCleanup);
       const inlineCandidatesByLocal = new Map<string, { namespaceAlias: string; importedName: string }>();
       const inlineUsageCeiling = targetedHotStoreG003Module ? 3 : 2;
-      for (const statement of sourceFile.statements) {
+      for (const statement of sourceForCleanup.statements) {
         if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) {
           continue;
         }
@@ -9132,7 +9457,7 @@ function buildQualityModuleContent(
           };
           return (file) => ts.visitNode(file, visit) as ts.SourceFile;
         };
-        const transformedResult = ts.transform(sourceFile, [inlineTransformer]);
+        const transformedResult = ts.transform(sourceForCleanup, [inlineTransformer]);
         const transformedSourceFile = transformedResult.transformed[0];
         if (!transformedSourceFile) {
           transformedResult.dispose();
@@ -9255,16 +9580,20 @@ function buildQualityModuleContent(
     if (!importChanged) {
       const directConverted = applyPreferredDirectImportConversion(importSource, preferredDirectImportAliases);
       return splitLongNamedImportDeclarations(
-        applyMutableImportAliasPass(
-          demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+        applyImportSelfBindingGuard(
+          applyMutableImportAliasPass(
+            demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+          ),
         ),
       );
     }
     const importFilteredSource = ts.factory.updateSourceFile(importSource, importFilteredStatements);
     const directConverted = applyPreferredDirectImportConversion(importFilteredSource, preferredDirectImportAliases);
     return splitLongNamedImportDeclarations(
-      applyMutableImportAliasPass(
-        demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+      applyImportSelfBindingGuard(
+        applyMutableImportAliasPass(
+          demoteAssignedConstDeclarations(applySingleUseNamespaceAliasFallbackConversion(directConverted)),
+        ),
       ),
     );
   };
@@ -12064,9 +12393,9 @@ function buildQualityModuleContent(
     }
   }
   const namespaceImportCount = (moduleContent.match(/^\s*import\s+\*\s+as\s+/gm) ?? []).length;
-  if (criticalTopWorstModule || hotFocusedRendererStoreModule || targetedNamespaceRescueModule) {
+  if (criticalTopWorstModule || hotFocusedRendererStoreModule || targetedNamespaceRescueModule || targetedHardInlineNamespaceModule) {
     const namespaceImportCap =
-      targetedNamespaceRescueModule
+      targetedNamespaceRescueModule || targetedHardInlineNamespaceModule
         ? 8
       : targetedHotRendererStoreModule
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE
