@@ -87,3 +87,11 @@ Auto-generated record of contract changes (`shared/manual-sync/*`).
 - 2026-03-03T10:07:59.713Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=2 | updated=19 | reason=auto-import module relocation overrides from manual project
 - 2026-03-03T10:07:59.713Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=3 | updated=11 | reason=auto-import module export surface and owner-layer from manual project
 - 2026-03-03T10:07:59.713Z | actor=`manual-sync:export` | scope=`system` | created=25 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 22/2/1
+- 2026-03-03T10:21:57.018Z | actor=`manual-sync:export` | scope=`symbol-name-overrides` | created=143 | updated=101 | reason=auto-import symbol rename overrides from manual project
+- 2026-03-03T10:21:57.018Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=1 | updated=14 | reason=auto-import module relocation overrides from manual project
+- 2026-03-03T10:21:57.018Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=1 | updated=13 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T10:21:57.018Z | actor=`manual-sync:export` | scope=`system` | created=152 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 148/1/3
+- 2026-03-03T10:25:35.533Z | actor=`manual-sync:export` | scope=`symbol-name-overrides` | created=27 | updated=99 | reason=auto-import symbol rename overrides from manual project
+- 2026-03-03T10:25:35.533Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=2 | updated=18 | reason=auto-import module relocation overrides from manual project
+- 2026-03-03T10:25:35.533Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=3 | updated=11 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T10:25:35.533Z | actor=`manual-sync:export` | scope=`system` | created=23 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 21/1/1
