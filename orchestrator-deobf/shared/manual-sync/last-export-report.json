@@ -1,25 +1,71 @@
 {
-  "generatedAtIso": "2026-03-03T06:57:41.227Z",
+  "generatedAtIso": "2026-03-03T08:36:41.948Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-  "lengthMismatches": [],
-  "manualProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-  "missingModuleFiles": [],
-  "pathCreated": 0,
+  "lengthMismatches": [
+    {
+      "filePath": "src/services/service/service-run-quality-03.ts",
+      "generatedExports": 14,
+      "manualExports": 13
+    },
+    {
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "generatedExports": 8,
+      "manualExports": 26
+    },
+    {
+      "filePath": "src/services/store/store-state-g002-quality-02.ts",
+      "generatedExports": 7,
+      "manualExports": 29
+    },
+    {
+      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "generatedExports": 57,
+      "manualExports": 35
+    },
+    {
+      "filePath": "src/services/store/store-state-g003-quality-02.ts",
+      "generatedExports": 51,
+      "manualExports": 29
+    },
+    {
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "generatedExports": 9,
+      "manualExports": 26
+    },
+    {
+      "filePath": "src/services/store/store-state-quality-02.ts",
+      "generatedExports": 9,
+      "manualExports": 19
+    }
+  ],
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "missingModuleFiles": [
+    "src/main/lib/transport/transport-bridge-quality-01.ts",
+    "src/main/lib/transport/transport-bridge-quality-02.ts",
+    "src/renderer/features/hooks/hook-hooks-render-quality-01.ts",
+    "src/renderer/features/hooks/hook-hooks-render-quality-02.ts",
+    "src/renderer/features/store/store-state-quality-01.ts",
+    "src/renderer/features/store/store-state-quality-02.ts",
+    "src/renderer/features/ui/ui-components-quality-01.ts",
+    "src/renderer/features/ui/ui-components-quality-02.ts",
+    "src/services/store/store-state-quality-03.ts"
+  ],
+  "pathCreated": 23,
   "pathRekeyed": 0,
   "pathRemoved": 0,
-  "pathUpdated": 0,
+  "pathUpdated": 15,
   "staleCleanupExecuted": {
     "pathRemoved": 0,
     "surfaceRemoved": 1,
-    "symbolRemoved": 0
+    "symbolRemoved": 35
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 1,
+  "surfaceCreated": 5,
   "surfaceRemoved": 1,
-  "surfaceUpdated": 11,
-  "symbolNameCreated": 0,
+  "surfaceUpdated": 9,
+  "symbolNameCreated": 47,
   "symbolNamePromotedFromMergedEvidence": 0,
-  "symbolNameRekeyed": 0,
-  "symbolNameRemoved": 0,
-  "symbolNameUpdated": 0
+  "symbolNameRekeyed": 3,
+  "symbolNameRemoved": 35,
+  "symbolNameUpdated": 62
 }

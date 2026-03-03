@@ -43,3 +43,11 @@ Auto-generated record of contract changes (`shared/manual-sync/*`).
 - 2026-03-03T06:53:53.402Z | actor=`manual-sync:export` | scope=`system` | created=122 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 120/0/2
 - 2026-03-03T06:57:41.226Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=1 | updated=11 | reason=auto-import module export surface and owner-layer from manual project
 - 2026-03-03T06:57:41.226Z | actor=`manual-sync:export` | scope=`system` | created=1 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 0/0/1
+- 2026-03-03T08:33:07.636Z | actor=`manual-sync:export` | scope=`symbol-name-overrides` | created=264 | updated=0 | reason=auto-import symbol rename overrides from manual project
+- 2026-03-03T08:33:07.636Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=20 | updated=0 | reason=auto-import module relocation overrides from manual project
+- 2026-03-03T08:33:07.636Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=1 | updated=13 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T08:33:07.636Z | actor=`manual-sync:export` | scope=`system` | created=125 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 120/0/5
+- 2026-03-03T08:36:41.948Z | actor=`manual-sync:export` | scope=`symbol-name-overrides` | created=47 | updated=65 | reason=auto-import symbol rename overrides from manual project
+- 2026-03-03T08:36:41.948Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=23 | updated=15 | reason=auto-import module relocation overrides from manual project
+- 2026-03-03T08:36:41.948Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=5 | updated=9 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T08:36:41.948Z | actor=`manual-sync:export` | scope=`system` | created=36 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 35/0/1

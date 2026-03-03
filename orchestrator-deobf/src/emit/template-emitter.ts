@@ -171,12 +171,12 @@ const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const HOT_FIRST_REGENERATION_ENABLED = true;
-const HOT_FIRST_MIN_TARGET_FILES = 5;
+const HOT_FIRST_MIN_TARGET_FILES = 10;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 1;
 const HOT_FIRST_CRITICAL_TOP_WORST_COUNT = 10;
-const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE = 10;
-const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER = 9;
+const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE = 8;
+const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER = 8;
 const HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE = 8;
 const HOT_INLINE_WRAPPER_MAX_PER_MODULE = 24;
 const HOT_BEHAVIOR_CLUSTER_MAX_EXTRACTED = 36;
@@ -1465,7 +1465,7 @@ function computeModuleQuality(plan: ModulePlan, bindingByKey: Map<string, Lifted
     averageNameQuality: clamp(averageNameQuality),
     liftedCoverage: clamp(liftedCoverage),
     rerendered: false,
-    hotFocus: plan.hotPriority,
+    hotFocus: plan.hotPriority && isPrimaryHotFocusFilePath(plan.filePath),
   };
 }
 
@@ -1936,10 +1936,19 @@ function buildModulePlans(
 
 function isHotFirstFilePath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
-  if (/(?:^|\/)src\/services\/service\/service-run\.ts$/.test(normalized)) {
+  if (/(?:^|\/)src\/services\/service\/service-run(?:-cohesion-\d+|-quality-\d+)?\.ts$/.test(normalized)) {
     return true;
   }
   if (/(?:^|\/)src\/services\/store\/store-state(?:-g\d+|-quality-\d+)?\.ts$/.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|\/)src\/renderer\/features\/store\/store-state(?:-quality-\d+)?\.ts$/.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|\/)src\/main\/lib\/transport\/.+\.ts$/.test(normalized)) {
+    return true;
+  }
+  if (/(?:^|\/)src\/renderer\/features\/(?:ui|hooks)\//.test(normalized)) {
     return true;
   }
   if (/(?:^|\/)src\/services\/(?:service|store)\//.test(normalized)) {
@@ -1968,11 +1977,22 @@ function hotSelectionKeyFromFilePath(filePath: string): string {
     .replace(/-part-\d+(?=\.ts$)/i, "");
 }
 
+function isPrimaryHotFocusFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  const shardMatch = normalized.match(/-(quality|cohesion|part)-(\d+)\.ts$/);
+  if (!shardMatch) {
+    return true;
+  }
+  const shardIndex = Number.parseInt(shardMatch[2] ?? "0", 10);
+  return Number.isFinite(shardIndex) && shardIndex === 1;
+}
+
 function applyHotSeedPriority(
   modulePlans: ModulePlan[],
   hotSeedFamilies: ReadonlySet<string>,
   preferredHotFilePaths: ReadonlySet<string>,
   preferredHotSelectionKeys: ReadonlySet<string>,
+  strictHotSelection: boolean,
 ): ModulePlan[] {
   if (hotSeedFamilies.size < 1 && preferredHotFilePaths.size < 1 && preferredHotSelectionKeys.size < 1) {
     return modulePlans;
@@ -1983,7 +2003,7 @@ function applyHotSeedPriority(
       plan.hotPriority ||
       preferredHotFilePaths.has(normalizeHotFilePath(plan.filePath)) ||
       preferredHotSelectionKeys.has(hotSelectionKeyFromFilePath(plan.filePath)) ||
-      hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath)),
+      (!strictHotSelection && hotSeedFamilies.has(hotFamilyKeyFromFilePath(plan.filePath))),
   }));
 }
 
@@ -2153,7 +2173,24 @@ function applyFileQualityRerender(
       return preferredHotSelectionKeys.has(hotSelectionKeyFromFilePath(entry.filePath));
     })
     : baseCandidatePool;
-  const candidatePool = preferredCandidatePool.length > 0 ? preferredCandidatePool : baseCandidatePool;
+  let candidatePool = preferredCandidatePool.length > 0 ? [...preferredCandidatePool] : [...baseCandidatePool];
+  if (
+    (preferredHotFilePaths.size > 0 || preferredHotSelectionKeys.size > 0) &&
+    candidatePool.length > 0 &&
+    candidatePool.length < targetCount
+  ) {
+    const selectedModuleIds = new Set(candidatePool.map((entry) => entry.moduleId));
+    for (const fallbackEntry of baseCandidatePool) {
+      if (candidatePool.length >= targetCount) {
+        break;
+      }
+      if (selectedModuleIds.has(fallbackEntry.moduleId)) {
+        continue;
+      }
+      selectedModuleIds.add(fallbackEntry.moduleId);
+      candidatePool.push(fallbackEntry);
+    }
+  }
   if (strictHotSelection && (preferredHotFilePaths.size > 0 || preferredHotSelectionKeys.size > 0) && preferredCandidatePool.length < 1) {
     process.stderr.write(
       `[template-emitter] strict hot selection fallback: no live modules matched manual-refactor candidates; using current worst candidates\n`,
@@ -2180,7 +2217,7 @@ function applyFileQualityRerender(
       selectedCandidates.push(candidate);
     }
   }
-  if (hotSeedFamilies.size > 0) {
+  if (!strictHotSelection && hotSeedFamilies.size > 0) {
     const seededCandidates = candidatePool.filter((entry) => {
       const plan = planByModuleId.get(entry.moduleId);
       if (!plan) {
@@ -2285,7 +2322,7 @@ function applyFileQualityRerender(
     return {
       ...entry,
       rerendered: rerenderedModuleIds.has(originalId),
-      hotFocus: plan.hotPriority,
+      hotFocus: plan.hotPriority && isPrimaryHotFocusFilePath(plan.filePath),
     };
   });
 
@@ -3484,6 +3521,7 @@ function buildQualityModuleContent(
   const targetedHotRendererStoreModule = criticalTopWorstModule && plan.layer === "renderer" && plan.archetype === "store";
   const targetedNamespaceRescueModule =
     /(?:^|\/)src\/renderer\/features\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/renderer\/features\/store\/store-state-quality-\d+\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
@@ -3491,12 +3529,14 @@ function buildQualityModuleContent(
     /(?:^|\/)src\/services\/store\/store-state-g003-quality-01\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003-quality-02\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/service\/service-run-quality-01\.ts$/i.test(normalizedHotFilePath) ||
-    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath);
+    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-run-cohesion-\d+\.ts$/i.test(normalizedHotFilePath);
   const targetedHardInlineNamespaceModule =
     /(?:^|\/)src\/services\/store\/store-state\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath) ||
-    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath);
+    /(?:^|\/)src\/services\/service\/service-run-quality-02\.ts$/i.test(normalizedHotFilePath) ||
+    /(?:^|\/)src\/services\/service\/service-run-cohesion-01\.ts$/i.test(normalizedHotFilePath);
   const targetedImportAssignSafetyModule =
     /(?:^|\/)src\/services\/store\/store-state-g002\.ts$/i.test(normalizedHotFilePath) ||
     /(?:^|\/)src\/services\/store\/store-state-g003\.ts$/i.test(normalizedHotFilePath);
@@ -12399,8 +12439,8 @@ function buildQualityModuleContent(
         ? 8
       : targetedHotRendererStoreModule
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE
-        : hotFocusedRendererStoreModule
-          ? Math.max(HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE, 12)
+      : hotFocusedRendererStoreModule
+          ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_RENDERER_STORE
         : plan.archetype === "service" || plan.archetype === "store"
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE
         : HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER;
@@ -13685,6 +13725,7 @@ export async function emitTemplateProject(
     hotSeedFamilies,
     preferredHotFilePaths,
     preferredHotSelectionKeys,
+    strictHotSelection,
   );
   const priorityChunkIds = resolvePriorityChunkIdsFromHotPlans(chunkArtifacts, preliftPrioritizedPlans);
 
@@ -13764,6 +13805,7 @@ export async function emitTemplateProject(
     hotSeedFamilies,
     preferredHotFilePaths,
     preferredHotSelectionKeys,
+    strictHotSelection,
   );
   const qualityPass = applyFileQualityRerender(
     qualityPrioritizedPlans,

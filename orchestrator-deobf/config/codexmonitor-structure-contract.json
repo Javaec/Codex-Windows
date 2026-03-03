@@ -71,26 +71,26 @@
     "targetMax": 10,
     "defaults": {
       "maxLines": 2400,
-      "maxNamespaceImports": 10,
+      "maxNamespaceImports": 8,
       "minLiftedCoverage": 0.82
     },
     "overrides": [
       {
         "pattern": "src/services/store/store-state-quality-*.ts",
         "maxLines": 4200,
-        "maxNamespaceImports": 10,
+        "maxNamespaceImports": 8,
         "minLiftedCoverage": 0.84
       },
       {
         "pattern": "src/services/store/store-state-g*.ts",
         "maxLines": 3400,
-        "maxNamespaceImports": 10,
+        "maxNamespaceImports": 8,
         "minLiftedCoverage": 0.85
       },
       {
-        "pattern": "src/services/service/service-run.ts",
+        "pattern": "src/services/service/service-run*.ts",
         "maxLines": 2600,
-        "maxNamespaceImports": 10,
+        "maxNamespaceImports": 8,
         "minLiftedCoverage": 0.86
       }
     ]

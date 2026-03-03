@@ -195,7 +195,7 @@ const KPI_TARGET_CLASS_COVERAGE = 1;
 const KPI_TARGET_FUNCTION_COVERAGE = 1;
 const KPI_TARGET_FUNCTION_CLASS_COVERAGE = 1;
 const KPI_TARGET_VARIABLE_COVERAGE = 0.5;
-const KPI_TARGET_HOT_FOCUS_FILE_MIN = 5;
+const KPI_TARGET_HOT_FOCUS_FILE_MIN = 8;
 const KPI_TARGET_HOT_FOCUS_FILE_MAX = 10;
 const KPI_TARGET_PROXY_IN_QUALITY_COUNT = 0;
 const PROMOTION_BUDGET_STAGNATION_STEP = 40;
@@ -466,7 +466,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let promotionBudgetPerCycle = 140;
   let fastProfileId = "core-no-binary";
   let fullCheckpointEvery = 4;
-  let fastFocusCount = 8;
+  let fastFocusCount = 10;
   let allowAfterFreeze = false;
 
   for (let index = 0; index < argv.length; index += 1) {

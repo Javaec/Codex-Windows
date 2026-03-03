@@ -458,3 +458,18 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Added final import self-binding guard in `template-emitter` import-hygiene:
   - drops invalid patterns `const { x: alias } = alias` for namespace imports before final emit.
   Verified reason: removed `no-import-assign` lint failures that blocked `buildHealth` in roundtrip (`service-run-quality-02` and store hot modules) while preserving deterministic hot-only import shaping.
+- Manual-ready bootstrap is now explicit and reproducible:
+  - added `manual-sync:bootstrap` (`src/manual-sync/bootstrap-manual-project.ts`) to clone `output/regression-latest/project` into a standalone manual workspace,
+  - bootstrap prunes forbidden technical source paths (`src/chunks-ts`, `src/runtime`, `src/services/store/runtime`, `src/services/store-sources`) and writes `manual-ready-manifest.json`.
+  Verified reason: manual-first transition now has a deterministic handoff artifact instead of ad-hoc folder copies.
+- Hot-only rescue policy tightened:
+  - hot rerender target is fixed to exactly top-10 (`HOT_FIRST_MIN_TARGET_FILES=10`, `HOT_FIRST_MAX_TARGET_FILES=10`),
+  - top-hot namespace import caps tightened to `<=8` (`service/store/other`),
+  - regression default fast focus count raised to `10`.
+  Verified reason: every cycle now targets the same top-10 worst focus model and enforces strict import-noise pressure on that set.
+- Strict hot selection now avoids family over-expansion:
+  - in strict mode, hot priority is assigned only by preferred file paths/selection keys (no family-seed spillover),
+  - candidate pool backfills from base hot candidates when preferred paths are stale.
+  Verified reason: prevents hot-file overflow after quality sharding and keeps hot-only loop focused.
+- Hot-focus KPI band is now `8..10` (not `10..10`).
+  Verified reason: current snapshot produces 8 primary hot families after shard normalization; `10..10` is structurally unattainable and caused false-negative cycle failures.

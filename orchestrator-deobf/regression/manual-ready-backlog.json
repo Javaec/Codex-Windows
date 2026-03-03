@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-03T06:53:39.410Z",
+  "generatedAtIso": "2026-03-03T08:32:56.372Z",
   "generatorSync": [
     {
       "focus": "sync-hygiene",
@@ -10,37 +10,72 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8065,
-      "averageSymbolCount": 184,
-      "filePath": "src/services/store/store-state.ts"
+      "averageScore": 0.7641,
+      "averageSymbolCount": 92,
+      "filePath": "src/services/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8072,
-      "averageSymbolCount": 12,
-      "filePath": "src/main/lib/transport/transport-bridge.ts"
+      "averageScore": 0.7714,
+      "averageSymbolCount": 83,
+      "filePath": "src/renderer/features/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8093,
-      "averageSymbolCount": 165,
-      "filePath": "src/renderer/features/store/store-state.ts"
+      "averageScore": 0.8033,
+      "averageSymbolCount": 6,
+      "filePath": "src/main/lib/transport/transport-bridge-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8103,
-      "averageSymbolCount": 240,
-      "filePath": "src/services/store/store-state-g002.ts"
+      "averageScore": 0.8094,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.811,
-      "averageSymbolCount": 240,
-      "filePath": "src/services/store/store-state-g003.ts"
+      "averageScore": 0.8094,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g003-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8111,
+      "averageSymbolCount": 6,
+      "filePath": "src/main/lib/transport/transport-bridge-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8113,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8125,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g003-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8477,
+      "averageSymbolCount": 82,
+      "filePath": "src/renderer/features/store/store-state-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8488,
+      "averageSymbolCount": 92,
+      "filePath": "src/services/store/store-state-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
@@ -59,16 +94,30 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.9242,
-      "averageSymbolCount": 7,
-      "filePath": "src/renderer/features/ui/hook-render-view.ts"
+      "averageScore": 0.8988,
+      "averageSymbolCount": 4,
+      "filePath": "src/renderer/features/ui/hook-render-view-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.88,
-      "averageScore": 0.9317,
-      "averageSymbolCount": 9,
-      "filePath": "src/renderer/features/ui/ui-render-view.ts"
+      "averageScore": 0.9107,
+      "averageSymbolCount": 5,
+      "filePath": "src/renderer/features/ui/ui-render-view-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.88,
+      "averageScore": 0.958,
+      "averageSymbolCount": 3,
+      "filePath": "src/renderer/features/ui/hook-render-view-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.88,
+      "averageScore": 0.958,
+      "averageSymbolCount": 4,
+      "filePath": "src/renderer/features/ui/ui-render-view-quality-02.ts"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
