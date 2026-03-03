@@ -1,6 +1,6 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-03T15:17:53.216Z",
+  "generatedAtIso": "2026-03-03T15:34:57.042Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
@@ -17,12 +17,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 15,
+          "state": 17,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 5,
-        "lineCount": 2173,
+        "importCount": 7,
+        "lineCount": 2167,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -141,12 +141,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 7,
+          "state": 8,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 5,
-        "lineCount": 557,
+        "importCount": 6,
+        "lineCount": 558,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -172,12 +172,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 6,
+          "state": 8,
           "transport": 0,
           "workspace": 2
         },
-        "importCount": 5,
-        "lineCount": 1112,
+        "importCount": 7,
+        "lineCount": 1108,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -296,12 +296,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 15,
+          "state": 17,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 5,
-        "lineCount": 2173,
+        "importCount": 7,
+        "lineCount": 2167,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0

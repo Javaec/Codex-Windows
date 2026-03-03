@@ -1,6 +1,6 @@
 {
   "contractVersion": 2,
-  "generatedAtIso": "2026-03-03T13:55:16.762Z",
+  "generatedAtIso": "2026-03-03T15:30:47.565Z",
   "migrationVersion": 1,
   "overrides": [
     {
@@ -39,7 +39,7 @@
         "main-entry:symbol:83",
         "main-entry:symbol:86"
       ],
-      "updatedAtIso": "2026-03-03T13:45:38.145Z"
+      "updatedAtIso": "2026-03-03T15:30:47.559Z"
     },
     {
       "archetype": "hook",
@@ -829,7 +829,7 @@
         "main-entry:symbol:68",
         "main-entry:symbol:96"
       ],
-      "updatedAtIso": "2026-03-03T13:45:38.145Z"
+      "updatedAtIso": "2026-03-03T15:30:47.559Z"
     },
     {
       "archetype": "store",
@@ -889,6 +889,7 @@
         "main-entry-asar:021bdb2f7755:symbol:287",
         "main-entry-asar:021bdb2f7755:symbol:294",
         "main-entry-asar:021bdb2f7755:symbol:351",
+        "main-entry-asar:021bdb2f7755:symbol:429",
         "main-entry-asar:021bdb2f7755:symbol:431",
         "main-entry-asar:021bdb2f7755:symbol:468",
         "main-entry-asar:021bdb2f7755:symbol:481",
@@ -900,12 +901,12 @@
         "main-entry-asar:021bdb2f7755:symbol:59",
         "main-entry-asar:021bdb2f7755:symbol:69",
         "main-entry-asar:021bdb2f7755:symbol:81",
+        "main-entry-asar:021bdb2f7755:symbol:96",
         "main-entry:symbol:114",
         "main-entry:symbol:116",
         "main-entry:symbol:136",
         "main-entry:symbol:138",
         "main-entry:symbol:141",
-        "main-entry:symbol:146",
         "main-entry:symbol:181",
         "main-entry:symbol:201",
         "main-entry:symbol:223",
@@ -926,7 +927,7 @@
         "main-entry:symbol:544",
         "main-entry:symbol:61"
       ],
-      "updatedAtIso": "2026-03-03T13:55:16.754Z"
+      "updatedAtIso": "2026-03-03T15:30:47.559Z"
     },
     {
       "archetype": "store",
@@ -1456,10 +1457,10 @@
         "main-entry-asar:021bdb2f7755:symbol:69",
         "main-entry-asar:021bdb2f7755:symbol:73",
         "main-entry-asar:021bdb2f7755:symbol:80",
+        "main-entry-asar:021bdb2f7755:symbol:96",
         "main-entry:symbol:116",
         "main-entry:symbol:136",
         "main-entry:symbol:138",
-        "main-entry:symbol:146",
         "main-entry:symbol:148",
         "main-entry:symbol:19",
         "main-entry:symbol:201",
@@ -1469,11 +1470,12 @@
         "main-entry:symbol:284",
         "main-entry:symbol:318",
         "main-entry:symbol:356",
+        "main-entry:symbol:385",
         "main-entry:symbol:453",
         "main-entry:symbol:480",
         "main-entry:symbol:68"
       ],
-      "updatedAtIso": "2026-03-03T13:55:16.753Z"
+      "updatedAtIso": "2026-03-03T15:30:47.558Z"
     },
     {
       "archetype": "store",

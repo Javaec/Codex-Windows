@@ -132,3 +132,5 @@ Auto-generated record of contract changes (`shared/manual-sync/*`).
 - 2026-03-03T13:45:38.154Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=4 | reason=auto-import module export surface and owner-layer from manual project
 - 2026-03-03T13:51:50.286Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=3 | reason=auto-import module export surface and owner-layer from manual project
 - 2026-03-03T13:55:16.763Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=3 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T15:26:48.951Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=4 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-03T15:30:47.568Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=4 | reason=auto-import module export surface and owner-layer from manual project
