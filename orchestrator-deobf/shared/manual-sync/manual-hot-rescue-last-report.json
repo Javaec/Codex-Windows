@@ -1,10 +1,10 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-03T11:44:19.772Z",
+  "generatedAtIso": "2026-03-03T11:55:37.317Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
-  "targetCount": 10,
+  "targetCount": 16,
   "targets": [
     {
       "averageScore": 0.7694,
@@ -317,9 +317,199 @@
       ],
       "sourceFilePath": "src/services/store/store-state-quality-03.ts",
       "violations": []
+    },
+    {
+      "averageScore": 0.8667,
+      "exists": true,
+      "manualFilePath": "src/services/service/service-run-quality-02.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 4,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 21,
+        "lineCount": 929,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 8,
+        "runtimeVendorImportCount": 12
+      },
+      "moduleIds": [
+        "services:service:run:quality-02"
+      ],
+      "rank": 11,
+      "recommendedActions": [
+        "behavior split by state/event boundaries",
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/services/service/service-run-quality-02.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8719,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-g003-quality-01.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 1,
+          "session": 0,
+          "state": 86,
+          "transport": 1,
+          "workspace": 0
+        },
+        "importCount": 28,
+        "lineCount": 2064,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 8,
+        "runtimeVendorImportCount": 19
+      },
+      "moduleIds": [
+        "services:store:store-state:g003:quality-01"
+      ],
+      "rank": 12,
+      "recommendedActions": [
+        "behavior split by state/event boundaries",
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/services/store/store-state-g003-quality-01.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8919,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-g003-quality-02.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 12,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 33,
+        "lineCount": 1952,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 8,
+        "runtimeVendorImportCount": 23
+      },
+      "moduleIds": [
+        "services:store:store-state:g003:quality-02"
+      ],
+      "rank": 13,
+      "recommendedActions": [
+        "behavior split by state/event boundaries",
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/services/store/store-state-g003-quality-02.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8988,
+      "exists": true,
+      "manualFilePath": "src/renderer/features/hooks/hook-hooks-render.ts",
+      "mappedBy": "fallback",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 0,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 11,
+        "lineCount": 61,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 1,
+        "runtimeVendorImportCount": 3
+      },
+      "moduleIds": [
+        "renderer:hook:render:quality-01"
+      ],
+      "rank": 14,
+      "recommendedActions": [
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/renderer/features/hooks/hook-render-quality-01.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.9099,
+      "exists": true,
+      "manualFilePath": "src/services/service/service-run-quality-03.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 77,
+          "transport": 1,
+          "workspace": 0
+        },
+        "importCount": 23,
+        "lineCount": 1886,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 7,
+        "runtimeVendorImportCount": 15
+      },
+      "moduleIds": [
+        "services:service:run:quality-03"
+      ],
+      "rank": 15,
+      "recommendedActions": [
+        "behavior split by state/event boundaries",
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/services/service/service-run-quality-03.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.9107,
+      "exists": true,
+      "manualFilePath": "src/renderer/features/ui/ui-components.ts",
+      "mappedBy": "fallback",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 0,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 38,
+        "lineCount": 311,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 1,
+        "runtimeVendorImportCount": 34
+      },
+      "moduleIds": [
+        "renderer:ui:components-render:quality-01"
+      ],
+      "rank": 16,
+      "recommendedActions": [
+        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+      ],
+      "sourceFilePath": "src/renderer/features/ui/ui-components-render-quality-01.ts",
+      "violations": []
     }
   ],
-  "topN": 10,
+  "topN": 30,
   "unresolvedCount": 0,
   "violationCount": 0
 }

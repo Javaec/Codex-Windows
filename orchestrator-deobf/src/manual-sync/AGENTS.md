@@ -50,6 +50,7 @@ Implement deterministic import/export bridges between generated project output a
 - Added hot import quarantine pass (`manual-sync:quarantine-imports`):
   - reads `manual-hot-rescue-last-report.json`,
   - rewrites top-unique hot manual files by moving `artifacts/*` and `assets/payloads/*` imports into sibling `*-deps.ts`,
+  - supports `--skip-unique` to process the next hot batch (`#6-#10`, etc.),
   - keeps business logic files with a single aggregated deps import.
   Verified reason: reduces import/runtime-vendor visual noise in hot manual files without changing function bodies.
 

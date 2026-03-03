@@ -18,6 +18,7 @@ interface CliOptions {
   reportPath: string;
   outputPath: string;
   topUnique: number;
+  skipUnique: number;
 }
 
 interface FileMetrics {
@@ -40,6 +41,7 @@ interface QuarantineReport {
   manualProjectPath: string;
   reportPath: string;
   topUnique: number;
+  skipUnique: number;
   targetCount: number;
   changedCount: number;
   unchangedCount: number;
@@ -64,6 +66,7 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
   let reportPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-hot-rescue-last-report.json");
   let outputPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-import-quarantine-last-report.json");
   let topUnique = 5;
+  let skipUnique = 0;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
@@ -103,6 +106,15 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--skip-unique": {
+        const value = argv[index + 1];
+        if (!value || value.startsWith("--")) {
+          throw new Error("--skip-unique requires a value");
+        }
+        skipUnique = parseIntegerFlag("--skip-unique", value, 0);
+        index += 1;
+        break;
+      }
       default: {
         throw new Error(`Unknown option: ${token}`);
       }
@@ -113,6 +125,7 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
     reportPath,
     outputPath,
     topUnique,
+    skipUnique,
   };
 }
 
@@ -218,6 +231,7 @@ function collectMovedImportDeclaration(
 function selectTopUniqueTargets(
   report: ManualHotRescueReportModel,
   topUnique: number,
+  skipUnique: number,
 ): string[] {
   const targets = Array.isArray(report.targets) ? report.targets : [];
   const ordered = [...targets]
@@ -225,12 +239,17 @@ function selectTopUniqueTargets(
     .sort((left, right) => (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER));
   const selected: string[] = [];
   const seen = new Set<string>();
+  let skipped = 0;
   for (const target of ordered) {
     const relativePath = normalizeRelativePath(target.manualFilePath);
     if (seen.has(relativePath)) {
       continue;
     }
     seen.add(relativePath);
+    if (skipped < skipUnique) {
+      skipped += 1;
+      continue;
+    }
     selected.push(relativePath);
     if (selected.length >= topUnique) {
       break;
@@ -337,7 +356,7 @@ async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
   const report = await readJsonFile<ManualHotRescueReportModel>(cli.reportPath);
-  const targets = selectTopUniqueTargets(report, cli.topUnique);
+  const targets = selectTopUniqueTargets(report, cli.topUnique, cli.skipUnique);
   const fileResults: FileQuarantineResult[] = [];
   for (const target of targets) {
     const result = await rewriteFileWithQuarantinedImports(cli.manualProjectPath, target);
@@ -351,6 +370,7 @@ async function run(): Promise<void> {
     manualProjectPath: cli.manualProjectPath,
     reportPath: cli.reportPath,
     topUnique: cli.topUnique,
+    skipUnique: cli.skipUnique,
     targetCount: targets.length,
     changedCount: fileResults.length,
     unchangedCount: Math.max(0, targets.length - fileResults.length),
