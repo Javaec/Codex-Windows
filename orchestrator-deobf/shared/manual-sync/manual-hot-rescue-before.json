@@ -1,6 +1,6 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-03T13:24:04.516Z",
+  "generatedAtIso": "2026-03-03T13:41:02.871Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
@@ -17,12 +17,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 12,
+          "state": 13,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 2,
-        "lineCount": 2199,
+        "importCount": 3,
+        "lineCount": 2189,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -66,11 +66,11 @@
           "route": 0,
           "session": 0,
           "state": 0,
-          "transport": 2,
+          "transport": 3,
           "workspace": 0
         },
-        "importCount": 3,
-        "lineCount": 109,
+        "importCount": 4,
+        "lineCount": 111,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -97,11 +97,11 @@
           "route": 0,
           "session": 0,
           "state": 0,
-          "transport": 2,
+          "transport": 3,
           "workspace": 0
         },
-        "importCount": 3,
-        "lineCount": 109,
+        "importCount": 4,
+        "lineCount": 111,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -127,12 +127,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 4,
+          "state": 5,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 2,
-        "lineCount": 552,
+        "importCount": 3,
+        "lineCount": 554,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -158,12 +158,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 9,
+          "state": 4,
           "transport": 0,
           "workspace": 2
         },
-        "importCount": 2,
-        "lineCount": 1130,
+        "importCount": 3,
+        "lineCount": 1122,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -179,7 +179,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8211,
+      "averageScore": 0.8213,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-quality-02.ts",
       "mappedBy": "exact",
@@ -189,12 +189,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 4,
+          "state": 5,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 1,
-        "lineCount": 1491,
+        "importCount": 2,
+        "lineCount": 1492,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -241,7 +241,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8476,
+      "averageScore": 0.8477,
       "exists": false,
       "manualFilePath": "src/renderer/features/store/store-path-quality-02.ts",
       "mappedBy": "exact",
@@ -268,12 +268,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 12,
+          "state": 13,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 2,
-        "lineCount": 2199,
+        "importCount": 3,
+        "lineCount": 2189,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0

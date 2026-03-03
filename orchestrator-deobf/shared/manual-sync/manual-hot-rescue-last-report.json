@@ -1,6 +1,6 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-03T13:32:30.212Z",
+  "generatedAtIso": "2026-03-03T15:17:53.216Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
@@ -17,12 +17,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 13,
+          "state": 15,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 3,
-        "lineCount": 2189,
+        "importCount": 5,
+        "lineCount": 2173,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -38,21 +38,35 @@
       "violations": []
     },
     {
-      "averageScore": 0.7729,
-      "exists": false,
-      "manualFilePath": "src/renderer/features/store/store-path-quality-01.ts",
-      "mappedBy": "exact",
+      "averageScore": 0.7719,
+      "exists": true,
+      "manualFilePath": "src/renderer/features/store/store-state.ts",
+      "mappedBy": "normalized",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 12,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 3,
+        "lineCount": 2265,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
       "moduleIds": [
-        "renderer:store:store-path:quality-01"
+        "renderer:store:state:quality-01"
       ],
       "rank": 2,
       "recommendedActions": [
-        "map this hot file to a manual domain module before next cycle"
+        "behavior split by state/event boundaries"
       ],
-      "sourceFilePath": "src/renderer/features/store/store-path-quality-01.ts",
-      "violations": [
-        "missing-manual-file-mapping"
-      ]
+      "sourceFilePath": "src/renderer/features/store/store-state-quality-01.ts",
+      "violations": []
     },
     {
       "averageScore": 0.8033,
@@ -66,11 +80,11 @@
           "route": 0,
           "session": 0,
           "state": 0,
-          "transport": 3,
+          "transport": 4,
           "workspace": 0
         },
-        "importCount": 4,
-        "lineCount": 111,
+        "importCount": 5,
+        "lineCount": 112,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -97,11 +111,11 @@
           "route": 0,
           "session": 0,
           "state": 0,
-          "transport": 3,
+          "transport": 4,
           "workspace": 0
         },
-        "importCount": 4,
-        "lineCount": 111,
+        "importCount": 5,
+        "lineCount": 112,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -127,12 +141,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 5,
+          "state": 7,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 3,
-        "lineCount": 554,
+        "importCount": 5,
+        "lineCount": 557,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -158,12 +172,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 4,
+          "state": 6,
           "transport": 0,
           "workspace": 2
         },
-        "importCount": 3,
-        "lineCount": 1122,
+        "importCount": 5,
+        "lineCount": 1112,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -179,7 +193,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8211,
+      "averageScore": 0.8213,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-quality-02.ts",
       "mappedBy": "exact",
@@ -189,12 +203,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 5,
+          "state": 6,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 2,
-        "lineCount": 1492,
+        "importCount": 3,
+        "lineCount": 1459,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -242,20 +256,34 @@
     },
     {
       "averageScore": 0.8476,
-      "exists": false,
-      "manualFilePath": "src/renderer/features/store/store-path-quality-02.ts",
-      "mappedBy": "exact",
+      "exists": true,
+      "manualFilePath": "src/renderer/features/store/store-state.ts",
+      "mappedBy": "normalized",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 12,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 3,
+        "lineCount": 2265,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
       "moduleIds": [
-        "renderer:store:store-path:quality-02"
+        "renderer:store:state:quality-02"
       ],
       "rank": 9,
       "recommendedActions": [
-        "map this hot file to a manual domain module before next cycle"
+        "behavior split by state/event boundaries"
       ],
-      "sourceFilePath": "src/renderer/features/store/store-path-quality-02.ts",
-      "violations": [
-        "missing-manual-file-mapping"
-      ]
+      "sourceFilePath": "src/renderer/features/store/store-state-quality-02.ts",
+      "violations": []
     },
     {
       "averageScore": 0.8486,
@@ -268,12 +296,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 13,
+          "state": 15,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 3,
-        "lineCount": 2189,
+        "importCount": 5,
+        "lineCount": 2173,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -290,6 +318,6 @@
     }
   ],
   "topN": 10,
-  "unresolvedCount": 2,
-  "violationCount": 2
+  "unresolvedCount": 0,
+  "violationCount": 0
 }

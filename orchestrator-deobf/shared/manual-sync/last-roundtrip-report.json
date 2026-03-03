@@ -34,7 +34,7 @@
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "afterRunId": "manual-sync-roundtrip-after-20260303-132858",
+  "afterRunId": "manual-sync-roundtrip-after-20260303-135516",
   "beforeMetrics": {
     "archetypeCoverage": {
       "hook": 7,
@@ -70,7 +70,7 @@
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "beforeRunId": "manual-sync-roundtrip-before-20260303-132528",
+  "beforeRunId": "manual-sync-roundtrip-before-20260303-135148",
   "deltas": {
     "classCoverage": 0,
     "functionCoverage": 0,
@@ -79,7 +79,7 @@
     "proxyInQualityCount": 0,
     "variableCoverage": 0
   },
-  "generatedAtIso": "2026-03-03T13:32:24.510Z",
+  "generatedAtIso": "2026-03-03T13:58:45.138Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "passed": true,
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",

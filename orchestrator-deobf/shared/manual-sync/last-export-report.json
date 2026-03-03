@@ -1,12 +1,7 @@
 {
-  "generatedAtIso": "2026-03-03T13:28:58.347Z",
+  "generatedAtIso": "2026-03-03T13:55:16.764Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
-    {
-      "filePath": "src/services/store/store-state-g002-quality-01.ts",
-      "generatedExports": 8,
-      "manualExports": 26
-    },
     {
       "filePath": "src/services/store/store-state-g002-quality-02.ts",
       "generatedExports": 6,
@@ -33,7 +28,7 @@
   "staleCleanupMandatory": true,
   "surfaceCreated": 0,
   "surfaceRemoved": 0,
-  "surfaceUpdated": 4,
+  "surfaceUpdated": 3,
   "symbolNameCreated": 0,
   "symbolNamePromotedFromMergedEvidence": 0,
   "symbolNameRekeyed": 0,
