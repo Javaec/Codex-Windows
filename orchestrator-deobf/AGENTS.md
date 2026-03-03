@@ -479,3 +479,12 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: snapshot-level nondeterministic micro-drift no longer causes false red roundtrip failures.
 - Namespace-to-direct-import rewrites now block write-context member accesses and expanded quality-shard targeting includes `store-state-g003-quality-*`.
   Verified reason: removed `no-import-assign` regressions in hot store shards and restored full green gates (`lint/build/dev`) for roundtrip and manual batch cycles.
+- Manual-first batch now includes strict hot-rescue gating on manual project top-10 files from `regression/manual-refactor-candidates.json`.
+  Verified reason: each cycle now enforces `namespace-import <= 8` on active manual hot files and outputs deterministic rescue report (`shared/manual-sync/manual-hot-rescue-last-report.json`) with dependency-closure / behavior-split / runtime-quarantine action hints.
+- Generator contribution policy is now explicitly constrained in batch runner:
+  - exactly one generator pass per cycle,
+  - fast profile fixed (`core-no-binary`), `fast-focus-count=10`,
+  - promotion budget fixed per cycle.
+  Verified reason: keeps generator as supporting contour and prevents wide refactor drift while manual-first throughput remains primary.
+- No-gain generator passes are now auto-rolled back at manual-sync contract layer.
+  Verified reason: when cycle KPI gain is non-positive, batch restores `shared/manual-sync/*` contract files from snapshot, preserving manual-first velocity and avoiding noisy non-improving generator deltas.

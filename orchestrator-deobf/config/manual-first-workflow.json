@@ -24,6 +24,16 @@
     "enabled": true,
     "maxPassesPerBatch": 1,
     "stopAfterNoQualityGrowthBatches": 3,
-    "suiteRunPrefix": "manual-sync-cycle"
+    "suiteRunPrefix": "manual-sync-cycle",
+    "fastFocusCount": 10,
+    "promotionBudgetPerCycle": 140,
+    "fastProfileId": "core-no-binary"
+  },
+  "hotRescue": {
+    "enabled": true,
+    "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
+    "topN": 10,
+    "namespaceImportCap": 8,
+    "longFunctionLineThreshold": 120
   }
 }

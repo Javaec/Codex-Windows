@@ -2,12 +2,24 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
+import { runManualHotRescue } from "./hot-rescue";
 
 interface GeneratorSyncConfig {
   enabled: boolean;
   maxPassesPerBatch: number;
   stopAfterNoQualityGrowthBatches: number;
   suiteRunPrefix: string;
+  fastFocusCount?: number;
+  promotionBudgetPerCycle?: number;
+  fastProfileId?: string;
+}
+
+interface HotRescueConfig {
+  enabled: boolean;
+  candidatesPath: string;
+  topN: number;
+  namespaceImportCap: number;
+  longFunctionLineThreshold: number;
 }
 
 interface ManualFirstWorkflowConfig {
@@ -20,6 +32,7 @@ interface ManualFirstWorkflowConfig {
   fullGateEveryBatches: number;
   promotionTopN: number;
   generatorSync: GeneratorSyncConfig;
+  hotRescue?: HotRescueConfig;
 }
 
 interface BatchState {
@@ -52,10 +65,14 @@ interface ManualBatchReport {
   mergedEvidencePath: string;
   exportReportPath: string;
   roundtripReportPath: string;
+  hotRescueReportPath: string;
+  hotRescueViolationCount: number;
+  hotRescueTargetCount: number;
   beforeMetrics: RoundtripMetrics;
   afterMetrics: RoundtripMetrics;
   noGrowthStreak: number;
   generatorSyncFrozen: boolean;
+  generatorSyncRolledBack: boolean;
 }
 
 interface CliOptions {
@@ -69,6 +86,37 @@ const MANUAL_BATCH_REPORT_RELATIVE_PATH = path.join("shared", "manual-sync", "ma
 const MANUAL_GENERATOR_FREEZE_RELATIVE_PATH = path.join("shared", "manual-sync", "manual-generator-freeze.json");
 const MANUAL_EXPORT_REPORT_RELATIVE_PATH = path.join("shared", "manual-sync", "last-export-report.json");
 const MANUAL_ROUNDTRIP_REPORT_RELATIVE_PATH = path.join("shared", "manual-sync", "last-roundtrip-report.json");
+const MANUAL_HOT_RESCUE_REPORT_RELATIVE_PATH = path.join("shared", "manual-sync", "manual-hot-rescue-last-report.json");
+
+interface ManualSyncContractSnapshot {
+  symbolNameOverrides: string;
+  modulePathOverrides: string;
+  moduleSurfaceOverrides: string;
+  contractChangelog: string;
+}
+
+async function readOptionalFileText(filePath: string): Promise<string> {
+  return await fs.readFile(filePath, "utf8").catch(() => "");
+}
+
+async function createManualSyncContractSnapshot(projectRoot: string): Promise<ManualSyncContractSnapshot> {
+  return {
+    symbolNameOverrides: await readOptionalFileText(path.join(projectRoot, "shared", "manual-sync", "symbol-name-overrides.json")),
+    modulePathOverrides: await readOptionalFileText(path.join(projectRoot, "shared", "manual-sync", "module-path-overrides.json")),
+    moduleSurfaceOverrides: await readOptionalFileText(path.join(projectRoot, "shared", "manual-sync", "module-surface-overrides.json")),
+    contractChangelog: await readOptionalFileText(path.join(projectRoot, "shared", "manual-sync", "contract-changelog.md")),
+  };
+}
+
+async function restoreManualSyncContractSnapshot(
+  projectRoot: string,
+  snapshot: ManualSyncContractSnapshot,
+): Promise<void> {
+  await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "symbol-name-overrides.json"), snapshot.symbolNameOverrides, "utf8");
+  await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "module-path-overrides.json"), snapshot.modulePathOverrides, "utf8");
+  await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "module-surface-overrides.json"), snapshot.moduleSurfaceOverrides, "utf8");
+  await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "contract-changelog.md"), snapshot.contractChangelog, "utf8");
+}
 
 function normalizePathSlashes(input: string): string {
   return input.replace(/\\/g, "/");
@@ -241,7 +289,9 @@ async function run(): Promise<void> {
   }
 
   let generatorSyncExecuted = false;
+  let generatorSyncRolledBack = false;
   let generatorSyncSkippedReason = "";
+  const contractSnapshot = await createManualSyncContractSnapshot(projectRoot);
   if (!workflow.generatorSync.enabled || cli.skipGeneratorSync) {
     generatorSyncSkippedReason = workflow.generatorSync.enabled ? "skipped_by_cli" : "disabled_in_config";
   } else {
@@ -250,10 +300,50 @@ async function run(): Promise<void> {
       throw new Error("manual batch policy violation: maxPassesPerBatch must be 1");
     }
     generatorSyncExecuted = true;
+    const fastFocusCount = Math.max(1, Math.trunc(workflow.generatorSync.fastFocusCount ?? 10));
+    const promotionBudgetPerCycle = Math.max(1, Math.trunc(workflow.generatorSync.promotionBudgetPerCycle ?? 140));
+    const fastProfileId = (workflow.generatorSync.fastProfileId ?? "core-no-binary").trim();
+    if (fastProfileId.length < 1) {
+      throw new Error("manual batch policy violation: fastProfileId must be non-empty");
+    }
     await runCommand(
-      `npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}"`,
+      `npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}" --fast-profile-id "${fastProfileId}" --fast-focus-count ${fastFocusCount} --promotion-budget-per-cycle ${promotionBudgetPerCycle}`,
       projectRoot,
     );
+  }
+
+  const hotRescueConfig: HotRescueConfig = {
+    enabled: workflow.hotRescue?.enabled ?? true,
+    candidatesPath: path.resolve(
+      workflow.hotRescue?.candidatesPath ??
+      path.join(projectRoot, "regression", "manual-refactor-candidates.json"),
+    ),
+    topN: Math.max(1, Math.trunc(workflow.hotRescue?.topN ?? 10)),
+    namespaceImportCap: Math.max(1, Math.trunc(workflow.hotRescue?.namespaceImportCap ?? 8)),
+    longFunctionLineThreshold: Math.max(20, Math.trunc(workflow.hotRescue?.longFunctionLineThreshold ?? 120)),
+  };
+  const hotRescueReportPath = path.join(projectRoot, MANUAL_HOT_RESCUE_REPORT_RELATIVE_PATH);
+  let hotRescueViolationCount = 0;
+  let hotRescueTargetCount = 0;
+  if (hotRescueConfig.enabled) {
+    const hotRescueReport = await runManualHotRescue({
+      manualProjectPath,
+      candidatesPath: hotRescueConfig.candidatesPath,
+      topN: hotRescueConfig.topN,
+      namespaceImportCap: hotRescueConfig.namespaceImportCap,
+      longFunctionLineThreshold: hotRescueConfig.longFunctionLineThreshold,
+      outputPath: hotRescueReportPath,
+    });
+    hotRescueViolationCount = hotRescueReport.violationCount;
+    hotRescueTargetCount = hotRescueReport.targetCount;
+    if (hotRescueReport.violationCount > 0) {
+      const violationSummary = hotRescueReport.targets
+        .flatMap((target) =>
+          target.violations.map((violation) => `${target.manualFilePath} [rank ${target.rank}] -> ${violation}`),
+        )
+        .join("\n");
+      throw new Error(`manual hot rescue gate failed:\n${violationSummary}`);
+    }
   }
 
   const mergedEvidencePath = await findLatestMergedEvidencePath(projectRoot);
@@ -278,7 +368,14 @@ async function run(): Promise<void> {
       ? roundtripReport.afterMetrics
       : {}) as Record<string, unknown>,
   );
-  const qualityDelta = afterMetrics.nameQuality - previousState.lastNameQuality;
+  const cycleQualityDelta = afterMetrics.nameQuality - beforeMetrics.nameQuality;
+  if (generatorSyncExecuted && cycleQualityDelta <= 0) {
+    await restoreManualSyncContractSnapshot(projectRoot, contractSnapshot);
+    generatorSyncRolledBack = true;
+    generatorSyncSkippedReason = "rolled_back_no_kpi_gain";
+  }
+  const effectiveAfterMetrics = generatorSyncRolledBack ? beforeMetrics : afterMetrics;
+  const qualityDelta = effectiveAfterMetrics.nameQuality - previousState.lastNameQuality;
   const noGrowthStreak = qualityDelta > 0 ? 0 : previousState.noGrowthStreak + 1;
   const stopAfterNoGrowth = Math.max(1, Math.trunc(workflow.generatorSync.stopAfterNoQualityGrowthBatches));
   const generatorSyncFrozen = noGrowthStreak >= stopAfterNoGrowth;
@@ -287,7 +384,7 @@ async function run(): Promise<void> {
     version: 1,
     batchIndex,
     noGrowthStreak,
-    lastNameQuality: afterMetrics.nameQuality,
+    lastNameQuality: effectiveAfterMetrics.nameQuality,
     lastRunAtIso: new Date().toISOString(),
   };
   await writeJsonFile(statePath, nextState);
@@ -299,7 +396,7 @@ async function run(): Promise<void> {
       batchIndex,
       noGrowthStreak,
       stopAfterNoGrowth,
-      lastNameQuality: afterMetrics.nameQuality,
+      lastNameQuality: effectiveAfterMetrics.nameQuality,
     });
   }
 
@@ -314,10 +411,14 @@ async function run(): Promise<void> {
     mergedEvidencePath,
     exportReportPath: path.join(projectRoot, MANUAL_EXPORT_REPORT_RELATIVE_PATH),
     roundtripReportPath,
+    hotRescueReportPath,
+    hotRescueViolationCount,
+    hotRescueTargetCount,
     beforeMetrics,
-    afterMetrics,
+    afterMetrics: effectiveAfterMetrics,
     noGrowthStreak,
     generatorSyncFrozen,
+    generatorSyncRolledBack,
   };
   const reportPath = path.join(projectRoot, MANUAL_BATCH_REPORT_RELATIVE_PATH);
   await ensureDirectory(path.dirname(reportPath));

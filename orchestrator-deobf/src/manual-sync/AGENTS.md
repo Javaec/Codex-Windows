@@ -43,6 +43,10 @@ Implement deterministic import/export bridges between generated project output a
 - `manual-sync:batch` is the default Step-3/Step-4 executor.
 - Batch policy is configured in `config/manual-first-workflow.json` and enforced by state files in `shared/manual-sync/manual-batch-*.json`.
 - One batch can run at most one generator sync pass; if stop-rule streak is reached, generator sync is frozen via `shared/manual-sync/manual-generator-freeze.json`.
+- Batch includes strict hot-rescue gate against manual top-10 files from `regression/manual-refactor-candidates.json`.
+- Hot-rescue report is emitted to `shared/manual-sync/manual-hot-rescue-last-report.json`.
+- Hard limit: `namespace-import <= 8` for each mapped top-hot manual file.
+- When generator pass gives non-positive cycle uplift, manual-sync contracts are restored from pre-cycle snapshot (auto rollback of generator-side sync delta).
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

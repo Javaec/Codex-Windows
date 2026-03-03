@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-03T10:21:54.730Z",
+  "generatedAtIso": "2026-03-03T10:55:47.116Z",
   "generatorSync": [
     {
       "focus": "sync-hygiene",
@@ -10,15 +10,15 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7818,
-      "averageScore": 0.7683,
+      "averageScore": 0.7684,
       "averageSymbolCount": 94,
       "filePath": "src/services/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7822,
-      "averageScore": 0.7701,
-      "averageSymbolCount": 77,
+      "averageScore": 0.769,
+      "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-state-quality-01.ts"
     },
     {
@@ -38,22 +38,22 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
+      "averageScore": 0.8134,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-01.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.78,
       "averageScore": 0.8136,
       "averageSymbolCount": 120,
       "filePath": "src/services/store/store-state-g002-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8142,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7855,
-      "averageScore": 0.8229,
-      "averageSymbolCount": 93,
+      "averageNameQuality": 0.7847,
+      "averageScore": 0.8236,
+      "averageSymbolCount": 94,
       "filePath": "src/services/store/store-state-quality-02.ts"
     },
     {
@@ -66,15 +66,15 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8476,
-      "averageSymbolCount": 77,
+      "averageScore": 0.8477,
+      "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-state-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
       "averageScore": 0.8487,
-      "averageSymbolCount": 93,
+      "averageSymbolCount": 94,
       "filePath": "src/services/store/store-state-quality-03.ts"
     },
     {
@@ -93,8 +93,8 @@
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.9161,
-      "averageScore": 0.8917,
+      "averageNameQuality": 0.9175,
+      "averageScore": 0.8925,
       "averageSymbolCount": 77,
       "filePath": "src/services/store/store-state-g003-quality-02.ts"
     },
