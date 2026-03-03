@@ -186,10 +186,10 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
   const safeBuildNumber = escapeJsString(buildNumber);
   const safeBuildFlavor = escapeJsString(buildFlavor);
 
-  const shim = String.raw`/* CODEX-WINDOWS-ENV-SHIM-V6 */
+  const shim = String.raw`/* CODEX-WINDOWS-ENV-SHIM-V7 */
 (function () {
-  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V6__) return;
-  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V6__ = true;
+  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V7__) return;
+  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V7__ = true;
   try {
     const fs = require("node:fs");
     const path = require("node:path");
@@ -204,6 +204,24 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
 
     function normalizePathString(value) {
       return safeString(value).trim().replace(/^"+|"+$/g, "");
+    }
+
+    function normalizeWindowsOpenPath(input) {
+      let value = normalizePathString(input);
+      if (!value) return value;
+      if (/^file:\/\//i.test(value)) {
+        try {
+          value = url.fileURLToPath(value);
+        } catch {
+          // keep original
+        }
+      }
+      value = value.replace(/^([ab])[\\/](?=[^\\/])/, "");
+      const isUncPath = /^[/\\]{2}[^/\\]/.test(value) && !/^[/\\]{2}[?.][\\/]/.test(value);
+      if (!isUncPath) {
+        value = value.replace(/^[/\\]+(?=[A-Za-z]:[\\/])/, "");
+      }
+      return value;
     }
 
     function normalizePathEnv(baseEnv) {
@@ -918,6 +936,19 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
 
     try {
       const electron = require("electron");
+      if (electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
+        globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__ = true;
+        const originalOpenPath = typeof electron.shell.openPath === "function" ? electron.shell.openPath.bind(electron.shell) : null;
+        const originalShowItemInFolder = typeof electron.shell.showItemInFolder === "function"
+          ? electron.shell.showItemInFolder.bind(electron.shell)
+          : null;
+        if (originalOpenPath) {
+          electron.shell.openPath = (targetPath) => originalOpenPath(normalizeWindowsOpenPath(targetPath));
+        }
+        if (originalShowItemInFolder) {
+          electron.shell.showItemInFolder = (targetPath) => originalShowItemInFolder(normalizeWindowsOpenPath(targetPath));
+        }
+      }
       if (electron && electron.app && typeof electron.app.once === "function") {
         electron.app.once("before-quit", () => ipcSupervisor.shutdown("before-quit"));
       }
@@ -958,6 +989,9 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
 
 export function patchMainForWindowsEnvironment(appDir: string, buildNumber: string, buildFlavor: string): void {
   const mainJs = path.join(appDir, ".vite", "build", "main.js");
+  const openFilePrefixPattern = '.replace(/^([ab])[\\\\/]/,"")';
+  const openFilePrefixReplacement =
+    '.replace(/^([ab])[\\\\/]/,"").replace(/^[/\\\\]+(?=[A-Za-z]:[\\\\/])/,"")';
   if (!fileExists(mainJs)) return;
   let raw = fs.readFileSync(mainJs, "utf8");
 
@@ -972,6 +1006,11 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
   if (!/require\(["']electron["']\)/.test(raw)) {
     throw new Error(`Unable to locate electron bootstrap require in ${mainJs}.`);
   }
+  const openFilePrefixPatchCount = raw.split(openFilePrefixPattern).length - 1;
+  if (openFilePrefixPatchCount < 1) {
+    throw new Error(`Unable to locate open-file path normalization patch point in ${mainJs}.`);
+  }
+  raw = raw.split(openFilePrefixPattern).join(openFilePrefixReplacement);
 
   const shim = buildWindowsRuntimeShim(buildNumber, buildFlavor);
   fs.writeFileSync(mainJs, `${shim}\n${raw}`, "utf8");

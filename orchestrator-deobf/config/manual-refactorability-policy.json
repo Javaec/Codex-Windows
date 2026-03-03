@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "topUnique": 5,
+  "noOpThreshold": 2,
+  "minRefactorability": 0.4,
+  "qualityWeight": 0.55,
+  "refactorabilityWeight": 0.45,
+  "excludePathPatterns": [
+    "src/renderer/features/store/store-path-quality-",
+    "src/main/lib/transport/transport-bridge-quality-",
+    "src/main/lib/transport/transport-bridge.ts"
+  ],
+  "priorityFiles": [
+    "src/services/store/store-state-quality-01.ts",
+    "src/services/store/store-state-g002-quality-01.ts",
+    "src/services/store/store-state-quality-02.ts"
+  ]
+}

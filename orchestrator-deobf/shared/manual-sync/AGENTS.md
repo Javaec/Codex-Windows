@@ -31,3 +31,10 @@ Store stable manual-to-generator synchronization contracts.
 - `stale-cleanup` is mandatory in export: stale overrides are deleted if they no longer match current snapshot.
 - Recovery by fingerprint is allowed only for unique high-confidence matches.
 - After stop-rule freeze (`manual-first`), reverse sync is allowed only through `shared/manual-sync/*`.
+
+## 2026-03-03 Run Notes
+- Full cycle order used: `manual-sync:batch` -> top-10 hot selection -> top-5 quarantine/refactor -> `manual-sync:export` -> `manual-sync:roundtrip` -> `manual-sync:hot-rescue`.
+- Current guard remained green: `namespace-import <= 8` across top-hot targets (`violationCount=0`).
+- If roundtrip KPI does not increase, rollback generator pass artifacts and keep only narrower manual pass.
+- Refactorability-first top-5 selection should exclude known no-op paths (`store-path-quality*`, `transport-bridge*`) and prioritize large store/service files with behavior-split potential.
+- For targeted top-3 manual cycle, prefer `roundtrip --path-surface-only --top-hot-limit 3 --top-hot-report <refactorability-top3-report>` to avoid accidental symbol-rename degradation.

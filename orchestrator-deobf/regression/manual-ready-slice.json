@@ -1,13 +1,13 @@
 {
-  "generatedAtIso": "2026-03-03T15:56:34.098Z",
+  "generatedAtIso": "2026-03-03T17:40:48.276Z",
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
   "stableSlice": {
-    "averageScore": 0.9685,
+    "averageScore": 0.9687,
     "classCoverageAverage": 1,
     "functionCoverageAverage": 1,
     "hotFocusFileAverage": 8,
     "kpiPassed": true,
-    "nameQualityAverage": 0.8252,
+    "nameQualityAverage": 0.8262,
     "proxyInQualityAverage": 0,
     "variableCoverageAverage": 1
   },
@@ -15,15 +15,15 @@
   "topManualCandidates": [
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7836,
-      "averageScore": 0.7694,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.784,
+      "averageScore": 0.77,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7832,
-      "averageScore": 0.7729,
+      "averageNameQuality": 0.7845,
+      "averageScore": 0.7744,
       "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-path-quality-01.ts"
     },
@@ -44,44 +44,44 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8135,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-02.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8142,
+      "averageScore": 0.8127,
       "averageSymbolCount": 120,
       "filePath": "src/services/store/store-state-g002-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7847,
-      "averageScore": 0.8213,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8144,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7855,
+      "averageScore": 0.8204,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8963,
-      "averageScore": 0.8443,
-      "averageSymbolCount": 71,
-      "filePath": "src/services/service/service-run-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8477,
-      "averageSymbolCount": 75,
+      "averageScore": 0.8476,
+      "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-path-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8486,
+      "averageScore": 0.8485,
       "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-03.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.9013,
+      "averageScore": 0.8501,
+      "averageSymbolCount": 71,
+      "filePath": "src/services/service/service-run-quality-01.ts"
     }
   ],
   "transitionMode": "generator-active"

@@ -82,6 +82,12 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
   - one source chunk -> one source artifact in `project/src/chunks/*`
   - correspondence tracked in `project/mapping/chunk-artifacts.json`
 
+### 2026-03-03 Windows Path Open Reliability
+- Repack runtime shim upgraded to `CODEX-WINDOWS-ENV-SHIM-V7`.
+- `patchMainForWindowsEnvironment` now enforces open-file path cleanup patch point in bundled `main.js` and fails fast if missing.
+- Added shell-level path sanitizer for `electron.shell.openPath` and `electron.shell.showItemInFolder`.
+- Sanitizer removes accidental drive-leading slash/backslash prefixes while keeping UNC paths untouched.
+
 ### Recent Reverse Milestones
 - `6a2ff55` `✨ Strengthen symbol-target indexing and recovery heuristics`
 - `3e4eaf1` `🚀 Eliminate chunk bridges with ownership source switching and parser unpack`

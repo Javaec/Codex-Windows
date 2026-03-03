@@ -29,6 +29,14 @@
     "promotionBudgetPerCycle": 140,
     "fastProfileId": "core-no-binary"
   },
+  "readabilityKpi": {
+    "enabled": true,
+    "targetFiles": [
+      "src/services/store/store-state-quality-01.ts",
+      "src/services/store/store-state-g002-quality-01.ts",
+      "src/services/store/store-state-quality-02.ts"
+    ]
+  },
   "hotRescue": {
     "enabled": true,
     "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",

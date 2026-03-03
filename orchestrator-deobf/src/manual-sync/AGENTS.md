@@ -58,6 +58,19 @@ Implement deterministic import/export bridges between generated project output a
   - keeps refactor strictly manual-project scoped (no new generator fallback branches),
   - emits `manual-top-hot-refactor-last-report.json` with before/after file metrics.
   Verified reason: enables fast behavior-boundary split experiments on top-5 manual files while preserving strict manual-first workflow.
+- Refactor pass now supports strict safety guards:
+  - `--max-line-growth <n>` and `--max-import-growth <n>`,
+  - candidate extraction is rejected when post-metrics exceed allowed growth.
+  Verified reason: avoid local readability regressions from micro-extractions that only increase glue/import noise.
+- Added refactorability-first hot selection (`manual-sync:select-hot`):
+  - builds top-5 using composite score (`low-quality + high-refactorability`),
+  - excludes files with repeated no-op history (`refactorability-state.json`),
+  - prioritizes large store/service files with extraction potential.
+  Verified reason: avoid wasting cycles on stable no-op targets (`store-path*`, `transport-bridge*`).
+- Added local readability KPI in batch:
+  - tracks `avgFunctionBodyLength`, `glueRatio`, `domainCallDensity` on fixed top-3 files,
+  - cycle is considered successful only when global `nameQuality` and local readability KPI both improve,
+  - generator rollback now triggers only when both roundtrip and local readability KPI fail to grow.
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

@@ -13254,6 +13254,64 @@ function applyEsmRequireCompatibility(content: string): string {
   return `${prefix}\n${shimBlock}${suffix}`;
 }
 
+function applyOpenFilePathNormalization(content: string): string {
+  if (!/["']open-file["']/.test(content)) {
+    return content;
+  }
+
+  let changed = false;
+  const rewritten = content.replace(
+    /path:\s*([^,}]+?)(\s*,\s*(?:cwd|line|column|target)\s*:)/g,
+    (fullMatch: string, expression: string, suffix: string) => {
+      const trimmedExpression = expression.trim();
+      if (trimmedExpression.startsWith("__normalizeOpenFilePath(")) {
+        return fullMatch;
+      }
+      changed = true;
+      return `path: __normalizeOpenFilePath(${trimmedExpression})${suffix}`;
+    },
+  );
+  if (!changed) {
+    return content;
+  }
+  if (/\bconst\s+__normalizeOpenFilePath\s*=/.test(rewritten)) {
+    return rewritten;
+  }
+
+  const sourceFile = ts.createSourceFile(
+    "open-file-path-normalization.ts",
+    rewritten,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const lastImport = [...sourceFile.statements]
+    .filter((statement): statement is ts.ImportDeclaration => ts.isImportDeclaration(statement))
+    .at(-1);
+  const insertOffset = lastImport ? lastImport.end : 0;
+  const helperBlock = [
+    "const __normalizeOpenFilePath = (input: string): string => {",
+    '  let value = input.trim().replace(/^"+|"+$/g, "");',
+    "  if (value.length < 1) {",
+    "    return value;",
+    "  }",
+    '  value = value.replace(/^([ab])[\\\\/](?=[^\\\\/])/, "");',
+    "  const isUncPath = /^[/\\\\]{2}[^/\\\\]/.test(value) && !/^[/\\\\]{2}[?.][\\\\/]/.test(value);",
+    "  if (!isUncPath) {",
+    '    value = value.replace(/^[/\\\\]+(?=[A-Za-z]:[\\\\/])/, "");',
+    "  }",
+    "  return value;",
+    "};",
+    "",
+  ].join("\n");
+  if (insertOffset < 1) {
+    return `${helperBlock}${rewritten}`;
+  }
+  const prefix = rewritten.slice(0, insertOffset);
+  const suffix = rewritten.slice(insertOffset);
+  return `${prefix}\n${helperBlock}${suffix}`;
+}
+
 function applyLiftedChunkRuntimeEnumFallbacks(content: string): string {
   if (content.length < 1) {
     return content;
@@ -13967,8 +14025,10 @@ export async function emitTemplateProject(
       signalContext,
       effectiveCriticalHotFilePaths,
     );
-    const normalizedModuleContent = applyLiftedChunkRuntimeEnumFallbacks(
-      applyEsmRequireCompatibility(moduleBuildResult.content),
+    const normalizedModuleContent = applyOpenFilePathNormalization(
+      applyLiftedChunkRuntimeEnumFallbacks(
+        applyEsmRequireCompatibility(moduleBuildResult.content),
+      ),
     );
     const normalizedModulePath = absoluteFilePath.replace(/\\/g, "/").toLowerCase();
     const isTypeScriptModule = /\.[cm]?tsx?$/i.test(absoluteFilePath);

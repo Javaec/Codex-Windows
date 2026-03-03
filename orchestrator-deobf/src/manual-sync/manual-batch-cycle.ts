@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import * as ts from "typescript";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { runManualHotRescue } from "./hot-rescue";
 
@@ -22,6 +23,11 @@ interface HotRescueConfig {
   longFunctionLineThreshold: number;
 }
 
+interface ReadabilityKpiConfig {
+  enabled: boolean;
+  targetFiles: string[];
+}
+
 interface ManualFirstWorkflowConfig {
   version: number;
   manualProjectPath: string;
@@ -32,6 +38,7 @@ interface ManualFirstWorkflowConfig {
   fullGateEveryBatches: number;
   promotionTopN: number;
   generatorSync: GeneratorSyncConfig;
+  readabilityKpi?: ReadabilityKpiConfig;
   hotRescue?: HotRescueConfig;
 }
 
@@ -54,6 +61,31 @@ interface RoundtripMetrics {
   devHealth: boolean;
 }
 
+interface ManualReadabilityFileMetrics {
+  filePath: string;
+  lineCount: number;
+  functionCount: number;
+  avgFunctionBodyLength: number;
+  glueRatio: number;
+  domainCallDensity: number;
+}
+
+interface ManualReadabilityKpiMetrics {
+  targetFiles: string[];
+  files: ManualReadabilityFileMetrics[];
+  avgFunctionBodyLength: number;
+  glueRatio: number;
+  domainCallDensity: number;
+}
+
+interface ManualReadabilityDelta {
+  avgFunctionBodyLength: number;
+  glueRatio: number;
+  domainCallDensity: number;
+  improvedSignals: string[];
+  grew: boolean;
+}
+
 interface ManualBatchReport {
   generatedAtIso: string;
   batchIndex: number;
@@ -70,6 +102,10 @@ interface ManualBatchReport {
   hotRescueTargetCount: number;
   beforeMetrics: RoundtripMetrics;
   afterMetrics: RoundtripMetrics;
+  readabilityBefore: ManualReadabilityKpiMetrics;
+  readabilityAfter: ManualReadabilityKpiMetrics;
+  readabilityDelta: ManualReadabilityDelta;
+  cycleSuccessful: boolean;
   noGrowthStreak: number;
   generatorSyncFrozen: boolean;
   generatorSyncRolledBack: boolean;
@@ -116,10 +152,6 @@ async function restoreManualSyncContractSnapshot(
   await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "module-path-overrides.json"), snapshot.modulePathOverrides, "utf8");
   await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "module-surface-overrides.json"), snapshot.moduleSurfaceOverrides, "utf8");
   await fs.writeFile(path.join(projectRoot, "shared", "manual-sync", "contract-changelog.md"), snapshot.contractChangelog, "utf8");
-}
-
-function normalizePathSlashes(input: string): string {
-  return input.replace(/\\/g, "/");
 }
 
 function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
@@ -249,6 +281,151 @@ function toRoundtripMetrics(raw: Record<string, unknown>): RoundtripMetrics {
   };
 }
 
+function normalizeRelativePath(input: string): string {
+  return input.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function resolveReadabilityConfig(workflow: ManualFirstWorkflowConfig): ReadabilityKpiConfig {
+  const defaultTargetFiles = [
+    "src/services/store/store-state-quality-01.ts",
+    "src/services/store/store-state-g002-quality-01.ts",
+    "src/services/store/store-state-quality-02.ts",
+  ];
+  const rawTargetFiles = workflow.readabilityKpi?.targetFiles ?? defaultTargetFiles;
+  const normalizedTargetFiles = rawTargetFiles.map((entry) => normalizeRelativePath(entry));
+  return {
+    enabled: workflow.readabilityKpi?.enabled ?? true,
+    targetFiles: normalizedTargetFiles,
+  };
+}
+
+function extractCallName(expression: ts.LeftHandSideExpression): string {
+  if (ts.isIdentifier(expression)) {
+    return expression.text;
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text;
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    const argument = expression.argumentExpression;
+    if (argument && ts.isStringLiteralLike(argument)) {
+      return argument.text;
+    }
+  }
+  return "";
+}
+
+async function collectReadabilityMetricsForFile(
+  absolutePath: string,
+  relativePath: string,
+  domainCallPattern: RegExp,
+): Promise<ManualReadabilityFileMetrics> {
+  const content = await fs.readFile(absolutePath, "utf8");
+  const sourceFile = ts.createSourceFile(relativePath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const lines = content.split(/\r?\n/u);
+  const nonEmptyLines = lines.filter((line) => line.trim().length > 0).length;
+  const glueLines = lines.filter((line) => {
+    return (
+      /^\s*import\s+/u.test(line) ||
+      /^\s*export\s+\{[^}]*\}\s+from\s+/u.test(line) ||
+      /^\s*export\s+\*\s+from\s+/u.test(line) ||
+      /^\s*export\s+type\s+/u.test(line)
+    );
+  }).length;
+  let functionCount = 0;
+  let totalFunctionBodyLines = 0;
+  let totalCallCount = 0;
+  let domainCallCount = 0;
+  const pushFunctionBody = (bodyNode: ts.Block): void => {
+    const startLine = sourceFile.getLineAndCharacterOfPosition(bodyNode.getStart(sourceFile)).line + 1;
+    const endLine = sourceFile.getLineAndCharacterOfPosition(bodyNode.getEnd()).line + 1;
+    const lineCount = Math.max(1, endLine - startLine + 1);
+    functionCount += 1;
+    totalFunctionBodyLines += lineCount;
+  };
+  const visitNode = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.body) {
+      pushFunctionBody(node.body);
+    } else if (ts.isMethodDeclaration(node) && node.body) {
+      pushFunctionBody(node.body);
+    } else if (ts.isFunctionExpression(node) && node.body) {
+      pushFunctionBody(node.body);
+    } else if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
+      pushFunctionBody(node.body);
+    }
+    if (ts.isCallExpression(node)) {
+      totalCallCount += 1;
+      const callName = extractCallName(node.expression);
+      if (callName.length > 0 && domainCallPattern.test(callName)) {
+        domainCallCount += 1;
+      }
+    }
+    ts.forEachChild(node, visitNode);
+  };
+  visitNode(sourceFile);
+  return {
+    filePath: relativePath,
+    lineCount: lines.length,
+    functionCount,
+    avgFunctionBodyLength: functionCount > 0 ? totalFunctionBodyLines / functionCount : 0,
+    glueRatio: glueLines / Math.max(1, nonEmptyLines),
+    domainCallDensity: domainCallCount / Math.max(1, totalCallCount),
+  };
+}
+
+async function collectReadabilityKpi(
+  manualProjectPath: string,
+  config: ReadabilityKpiConfig,
+): Promise<ManualReadabilityKpiMetrics> {
+  const domainCallPattern = /(state|event|route|session|workspace|ipc|transport|store|service)/i;
+  const files: ManualReadabilityFileMetrics[] = [];
+  for (const targetFile of config.targetFiles) {
+    const absolutePath = path.join(manualProjectPath, targetFile);
+    if (!(await fileExists(absolutePath))) {
+      throw new Error(`readability KPI target file not found: ${absolutePath}`);
+    }
+    const metrics = await collectReadabilityMetricsForFile(absolutePath, targetFile, domainCallPattern);
+    files.push(metrics);
+  }
+  const targetCount = Math.max(1, files.length);
+  const avgFunctionBodyLength = files.reduce((sum, file) => sum + file.avgFunctionBodyLength, 0) / targetCount;
+  const glueRatio = files.reduce((sum, file) => sum + file.glueRatio, 0) / targetCount;
+  const domainCallDensity = files.reduce((sum, file) => sum + file.domainCallDensity, 0) / targetCount;
+  return {
+    targetFiles: [...config.targetFiles],
+    files,
+    avgFunctionBodyLength,
+    glueRatio,
+    domainCallDensity,
+  };
+}
+
+function compareReadabilityKpi(
+  before: ManualReadabilityKpiMetrics,
+  after: ManualReadabilityKpiMetrics,
+): ManualReadabilityDelta {
+  const avgFunctionBodyLengthDelta = after.avgFunctionBodyLength - before.avgFunctionBodyLength;
+  const glueRatioDelta = after.glueRatio - before.glueRatio;
+  const domainCallDensityDelta = after.domainCallDensity - before.domainCallDensity;
+  const improvedSignals: string[] = [];
+  if (avgFunctionBodyLengthDelta < -0.01) {
+    improvedSignals.push("avgFunctionBodyLength");
+  }
+  if (glueRatioDelta < -0.0001) {
+    improvedSignals.push("glueRatio");
+  }
+  if (domainCallDensityDelta > 0.0001) {
+    improvedSignals.push("domainCallDensity");
+  }
+  return {
+    avgFunctionBodyLength: avgFunctionBodyLengthDelta,
+    glueRatio: glueRatioDelta,
+    domainCallDensity: domainCallDensityDelta,
+    improvedSignals,
+    grew: improvedSignals.length > 0,
+  };
+}
+
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
@@ -268,6 +445,16 @@ async function run(): Promise<void> {
   }
 
   await verifyManualDomainStructure(manualProjectPath, workflow.domainSourceRoots);
+  const readabilityConfig = resolveReadabilityConfig(workflow);
+  const readabilityBefore = readabilityConfig.enabled
+    ? await collectReadabilityKpi(manualProjectPath, readabilityConfig)
+    : {
+      targetFiles: [],
+      files: [],
+      avgFunctionBodyLength: 0,
+      glueRatio: 0,
+      domainCallDensity: 0,
+    };
 
   const statePath = path.join(projectRoot, MANUAL_BATCH_STATE_RELATIVE_PATH);
   await ensureDirectory(path.dirname(statePath));
@@ -368,15 +555,24 @@ async function run(): Promise<void> {
       ? roundtripReport.afterMetrics
       : {}) as Record<string, unknown>,
   );
+  const readabilityAfter = readabilityConfig.enabled
+    ? await collectReadabilityKpi(manualProjectPath, readabilityConfig)
+    : readabilityBefore;
+  const readabilityDelta = compareReadabilityKpi(readabilityBefore, readabilityAfter);
   const cycleQualityDelta = afterMetrics.nameQuality - beforeMetrics.nameQuality;
-  if (generatorSyncExecuted && cycleQualityDelta <= 0) {
+  if (generatorSyncExecuted && cycleQualityDelta <= 0 && !readabilityDelta.grew) {
     await restoreManualSyncContractSnapshot(projectRoot, contractSnapshot);
     generatorSyncRolledBack = true;
-    generatorSyncSkippedReason = "rolled_back_no_kpi_gain";
+    generatorSyncSkippedReason = "rolled_back_no_roundtrip_or_local_kpi_gain";
   }
   const effectiveAfterMetrics = generatorSyncRolledBack ? beforeMetrics : afterMetrics;
+  const effectiveReadabilityAfter = generatorSyncRolledBack ? readabilityBefore : readabilityAfter;
+  const effectiveReadabilityDelta = generatorSyncRolledBack
+    ? compareReadabilityKpi(readabilityBefore, readabilityBefore)
+    : readabilityDelta;
   const qualityDelta = effectiveAfterMetrics.nameQuality - previousState.lastNameQuality;
-  const noGrowthStreak = qualityDelta > 0 ? 0 : previousState.noGrowthStreak + 1;
+  const cycleSuccessful = qualityDelta > 0 && effectiveReadabilityDelta.grew;
+  const noGrowthStreak = cycleSuccessful ? 0 : previousState.noGrowthStreak + 1;
   const stopAfterNoGrowth = Math.max(1, Math.trunc(workflow.generatorSync.stopAfterNoQualityGrowthBatches));
   const generatorSyncFrozen = noGrowthStreak >= stopAfterNoGrowth;
 
@@ -392,7 +588,7 @@ async function run(): Promise<void> {
     await writeJsonFile(freezePath, {
       version: 1,
       generatedAtIso: new Date().toISOString(),
-      reason: "manual-batch stop-rule reached: no quality growth",
+      reason: "manual-batch stop-rule reached: no global+local readability growth",
       batchIndex,
       noGrowthStreak,
       stopAfterNoGrowth,
@@ -416,6 +612,10 @@ async function run(): Promise<void> {
     hotRescueTargetCount,
     beforeMetrics,
     afterMetrics: effectiveAfterMetrics,
+    readabilityBefore,
+    readabilityAfter: effectiveReadabilityAfter,
+    readabilityDelta: effectiveReadabilityDelta,
+    cycleSuccessful,
     noGrowthStreak,
     generatorSyncFrozen,
     generatorSyncRolledBack,

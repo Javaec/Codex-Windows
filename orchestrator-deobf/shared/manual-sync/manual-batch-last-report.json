@@ -5,24 +5,25 @@
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8186,
+    "nameQuality": 0.8192,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "batchIndex": 6,
+  "batchIndex": 8,
   "beforeMetrics": {
     "buildHealth": true,
     "classCoverage": 1,
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8172,
+    "nameQuality": 0.8181,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
+  "cycleSuccessful": false,
   "exportReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-export-report.json",
-  "fullGateExecuted": false,
-  "generatedAtIso": "2026-03-03T16:04:36.262Z",
+  "fullGateExecuted": true,
+  "generatedAtIso": "2026-03-03T17:48:44.874Z",
   "generatorSyncExecuted": true,
   "generatorSyncFrozen": false,
   "generatorSyncRolledBack": false,
@@ -31,8 +32,87 @@
   "hotRescueTargetCount": 10,
   "hotRescueViolationCount": 0,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-154835-c01\\merged-evidence.json",
-  "noGrowthStreak": 0,
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-173642-c01\\merged-evidence.json",
+  "noGrowthStreak": 1,
+  "readabilityAfter": {
+    "avgFunctionBodyLength": 14.239210659303723,
+    "domainCallDensity": 0.1263135134089779,
+    "files": [
+      {
+        "avgFunctionBodyLength": 11.512635379061372,
+        "domainCallDensity": 0.1595037660611431,
+        "filePath": "src/services/store/store-state-quality-01.ts",
+        "functionCount": 277,
+        "glueRatio": 0.0047169811320754715,
+        "lineCount": 2165
+      },
+      {
+        "avgFunctionBodyLength": 14.87378640776699,
+        "domainCallDensity": 0.085219707057257,
+        "filePath": "src/services/store/store-state-g002-quality-01.ts",
+        "functionCount": 103,
+        "glueRatio": 0.0073461891643709825,
+        "lineCount": 1110
+      },
+      {
+        "avgFunctionBodyLength": 16.331210191082803,
+        "domainCallDensity": 0.13421706710853357,
+        "filePath": "src/services/store/store-state-quality-02.ts",
+        "functionCount": 157,
+        "glueRatio": 0.0020646937370956643,
+        "lineCount": 1459
+      }
+    ],
+    "glueRatio": 0.0047092880111807055,
+    "targetFiles": [
+      "src/services/store/store-state-quality-01.ts",
+      "src/services/store/store-state-g002-quality-01.ts",
+      "src/services/store/store-state-quality-02.ts"
+    ]
+  },
+  "readabilityBefore": {
+    "avgFunctionBodyLength": 14.239210659303723,
+    "domainCallDensity": 0.1263135134089779,
+    "files": [
+      {
+        "avgFunctionBodyLength": 11.512635379061372,
+        "domainCallDensity": 0.1595037660611431,
+        "filePath": "src/services/store/store-state-quality-01.ts",
+        "functionCount": 277,
+        "glueRatio": 0.0047169811320754715,
+        "lineCount": 2165
+      },
+      {
+        "avgFunctionBodyLength": 14.87378640776699,
+        "domainCallDensity": 0.085219707057257,
+        "filePath": "src/services/store/store-state-g002-quality-01.ts",
+        "functionCount": 103,
+        "glueRatio": 0.0073461891643709825,
+        "lineCount": 1110
+      },
+      {
+        "avgFunctionBodyLength": 16.331210191082803,
+        "domainCallDensity": 0.13421706710853357,
+        "filePath": "src/services/store/store-state-quality-02.ts",
+        "functionCount": 157,
+        "glueRatio": 0.0020646937370956643,
+        "lineCount": 1459
+      }
+    ],
+    "glueRatio": 0.0047092880111807055,
+    "targetFiles": [
+      "src/services/store/store-state-quality-01.ts",
+      "src/services/store/store-state-g002-quality-01.ts",
+      "src/services/store/store-state-quality-02.ts"
+    ]
+  },
+  "readabilityDelta": {
+    "avgFunctionBodyLength": 0,
+    "domainCallDensity": 0,
+    "glueRatio": 0,
+    "grew": false,
+    "improvedSignals": []
+  },
   "roundtripReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-roundtrip-report.json",
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar"
 }

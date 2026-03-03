@@ -1,54 +1,10 @@
 {
-  "changedCount": 2,
-  "files": [
-    {
-      "after": {
-        "importCount": 8,
-        "lineCount": 2168,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 7,
-        "lineCount": 2167,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/services/store/store-state-quality-01-behavior-split.ts",
-      "filePath": "src/services/store/store-state-quality-01.ts",
-      "movedSymbolCount": 4,
-      "movedSymbolNames": [
-        "storeHandleNavigateResultBde",
-        "storeHandleZoeResultOnd",
-        "storeOrchestrateGaeResult",
-        "storeOrchestratePathStateful"
-      ]
-    },
-    {
-      "after": {
-        "importCount": 8,
-        "lineCount": 1110,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 7,
-        "lineCount": 1108,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/services/store/store-state-g002-quality-01-behavior-split.ts",
-      "filePath": "src/services/store/store-state-g002-quality-01.ts",
-      "movedSymbolCount": 1,
-      "movedSymbolNames": [
-        "storeEventNavigatePageNodeeokNode"
-      ]
-    }
-  ],
-  "generatedAtIso": "2026-03-03T16:05:27.914Z",
+  "changedCount": 0,
+  "files": [],
+  "generatedAtIso": "2026-03-03T19:46:16.224Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-before.json",
-  "targetCount": 5,
-  "topUnique": 5,
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\refactorability-top3-report.json",
+  "targetCount": 3,
+  "topUnique": 3,
   "unchangedCount": 3
 }

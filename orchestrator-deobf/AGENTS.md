@@ -501,3 +501,5 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Manual-sync export now supports scoped safe mode for manual-first stability:
   - `--path-surface-only --top-hot-limit <N>` updates only path/surface overrides for top-hot manual files and skips symbol rename promotion.
   Verified reason: prevents roundtrip `nameQuality` degradation while still syncing structural/manual module decisions.
+- Added generator-side open-file path normalization pass in template emitter.
+  Verified reason: generated quality modules now wrap `open-file` mutation `path` fields with `__normalizeOpenFilePath(...)`, preventing malformed Windows drive-prefixed paths (`\C:\...`, `/C:/...`) from reaching Electron open handlers.

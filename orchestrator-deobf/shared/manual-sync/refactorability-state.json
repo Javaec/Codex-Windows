@@ -1,0 +1,12 @@
+{
+  "consecutiveNoOpByFile": {
+    "src/services/service/service-run-quality-01.ts": 0,
+    "src/services/store/store-state-g002-quality-01.ts": 1,
+    "src/services/store/store-state-g002-quality-02.ts": 1,
+    "src/services/store/store-state-quality-01.ts": 0,
+    "src/services/store/store-state-quality-02.ts": 1
+  },
+  "generatedAtIso": "2026-03-03T17:49:56.253Z",
+  "lastAppliedRefactorReportGeneratedAtIso": "2026-03-03T17:19:22.514Z",
+  "version": 1
+}

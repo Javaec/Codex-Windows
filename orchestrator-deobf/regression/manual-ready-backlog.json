@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-03T15:56:34.098Z",
+  "generatedAtIso": "2026-03-03T17:40:48.276Z",
   "generatorSync": [
     {
       "focus": "sync-hygiene",
@@ -9,15 +9,15 @@
   "manualRefactor": [
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7836,
-      "averageScore": 0.7694,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.784,
+      "averageScore": 0.77,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7832,
-      "averageScore": 0.7729,
+      "averageNameQuality": 0.7845,
+      "averageScore": 0.7744,
       "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-path-quality-01.ts"
     },
@@ -38,64 +38,64 @@
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8135,
-      "averageSymbolCount": 120,
-      "filePath": "src/services/store/store-state-g002-quality-02.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.78,
-      "averageScore": 0.8142,
+      "averageScore": 0.8127,
       "averageSymbolCount": 120,
       "filePath": "src/services/store/store-state-g002-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7847,
-      "averageScore": 0.8213,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.78,
+      "averageScore": 0.8144,
+      "averageSymbolCount": 120,
+      "filePath": "src/services/store/store-state-g002-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.7855,
+      "averageScore": 0.8204,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8963,
-      "averageScore": 0.8443,
-      "averageSymbolCount": 71,
-      "filePath": "src/services/service/service-run-quality-01.ts"
-    },
-    {
-      "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8477,
-      "averageSymbolCount": 75,
+      "averageScore": 0.8476,
+      "averageSymbolCount": 76,
       "filePath": "src/renderer/features/store/store-path-quality-02.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8486,
+      "averageScore": 0.8485,
       "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-03.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.8859,
-      "averageScore": 0.8667,
+      "averageNameQuality": 0.9013,
+      "averageScore": 0.8501,
       "averageSymbolCount": 71,
-      "filePath": "src/services/service/service-run-quality-02.ts"
+      "filePath": "src/services/service/service-run-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.9218,
-      "averageScore": 0.8722,
+      "averageScore": 0.8723,
       "averageSymbolCount": 79,
       "filePath": "src/services/store/store-state-g003-quality-01.ts"
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.9165,
-      "averageScore": 0.8925,
-      "averageSymbolCount": 78,
+      "averageNameQuality": 0.8958,
+      "averageScore": 0.8769,
+      "averageSymbolCount": 71,
+      "filePath": "src/services/service/service-run-quality-02.ts"
+    },
+    {
+      "averageLiftedCoverage": 1,
+      "averageNameQuality": 0.9135,
+      "averageScore": 0.8918,
+      "averageSymbolCount": 79,
       "filePath": "src/services/store/store-state-g003-quality-02.ts"
     },
     {
@@ -107,8 +107,8 @@
     },
     {
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.895,
-      "averageScore": 0.9099,
+      "averageNameQuality": 0.894,
+      "averageScore": 0.9096,
       "averageSymbolCount": 70,
       "filePath": "src/services/service/service-run-quality-03.ts"
     },

@@ -1,11 +1,11 @@
 {
   "changedCount": 0,
   "files": [],
-  "generatedAtIso": "2026-03-03T16:05:27.342Z",
+  "generatedAtIso": "2026-03-03T18:02:44.789Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-before.json",
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\refactorability-top3-report.json",
   "skipUnique": 0,
-  "targetCount": 5,
-  "topUnique": 5,
-  "unchangedCount": 5
+  "targetCount": 3,
+  "topUnique": 3,
+  "unchangedCount": 3
 }

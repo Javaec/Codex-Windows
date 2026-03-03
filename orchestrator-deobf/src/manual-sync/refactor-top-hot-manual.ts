@@ -18,6 +18,8 @@ interface CliOptions {
   reportPath: string;
   outputPath: string;
   topUnique: number;
+  maxLineGrowth: number;
+  maxImportGrowth: number;
 }
 
 interface FileMetrics {
@@ -68,6 +70,8 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
   let reportPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-hot-rescue-last-report.json");
   let outputPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-top-hot-refactor-last-report.json");
   let topUnique = 5;
+  let maxLineGrowth = 0;
+  let maxImportGrowth = 0;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
@@ -107,6 +111,24 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--max-line-growth": {
+        const value = argv[index + 1];
+        if (!value || value.startsWith("--")) {
+          throw new Error("--max-line-growth requires a value");
+        }
+        maxLineGrowth = parseIntegerFlag("--max-line-growth", value, 0);
+        index += 1;
+        break;
+      }
+      case "--max-import-growth": {
+        const value = argv[index + 1];
+        if (!value || value.startsWith("--")) {
+          throw new Error("--max-import-growth requires a value");
+        }
+        maxImportGrowth = parseIntegerFlag("--max-import-growth", value, 0);
+        index += 1;
+        break;
+      }
       default: {
         throw new Error(`Unknown option: ${token}`);
       }
@@ -117,6 +139,8 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
     reportPath,
     outputPath,
     topUnique,
+    maxLineGrowth,
+    maxImportGrowth,
   };
 }
 
@@ -319,7 +343,16 @@ function collectImportsText(
   };
 }
 
-async function refactorSingleFile(manualProjectPath: string, fileRelativePath: string): Promise<FileRefactorResult | null> {
+interface RefactorSafetyPolicy {
+  maxLineGrowth: number;
+  maxImportGrowth: number;
+}
+
+async function refactorSingleFile(
+  manualProjectPath: string,
+  fileRelativePath: string,
+  policy: RefactorSafetyPolicy,
+): Promise<FileRefactorResult | null> {
   const absoluteFilePath = path.join(manualProjectPath, fileRelativePath);
   const sourceText = await fs.readFile(absoluteFilePath, "utf8");
   const beforeMetrics = collectFileMetrics(sourceText);
@@ -419,10 +452,6 @@ async function refactorSingleFile(manualProjectPath: string, fileRelativePath: s
     .join("\n\n");
   const splitModuleContent = `${splitModuleHeader}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
 
-  const absoluteBehaviorPath = path.join(manualProjectPath, behaviorModulePath);
-  await ensureDirectory(path.dirname(absoluteBehaviorPath));
-  await fs.writeFile(absoluteBehaviorPath, splitModuleContent, "utf8");
-
   let nextSource = sourceText;
   const removalRanges = selectedClosureRecords
     .map((record) => ({ start: record.start, end: record.end }))
@@ -434,6 +463,15 @@ async function refactorSingleFile(manualProjectPath: string, fileRelativePath: s
   const insertionOffset = Math.max(0, lastImportEnd);
   nextSource = `${nextSource.slice(0, insertionOffset)}\n${importStatement}${nextSource.slice(insertionOffset)}`;
   nextSource = nextSource.replace(/\n{3,}/gu, "\n\n");
+  const afterMetrics = collectFileMetrics(nextSource);
+  const lineGrowth = afterMetrics.lineCount - beforeMetrics.lineCount;
+  const importGrowth = afterMetrics.importCount - beforeMetrics.importCount;
+  if (lineGrowth > policy.maxLineGrowth || importGrowth > policy.maxImportGrowth) {
+    return null;
+  }
+  const absoluteBehaviorPath = path.join(manualProjectPath, behaviorModulePath);
+  await ensureDirectory(path.dirname(absoluteBehaviorPath));
+  await fs.writeFile(absoluteBehaviorPath, splitModuleContent, "utf8");
   await fs.writeFile(absoluteFilePath, nextSource, "utf8");
 
   return {
@@ -442,18 +480,22 @@ async function refactorSingleFile(manualProjectPath: string, fileRelativePath: s
     movedSymbolCount: movedNames.length,
     movedSymbolNames: [...movedNames].sort((left, right) => left.localeCompare(right)),
     before: beforeMetrics,
-    after: collectFileMetrics(nextSource),
+    after: afterMetrics,
   };
 }
 
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2), projectRoot);
+  const policy: RefactorSafetyPolicy = {
+    maxLineGrowth: cli.maxLineGrowth,
+    maxImportGrowth: cli.maxImportGrowth,
+  };
   const report = await readJsonFile<ManualHotRescueReportModel>(cli.reportPath);
   const targets = selectTopUniqueTargets(report, cli.topUnique);
   const fileResults: FileRefactorResult[] = [];
   for (const targetPath of targets) {
-    const result = await refactorSingleFile(cli.manualProjectPath, targetPath);
+    const result = await refactorSingleFile(cli.manualProjectPath, targetPath, policy);
     if (!result) {
       continue;
     }
