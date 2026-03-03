@@ -488,3 +488,8 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: keeps generator as supporting contour and prevents wide refactor drift while manual-first throughput remains primary.
 - No-gain generator passes are now auto-rolled back at manual-sync contract layer.
   Verified reason: when cycle KPI gain is non-positive, batch restores `shared/manual-sync/*` contract files from snapshot, preserving manual-first velocity and avoiding noisy non-improving generator deltas.
+- Manual hot readability now has deterministic import quarantine:
+  - new pass `manual-sync:quarantine-imports` rewrites top unique hot manual files,
+  - heavy `artifacts/*` and payload imports move to sibling `*-deps.ts`,
+  - hot domain files keep minimal import headers while logic stays unchanged.
+  Verified reason: faster manual refactor throughput on top-hot files with lower visual import noise and stable green gates.

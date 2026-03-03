@@ -1,0 +1,91 @@
+{
+  "changedCount": 5,
+  "files": [
+    {
+      "after": {
+        "importCount": 1,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 27,
+        "namespaceImportCount": 6,
+        "runtimeVendorImportCount": 20
+      },
+      "depsFilePath": "src/services/store/store-state-quality-01-deps.ts",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "movedImportDeclarations": 27,
+      "movedSymbols": 53
+    },
+    {
+      "after": {
+        "importCount": 1,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 108,
+        "namespaceImportCount": 8,
+        "runtimeVendorImportCount": 100
+      },
+      "depsFilePath": "src/renderer/features/store/store-state-deps.ts",
+      "filePath": "src/renderer/features/store/store-state.ts",
+      "movedImportDeclarations": 108,
+      "movedSymbols": 108
+    },
+    {
+      "after": {
+        "importCount": 2,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 15,
+        "namespaceImportCount": 1,
+        "runtimeVendorImportCount": 5
+      },
+      "depsFilePath": "src/main/lib/transport/transport-bridge-deps.ts",
+      "filePath": "src/main/lib/transport/transport-bridge.ts",
+      "movedImportDeclarations": 14,
+      "movedSymbols": 14
+    },
+    {
+      "after": {
+        "importCount": 1,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 20,
+        "namespaceImportCount": 8,
+        "runtimeVendorImportCount": 14
+      },
+      "depsFilePath": "src/services/store/store-state-g002-quality-01-deps.ts",
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "movedImportDeclarations": 20,
+      "movedSymbols": 44
+    },
+    {
+      "after": {
+        "importCount": 1,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 45,
+        "namespaceImportCount": 6,
+        "runtimeVendorImportCount": 35
+      },
+      "depsFilePath": "src/services/store/store-state-g002-quality-02-deps.ts",
+      "filePath": "src/services/store/store-state-g002-quality-02.ts",
+      "movedImportDeclarations": 45,
+      "movedSymbols": 124
+    }
+  ],
+  "generatedAtIso": "2026-03-03T11:34:39.242Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-last-report.json",
+  "targetCount": 5,
+  "topUnique": 5,
+  "unchangedCount": 0
+}

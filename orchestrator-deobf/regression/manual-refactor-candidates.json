@@ -2,13 +2,13 @@
   "candidateCount": 16,
   "candidates": [
     {
-      "averageConfidence": 0.6391,
+      "averageConfidence": 0.6397,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7818,
-      "averageScore": 0.7684,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.7837,
+      "averageScore": 0.7694,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "minScore": 0.7684,
+      "minScore": 0.7694,
       "moduleIds": [
         "services:store:state:quality-01"
       ],
@@ -54,6 +54,7 @@
         "main-entry-asar:021bdb2f7755:symbol:204",
         "main-entry-asar:021bdb2f7755:symbol:206",
         "main-entry-asar:021bdb2f7755:symbol:208",
+        "main-entry-asar:021bdb2f7755:symbol:217",
         "main-entry-asar:021bdb2f7755:symbol:218",
         "main-entry-asar:021bdb2f7755:symbol:219",
         "main-entry-asar:021bdb2f7755:symbol:22",
@@ -94,6 +95,7 @@
         "main-entry-asar:021bdb2f7755:symbol:32",
         "main-entry-asar:021bdb2f7755:symbol:337",
         "main-entry-asar:021bdb2f7755:symbol:341",
+        "main-entry-asar:021bdb2f7755:symbol:345",
         "main-entry-asar:021bdb2f7755:symbol:348",
         "main-entry-asar:021bdb2f7755:symbol:369",
         "main-entry-asar:021bdb2f7755:symbol:37",
@@ -110,20 +112,17 @@
         "main-entry-asar:021bdb2f7755:symbol:403",
         "main-entry-asar:021bdb2f7755:symbol:415",
         "main-entry-asar:021bdb2f7755:symbol:417",
-        "main-entry-asar:021bdb2f7755:symbol:431",
-        "main-entry-asar:021bdb2f7755:symbol:44",
-        "main-entry-asar:021bdb2f7755:symbol:443",
-        "main-entry-asar:021bdb2f7755:symbol:448"
+        "main-entry-asar:021bdb2f7755:symbol:431"
       ]
     },
     {
-      "averageConfidence": 0.6401,
+      "averageConfidence": 0.6443,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7822,
-      "averageScore": 0.769,
-      "averageSymbolCount": 76,
+      "averageNameQuality": 0.7823,
+      "averageScore": 0.7709,
+      "averageSymbolCount": 75,
       "filePath": "src/renderer/features/store/store-state-quality-01.ts",
-      "minScore": 0.769,
+      "minScore": 0.7709,
       "moduleIds": [
         "renderer:store:state:quality-01"
       ],
@@ -162,7 +161,6 @@
         "main-entry-asar:021bdb2f7755:symbol:340",
         "main-entry-asar:021bdb2f7755:symbol:342",
         "main-entry-asar:021bdb2f7755:symbol:343",
-        "main-entry-asar:021bdb2f7755:symbol:345",
         "main-entry-asar:021bdb2f7755:symbol:351",
         "main-entry-asar:021bdb2f7755:symbol:356",
         "main-entry-asar:021bdb2f7755:symbol:358",
@@ -182,7 +180,6 @@
         "main-entry-asar:021bdb2f7755:symbol:425",
         "main-entry-asar:021bdb2f7755:symbol:427",
         "main-entry-asar:021bdb2f7755:symbol:428",
-        "main-entry-asar:021bdb2f7755:symbol:429",
         "main-entry-asar:021bdb2f7755:symbol:467",
         "main-entry-asar:021bdb2f7755:symbol:482",
         "main-entry-asar:021bdb2f7755:symbol:483",
@@ -210,7 +207,8 @@
         "main-entry-asar:021bdb2f7755:symbol:90",
         "main-entry-asar:021bdb2f7755:symbol:91",
         "main-entry-asar:021bdb2f7755:symbol:93",
-        "main-entry-asar:021bdb2f7755:symbol:95"
+        "main-entry-asar:021bdb2f7755:symbol:95",
+        "main-entry:symbol:105"
       ]
     },
     {
@@ -409,13 +407,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7456,
+      "averageConfidence": 0.7471,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8136,
+      "averageScore": 0.8143,
       "averageSymbolCount": 120,
       "filePath": "src/services/store/store-state-g002-quality-02.ts",
-      "minScore": 0.8136,
+      "minScore": 0.8143,
       "moduleIds": [
         "services:store:state-store:g002:quality-02"
       ],
@@ -456,7 +454,6 @@
         "main-entry-asar:021bdb2f7755:symbol:299",
         "main-entry-asar:021bdb2f7755:symbol:302",
         "main-entry-asar:021bdb2f7755:symbol:305",
-        "main-entry-asar:021bdb2f7755:symbol:309",
         "main-entry-asar:021bdb2f7755:symbol:314",
         "main-entry-asar:021bdb2f7755:symbol:317",
         "main-entry-asar:021bdb2f7755:symbol:376",
@@ -487,6 +484,7 @@
         "main-entry:symbol:14",
         "main-entry:symbol:140",
         "main-entry:symbol:152",
+        "main-entry:symbol:156",
         "main-entry:symbol:157",
         "main-entry:symbol:162",
         "main-entry:symbol:170",
@@ -550,13 +548,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7651,
+      "averageConfidence": 0.7588,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7847,
-      "averageScore": 0.8236,
-      "averageSymbolCount": 94,
+      "averageNameQuality": 0.7855,
+      "averageScore": 0.8212,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "minScore": 0.8236,
+      "minScore": 0.8212,
       "moduleIds": [
         "services:store:state:quality-02"
       ],
@@ -568,6 +566,9 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
+        "main-entry-asar:021bdb2f7755:symbol:44",
+        "main-entry-asar:021bdb2f7755:symbol:443",
+        "main-entry-asar:021bdb2f7755:symbol:448",
         "main-entry-asar:021bdb2f7755:symbol:449",
         "main-entry-asar:021bdb2f7755:symbol:453",
         "main-entry-asar:021bdb2f7755:symbol:455",
@@ -608,7 +609,6 @@
         "main-entry:symbol:120",
         "main-entry:symbol:125",
         "main-entry:symbol:127",
-        "main-entry:symbol:130",
         "main-entry:symbol:131",
         "main-entry:symbol:132",
         "main-entry:symbol:133",
@@ -617,7 +617,6 @@
         "main-entry:symbol:151",
         "main-entry:symbol:153",
         "main-entry:symbol:155",
-        "main-entry:symbol:156",
         "main-entry:symbol:158",
         "main-entry:symbol:160",
         "main-entry:symbol:164",
@@ -630,7 +629,6 @@
         "main-entry:symbol:183",
         "main-entry:symbol:184",
         "main-entry:symbol:185",
-        "main-entry:symbol:187",
         "main-entry:symbol:190",
         "main-entry:symbol:198",
         "main-entry:symbol:199",
@@ -660,8 +658,7 @@
         "main-entry:symbol:287",
         "main-entry:symbol:29",
         "main-entry:symbol:290",
-        "main-entry:symbol:3",
-        "main-entry:symbol:30"
+        "main-entry:symbol:3"
       ]
     },
     {
@@ -761,7 +758,7 @@
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
       "averageScore": 0.8477,
-      "averageSymbolCount": 76,
+      "averageSymbolCount": 75,
       "filePath": "src/renderer/features/store/store-state-quality-02.ts",
       "minScore": 0.8477,
       "moduleIds": [
@@ -775,7 +772,6 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
-        "main-entry:symbol:105",
         "main-entry:symbol:106",
         "main-entry:symbol:107",
         "main-entry:symbol:110",
@@ -854,13 +850,13 @@
       ]
     },
     {
-      "averageConfidence": 0.8271,
+      "averageConfidence": 0.8269,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8487,
-      "averageSymbolCount": 94,
+      "averageScore": 0.8486,
+      "averageSymbolCount": 93,
       "filePath": "src/services/store/store-state-quality-03.ts",
-      "minScore": 0.8487,
+      "minScore": 0.8486,
       "moduleIds": [
         "services:store:state:quality-03"
       ],
@@ -872,6 +868,7 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
+        "main-entry:symbol:30",
         "main-entry:symbol:300",
         "main-entry:symbol:301",
         "main-entry:symbol:304",
@@ -897,7 +894,6 @@
         "main-entry:symbol:374",
         "main-entry:symbol:378",
         "main-entry:symbol:379",
-        "main-entry:symbol:38",
         "main-entry:symbol:381",
         "main-entry:symbol:384",
         "main-entry:symbol:385",
@@ -920,7 +916,6 @@
         "main-entry:symbol:434",
         "main-entry:symbol:44",
         "main-entry:symbol:443",
-        "main-entry:symbol:448",
         "main-entry:symbol:449",
         "main-entry:symbol:453",
         "main-entry:symbol:468",
@@ -1061,13 +1056,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7679,
+      "averageConfidence": 0.7665,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.9223,
-      "averageScore": 0.873,
-      "averageSymbolCount": 78,
+      "averageNameQuality": 0.9209,
+      "averageScore": 0.8719,
+      "averageSymbolCount": 80,
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "minScore": 0.873,
+      "minScore": 0.8719,
       "moduleIds": [
         "services:store:store-state:g003:quality-01"
       ],
@@ -1107,7 +1102,6 @@
         "main-entry-asar:021bdb2f7755:symbol:203",
         "main-entry-asar:021bdb2f7755:symbol:213",
         "main-entry-asar:021bdb2f7755:symbol:215",
-        "main-entry-asar:021bdb2f7755:symbol:217",
         "main-entry-asar:021bdb2f7755:symbol:224",
         "main-entry-asar:021bdb2f7755:symbol:231",
         "main-entry-asar:021bdb2f7755:symbol:236",
@@ -1126,6 +1120,7 @@
         "main-entry-asar:021bdb2f7755:symbol:286",
         "main-entry-asar:021bdb2f7755:symbol:293",
         "main-entry-asar:021bdb2f7755:symbol:294",
+        "main-entry-asar:021bdb2f7755:symbol:309",
         "main-entry-asar:021bdb2f7755:symbol:311",
         "main-entry-asar:021bdb2f7755:symbol:316",
         "main-entry-asar:021bdb2f7755:symbol:318",
@@ -1142,6 +1137,7 @@
         "main-entry-asar:021bdb2f7755:symbol:390",
         "main-entry-asar:021bdb2f7755:symbol:391",
         "main-entry-asar:021bdb2f7755:symbol:393",
+        "main-entry-asar:021bdb2f7755:symbol:429",
         "main-entry-asar:021bdb2f7755:symbol:433",
         "main-entry-asar:021bdb2f7755:symbol:434",
         "main-entry-asar:021bdb2f7755:symbol:440",
@@ -1156,17 +1152,18 @@
         "main-entry-asar:021bdb2f7755:symbol:479",
         "main-entry-asar:021bdb2f7755:symbol:481",
         "main-entry-asar:021bdb2f7755:symbol:485",
-        "main-entry-asar:021bdb2f7755:symbol:489"
+        "main-entry-asar:021bdb2f7755:symbol:489",
+        "main-entry-asar:021bdb2f7755:symbol:49"
       ]
     },
     {
-      "averageConfidence": 0.8171,
+      "averageConfidence": 0.8186,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.9175,
-      "averageScore": 0.8925,
-      "averageSymbolCount": 77,
+      "averageNameQuality": 0.914,
+      "averageScore": 0.8919,
+      "averageSymbolCount": 80,
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "minScore": 0.8925,
+      "minScore": 0.8919,
       "moduleIds": [
         "services:store:store-state:g003:quality-02"
       ],
@@ -1178,7 +1175,6 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
-        "main-entry-asar:021bdb2f7755:symbol:49",
         "main-entry-asar:021bdb2f7755:symbol:497",
         "main-entry-asar:021bdb2f7755:symbol:499",
         "main-entry-asar:021bdb2f7755:symbol:506",
@@ -1201,6 +1197,7 @@
         "main-entry:symbol:11",
         "main-entry:symbol:116",
         "main-entry:symbol:122",
+        "main-entry:symbol:130",
         "main-entry:symbol:134",
         "main-entry:symbol:136",
         "main-entry:symbol:138",
@@ -1211,6 +1208,7 @@
         "main-entry:symbol:165",
         "main-entry:symbol:178",
         "main-entry:symbol:179",
+        "main-entry:symbol:187",
         "main-entry:symbol:19",
         "main-entry:symbol:197",
         "main-entry:symbol:201",
@@ -1233,6 +1231,7 @@
         "main-entry:symbol:358",
         "main-entry:symbol:37",
         "main-entry:symbol:377",
+        "main-entry:symbol:38",
         "main-entry:symbol:390",
         "main-entry:symbol:398",
         "main-entry:symbol:399",
@@ -1240,6 +1239,7 @@
         "main-entry:symbol:409",
         "main-entry:symbol:422",
         "main-entry:symbol:440",
+        "main-entry:symbol:448",
         "main-entry:symbol:474",
         "main-entry:symbol:480",
         "main-entry:symbol:500",
@@ -1400,6 +1400,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-03-03T10:55:46.953Z",
-  "suiteRunId": "manual-sync-cycle-20260303-105153-c01"
+  "generatedAtIso": "2026-03-03T11:44:19.056Z",
+  "suiteRunId": "manual-sync-cycle-20260303-113951-c01"
 }

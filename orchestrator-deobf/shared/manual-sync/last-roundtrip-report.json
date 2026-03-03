@@ -24,7 +24,7 @@
       "tauri": 0
     },
     "lowQualitySymbolCount": 0,
-    "manualSyncAppliedCount": 262,
+    "manualSyncAppliedCount": 263,
     "manualSyncConflictResolvedCount": 0,
     "manualSyncFingerprintResolvedCount": 0,
     "manualSyncRejectedCount": 0,
@@ -34,7 +34,7 @@
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "afterRunId": "manual-sync-roundtrip-after-20260303-105947",
+  "afterRunId": "manual-sync-roundtrip-after-20260303-114825",
   "beforeMetrics": {
     "archetypeCoverage": {
       "hook": 7,
@@ -46,7 +46,7 @@
     "buildHealth": true,
     "classCoverage": 1,
     "coverageLowQualitySymbolCount": 0,
-    "coverageNameQuality": 0.8386,
+    "coverageNameQuality": 0.8387,
     "coverageSymbols": 13314,
     "devHealth": true,
     "functionClassCoverage": 1,
@@ -60,26 +60,26 @@
       "tauri": 0
     },
     "lowQualitySymbolCount": 0,
-    "manualSyncAppliedCount": 253,
+    "manualSyncAppliedCount": 252,
     "manualSyncConflictResolvedCount": 0,
     "manualSyncFingerprintResolvedCount": 0,
     "manualSyncRejectedCount": 0,
     "mappedFiles": 48,
     "mappedSymbols": 1069,
-    "nameQuality": 0.8167,
+    "nameQuality": 0.8168,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "beforeRunId": "manual-sync-roundtrip-before-20260303-105550",
+  "beforeRunId": "manual-sync-roundtrip-before-20260303-114422",
   "deltas": {
     "classCoverage": 0,
     "functionCoverage": 0,
     "mappedSymbols": 0,
-    "nameQuality": 0.0012,
+    "nameQuality": 0.0011,
     "proxyInQualityCount": 0,
     "variableCoverage": 0
   },
-  "generatedAtIso": "2026-03-03T11:03:28.432Z",
+  "generatedAtIso": "2026-03-03T11:52:12.602Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "passed": true,
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",

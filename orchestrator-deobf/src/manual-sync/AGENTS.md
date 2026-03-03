@@ -47,6 +47,11 @@ Implement deterministic import/export bridges between generated project output a
 - Hot-rescue report is emitted to `shared/manual-sync/manual-hot-rescue-last-report.json`.
 - Hard limit: `namespace-import <= 8` for each mapped top-hot manual file.
 - When generator pass gives non-positive cycle uplift, manual-sync contracts are restored from pre-cycle snapshot (auto rollback of generator-side sync delta).
+- Added hot import quarantine pass (`manual-sync:quarantine-imports`):
+  - reads `manual-hot-rescue-last-report.json`,
+  - rewrites top-unique hot manual files by moving `artifacts/*` and `assets/payloads/*` imports into sibling `*-deps.ts`,
+  - keeps business logic files with a single aggregated deps import.
+  Verified reason: reduces import/runtime-vendor visual noise in hot manual files without changing function bodies.
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.

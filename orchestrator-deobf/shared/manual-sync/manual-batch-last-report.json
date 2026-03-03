@@ -9,20 +9,20 @@
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "batchIndex": 3,
+  "batchIndex": 5,
   "beforeMetrics": {
     "buildHealth": true,
     "classCoverage": 1,
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8167,
+    "nameQuality": 0.8168,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
   "exportReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-export-report.json",
   "fullGateExecuted": false,
-  "generatedAtIso": "2026-03-03T11:03:28.477Z",
+  "generatedAtIso": "2026-03-03T11:52:12.639Z",
   "generatorSyncExecuted": true,
   "generatorSyncFrozen": false,
   "generatorSyncRolledBack": false,
@@ -31,8 +31,8 @@
   "hotRescueTargetCount": 10,
   "hotRescueViolationCount": 0,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-105153-c01\\merged-evidence.json",
-  "noGrowthStreak": 0,
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-113951-c01\\merged-evidence.json",
+  "noGrowthStreak": 1,
   "roundtripReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-roundtrip-report.json",
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar"
 }
