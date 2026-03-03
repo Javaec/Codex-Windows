@@ -1,58 +1,39 @@
 {
-  "changedCount": 3,
+  "changedCount": 2,
   "files": [
     {
       "after": {
+        "importCount": 8,
+        "lineCount": 2168,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
         "importCount": 7,
         "lineCount": 2167,
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
       },
-      "before": {
-        "importCount": 6,
-        "lineCount": 2171,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
       "behaviorModulePath": "src/services/store/store-state-quality-01-behavior-split.ts",
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "movedSymbolCount": 1,
+      "movedSymbolCount": 4,
       "movedSymbolNames": [
-        "storeOrchestrateXdeStateful"
+        "storeHandleNavigateResultBde",
+        "storeHandleZoeResultOnd",
+        "storeOrchestrateGaeResult",
+        "storeOrchestratePathStateful"
       ]
     },
     {
       "after": {
-        "importCount": 3,
-        "lineCount": 1415,
+        "importCount": 8,
+        "lineCount": 1110,
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
       },
       "before": {
-        "importCount": 2,
-        "lineCount": 1416,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/renderer/features/store/store-path-quality-01-behavior-split.ts",
-      "filePath": "src/renderer/features/store/store-path-quality-01.ts",
-      "movedSymbolCount": 3,
-      "movedSymbolNames": [
-        "storeBlockdiagramEventNavigateNodeblgNode",
-        "storeBlockdiagramEventNavigateNodefkfNode",
-        "storeBlockdiagramEventNavigateNodepilNode"
-      ]
-    },
-    {
-      "after": {
         "importCount": 7,
         "lineCount": 1108,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 6,
-        "lineCount": 1111,
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
       },
@@ -60,14 +41,14 @@
       "filePath": "src/services/store/store-state-g002-quality-01.ts",
       "movedSymbolCount": 1,
       "movedSymbolNames": [
-        "storeArcEventNavigateNodebnkNode"
+        "storeEventNavigatePageNodeeokNode"
       ]
     }
   ],
-  "generatedAtIso": "2026-03-03T15:24:53.383Z",
+  "generatedAtIso": "2026-03-03T16:05:27.914Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-before.json",
   "targetCount": 5,
   "topUnique": 5,
-  "unchangedCount": 2
+  "unchangedCount": 3
 }

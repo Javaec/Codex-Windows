@@ -1,7 +1,27 @@
 {
-  "generatedAtIso": "2026-03-03T15:30:47.568Z",
+  "generatedAtIso": "2026-03-03T16:10:20.189Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
+    {
+      "filePath": "src/renderer/features/store/store-path-quality-01.ts",
+      "generatedExports": 18,
+      "manualExports": 1
+    },
+    {
+      "filePath": "src/renderer/features/store/store-path-quality-02.ts",
+      "generatedExports": 17,
+      "manualExports": 1
+    },
+    {
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "generatedExports": 12,
+      "manualExports": 24
+    },
+    {
+      "filePath": "src/services/service/service-run-quality-02.ts",
+      "generatedExports": 11,
+      "manualExports": 17
+    },
     {
       "filePath": "src/services/store/store-state-g002-quality-01.ts",
       "generatedExports": 8,
@@ -9,36 +29,61 @@
     },
     {
       "filePath": "src/services/store/store-state-g002-quality-02.ts",
-      "generatedExports": 6,
+      "generatedExports": 11,
+      "manualExports": 29
+    },
+    {
+      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "generatedExports": 66,
+      "manualExports": 35
+    },
+    {
+      "filePath": "src/services/store/store-state-g003-quality-02.ts",
+      "generatedExports": 61,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "generatedExports": 6,
+      "generatedExports": 10,
       "manualExports": 26
+    },
+    {
+      "filePath": "src/services/store/store-state-quality-02.ts",
+      "generatedExports": 10,
+      "manualExports": 19
     }
   ],
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "missingModuleFiles": [],
-  "mode": "path-surface-only",
-  "pathCreated": 0,
-  "pathRekeyed": 0,
-  "pathRemoved": 0,
-  "pathUpdated": 0,
+  "missingModuleFiles": [
+    "src/main/lib/transport/transport-bridge-quality-01.ts",
+    "src/main/lib/transport/transport-bridge-quality-02.ts",
+    "src/renderer/features/hooks/hook-hooks-quality-01.ts",
+    "src/renderer/features/hooks/hook-hooks-quality-02.ts",
+    "src/renderer/features/ui/ui-components-render-quality-01.ts",
+    "src/renderer/features/ui/ui-components-render-quality-02.ts",
+    "src/services/service/service-domain-quality-01.ts",
+    "src/services/service/service-domain-quality-02.ts",
+    "src/services/store/store-state-quality-03.ts"
+  ],
+  "mode": "full",
+  "pathCreated": 5,
+  "pathRekeyed": 2,
+  "pathRemoved": 1,
+  "pathUpdated": 16,
   "staleCleanupExecuted": {
-    "pathRemoved": 0,
-    "surfaceRemoved": 0,
-    "symbolRemoved": 0
+    "pathRemoved": 1,
+    "surfaceRemoved": 8,
+    "symbolRemoved": 19
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 0,
-  "surfaceRemoved": 0,
-  "surfaceUpdated": 4,
-  "symbolNameCreated": 0,
+  "surfaceCreated": 8,
+  "surfaceRemoved": 8,
+  "surfaceUpdated": 10,
+  "symbolNameCreated": 31,
   "symbolNamePromotedFromMergedEvidence": 0,
-  "symbolNameRekeyed": 0,
-  "symbolNameRemoved": 0,
-  "symbolNameUpdated": 0,
-  "topHotLimit": 5,
-  "topHotSelectedCount": 4
+  "symbolNameRekeyed": 3,
+  "symbolNameRemoved": 19,
+  "symbolNameUpdated": 89,
+  "topHotLimit": 0,
+  "topHotSelectedCount": 0
 }

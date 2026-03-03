@@ -117,15 +117,15 @@
       ]
     },
     {
-      "averageConfidence": 0.6468,
+      "averageConfidence": 0.6484,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.7823,
-      "averageScore": 0.7719,
-      "averageSymbolCount": 75,
-      "filePath": "src/renderer/features/store/store-state-quality-01.ts",
-      "minScore": 0.7719,
+      "averageNameQuality": 0.7832,
+      "averageScore": 0.7729,
+      "averageSymbolCount": 76,
+      "filePath": "src/renderer/features/store/store-path-quality-01.ts",
+      "minScore": 0.7729,
       "moduleIds": [
-        "renderer:store:state:quality-01"
+        "renderer:store:store-path:quality-01"
       ],
       "profiles": [
         "core-no-binary"
@@ -167,6 +167,7 @@
         "main-entry-asar:021bdb2f7755:symbol:358",
         "main-entry-asar:021bdb2f7755:symbol:36",
         "main-entry-asar:021bdb2f7755:symbol:379",
+        "main-entry-asar:021bdb2f7755:symbol:382",
         "main-entry-asar:021bdb2f7755:symbol:398",
         "main-entry-asar:021bdb2f7755:symbol:399",
         "main-entry-asar:021bdb2f7755:symbol:400",
@@ -549,7 +550,7 @@
       ]
     },
     {
-      "averageConfidence": 0.7598,
+      "averageConfidence": 0.7597,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.7847,
       "averageScore": 0.8213,
@@ -631,7 +632,6 @@
         "main-entry:symbol:183",
         "main-entry:symbol:184",
         "main-entry:symbol:185",
-        "main-entry:symbol:187",
         "main-entry:symbol:190",
         "main-entry:symbol:198",
         "main-entry:symbol:199",
@@ -660,7 +660,8 @@
         "main-entry:symbol:287",
         "main-entry:symbol:29",
         "main-entry:symbol:290",
-        "main-entry:symbol:3"
+        "main-entry:symbol:3",
+        "main-entry:symbol:30"
       ]
     },
     {
@@ -756,15 +757,15 @@
       ]
     },
     {
-      "averageConfidence": 0.8247,
+      "averageConfidence": 0.8248,
       "averageLiftedCoverage": 1,
       "averageNameQuality": 0.78,
-      "averageScore": 0.8476,
+      "averageScore": 0.8477,
       "averageSymbolCount": 75,
-      "filePath": "src/renderer/features/store/store-state-quality-02.ts",
-      "minScore": 0.8476,
+      "filePath": "src/renderer/features/store/store-path-quality-02.ts",
+      "minScore": 0.8477,
       "moduleIds": [
-        "renderer:store:state:quality-02"
+        "renderer:store:store-path:quality-02"
       ],
       "profiles": [
         "core-no-binary"
@@ -787,6 +788,7 @@
         "main-entry:symbol:176",
         "main-entry:symbol:177",
         "main-entry:symbol:18",
+        "main-entry:symbol:187",
         "main-entry:symbol:188",
         "main-entry:symbol:191",
         "main-entry:symbol:194",
@@ -834,7 +836,6 @@
         "main-entry:symbol:477",
         "main-entry:symbol:482",
         "main-entry:symbol:483",
-        "main-entry:symbol:503",
         "main-entry:symbol:546",
         "main-entry:symbol:55",
         "main-entry:symbol:59",
@@ -870,7 +871,6 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
-        "main-entry:symbol:30",
         "main-entry:symbol:300",
         "main-entry:symbol:301",
         "main-entry:symbol:304",
@@ -933,6 +933,7 @@
         "main-entry:symbol:497",
         "main-entry:symbol:499",
         "main-entry:symbol:5",
+        "main-entry:symbol:503",
         "main-entry:symbol:508",
         "main-entry:symbol:509",
         "main-entry:symbol:51",
@@ -1058,13 +1059,13 @@
       ]
     },
     {
-      "averageConfidence": 0.7666,
+      "averageConfidence": 0.7665,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.9205,
-      "averageScore": 0.8718,
+      "averageNameQuality": 0.9218,
+      "averageScore": 0.8722,
       "averageSymbolCount": 79,
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "minScore": 0.8718,
+      "minScore": 0.8722,
       "moduleIds": [
         "services:store:store-state:g003:quality-01"
       ],
@@ -1135,7 +1136,6 @@
         "main-entry-asar:021bdb2f7755:symbol:366",
         "main-entry-asar:021bdb2f7755:symbol:368",
         "main-entry-asar:021bdb2f7755:symbol:373",
-        "main-entry-asar:021bdb2f7755:symbol:382",
         "main-entry-asar:021bdb2f7755:symbol:390",
         "main-entry-asar:021bdb2f7755:symbol:391",
         "main-entry-asar:021bdb2f7755:symbol:393",
@@ -1154,17 +1154,18 @@
         "main-entry-asar:021bdb2f7755:symbol:479",
         "main-entry-asar:021bdb2f7755:symbol:481",
         "main-entry-asar:021bdb2f7755:symbol:485",
-        "main-entry-asar:021bdb2f7755:symbol:489"
+        "main-entry-asar:021bdb2f7755:symbol:489",
+        "main-entry-asar:021bdb2f7755:symbol:49"
       ]
     },
     {
-      "averageConfidence": 0.8172,
+      "averageConfidence": 0.8179,
       "averageLiftedCoverage": 1,
-      "averageNameQuality": 0.917,
-      "averageScore": 0.8923,
-      "averageSymbolCount": 79,
+      "averageNameQuality": 0.9165,
+      "averageScore": 0.8925,
+      "averageSymbolCount": 78,
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "minScore": 0.8923,
+      "minScore": 0.8925,
       "moduleIds": [
         "services:store:store-state:g003:quality-02"
       ],
@@ -1176,7 +1177,6 @@
         "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project"
       ],
       "symbolKeys": [
-        "main-entry-asar:021bdb2f7755:symbol:49",
         "main-entry-asar:021bdb2f7755:symbol:497",
         "main-entry-asar:021bdb2f7755:symbol:499",
         "main-entry-asar:021bdb2f7755:symbol:506",
@@ -1400,6 +1400,6 @@
       ]
     }
   ],
-  "generatedAtIso": "2026-03-03T12:02:43.868Z",
-  "suiteRunId": "manual-sync-cycle-20260303-115808-c01"
+  "generatedAtIso": "2026-03-03T15:56:33.506Z",
+  "suiteRunId": "manual-sync-cycle-20260303-154835-c01"
 }

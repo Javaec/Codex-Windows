@@ -1,6 +1,6 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-03T15:24:34.275Z",
+  "generatedAtIso": "2026-03-03T16:04:54.639Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
@@ -17,12 +17,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 16,
+          "state": 17,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 6,
-        "lineCount": 2171,
+        "importCount": 7,
+        "lineCount": 2167,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -48,14 +48,14 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 3,
+          "state": 2,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 2,
-        "lineCount": 1416,
+        "importCount": 1,
+        "lineCount": 5,
         "longFunctionCandidates": [],
-        "namespaceImportCount": 0,
+        "namespaceImportCount": 1,
         "runtimeVendorImportCount": 0
       },
       "moduleIds": [
@@ -63,7 +63,7 @@
       ],
       "rank": 2,
       "recommendedActions": [
-        "behavior split by state/event boundaries"
+        "maintain current structure; no rescue action required"
       ],
       "sourceFilePath": "src/renderer/features/store/store-path-quality-01.ts",
       "violations": []
@@ -141,12 +141,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 8,
+          "state": 4,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 6,
-        "lineCount": 558,
+        "importCount": 2,
+        "lineCount": 620,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -172,12 +172,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 7,
+          "state": 8,
           "transport": 0,
           "workspace": 2
         },
-        "importCount": 6,
-        "lineCount": 1111,
+        "importCount": 7,
+        "lineCount": 1108,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0
@@ -263,25 +263,24 @@
         "boundaryTokenCounts": {
           "event": 0,
           "ipc": 0,
-          "route": 4,
+          "route": 0,
           "session": 0,
-          "state": 4,
+          "state": 2,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 17,
-        "lineCount": 1412,
+        "importCount": 1,
+        "lineCount": 5,
         "longFunctionCandidates": [],
-        "namespaceImportCount": 7,
-        "runtimeVendorImportCount": 11
+        "namespaceImportCount": 1,
+        "runtimeVendorImportCount": 0
       },
       "moduleIds": [
         "renderer:store:store-path:quality-02"
       ],
       "rank": 9,
       "recommendedActions": [
-        "behavior split by state/event boundaries",
-        "runtime/vendor quarantine into dedicated runtime-vendor layer"
+        "maintain current structure; no rescue action required"
       ],
       "sourceFilePath": "src/renderer/features/store/store-path-quality-02.ts",
       "violations": []
@@ -297,12 +296,12 @@
           "ipc": 0,
           "route": 0,
           "session": 0,
-          "state": 16,
+          "state": 17,
           "transport": 0,
           "workspace": 0
         },
-        "importCount": 6,
-        "lineCount": 2171,
+        "importCount": 7,
+        "lineCount": 2167,
         "longFunctionCandidates": [],
         "namespaceImportCount": 0,
         "runtimeVendorImportCount": 0

@@ -11,7 +11,7 @@
     "hotFirstOnlyAllProfiles": true,
     "hotFocusFileAverage": 8,
     "lowQualityFileCountAverage": 0,
-    "manualSyncAppliedAverage": 263,
+    "manualSyncAppliedAverage": 260,
     "manualSyncConflictResolvedAverage": 0,
     "manualSyncFingerprintResolvedAverage": 0,
     "manualSyncRejectedAverage": 0,
@@ -22,23 +22,23 @@
     "proxyInQualityAverage": 0,
     "rerenderedModuleAverage": 8,
     "variableCoverageAverage": 1,
-    "worstFileDecileScoreAverage": 0.7707
+    "worstFileDecileScoreAverage": 0.7712
   },
-  "generatedAtIso": "2026-03-03T12:02:37.655Z",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-115808-c01\\merged-evidence.json",
+  "generatedAtIso": "2026-03-03T15:56:28.145Z",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-154835-c01\\merged-evidence.json",
   "profiles": [
     {
-      "durationMs": 268654,
+      "durationMs": 472028,
       "fileQuality": {
         "fileCount": 18,
-        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-115808-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
+        "fileQualityReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-154835-c01-01-core-no-binary\\artifacts\\project\\runtime\\file-quality.json",
         "hotChunkCount": 56,
         "hotFirstOnly": true,
         "hotFocusFileCount": 8,
         "lowQualityFileCount": 0,
         "rerenderedModuleCount": 8,
         "stableProjectDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
-        "worstDecileAverageScore": 0.7707,
+        "worstDecileAverageScore": 0.7712,
         "worstFiles": [
           {
             "averageConfidence": 0.6398,
@@ -148,15 +148,15 @@
             ]
           },
           {
-            "averageConfidence": 0.6468,
-            "averageNameQuality": 0.7823,
-            "filePath": "src/renderer/features/store/store-state-quality-01.ts",
+            "averageConfidence": 0.6484,
+            "averageNameQuality": 0.7832,
+            "filePath": "src/renderer/features/store/store-path-quality-01.ts",
             "hotFocus": true,
             "liftedCoverage": 1,
-            "moduleId": "renderer:store:state:quality-01",
+            "moduleId": "renderer:store:store-path:quality-01",
             "rerendered": true,
-            "score": 0.7719,
-            "symbolCount": 75,
+            "score": 0.7729,
+            "symbolCount": 76,
             "symbolKeys": [
               "main-entry-asar:021bdb2f7755:symbol:110",
               "main-entry-asar:021bdb2f7755:symbol:127",
@@ -190,6 +190,7 @@
               "main-entry-asar:021bdb2f7755:symbol:358",
               "main-entry-asar:021bdb2f7755:symbol:36",
               "main-entry-asar:021bdb2f7755:symbol:379",
+              "main-entry-asar:021bdb2f7755:symbol:382",
               "main-entry-asar:021bdb2f7755:symbol:398",
               "main-entry-asar:021bdb2f7755:symbol:399",
               "main-entry-asar:021bdb2f7755:symbol:400",
@@ -540,7 +541,7 @@
             ]
           },
           {
-            "averageConfidence": 0.7598,
+            "averageConfidence": 0.7597,
             "averageNameQuality": 0.7847,
             "filePath": "src/services/store/store-state-quality-02.ts",
             "hotFocus": false,
@@ -614,7 +615,6 @@
               "main-entry:symbol:183",
               "main-entry:symbol:184",
               "main-entry:symbol:185",
-              "main-entry:symbol:187",
               "main-entry:symbol:190",
               "main-entry:symbol:198",
               "main-entry:symbol:199",
@@ -643,7 +643,8 @@
               "main-entry:symbol:287",
               "main-entry:symbol:29",
               "main-entry:symbol:290",
-              "main-entry:symbol:3"
+              "main-entry:symbol:3",
+              "main-entry:symbol:30"
             ]
           },
           {
@@ -731,14 +732,14 @@
             ]
           },
           {
-            "averageConfidence": 0.8247,
+            "averageConfidence": 0.8248,
             "averageNameQuality": 0.78,
-            "filePath": "src/renderer/features/store/store-state-quality-02.ts",
+            "filePath": "src/renderer/features/store/store-path-quality-02.ts",
             "hotFocus": false,
             "liftedCoverage": 1,
-            "moduleId": "renderer:store:state:quality-02",
+            "moduleId": "renderer:store:store-path:quality-02",
             "rerendered": true,
-            "score": 0.8476,
+            "score": 0.8477,
             "symbolCount": 75,
             "symbolKeys": [
               "main-entry:symbol:107",
@@ -754,6 +755,7 @@
               "main-entry:symbol:176",
               "main-entry:symbol:177",
               "main-entry:symbol:18",
+              "main-entry:symbol:187",
               "main-entry:symbol:188",
               "main-entry:symbol:191",
               "main-entry:symbol:194",
@@ -801,7 +803,6 @@
               "main-entry:symbol:477",
               "main-entry:symbol:482",
               "main-entry:symbol:483",
-              "main-entry:symbol:503",
               "main-entry:symbol:546",
               "main-entry:symbol:55",
               "main-entry:symbol:59",
@@ -829,7 +830,6 @@
             "score": 0.8486,
             "symbolCount": 93,
             "symbolKeys": [
-              "main-entry:symbol:30",
               "main-entry:symbol:300",
               "main-entry:symbol:301",
               "main-entry:symbol:304",
@@ -892,6 +892,7 @@
               "main-entry:symbol:497",
               "main-entry:symbol:499",
               "main-entry:symbol:5",
+              "main-entry:symbol:503",
               "main-entry:symbol:508",
               "main-entry:symbol:509",
               "main-entry:symbol:51",
@@ -1009,14 +1010,14 @@
             ]
           },
           {
-            "averageConfidence": 0.7666,
-            "averageNameQuality": 0.9205,
+            "averageConfidence": 0.7665,
+            "averageNameQuality": 0.9218,
             "filePath": "src/services/store/store-state-g003-quality-01.ts",
             "hotFocus": true,
             "liftedCoverage": 1,
             "moduleId": "services:store:store-state:g003:quality-01",
             "rerendered": true,
-            "score": 0.8718,
+            "score": 0.8722,
             "symbolCount": 79,
             "symbolKeys": [
               "main-entry-asar:021bdb2f7755:symbol:0",
@@ -1078,7 +1079,6 @@
               "main-entry-asar:021bdb2f7755:symbol:366",
               "main-entry-asar:021bdb2f7755:symbol:368",
               "main-entry-asar:021bdb2f7755:symbol:373",
-              "main-entry-asar:021bdb2f7755:symbol:382",
               "main-entry-asar:021bdb2f7755:symbol:390",
               "main-entry-asar:021bdb2f7755:symbol:391",
               "main-entry-asar:021bdb2f7755:symbol:393",
@@ -1097,21 +1097,21 @@
               "main-entry-asar:021bdb2f7755:symbol:479",
               "main-entry-asar:021bdb2f7755:symbol:481",
               "main-entry-asar:021bdb2f7755:symbol:485",
-              "main-entry-asar:021bdb2f7755:symbol:489"
+              "main-entry-asar:021bdb2f7755:symbol:489",
+              "main-entry-asar:021bdb2f7755:symbol:49"
             ]
           },
           {
-            "averageConfidence": 0.8172,
-            "averageNameQuality": 0.917,
+            "averageConfidence": 0.8179,
+            "averageNameQuality": 0.9165,
             "filePath": "src/services/store/store-state-g003-quality-02.ts",
             "hotFocus": false,
             "liftedCoverage": 1,
             "moduleId": "services:store:store-state:g003:quality-02",
             "rerendered": true,
-            "score": 0.8923,
-            "symbolCount": 79,
+            "score": 0.8925,
+            "symbolCount": 78,
             "symbolKeys": [
-              "main-entry-asar:021bdb2f7755:symbol:49",
               "main-entry-asar:021bdb2f7755:symbol:497",
               "main-entry-asar:021bdb2f7755:symbol:499",
               "main-entry-asar:021bdb2f7755:symbol:506",
@@ -1312,7 +1312,7 @@
           }
         ]
       },
-      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-115808-c01\\logs\\01-core-no-binary.log",
+      "logPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-154835-c01\\logs\\01-core-no-binary.log",
       "metrics": {
         "archetypeCoverage": {
           "hook": 7,
@@ -1338,7 +1338,7 @@
           "tauri": 0
         },
         "lowQualitySymbolCount": 0,
-        "manualSyncAppliedCount": 263,
+        "manualSyncAppliedCount": 260,
         "manualSyncConflictResolvedCount": 0,
         "manualSyncFingerprintResolvedCount": 0,
         "manualSyncRejectedCount": 0,
@@ -1348,10 +1348,10 @@
         "proxyInQualityCount": 0,
         "variableCoverage": 1
       },
-      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-115808-c01-01-core-no-binary\\run-metrics.json",
+      "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-154835-c01-01-core-no-binary\\run-metrics.json",
       "profileId": "core-no-binary",
-      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-115808-c01-01-core-no-binary",
-      "runId": "reg-manual-sync-cycle-20260303-115808-c01-01-core-no-binary",
+      "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-154835-c01-01-core-no-binary",
+      "runId": "reg-manual-sync-cycle-20260303-154835-c01-01-core-no-binary",
       "score": {
         "buildScore": 1,
         "devScore": 1,
@@ -1361,12 +1361,12 @@
         "total": 0.9685,
         "variableCoverageScore": 1
       },
-      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-115808-c01-01-core-no-binary\\summary.json",
-      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-115808-c01\\adaptive-weights\\core-no-binary.weights.json"
+      "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\reg-manual-sync-cycle-20260303-154835-c01-01-core-no-binary\\summary.json",
+      "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-154835-c01\\adaptive-weights\\core-no-binary.weights.json"
     }
   ],
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
-  "suiteRunId": "manual-sync-cycle-20260303-115808-c01",
+  "suiteRunId": "manual-sync-cycle-20260303-154835-c01",
   "suiteVersion": 1,
   "weightsConfigPath": "C:\\Codex-Windows\\orchestrator-deobf\\config\\tool-weights.json"
 }
