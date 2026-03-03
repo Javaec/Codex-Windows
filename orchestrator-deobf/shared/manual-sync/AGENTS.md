@@ -21,6 +21,8 @@ Store stable manual-to-generator synchronization contracts.
 1. Generate baseline project with `runtime/manual-sync-index.json`.
 2. Refactor manual project.
 3. Run `npm run manual-sync:export -- --manual-project <path>`.
+   - For safe top-hot sync without naming regressions, prefer:
+     `npm run manual-sync:export -- --manual-project <path> --path-surface-only --top-hot-limit 5`
 4. Commit updated `shared/manual-sync/*`.
 5. Run generator again; overrides are applied to naming and module placement.
 6. Run `npm run manual-sync:roundtrip -- --snapshot <app.asar> --manual-project <path>` before merge; fail on quality degradation.

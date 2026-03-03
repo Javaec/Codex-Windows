@@ -92,6 +92,12 @@
         "maxLines": 2600,
         "maxNamespaceImports": 8,
         "minLiftedCoverage": 0.86
+      },
+      {
+        "pattern": "src/renderer/features/store/store-path-quality-*.ts",
+        "maxLines": 2600,
+        "maxNamespaceImports": 9,
+        "minLiftedCoverage": 0.82
       }
     ]
   }

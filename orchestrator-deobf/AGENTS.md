@@ -498,3 +498,6 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - `manual-sync:refactor-top-hot` extracts dependency-closure clusters into `*-behavior-split.ts` for top unique hot files,
   - report: `shared/manual-sync/manual-top-hot-refactor-last-report.json`.
   Verified reason: targeted readability improvements can be applied to manual project without broad generator refactors.
+- Manual-sync export now supports scoped safe mode for manual-first stability:
+  - `--path-surface-only --top-hot-limit <N>` updates only path/surface overrides for top-hot manual files and skips symbol rename promotion.
+  Verified reason: prevents roundtrip `nameQuality` degradation while still syncing structural/manual module decisions.

@@ -32,6 +32,9 @@ interface CliOptions {
   manualSyncRootPath: string;
   mergedEvidencePath?: string;
   promotionTopN: number;
+  pathSurfaceOnly: boolean;
+  topHotLimit: number;
+  topHotReportPath: string;
 }
 
 interface ManualSyncSymbolExportEntry {
@@ -72,6 +75,16 @@ interface MergedEvidenceReport {
   symbolWinners: MergedSymbolEvidence[];
 }
 
+interface ManualHotRescueTarget {
+  rank: number;
+  manualFilePath: string;
+  exists: boolean;
+}
+
+interface ManualHotRescueReport {
+  targets: ManualHotRescueTarget[];
+}
+
 interface ExportReport {
   generatedAtIso: string;
   generatedProjectPath: string;
@@ -101,6 +114,9 @@ interface ExportReport {
     generatedExports: number;
     manualExports: number;
   }>;
+  mode: "full" | "path-surface-only";
+  topHotLimit: number;
+  topHotSelectedCount: number;
 }
 
 function printUsage(): void {
@@ -113,6 +129,9 @@ function printUsage(): void {
     "  --manual-sync-root <path>    default: shared/manual-sync",
     "  --merged-evidence <path>     optional: regression merged-evidence.json for top-N promotion",
     "  --promotion-top-n <n>        default: 120 (0 disables merged-evidence promotion)",
+    "  --path-surface-only          export only module path/surface overrides (no symbol renames/promotion)",
+    "  --top-hot-limit <n>          limit export scope to top-N manual hot files (default: 0 = all)",
+    "  --top-hot-report <path>      default: shared/manual-sync/manual-hot-rescue-last-report.json",
     "",
     "Example:",
     "  node dist/manual-sync/export-from-manual.js --manual-project \"C:\\\\Codex-Windows\\\\manual-project\" --promotion-top-n 180",
@@ -126,6 +145,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let manualSyncRootPath = defaultManualSyncRootPath(projectRoot);
   let mergedEvidencePath: string | undefined;
   let promotionTopN = 120;
+  let pathSurfaceOnly = false;
+  let topHotLimit = 0;
+  let topHotReportPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-hot-rescue-last-report.json");
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
@@ -178,6 +200,32 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--path-surface-only": {
+        pathSurfaceOnly = true;
+        break;
+      }
+      case "--top-hot-limit": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --top-hot-limit");
+        }
+        const parsed = Number.parseInt(value, 10);
+        if (Number.isNaN(parsed) || parsed < 0) {
+          throw new Error(`Invalid --top-hot-limit value: ${value}`);
+        }
+        topHotLimit = parsed;
+        index += 1;
+        break;
+      }
+      case "--top-hot-report": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --top-hot-report");
+        }
+        topHotReportPath = path.resolve(value);
+        index += 1;
+        break;
+      }
       case "--help":
       case "-h": {
         printUsage();
@@ -197,6 +245,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     manualSyncRootPath,
     mergedEvidencePath,
     promotionTopN,
+    pathSurfaceOnly,
+    topHotLimit,
+    topHotReportPath,
   };
 }
 
@@ -540,6 +591,27 @@ async function readMergedEvidence(
   return parsed;
 }
 
+async function readTopHotManualFilePaths(
+  reportPath: string,
+  topHotLimit: number,
+): Promise<Set<string>> {
+  if (topHotLimit < 1) {
+    return new Set<string>();
+  }
+  if (!(await fileExists(reportPath))) {
+    throw new Error(`manual-sync export: top-hot report not found: ${reportPath}`);
+  }
+  const raw = await fs.readFile(reportPath, "utf8");
+  const parsed = JSON.parse(raw) as ManualHotRescueReport;
+  const targets = Array.isArray(parsed.targets) ? parsed.targets : [];
+  const selected = targets
+    .filter((entry) => entry && entry.exists === true && typeof entry.manualFilePath === "string")
+    .sort((left, right) => (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, topHotLimit)
+    .map((entry) => normalizeModuleFilePath(entry.manualFilePath));
+  return new Set<string>(selected);
+}
+
 function applyMergedEvidencePromotion(
   mergedEvidence: MergedEvidenceReport | undefined,
   promotionTopN: number,
@@ -766,6 +838,9 @@ async function run(): Promise<void> {
   const generatedFingerprintsBySymbolKey = collectGeneratedFingerprints(generatedIndex);
   const generatedSymbolKeysByExportName = collectGeneratedExportNames(generatedIndex);
   const manualExportsByRelativeFile = await collectManualExportsByRelativeFile(cli.manualProjectPath);
+  const topHotFilePathSet = await readTopHotManualFilePaths(cli.topHotReportPath, cli.topHotLimit);
+  const inTopHotScope = (moduleFilePath: string): boolean =>
+    topHotFilePathSet.size < 1 || topHotFilePathSet.has(normalizeModuleFilePath(moduleFilePath));
   const filesByExportName = new Map<string, Set<string>>();
   for (const [filePath, exportNames] of manualExportsByRelativeFile) {
     for (const exportName of exportNames) {
@@ -786,6 +861,9 @@ async function run(): Promise<void> {
 
   for (const moduleEntry of generatedIndex.modules) {
     const normalizedFilePath = normalizeModuleFilePath(moduleEntry.filePath);
+    if (!inTopHotScope(normalizedFilePath)) {
+      continue;
+    }
     const manualExports = manualExportsByRelativeFile.get(normalizedFilePath);
     if (!manualExports) {
       missingModuleFiles.push(normalizedFilePath);
@@ -822,32 +900,34 @@ async function run(): Promise<void> {
         manualExports: manualExports.length,
       });
     }
-    const compareCount = Math.min(moduleEntry.symbolExports.length, manualExports.length);
-    for (let index = 0; index < compareCount; index += 1) {
-      const generatedSymbol = moduleEntry.symbolExports[index];
-      const manualName = manualExports[index];
-      if (!generatedSymbol || !manualName || manualName === "default") {
-        continue;
+    if (!cli.pathSurfaceOnly) {
+      const compareCount = Math.min(moduleEntry.symbolExports.length, manualExports.length);
+      for (let index = 0; index < compareCount; index += 1) {
+        const generatedSymbol = moduleEntry.symbolExports[index];
+        const manualName = manualExports[index];
+        if (!generatedSymbol || !manualName || manualName === "default") {
+          continue;
+        }
+        if (!isIdentifierName(manualName)) {
+          continue;
+        }
+        if (manualName === generatedSymbol.exportName) {
+          continue;
+        }
+        if (scoreNameQuality(manualName) < 0.56) {
+          continue;
+        }
+        symbolUpdates.set(generatedSymbol.symbolKey, {
+          symbolKey: generatedSymbol.symbolKey,
+          preferredName: manualName,
+          symbolFingerprint: generatedSymbol.symbolFingerprint,
+          confidence: 0.96,
+          evidence: `manual-export-rename:${normalizedFilePath}:${index + 1}`,
+          provenance: "manual-project-export-order",
+          updatedAtIso: new Date().toISOString(),
+          enabled: true,
+        });
       }
-      if (!isIdentifierName(manualName)) {
-        continue;
-      }
-      if (manualName === generatedSymbol.exportName) {
-        continue;
-      }
-      if (scoreNameQuality(manualName) < 0.56) {
-        continue;
-      }
-      symbolUpdates.set(generatedSymbol.symbolKey, {
-        symbolKey: generatedSymbol.symbolKey,
-        preferredName: manualName,
-        symbolFingerprint: generatedSymbol.symbolFingerprint,
-        confidence: 0.96,
-        evidence: `manual-export-rename:${normalizedFilePath}:${index + 1}`,
-        provenance: "manual-project-export-order",
-        updatedAtIso: new Date().toISOString(),
-        enabled: true,
-      });
     }
   }
 
@@ -856,6 +936,9 @@ async function run(): Promise<void> {
     try {
       normalizedFilePath = normalizeModuleFilePath(manualRelativePath);
     } catch {
+      continue;
+    }
+    if (!inTopHotScope(normalizedFilePath)) {
       continue;
     }
     const ownerLayer = inferLayerFromModuleFilePath(normalizedFilePath);
@@ -894,22 +977,41 @@ async function run(): Promise<void> {
   const existingPathOverrides = await readManualSyncModulePathOverrides(manualSyncPaths.modulePathOverridesPath);
   const existingSurfaceOverrides = await readManualSyncModuleSurfaceOverrides(manualSyncPaths.moduleSurfaceOverridesPath);
   const currentNameBySymbolKey = resolveCurrentNameBySymbolKey(generatedIndex, existingSymbolOverrides);
-  const mergedEvidence = await readMergedEvidence(cli.mergedEvidencePath);
-  const promotedFromMergedEvidenceCount = applyMergedEvidencePromotion(
-    mergedEvidence,
-    cli.promotionTopN,
-    symbolUpdates,
-    currentNameBySymbolKey,
-  );
+  const mergedEvidence = !cli.pathSurfaceOnly ? await readMergedEvidence(cli.mergedEvidencePath) : undefined;
+  const promotedFromMergedEvidenceCount = !cli.pathSurfaceOnly
+    ? applyMergedEvidencePromotion(
+      mergedEvidence,
+      cli.promotionTopN,
+      symbolUpdates,
+      currentNameBySymbolKey,
+    )
+    : 0;
 
-  const mergedSymbolRaw = mergeSymbolOverrides(existingSymbolOverrides, symbolUpdates);
+  const mergedSymbolRaw = !cli.pathSurfaceOnly
+    ? mergeSymbolOverrides(existingSymbolOverrides, symbolUpdates)
+    : {
+      model: existingSymbolOverrides ?? {
+        contractVersion: MANUAL_SYNC_CONTRACT_VERSION,
+        migrationVersion: MANUAL_SYNC_MIGRATION_VERSION,
+        generatedAtIso: new Date().toISOString(),
+        overrides: [],
+      },
+      created: 0,
+      updated: 0,
+    };
   const mergedPathRaw = mergePathOverrides(existingPathOverrides, pathUpdates);
   const mergedSurfaceRaw = mergeSurfaceOverrides(existingSurfaceOverrides, surfaceUpdates);
-  const cleanedSymbol = cleanupSymbolOverridesModel(
-    mergedSymbolRaw.model,
-    generatedSymbolKeys,
-    generatedFingerprintsBySymbolKey,
-  );
+  const cleanedSymbol = !cli.pathSurfaceOnly
+    ? cleanupSymbolOverridesModel(
+      mergedSymbolRaw.model,
+      generatedSymbolKeys,
+      generatedFingerprintsBySymbolKey,
+    )
+    : {
+      model: mergedSymbolRaw.model,
+      removed: 0,
+      rekeyed: 0,
+    };
   const cleanedPath = cleanupPathOverridesModel(
     mergedPathRaw.model,
     generatedSymbolKeys,
@@ -922,11 +1024,14 @@ async function run(): Promise<void> {
   );
 
   if (
-    !existingSymbolOverrides ||
-    mergedSymbolRaw.created > 0 ||
-    mergedSymbolRaw.updated > 0 ||
-    cleanedSymbol.removed > 0 ||
-    cleanedSymbol.rekeyed > 0
+    !cli.pathSurfaceOnly &&
+    (
+      !existingSymbolOverrides ||
+      mergedSymbolRaw.created > 0 ||
+      mergedSymbolRaw.updated > 0 ||
+      cleanedSymbol.removed > 0 ||
+      cleanedSymbol.rekeyed > 0
+    )
   ) {
     await writeJsonFile(manualSyncPaths.symbolNameOverridesPath, cleanedSymbol.model);
   }
@@ -950,10 +1055,12 @@ async function run(): Promise<void> {
   const changelogEntries: ManualSyncChangelogEntry[] = [
     {
       actor: "manual-sync:export",
-      reason: "auto-import symbol rename overrides from manual project",
+      reason: cli.pathSurfaceOnly
+        ? "path-surface-only mode: symbol rename overrides are intentionally skipped"
+        : "auto-import symbol rename overrides from manual project",
       scope: "symbol-name-overrides" as const,
-      created: mergedSymbolRaw.created,
-      updated: mergedSymbolRaw.updated + cleanedSymbol.rekeyed,
+      created: cli.pathSurfaceOnly ? 0 : mergedSymbolRaw.created,
+      updated: cli.pathSurfaceOnly ? 0 : mergedSymbolRaw.updated + cleanedSymbol.rekeyed,
     },
     {
       actor: "manual-sync:export",
@@ -1004,6 +1111,9 @@ async function run(): Promise<void> {
     surfaceRemoved: cleanedSurface.removed,
     missingModuleFiles: [...new Set(missingModuleFiles)].sort((left, right) => left.localeCompare(right)),
     lengthMismatches: lengthMismatches.sort((left, right) => left.filePath.localeCompare(right.filePath)),
+    mode: cli.pathSurfaceOnly ? "path-surface-only" : "full",
+    topHotLimit: cli.topHotLimit,
+    topHotSelectedCount: topHotFilePathSet.size,
   };
   await writeJsonFile(manualSyncPaths.exportReportPath, report);
   process.stdout.write(

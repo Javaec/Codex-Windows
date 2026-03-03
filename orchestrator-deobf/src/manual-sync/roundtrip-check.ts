@@ -18,6 +18,9 @@ interface CliOptions {
   promotionBudget: number;
   weightsConfigPath?: string;
   runPrefix: string;
+  pathSurfaceOnly: boolean;
+  topHotLimit: number;
+  topHotReportPath?: string;
 }
 
 interface CommandResult {
@@ -57,6 +60,9 @@ function printUsage(): void {
     "  --manual-sync-root <path>    default: shared/manual-sync",
     "  --merged-evidence <path>     optional: merged-evidence.json for top-N export promotion",
     "  --promotion-top-n <n>        default: 120",
+    "  --path-surface-only          export only path/surface overrides (no symbol rename promotion)",
+    "  --top-hot-limit <n>          limit export scope to top-N hot manual files",
+    "  --top-hot-report <path>      optional: manual-hot-rescue report path",
     "  --profile <latest|regression-latest>   default: regression-latest",
     "  --statement-budget <n>       default: 32",
     "  --promotion-budget <n>       default: 180",
@@ -86,6 +92,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let promotionBudget = 180;
   let weightsConfigPath: string | undefined;
   let runPrefix = "manual-sync-roundtrip";
+  let pathSurfaceOnly = false;
+  let topHotLimit = 0;
+  let topHotReportPath: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -141,6 +150,28 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           throw new Error("Missing value for --promotion-top-n");
         }
         promotionTopN = parseIntegerOption("--promotion-top-n", value, 0);
+        index += 1;
+        break;
+      }
+      case "--path-surface-only": {
+        pathSurfaceOnly = true;
+        break;
+      }
+      case "--top-hot-limit": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --top-hot-limit");
+        }
+        topHotLimit = parseIntegerOption("--top-hot-limit", value, 0);
+        index += 1;
+        break;
+      }
+      case "--top-hot-report": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --top-hot-report");
+        }
+        topHotReportPath = path.resolve(value);
         index += 1;
         break;
       }
@@ -225,6 +256,9 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     promotionBudget,
     weightsConfigPath,
     runPrefix,
+    pathSurfaceOnly,
+    topHotLimit,
+    topHotReportPath,
   };
 }
 
@@ -317,6 +351,15 @@ async function runExport(
     "--promotion-top-n",
     String(cli.promotionTopN),
   ];
+  if (cli.pathSurfaceOnly) {
+    args.push("--path-surface-only");
+  }
+  if (cli.topHotLimit > 0) {
+    args.push("--top-hot-limit", String(cli.topHotLimit));
+  }
+  if (cli.topHotReportPath && cli.topHotReportPath.length > 0) {
+    args.push("--top-hot-report", cli.topHotReportPath);
+  }
   if (cli.mergedEvidencePath && cli.mergedEvidencePath.length > 0) {
     args.push("--merged-evidence", cli.mergedEvidencePath);
   }
