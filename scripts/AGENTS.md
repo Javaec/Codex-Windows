@@ -32,6 +32,45 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 - Webview sunset-gate patching is signature-tolerant:
   - keep legacy exact needles for known bundles;
   - fallback to semantic detection (`appSunset.title` / `Update required`) and patch the gating branch by component reference.
+- 2026-03-04: Webview patching for `Codex-10711.dmg` is now best-effort for signature drift.
+  - `patchWebviewAppSunsetGate` no longer fails the whole pipeline when patch point is missing; it logs a warning.
+  - `patchWebviewCwdNormalization` now uses the same behavior for unknown obfuscation signatures.
+  - Rationale: new bundle signatures changed and strict hard-fail blocked repack despite all required payload files being present.
+- 2026-03-04: Added explicit Codex-10711 sunset gate signature support.
+  - New direct needle handled: `const s=ys(i);if(r){`.
+  - Semantic matcher now also tracks React calls with `f.jsx/f.jsxs` (in addition to `h.jsx/h.jsxs`).
+  - Verified output bundle now contains `/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */` and replaces gate with `const s=!1;if(r){`.
+- 2026-03-04: Extended SQLite path migration for chat/thread loading compatibility on newer builds.
+  - Migration now targets both `threads.cwd` and `threads.rollout_path`.
+  - Handles prefixes: `\\?\`, `//?/`, `/??/`, and leading slash/backslash drive forms.
+  - Reason: newer builds read rollout/session paths more strictly; leaving prefixed paths can hide existing chats.
+- 2026-03-04: Hardened SQLite thread-path migration to row-level normalization.
+  - Replaced bulk SQL prefix updates with deterministic per-row normalization for `threads.cwd` and `threads.rollout_path`.
+  - Added shared path normalization in runtime sanitizer for `\\?\`, `//?/`, `/??/`, and stray leading drive slash forms.
+  - Reason: on some obfuscated builds, bulk SQL pattern matching was inconsistent during startup; row-level normalization is stable.
+- 2026-03-04: Added DB-level path normalization triggers for chat thread paths.
+  - Runtime shim now creates `threads` triggers for both `cwd` and `rollout_path` on INSERT/UPDATE.
+  - Triggers enforce normalization of `\\?\`, `//?/`, `/??/`, and malformed leading drive slash forms.
+  - Reason: newer builds were reintroducing prefixed paths after startup via runtime writes; startup migration alone was not enough.
+- 2026-03-04: Canonical runbook for the three repack-critical patches.
+  - Patch A: `patchWebviewAppSunsetGate`
+    - keep direct needles (`Xs`, `Cs`, `ys`) and semantic fallback by `appSunset.title` / `Update required`.
+    - branch matcher must accept both `h.jsx/h.jsxs` and `f.jsx/f.jsxs`.
+    - patch result must force gate false (`const <gateVar>=!1`).
+    - unknown signature must not abort full repack.
+  - Patch B: `patchWebviewCwdNormalization`
+    - keep optional signature matching; warning-only on mismatch.
+    - normalize `\\`, `//?/`, `/??/`, `/C:/` forms in webview-side path compare.
+  - Patch C: run/build CLI source policy
+    - prefer local bundled CLI (`dist/*/resources/codex.exe`) before npm-vendor discovery.
+    - this is required for app-server contract compatibility and stable chat/session behavior.
+  - SQLite escaping/migration policy:
+    - normalize both `threads.cwd` and `threads.rollout_path`.
+    - strip `\\?\`, `//?/`, `/??/`, and malformed leading drive slash.
+    - keep row-level startup migration + DB triggers on INSERT/UPDATE so prefix reintroduction is impossible.
+    - post-launch checks:
+      - `cwd`/`rollout_path` prefixed counts are `0`;
+      - `codex_windows_threads_*_normalize_*` triggers exist.
 - Legacy webview auto-scroll artifacts are removed during repack so stale injected scripts cannot survive into new builds.
 
 ## Reverse Pipeline Status (2026-02-23)
