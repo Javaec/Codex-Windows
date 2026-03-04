@@ -241,6 +241,7 @@ async function verifyManualDomainStructure(
   allowedRoots.add("index.css");
   allowedRoots.add("types.ts");
   allowedRoots.add("vite-env.d.ts");
+  allowedRoots.add("env.d.ts");
   for (const entry of srcEntries) {
     if (allowedRoots.has(entry.name)) {
       continue;
@@ -539,10 +540,17 @@ async function run(): Promise<void> {
     if (fastProfileId.length < 1) {
       throw new Error("manual batch policy violation: fastProfileId must be non-empty");
     }
-    await runCommand(
-      `npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}" --fast-profile-id "${fastProfileId}" --fast-focus-count ${fastFocusCount} --promotion-budget-per-cycle ${promotionBudgetPerCycle}`,
-      projectRoot,
-    );
+    try {
+      await runCommand(
+        `npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}" --fast-profile-id "${fastProfileId}" --fast-focus-count ${fastFocusCount} --promotion-budget-per-cycle ${promotionBudgetPerCycle}`,
+        projectRoot,
+      );
+    } catch (error) {
+      await restoreManualSyncContractSnapshot(projectRoot, contractSnapshot);
+      generatorSyncExecuted = false;
+      const reason = error instanceof Error ? (error.message || "unknown_error") : String(error);
+      generatorSyncSkippedReason = `generator_sync_failed:${reason}`;
+    }
   }
 
   const hotRescueConfig: HotRescueConfig = {

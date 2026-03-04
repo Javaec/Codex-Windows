@@ -1,0 +1,27 @@
+{
+  "generatedAtIso": "2026-03-04T12:45:29.9031855Z",
+  "files": [
+    {
+      "filePath": "src/renderer/features/store/store-state.ts",
+      "lineCount": 5,
+      "nonEmptyLines": 3,
+      "glueLines": 1,
+      "glueRatio": 0.3333
+    },
+    {
+      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "lineCount": 5,
+      "nonEmptyLines": 3,
+      "glueLines": 1,
+      "glueRatio": 0.3333
+    },
+    {
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "lineCount": 5,
+      "nonEmptyLines": 3,
+      "glueLines": 1,
+      "glueRatio": 0.3333
+    }
+  ],
+  "baselinePath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\top3-before-multicluster.json"
+}

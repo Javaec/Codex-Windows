@@ -1,82 +1,72 @@
 {
-  "generatedAtIso": "2026-03-04T09:54:46.926Z",
+  "generatedAtIso": "2026-03-04T12:57:49.455Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
     {
-      "filePath": "src/renderer/features/store/store-path-quality-01.ts",
-      "generatedExports": 18,
-      "manualExports": 1
-    },
-    {
-      "filePath": "src/renderer/features/store/store-path-quality-02.ts",
-      "generatedExports": 19,
-      "manualExports": 1
-    },
-    {
-      "filePath": "src/services/service/service-run-quality-03.ts",
-      "generatedExports": 19,
-      "manualExports": 13
-    },
-    {
       "filePath": "src/services/store/store-state-g002-quality-01.ts",
-      "generatedExports": 9,
+      "generatedExports": 34,
       "manualExports": 26
     },
     {
-      "filePath": "src/services/store/store-state-g002-quality-02.ts",
-      "generatedExports": 11,
-      "manualExports": 29
-    },
-    {
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "generatedExports": 66,
-      "manualExports": 35
+      "generatedExports": 27,
+      "manualExports": 0
     },
     {
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "generatedExports": 61,
+      "generatedExports": 22,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "generatedExports": 10,
+      "generatedExports": 30,
       "manualExports": 26
     },
     {
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "generatedExports": 9,
+      "generatedExports": 28,
       "manualExports": 19
     }
   ],
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260304-062854-c01\\merged-evidence.json",
   "missingModuleFiles": [
+    "src-tauri-adapter/state/transport-store-apl-asar-state.ts",
+    "src/main/lib/service/service-domain.ts",
     "src/main/lib/transport/transport-bridge-quality-01.ts",
     "src/main/lib/transport/transport-bridge-quality-02.ts",
-    "src/renderer/features/hooks/hook-hooks-quality-01.ts",
-    "src/renderer/features/hooks/hook-hooks-quality-02.ts",
-    "src/renderer/features/ui/ui-components-render-quality-01.ts",
-    "src/renderer/features/ui/ui-components-render-quality-02.ts",
+    "src/renderer/features/hooks/hook-hooks-service-quality-01.ts",
+    "src/renderer/features/hooks/hook-hooks-service-quality-02.ts",
+    "src/renderer/features/layout/ui-path-route.ts",
+    "src/renderer/features/store/store-state-quality-01.ts",
+    "src/renderer/features/store/store-state-quality-02.ts",
+    "src/renderer/features/store/store-state-quality-03.ts",
+    "src/services/service/service-domain-quality-01.ts",
+    "src/services/service/service-domain-quality-02.ts",
+    "src/services/service/service-store-quality-01.ts",
+    "src/services/service/service-store-quality-02.ts",
+    "src/services/store/store-state-g002-quality-03.ts",
     "src/services/store/store-state-quality-03.ts"
   ],
-  "mode": "full",
-  "pathCreated": 0,
-  "pathRekeyed": 2,
-  "pathRemoved": 1,
-  "pathUpdated": 15,
+  "mode": "path-surface-only",
+  "pathCreated": 13,
+  "pathRekeyed": 3,
+  "pathRemoved": 41,
+  "pathUpdated": 8,
   "staleCleanupExecuted": {
-    "pathRemoved": 1,
+    "pathRemoved": 41,
     "surfaceRemoved": 14,
-    "symbolRemoved": 20
+    "symbolRemoved": 0
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 16,
+  "surfaceCreated": 17,
   "surfaceRemoved": 14,
-  "surfaceUpdated": 11,
-  "symbolNameCreated": 31,
+  "surfaceUpdated": 8,
+  "symbolNameCreated": 0,
   "symbolNamePromotedFromMergedEvidence": 0,
-  "symbolNameRekeyed": 2,
-  "symbolNameRemoved": 20,
-  "symbolNameUpdated": 104,
+  "symbolNameRekeyed": 0,
+  "symbolNameRemoved": 0,
+  "symbolNameUpdated": 0,
   "topHotLimit": 0,
   "topHotSelectedCount": 0
 }

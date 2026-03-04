@@ -392,6 +392,10 @@ async function readModFile(
 }
 
 function matchesCompatibility(mod: PatchModPlan, snapshotLabel: string, appVersion: string, buildHint: number): boolean {
+  const unknownSnapshotContext = buildHint <= 0 && appVersion.trim().length < 1 && /app\.asar$/iu.test(snapshotLabel);
+  if (unknownSnapshotContext) {
+    return true;
+  }
   if (mod.compatibility.snapshotRegex.length > 0) {
     const regex = new RegExp(mod.compatibility.snapshotRegex, "i");
     if (!regex.test(snapshotLabel)) return false;
@@ -522,9 +526,14 @@ export async function resolvePatchProfile(input: ResolvePatchProfileInput): Prom
   const catalog = await readCatalog(patchPackRootPath);
   const stageRegistry = await readStageRegistry(patchPackRootPath);
   const buildHint = parseBuildHint(input.buildNumber, input.appVersion, snapshotLabel);
+  const forcedProfileId = input.forcedProfileId.trim().toLowerCase();
+  const hasStrongSnapshotContext = buildHint > 0 || input.appVersion.trim().length > 0 || !/app\.asar$/iu.test(snapshotLabel);
+  const effectiveForcedProfileId = forcedProfileId.length > 0
+    ? forcedProfileId
+    : (hasStrongSnapshotContext ? "" : "generic");
 
   const candidate = resolveProfileCandidate(
-    input.forcedProfileId.trim().toLowerCase(),
+    effectiveForcedProfileId,
     selectorModel.model,
     snapshotLabel,
     input.appVersion,

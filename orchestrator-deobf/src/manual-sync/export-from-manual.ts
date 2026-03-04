@@ -129,7 +129,8 @@ function printUsage(): void {
     "  --manual-sync-root <path>    default: shared/manual-sync",
     "  --merged-evidence <path>     optional: regression merged-evidence.json for top-N promotion",
     "  --promotion-top-n <n>        default: 120 (0 disables merged-evidence promotion)",
-    "  --path-surface-only          export only module path/surface overrides (no symbol renames/promotion)",
+    "  --path-surface-only          export only module path/surface overrides (default mode)",
+    "  --full-symbol-sync           include symbol rename sync/promotion (opt-in)",
     "  --top-hot-limit <n>          limit export scope to top-N manual hot files (default: 0 = all)",
     "  --top-hot-report <path>      default: shared/manual-sync/manual-hot-rescue-last-report.json",
     "",
@@ -145,7 +146,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let manualSyncRootPath = defaultManualSyncRootPath(projectRoot);
   let mergedEvidencePath: string | undefined;
   let promotionTopN = 120;
-  let pathSurfaceOnly = false;
+  let pathSurfaceOnly = true;
   let topHotLimit = 0;
   let topHotReportPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-hot-rescue-last-report.json");
   for (let index = 0; index < argv.length; index += 1) {
@@ -202,6 +203,10 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
       }
       case "--path-surface-only": {
         pathSurfaceOnly = true;
+        break;
+      }
+      case "--full-symbol-sync": {
+        pathSurfaceOnly = false;
         break;
       }
       case "--top-hot-limit": {

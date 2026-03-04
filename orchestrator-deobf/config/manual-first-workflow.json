@@ -40,9 +40,9 @@
   "readabilityKpi": {
     "enabled": true,
     "targetFiles": [
-      "src/services/store/store-state-quality-01.ts",
-      "src/services/store/store-state-g002-quality-01.ts",
-      "src/services/store/store-state-quality-02.ts"
+      "src/renderer/features/store/store-state.impl.ts",
+      "src/services/store/store-state-g003-quality-01.impl.ts",
+      "src/services/service/service-run-quality-01.impl.ts"
     ]
   },
   "hotRescue": {

@@ -20,6 +20,7 @@ interface CliOptions {
   topUnique: number;
   maxLineGrowth: number;
   maxImportGrowth: number;
+  maxClustersPerFile: number;
 }
 
 interface FileMetrics {
@@ -51,6 +52,7 @@ interface RefactorReport {
   manualProjectPath: string;
   reportPath: string;
   topUnique: number;
+  maxClustersPerFile: number;
   targetCount: number;
   changedCount: number;
   unchangedCount: number;
@@ -72,6 +74,7 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
   let topUnique = 5;
   let maxLineGrowth = 0;
   let maxImportGrowth = 2;
+  let maxClustersPerFile = 3;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
@@ -129,6 +132,15 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
         index += 1;
         break;
       }
+      case "--max-clusters-per-file": {
+        const value = argv[index + 1];
+        if (!value || value.startsWith("--")) {
+          throw new Error("--max-clusters-per-file requires a value");
+        }
+        maxClustersPerFile = parseIntegerFlag("--max-clusters-per-file", value, 1);
+        index += 1;
+        break;
+      }
       default: {
         throw new Error(`Unknown option: ${token}`);
       }
@@ -141,6 +153,7 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
     topUnique,
     maxLineGrowth,
     maxImportGrowth,
+    maxClustersPerFile,
   };
 }
 
@@ -210,7 +223,7 @@ function hasRuntimeClusterToken(value: string): boolean {
 }
 
 function isSeedCandidate(record: ExtractionRecord): boolean {
-  const minimumLength = record.kind === "variable" ? 1400 : 1200;
+  const minimumLength = record.kind === "variable" ? 900 : 700;
   if (record.text.length >= minimumLength) {
     return true;
   }
@@ -372,12 +385,36 @@ function buildClosure(seed: string, dependencyMap: ReadonlyMap<string, Set<strin
   return closure;
 }
 
+function extractImportBindingNames(statement: ts.ImportDeclaration): string[] {
+  const names: string[] = [];
+  const importClause = statement.importClause;
+  if (!importClause) {
+    return names;
+  }
+  if (importClause.name) {
+    names.push(importClause.name.text);
+  }
+  const namedBindings = importClause.namedBindings;
+  if (!namedBindings) {
+    return names;
+  }
+  if (ts.isNamespaceImport(namedBindings)) {
+    names.push(namedBindings.name.text);
+    return names;
+  }
+  for (const element of namedBindings.elements) {
+    names.push(element.name.text);
+  }
+  return names;
+}
+
 function collectImportsText(
   sourceFile: ts.SourceFile,
   sourceText: string,
   behaviorImportPath: string,
-): { importStatements: string[]; lastImportEnd: number } {
+): { importStatements: string[]; lastImportEnd: number; existingBehaviorImportNames: string[] } {
   const importStatements: string[] = [];
+  const existingBehaviorImportNames = new Set<string>();
   let lastImportEnd = 0;
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) {
@@ -386,6 +423,9 @@ function collectImportsText(
     if (ts.isStringLiteralLike(statement.moduleSpecifier)) {
       const moduleSpecifier = statement.moduleSpecifier.text;
       if (moduleSpecifier === behaviorImportPath || /-behavior-split$/iu.test(moduleSpecifier)) {
+        for (const name of extractImportBindingNames(statement)) {
+          existingBehaviorImportNames.add(name);
+        }
         continue;
       }
     }
@@ -395,12 +435,14 @@ function collectImportsText(
   return {
     importStatements,
     lastImportEnd,
+    existingBehaviorImportNames: [...existingBehaviorImportNames],
   };
 }
 
 interface RefactorSafetyPolicy {
   maxLineGrowth: number;
   maxImportGrowth: number;
+  maxClustersPerFile: number;
 }
 
 function isHeavyHotModule(fileRelativePath: string): boolean {
@@ -410,9 +452,9 @@ function isHeavyHotModule(fileRelativePath: string): boolean {
 function computeClosureSizeLimit(seed: ExtractionRecord, fileRelativePath: string): number {
   const heavyModule = isHeavyHotModule(fileRelativePath);
   if (seed.kind === "variable") {
-    return heavyModule ? 140 : 80;
+    return heavyModule ? 2000 : 100;
   }
-  return heavyModule ? 80 : 32;
+  return heavyModule ? 1000 : 48;
 }
 
 function expandDependencyClosure(
@@ -424,7 +466,7 @@ function expandDependencyClosure(
   fileRelativePath: string,
 ): ExtractionRecord[] {
   const closureLimit = computeClosureSizeLimit(seed, fileRelativePath);
-  const expansionPassLimit = 10;
+  const expansionPassLimit = isHeavyHotModule(fileRelativePath) ? 200 : 10;
   const closureNames = buildClosure(seed.name, dependencyMap);
   if (closureNames.size < 1 || closureNames.size > closureLimit) {
     return [];
@@ -475,6 +517,35 @@ function expandDependencyClosure(
   return [];
 }
 
+function expandSingleRecordFallback(
+  sourceFile: ts.SourceFile,
+  seed: ExtractionRecord,
+  recordByName: ReadonlyMap<string, ExtractionRecord>,
+  importNames: ReadonlySet<string>,
+): ExtractionRecord[] {
+  const statementNode = sourceFile.statements.find((statement) => statement.getStart(sourceFile) === seed.start);
+  if (!statementNode) {
+    return [];
+  }
+  const identifiers = collectIdentifiersInNode(statementNode);
+  const unresolvedTopLevelNames = new Set<string>();
+  for (const identifier of identifiers) {
+    if (identifier === seed.name || importNames.has(identifier)) {
+      continue;
+    }
+    if (recordByName.has(identifier)) {
+      unresolvedTopLevelNames.add(identifier);
+    }
+  }
+  if (unresolvedTopLevelNames.size > 0) {
+    return [];
+  }
+  if (seed.text.length < 500 && !hasStateEventToken(seed.name) && !hasRuntimeClusterToken(seed.name)) {
+    return [];
+  }
+  return [seed];
+}
+
 async function refactorSingleFile(
   manualProjectPath: string,
   fileRelativePath: string,
@@ -515,9 +586,11 @@ async function refactorSingleFile(
     }
   }
 
-  let selectedClosureRecords: ExtractionRecord[] = [];
+  const selectedClosureRecords: ExtractionRecord[] = [];
+  const selectedRanges: Array<{ start: number; end: number }> = [];
+  const selectedRecordNames = new Set<string>();
   for (const seed of seedCandidates) {
-    const closureRecords = expandDependencyClosure(
+    let closureRecords = expandDependencyClosure(
       sourceFile,
       seed,
       dependencyMap,
@@ -526,10 +599,39 @@ async function refactorSingleFile(
       normalizeRelativePath(fileRelativePath),
     );
     if (closureRecords.length < 1) {
+      closureRecords = expandSingleRecordFallback(sourceFile, seed, recordByName, importNames);
+    }
+    if (closureRecords.length < 1) {
       continue;
     }
-    selectedClosureRecords = closureRecords;
-    break;
+    if (closureRecords.some((record) => selectedRecordNames.has(record.name))) {
+      continue;
+    }
+    const overlapsExistingRanges = closureRecords.some((record) =>
+      selectedRanges.some((range) => !(record.end <= range.start || record.start >= range.end)),
+    );
+    if (overlapsExistingRanges) {
+      continue;
+    }
+    const clusterRanges = closureRecords
+      .map((record) => ({ start: record.start, end: record.end }))
+      .sort((left, right) => left.start - right.start);
+    const firstRange = clusterRanges.at(0);
+    const lastRange = clusterRanges.at(-1);
+    if (!firstRange || !lastRange) {
+      continue;
+    }
+    selectedRanges.push({
+      start: firstRange.start,
+      end: lastRange.end,
+    });
+    for (const record of closureRecords) {
+      selectedClosureRecords.push(record);
+      selectedRecordNames.add(record.name);
+    }
+    if (selectedRanges.length >= policy.maxClustersPerFile) {
+      break;
+    }
   }
 
   if (selectedClosureRecords.length < 1) {
@@ -539,9 +641,13 @@ async function refactorSingleFile(
   const fileRelativePosix = normalizeRelativePath(fileRelativePath);
   const behaviorModulePath = buildBehaviorModulePath(fileRelativePosix);
   const behaviorImportPath = buildBehaviorImportPath(fileRelativePosix, behaviorModulePath);
-  const movedNames = selectedClosureRecords.map((record) => record.name);
+  const movedNames = [...new Set(selectedClosureRecords.map((record) => record.name))];
 
-  const { importStatements, lastImportEnd } = collectImportsText(sourceFile, sourceText, behaviorImportPath);
+  const { importStatements, lastImportEnd, existingBehaviorImportNames } = collectImportsText(
+    sourceFile,
+    sourceText,
+    behaviorImportPath,
+  );
   const splitModuleHeader = [
     "// @ts-nocheck",
     "// Auto-generated by manual hot refactor pass.",
@@ -560,7 +666,8 @@ async function refactorSingleFile(
   for (const range of removalRanges) {
     nextSource = `${nextSource.slice(0, range.start)}${nextSource.slice(range.end)}`;
   }
-  const importStatement = `${formatNamedImport(movedNames, behaviorImportPath)}\n`;
+  const mergedImportNames = [...new Set([...existingBehaviorImportNames, ...movedNames])];
+  const importStatement = `${formatNamedImport(mergedImportNames, behaviorImportPath)}\n`;
   const insertionOffset = Math.max(0, lastImportEnd);
   nextSource = `${nextSource.slice(0, insertionOffset)}\n${importStatement}${nextSource.slice(insertionOffset)}`;
   nextSource = nextSource.replace(/\n{3,}/gu, "\n\n");
@@ -607,6 +714,7 @@ async function run(): Promise<void> {
   const policy: RefactorSafetyPolicy = {
     maxLineGrowth: cli.maxLineGrowth,
     maxImportGrowth: cli.maxImportGrowth,
+    maxClustersPerFile: cli.maxClustersPerFile,
   };
   const report = await readJsonFile<ManualHotRescueReportModel>(cli.reportPath);
   const targets = selectTopUniqueTargets(report, cli.topUnique);
@@ -623,6 +731,7 @@ async function run(): Promise<void> {
     manualProjectPath: cli.manualProjectPath,
     reportPath: cli.reportPath,
     topUnique: cli.topUnique,
+    maxClustersPerFile: cli.maxClustersPerFile,
     targetCount: targets.length,
     changedCount: fileResults.length,
     unchangedCount: Math.max(0, targets.length - fileResults.length),

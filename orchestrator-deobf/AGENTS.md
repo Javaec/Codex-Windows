@@ -574,3 +574,19 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
     - `src/renderer/features/store/store-path-service-quality-*.ts` (`maxNamespaceImports=9`),
     - `src/services/service/service-store-quality-*.ts` (`maxNamespaceImports=10`).
   Verified reason: quality-gates were failing post-emitter due deterministic hot-file import budgets for these two families; override keeps strict gating while matching observed stable ceiling for this snapshot.
+- 2026-03-04 manual-first hardening updates:
+  - `manual-sync:export` now defaults to `path/surface-only` mode; full symbol rename/promotion requires explicit `--full-symbol-sync`.
+  - Added strict size fail-fast for generated store/service quality shards: `>1200` lines now fails emitter.
+  - Manual refactorability/readability defaults switched to strict top-3 focus:
+    - `src/renderer/features/store/store-state.ts`
+    - `src/services/store/store-state-g003-quality-01.ts`
+    - `src/services/service/service-run-quality-01.ts`
+  Verified reason: keep manual-first cycles focused on highest-impact readable domain files and prevent regeneration of oversized quality shards.
+- 2026-03-04 top-3 manual readability structural split:
+  - converted top heavy entries to thin orchestrators with *.impl.ts backing files:
+    - src/renderer/features/store/store-state.ts -> store-state.impl.ts
+    - src/services/store/store-state-g003-quality-01.ts -> store-state-g003-quality-01.impl.ts
+    - src/services/service/service-run-quality-01.ts -> service-run-quality-01.impl.ts
+  - updated manual KPI/refactorability focus to impl files in config/manual-first-workflow.json and config/manual-refactorability-policy.json.
+  - refreshed shared/manual-sync/top3-manual-hot-report.json to impl targets.
+  Verified reason: immediate line-count reduction in hot entry files while preserving build/smoke stability; next extraction cycles now target impl modules directly.

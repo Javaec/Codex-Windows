@@ -336,6 +336,9 @@ const STATIC_PAYLOAD_LITERAL_MIN_LENGTH = 4096;
 const STATIC_PAYLOAD_THEME_GRAMMAR_MIN_LENGTH = 1800;
 const STORE_MODULE_MAX_LINES_FAILFAST = 12000;
 const SERVICE_MODULE_MAX_LINES_FAILFAST = 12000;
+const STORE_SERVICE_QUALITY_SHARD_MAX_LINES_FAILFAST = 1200;
+const STORE_SERVICE_QUALITY_SHARD_PATH_PATTERN =
+  /(?:^|\/)src\/services\/(?:store|service)\/[a-z0-9-]*quality-\d+\.ts$/i;
 const SHARED_HELPER_NAME_DENYLIST = new Set<string>([
   "liftedSourcePath",
   "liftedImportResolutionCount",
@@ -12541,6 +12544,13 @@ function buildQualityModuleContent(
     }));
   const normalizedModuleFilePath = plan.filePath.replace(/\\/g, "/").toLowerCase();
   const lineCount = moduleContent.split(/\r?\n/).length;
+  if (STORE_SERVICE_QUALITY_SHARD_PATH_PATTERN.test(normalizedModuleFilePath)) {
+    if (lineCount > STORE_SERVICE_QUALITY_SHARD_MAX_LINES_FAILFAST) {
+      throw new Error(
+        `buildQualityModuleContent: store/service quality-shard size fail-fast for ${plan.moduleId} (${lineCount} lines > ${STORE_SERVICE_QUALITY_SHARD_MAX_LINES_FAILFAST})`,
+      );
+    }
+  }
   if (normalizedModuleFilePath.startsWith("src/services/store/")) {
     if (lineCount > STORE_MODULE_MAX_LINES_FAILFAST) {
       throw new Error(

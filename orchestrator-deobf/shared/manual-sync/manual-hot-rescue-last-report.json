@@ -1,6 +1,6 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-04T09:50:59.472Z",
+  "generatedAtIso": "2026-03-04T12:57:47.189Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
@@ -69,68 +69,6 @@
       "violations": []
     },
     {
-      "averageScore": 0.8501,
-      "exists": true,
-      "manualFilePath": "src/services/service/service-run-quality-01.ts",
-      "mappedBy": "exact",
-      "metrics": {
-        "boundaryTokenCounts": {
-          "event": 0,
-          "ipc": 0,
-          "route": 0,
-          "session": 0,
-          "state": 64,
-          "transport": 0,
-          "workspace": 0
-        },
-        "importCount": 9,
-        "lineCount": 1420,
-        "longFunctionCandidates": [],
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "moduleIds": [
-        "services:service:run:quality-01"
-      ],
-      "rank": 3,
-      "recommendedActions": [
-        "behavior split by state/event boundaries"
-      ],
-      "sourceFilePath": "src/services/service/service-run-quality-01.ts",
-      "violations": []
-    },
-    {
-      "averageScore": 0.8723,
-      "exists": true,
-      "manualFilePath": "src/services/store/store-state-g003-quality-01.ts",
-      "mappedBy": "exact",
-      "metrics": {
-        "boundaryTokenCounts": {
-          "event": 0,
-          "ipc": 0,
-          "route": 0,
-          "session": 0,
-          "state": 68,
-          "transport": 0,
-          "workspace": 0
-        },
-        "importCount": 4,
-        "lineCount": 1529,
-        "longFunctionCandidates": [],
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "moduleIds": [
-        "services:store:store-state:g003:quality-01"
-      ],
-      "rank": 4,
-      "recommendedActions": [
-        "behavior split by state/event boundaries"
-      ],
-      "sourceFilePath": "src/services/store/store-state-g003-quality-01.ts",
-      "violations": []
-    },
-    {
       "averageScore": 0.9106,
       "exists": true,
       "manualFilePath": "src/services/service/service-run-quality-03.ts",
@@ -154,7 +92,7 @@
       "moduleIds": [
         "services:service:run:quality-03"
       ],
-      "rank": 5,
+      "rank": 3,
       "recommendedActions": [
         "behavior split by state/event boundaries"
       ],
@@ -185,7 +123,7 @@
       "moduleIds": [
         "services:store:state:quality-02"
       ],
-      "rank": 6,
+      "rank": 4,
       "recommendedActions": [
         "behavior split by state/event boundaries"
       ],
@@ -216,7 +154,7 @@
       "moduleIds": [
         "services:service:run:quality-02"
       ],
-      "rank": 7,
+      "rank": 5,
       "recommendedActions": [
         "behavior split by state/event boundaries"
       ],
@@ -247,7 +185,7 @@
       "moduleIds": [
         "services:store:store-state:g003:quality-02"
       ],
-      "rank": 8,
+      "rank": 6,
       "recommendedActions": [
         "behavior split by state/event boundaries"
       ],
@@ -278,7 +216,7 @@
       "moduleIds": [
         "renderer:hook:render:quality-01"
       ],
-      "rank": 9,
+      "rank": 7,
       "recommendedActions": [
         "runtime/vendor quarantine into dedicated runtime-vendor layer"
       ],
@@ -309,11 +247,73 @@
       "moduleIds": [
         "renderer:ui:components-render:quality-01"
       ],
-      "rank": 10,
+      "rank": 8,
       "recommendedActions": [
         "runtime/vendor quarantine into dedicated runtime-vendor layer"
       ],
       "sourceFilePath": "src/renderer/features/ui/ui-components-render-quality-01.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8134,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-g002-quality-01.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 9,
+          "transport": 0,
+          "workspace": 2
+        },
+        "importCount": 9,
+        "lineCount": 694,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "moduleIds": [
+        "services:store:state-store:g002:quality-01"
+      ],
+      "rank": 9,
+      "recommendedActions": [
+        "maintain current structure; no rescue action required"
+      ],
+      "sourceFilePath": "src/services/store/store-state-g002-quality-01.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8143,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-g002-quality-02.ts",
+      "mappedBy": "exact",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 4,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 2,
+        "lineCount": 625,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "moduleIds": [
+        "services:store:state-store:g002:quality-02"
+      ],
+      "rank": 10,
+      "recommendedActions": [
+        "maintain current structure; no rescue action required"
+      ],
+      "sourceFilePath": "src/services/store/store-state-g002-quality-02.ts",
       "violations": []
     }
   ],
