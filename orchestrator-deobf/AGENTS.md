@@ -551,3 +551,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 - Post-extraction runtime regression class captured and fixed (`storeCoreDepBen is not defined` in behavior-split):
   - behavior-split now uses aliased import + deterministic local function binding for the extracted parser cluster.
   Verified reason: keeps extraction benefits while preserving `build/dev-smoke` green gate on manual project.
+- 2026-03-04 hard simplification pass:
+  - default run mode changed to light/minimal with optional adapters (`javascript-deobfuscator`, `synchrony`, `unwebpack-sourcemap`) disabled by default,
+  - semantic sweep profiles reduced to two (`base`, `structure-heavy`) to cut adaptive complexity and cache pressure,
+  - automatic local artifact pruning added before each run:
+    - `runs/*`: keep last 8 fresh runs, prune old/noisy runs,
+    - `.cache/stage-cache/*`: per-stage TTL + keep-per-stage cap.
+  Verified reason: most storage/time overhead came from low-yield cache and historical run accumulation; this keeps pipeline fast and deterministic.

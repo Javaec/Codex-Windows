@@ -9,7 +9,9 @@
     "patch-pack:preflight:10711": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-10711.dmg --app-version 26.303.1606 --build-number 806",
     "patch-pack:test:mod-conflict": "node ./shared/patch-pack/test-mod-conflict.mjs",
     "orchestrator:migration:bridge": "node ./orchestrator-deobf/dist/migration/codex-version-bridge.js",
+    "orchestrator:migration:enforce-size-budget": "node ./orchestrator-deobf/dist/migration/enforce-generated-size-budget.js",
     "orchestrator:daily:migrate:10711": "node ./orchestrator-deobf/dist/migration/daily-migrate-10711.js",
+    "orchestrator:naming-memory:compact": "node ./orchestrator-deobf/dist/naming/compact-naming-memory-store.js",
     "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse",
     "reverse:codex-app": "node scripts/node/reverse.js",
     "reverse:regression": "node scripts/node/reverse-regression.js"

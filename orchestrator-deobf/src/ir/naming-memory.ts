@@ -359,12 +359,13 @@ function historyEvent(runId: string, symbol: SemanticSymbol, candidateScore: num
     candidateName: symbol.name,
     candidateScore,
     accepted,
-    evidenceIds: [...symbol.evidenceIds],
+    // Keep history payload compact; detailed evidence stays in semantic artifacts.
+    evidenceIds: [],
   };
 }
 
 function trimHistory(history: NamingMemoryHistoryEvent[]): NamingMemoryHistoryEvent[] {
-  return history.slice(-32);
+  return history.slice(-2);
 }
 
 export function updateNamingMemory(
@@ -375,7 +376,11 @@ export function updateNamingMemory(
 ): NamingMemoryUpdateResult {
   const entriesByKey = new Map<string, NamingMemoryEntry>();
   for (const entry of currentMemory.entries) {
-    entriesByKey.set(entry.symbolKey, { ...entry, history: [...entry.history], evidenceIds: [...entry.evidenceIds] });
+    entriesByKey.set(entry.symbolKey, {
+      ...entry,
+      history: Array.isArray(entry.history) ? [...entry.history] : [],
+      evidenceIds: Array.isArray(entry.evidenceIds) ? [...entry.evidenceIds].slice(0, 2) : [],
+    });
   }
 
   let insertedEntryCount = 0;
@@ -403,7 +408,8 @@ export function updateNamingMemory(
         currentName: candidateSymbol.name,
         currentScore: score,
         updatedAtIso: new Date().toISOString(),
-        evidenceIds: [...candidateSymbol.evidenceIds],
+        // Cap evidence ids in naming memory to keep snapshot size bounded.
+        evidenceIds: [...candidateSymbol.evidenceIds].slice(0, 2),
         history: [historyEvent(runId, candidateSymbol, score, true)],
       };
       entriesByKey.set(symbol.symbolKey, created);
@@ -415,13 +421,12 @@ export function updateNamingMemory(
       existing.currentName = candidateSymbol.name;
       existing.currentScore = score;
       existing.updatedAtIso = new Date().toISOString();
-      existing.evidenceIds = [...candidateSymbol.evidenceIds];
+      existing.evidenceIds = [...candidateSymbol.evidenceIds].slice(0, 2);
       existing.history = trimHistory([...existing.history, historyEvent(runId, candidateSymbol, score, true)]);
       updatedEntryCount += 1;
       continue;
     }
 
-    existing.history = trimHistory([...existing.history, historyEvent(runId, candidateSymbol, score, false)]);
     keptEntryCount += 1;
   }
 

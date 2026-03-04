@@ -6,6 +6,8 @@
 /electron/
 /extracted/
 /cache/
+/orchestrator-deobf/.cache/
+/orchestrator-deobf/runs/
 /userdata/
 
 *.log
@@ -19,3 +21,4 @@
 
 # Generated migration baselines are large local artifacts.
 orchestrator-deobf/migration/version-bridge/baselines/*.json
+orchestrator-deobf/migration/version-bridge/baselines/*.json.gz

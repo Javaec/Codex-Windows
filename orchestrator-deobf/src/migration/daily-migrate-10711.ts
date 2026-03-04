@@ -55,7 +55,7 @@ interface DailyMigrateReport {
   outputProfile: OutputProfile;
   gateMode: GateMode;
   steps: Array<{
-    id: "preflight" | "conflict-test" | "migration-bridge";
+    id: "size-budget" | "preflight" | "conflict-test" | "migration-bridge";
     command: string;
     exitCode: number;
     durationMs: number;
@@ -299,8 +299,23 @@ async function run(): Promise<void> {
   const preflightScriptPath = path.join(sharedPatchPackRoot, "preflight.mjs");
   const conflictScriptPath = path.join(sharedPatchPackRoot, "test-mod-conflict.mjs");
   const bridgeScriptPath = path.join(projectRoot, "dist", "migration", "codex-version-bridge.js");
+  const sizeBudgetScriptPath = path.join(projectRoot, "dist", "migration", "enforce-generated-size-budget.js");
 
   const stepReports: DailyMigrateReport["steps"] = [];
+
+  {
+    const startedAt = Date.now();
+    const result = await runNodeCommand(projectRoot, [sizeBudgetScriptPath]);
+    stepReports.push({
+      id: "size-budget",
+      command: `${process.execPath} ${sizeBudgetScriptPath}`,
+      exitCode: result.exitCode,
+      durationMs: Date.now() - startedAt,
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(`daily-migrate: size-budget failed:\n${result.stderr || result.stdout}`);
+    }
+  }
 
   const preflightArgs = [
     preflightScriptPath,

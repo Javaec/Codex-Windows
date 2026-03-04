@@ -1,11 +1,14 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import * as zlib from "node:zlib";
+import { promisify } from "node:util";
 import { OutputProfile, GateMode, RunMetrics, RunSummary } from "../contracts";
 import { hashFileSha256 } from "../utils/hash";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { NamingMemoryModel } from "../ir/naming-memory";
 import { isGenericName, scoreNameQuality } from "../ir/name-quality";
+import { compactNamingMemoryFile, MAX_NAMING_MEMORY_FILE_BYTES } from "../naming/compact";
 
 interface CliOptions {
   snapshotAsarPath: string;
@@ -51,6 +54,8 @@ interface VersionBridgeReport {
   sourceProfilePath: string;
   sourceProfileStats: NamingMemorySnapshotStats;
   baselineCopyPath: string;
+  baselineCopyBytes: number;
+  baselineCopyCompressed: boolean;
   targetProfilePath: string;
   targetProfileExistedBefore: boolean;
   targetProfilePreseeded: boolean;
@@ -78,6 +83,8 @@ interface VersionBridgeReport {
   targetProfileStatsAfterRun: NamingMemorySnapshotStats;
   notes: string[];
 }
+
+const gzipAsync = promisify(zlib.gzip);
 
 function printUsage(): void {
   const usage = [
@@ -419,6 +426,28 @@ function sanitizeRunIdToken(input: string): string {
   return normalized;
 }
 
+async function writeCompressedBaselineCopy(sourceProfilePath: string, baselineDirectory: string): Promise<{
+  outputPath: string;
+  outputBytes: number;
+  compressed: boolean;
+}> {
+  const fileName = `${buildUtcStamp()}-${path.basename(sourceProfilePath).replace(/\.json$/i, "")}.json.gz`;
+  const outputPath = path.join(baselineDirectory, fileName);
+  const payload = await fs.readFile(sourceProfilePath);
+  const compressedPayload = await gzipAsync(payload, { level: zlib.constants.Z_BEST_COMPRESSION });
+  if (compressedPayload.length > MAX_NAMING_MEMORY_FILE_BYTES) {
+    throw new Error(
+      `version-bridge: baseline archive exceeds 100MB after compression: ${outputPath} (${compressedPayload.length} bytes)`,
+    );
+  }
+  await fs.writeFile(outputPath, compressedPayload);
+  return {
+    outputPath,
+    outputBytes: compressedPayload.length,
+    compressed: true,
+  };
+}
+
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2));
@@ -442,12 +471,34 @@ async function run(): Promise<void> {
   const targetShouldBePreseeded = !targetProfileExistedBefore || cli.overwriteTargetProfile;
   const notes: string[] = [];
 
-  const baselineCopyPath = path.join(
-    baselineDirectory,
-    `${buildUtcStamp()}-${path.basename(sourceProfilePath).replace(/\.json$/i, "")}.json`,
-  );
-  await fs.copyFile(sourceProfilePath, baselineCopyPath);
-  notes.push(`baseline-copied:${baselineCopyPath}`);
+  const sourceCompaction = await compactNamingMemoryFile(sourceProfilePath);
+  if (sourceCompaction.afterBytes > MAX_NAMING_MEMORY_FILE_BYTES) {
+    throw new Error(
+      `version-bridge: source naming snapshot exceeds 100MB after compaction: ${sourceCompaction.filePath} (${sourceCompaction.afterBytes} bytes)`,
+    );
+  }
+  if (sourceCompaction.changed) {
+    notes.push(
+      `source-compacted:${sourceCompaction.filePath}:${sourceCompaction.beforeBytes}->${sourceCompaction.afterBytes}`,
+    );
+  }
+
+  if (targetProfileExistedBefore) {
+    const targetCompaction = await compactNamingMemoryFile(targetProfilePath);
+    if (targetCompaction.afterBytes > MAX_NAMING_MEMORY_FILE_BYTES) {
+      throw new Error(
+        `version-bridge: target naming snapshot exceeds 100MB after compaction: ${targetCompaction.filePath} (${targetCompaction.afterBytes} bytes)`,
+      );
+    }
+    if (targetCompaction.changed) {
+      notes.push(
+        `target-compacted:${targetCompaction.filePath}:${targetCompaction.beforeBytes}->${targetCompaction.afterBytes}`,
+      );
+    }
+  }
+
+  const baselineCopy = await writeCompressedBaselineCopy(sourceProfilePath, baselineDirectory);
+  notes.push(`baseline-copied:${baselineCopy.outputPath}`);
 
   if (targetShouldBePreseeded) {
     await fs.copyFile(sourceProfilePath, targetProfilePath);
@@ -557,7 +608,9 @@ async function run(): Promise<void> {
     snapshotKey,
     sourceProfilePath,
     sourceProfileStats: sourceStats,
-    baselineCopyPath,
+    baselineCopyPath: baselineCopy.outputPath,
+    baselineCopyBytes: baselineCopy.outputBytes,
+    baselineCopyCompressed: baselineCopy.compressed,
     targetProfilePath,
     targetProfileExistedBefore,
     targetProfilePreseeded: targetShouldBePreseeded,

@@ -179,3 +179,8 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 ## Next Steps
 - Finish contextual export naming pass for AST-lift modules to reduce synthetic names and align closer to CodexMonitor style.
 - Keep reducing reverse orchestrator complexity while preserving single-source-of-truth boundaries.
+
+## 2026-03-04 Reference Cleanup
+- Branding icon resolution was simplified to one canonical source (`icons/codex.ico`).
+  - Removed legacy fallback references to `reference/Codex-Windows-main-2` and `reference/Codex-Windows-main-3`.
+  - Reason: those mirror folders are obsolete and should not be runtime dependencies of repack scripts.

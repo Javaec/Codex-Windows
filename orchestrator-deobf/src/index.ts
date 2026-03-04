@@ -210,9 +210,9 @@ function parseCli(argv: string[]): CliOptions {
   let wakaruConcurrency = 1;
   let enableWakaru = true;
   let promotionBudget = 180;
-  let enableJavascriptDeobfuscator = true;
-  let enableSynchrony = true;
-  let enableUnwebpackSourcemap = true;
+  let enableJavascriptDeobfuscator = false;
+  let enableSynchrony = false;
+  let enableUnwebpackSourcemap = false;
   let javascriptDeobfuscatorParseAsModule = false;
   let synchronyRename = false;
   let synchronyLoose = false;
@@ -222,8 +222,8 @@ function parseCli(argv: string[]): CliOptions {
   let outputProfile: OutputProfile = "latest";
   let statementBudget = 32;
   let weightsConfigPath = "";
-  let gateMode: GateMode = "full";
-  let artifactRetention: ArtifactRetentionMode = "debug";
+  let gateMode: GateMode = "light";
+  let artifactRetention: ArtifactRetentionMode = "minimal";
   let manualSyncEnabled = true;
   let manualSyncRootPath = "";
   let allowAfterFreeze = false;
@@ -653,7 +653,7 @@ function applyWeightScale(base: ToolWeights, factors: Partial<ToolWeights>): Too
 }
 
 function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[] {
-  const baseProfiles: SemanticIrSweepProfile[] = [
+  return [
     {
       profileId: "base",
       toolWeights: base,
@@ -667,96 +667,90 @@ function buildSemanticSweepProfiles(base: ToolWeights): SemanticIrSweepProfile[]
         synchrony: 0.92,
       }),
     },
-    {
-      profileId: "deobf-heavy",
-      toolWeights: applyWeightScale(base, {
-        javascriptDeobfuscator: 1.4,
-        synchrony: 1.35,
-        webcrack: 0.94,
-        wakaru: 0.98,
-      }),
-    },
-    {
-      profileId: "sourcemap-heavy",
-      toolWeights: applyWeightScale(base, {
-        asar: 1.18,
-        unwebpackSourcemap: 1.6,
-        webcrack: 0.95,
-        wakaru: 0.95,
-      }),
-    },
   ];
+}
 
-  const isolateProfiles: SemanticIrSweepProfile[] = [
-    {
-      profileId: "isolate-webcrack",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 2.2,
-        wakaru: 0.55,
-        javascriptDeobfuscator: 0.45,
-        synchrony: 0.45,
-        unwebpackSourcemap: 0.5,
-        asar: 0.7,
-      }),
-    },
-    {
-      profileId: "isolate-wakaru",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 0.65,
-        wakaru: 2.2,
-        javascriptDeobfuscator: 0.5,
-        synchrony: 0.5,
-        unwebpackSourcemap: 0.55,
-        asar: 0.7,
-      }),
-    },
-    {
-      profileId: "isolate-javascript-deobfuscator",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 0.6,
-        wakaru: 0.6,
-        javascriptDeobfuscator: 2.3,
-        synchrony: 0.55,
-        unwebpackSourcemap: 0.5,
-        asar: 0.65,
-      }),
-    },
-    {
-      profileId: "isolate-synchrony",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 0.6,
-        wakaru: 0.6,
-        javascriptDeobfuscator: 0.55,
-        synchrony: 2.3,
-        unwebpackSourcemap: 0.5,
-        asar: 0.65,
-      }),
-    },
-    {
-      profileId: "isolate-unwebpack-sourcemap",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 0.55,
-        wakaru: 0.55,
-        javascriptDeobfuscator: 0.5,
-        synchrony: 0.5,
-        unwebpackSourcemap: 2.4,
-        asar: 0.75,
-      }),
-    },
-    {
-      profileId: "isolate-asar",
-      toolWeights: applyWeightScale(base, {
-        webcrack: 0.55,
-        wakaru: 0.55,
-        javascriptDeobfuscator: 0.5,
-        synchrony: 0.5,
-        unwebpackSourcemap: 0.55,
-        asar: 2.15,
-      }),
-    },
-  ];
+const RUNS_MAX_AGE_HOURS = 24;
+const RUNS_KEEP_LAST = 8;
+const STAGE_CACHE_MAX_AGE_HOURS = 6;
+const STAGE_CACHE_KEEP_PER_STAGE = 120;
 
-  return [...baseProfiles, ...isolateProfiles];
+interface DirectoryEntrySnapshot {
+  absolutePath: string;
+  name: string;
+  mtimeMs: number;
+}
+
+async function listDirectoryChildren(rootPath: string): Promise<DirectoryEntrySnapshot[]> {
+  const exists = await fileExists(rootPath);
+  if (!exists) {
+    return [];
+  }
+  const entries = await fs.readdir(rootPath, { withFileTypes: true });
+  const snapshots: DirectoryEntrySnapshot[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const absolutePath = path.join(rootPath, entry.name);
+    const stat = await fs.stat(absolutePath);
+    snapshots.push({
+      absolutePath,
+      name: entry.name,
+      mtimeMs: stat.mtimeMs,
+    });
+  }
+  snapshots.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return snapshots;
+}
+
+async function pruneRunsRoot(runsRoot: string, currentRunId: string): Promise<void> {
+  const nowMs = Date.now();
+  const maxAgeMs = RUNS_MAX_AGE_HOURS * 60 * 60 * 1000;
+  const snapshots = await listDirectoryChildren(runsRoot);
+  let retained = 0;
+  for (const snapshot of snapshots) {
+    if (snapshot.name === currentRunId) {
+      retained += 1;
+      continue;
+    }
+    const ageMs = Math.max(0, nowMs - snapshot.mtimeMs);
+    const shouldKeep = retained < RUNS_KEEP_LAST && ageMs <= maxAgeMs;
+    if (shouldKeep) {
+      retained += 1;
+      continue;
+    }
+    await fs.rm(snapshot.absolutePath, { recursive: true, force: true });
+  }
+}
+
+async function pruneStageCacheRoot(projectRoot: string): Promise<void> {
+  const stageCacheRoot = path.join(projectRoot, ".cache", "stage-cache");
+  const nowMs = Date.now();
+  const maxAgeMs = STAGE_CACHE_MAX_AGE_HOURS * 60 * 60 * 1000;
+  const stageDirectories = await listDirectoryChildren(stageCacheRoot);
+  for (const stageDirectory of stageDirectories) {
+    const cacheEntries = await listDirectoryChildren(stageDirectory.absolutePath);
+    for (let index = 0; index < cacheEntries.length; index += 1) {
+      const cacheEntry = cacheEntries[index];
+      if (!cacheEntry) {
+        continue;
+      }
+      const ageMs = Math.max(0, nowMs - cacheEntry.mtimeMs);
+      const keepByFreshness = ageMs <= maxAgeMs;
+      const keepByRank = index < STAGE_CACHE_KEEP_PER_STAGE;
+      if (keepByFreshness && keepByRank) {
+        continue;
+      }
+      await fs.rm(cacheEntry.absolutePath, { recursive: true, force: true });
+    }
+  }
+}
+
+async function pruneLocalArtifacts(projectRoot: string, runsRoot: string, currentRunId: string): Promise<void> {
+  await ensureDirectory(runsRoot);
+  await pruneRunsRoot(runsRoot, currentRunId);
+  await pruneStageCacheRoot(projectRoot);
 }
 
 async function run(): Promise<void> {
@@ -773,6 +767,7 @@ async function run(): Promise<void> {
     cli.manualSyncRootPath.length > 0 ? cli.manualSyncRootPath : defaultManualSyncRootPath(projectRoot);
   const manualSyncPaths = resolveManualSyncPaths(projectRoot, resolvedManualSyncRootPath);
   const runsRoot = path.join(projectRoot, "runs");
+  await pruneLocalArtifacts(projectRoot, runsRoot, cli.runId);
   const runDirectory = path.join(runsRoot, cli.runId);
   const artifactsDirectory = path.join(runDirectory, "artifacts");
   const toolWeightsConfig = await loadToolWeights(projectRoot, cli.weightsConfigPath);
@@ -810,31 +805,35 @@ async function run(): Promise<void> {
   const effectiveEnableJavascriptDeobfuscator = cli.enableJavascriptDeobfuscator;
   const effectiveEnableSynchrony = cli.enableSynchrony;
   const effectiveEnableUnwebpackSourcemap = cli.enableUnwebpackSourcemap;
+  const shouldRunDecisionDashboard = cli.gateMode === "full";
   const tools = await resolveToolVersions(projectRoot);
+  const pipelineStages: RunManifest["pipeline"] = [
+    "asar-extract",
+    "webcrack",
+    "monolith-census",
+    "monolith-pass",
+    "wakaru",
+    "javascript-deobfuscator",
+    "synchrony",
+    "unwebpack-sourcemap",
+    "evidence-store",
+    "semantic-ir",
+    "naming-memory",
+    "ownership-resolver",
+    "chunk-artifact-model",
+    "template-emitter",
+    "quality-gates",
+    "green-gates",
+  ];
+  if (shouldRunDecisionDashboard) {
+    pipelineStages.push("decision-dashboard");
+  }
   const manifest: RunManifest = {
-    manifestVersion: 11,
+    manifestVersion: 12,
     runId: cli.runId,
     createdAtIso: new Date().toISOString(),
     seed: cli.seed,
-    pipeline: [
-      "asar-extract",
-      "webcrack",
-      "monolith-census",
-      "monolith-pass",
-      "wakaru",
-      "javascript-deobfuscator",
-      "synchrony",
-      "unwebpack-sourcemap",
-      "evidence-store",
-      "semantic-ir",
-      "naming-memory",
-      "ownership-resolver",
-      "chunk-artifact-model",
-      "template-emitter",
-      "quality-gates",
-      "green-gates",
-      "decision-dashboard",
-    ],
+    pipeline: pipelineStages,
     tools,
     flags: {
       patchPackRootPath: patchProfile.patchPackRootPath,
@@ -1414,14 +1413,37 @@ async function run(): Promise<void> {
       reason: unwebpackSourcemapOutput.reason,
     },
   };
-  const decisionDashboardOutput = await runStage<DecisionDashboardStageInput, DecisionDashboardStageOutput>(
-    decisionDashboardStage,
-    decisionDashboardInput,
-    runDirectory,
-    {
-      cacheEnabled: effectiveStageCacheEnabled,
-    },
-  );
+  let decisionDashboardOutput: DecisionDashboardStageOutput;
+  if (shouldRunDecisionDashboard) {
+    decisionDashboardOutput = await runStage<DecisionDashboardStageInput, DecisionDashboardStageOutput>(
+      decisionDashboardStage,
+      decisionDashboardInput,
+      runDirectory,
+      {
+        cacheEnabled: effectiveStageCacheEnabled,
+      },
+    );
+  } else {
+    const skippedPayload = {
+      runId: cli.runId,
+      generatedAtIso: new Date().toISOString(),
+      skipped: true,
+      reason: "decision-dashboard disabled in light gate mode",
+    };
+    await writeJsonFile(decisionDashboardInput.outputJsonPath, skippedPayload);
+    await fs.writeFile(
+      decisionDashboardInput.outputMarkdownPath,
+      `# Decision Dashboard (${cli.runId})\n\nSkipped in light gate mode.\n`,
+      "utf8",
+    );
+    decisionDashboardOutput = {
+      outputJsonPath: decisionDashboardInput.outputJsonPath,
+      outputMarkdownPath: decisionDashboardInput.outputMarkdownPath,
+      orchestratorActionCount: 0,
+      externalToolActionCount: 0,
+      postRenameActionCount: 0,
+    };
+  }
 
   const summary: RunSummary = {
     manifestPath,

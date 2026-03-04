@@ -60,8 +60,6 @@ export function resolveDefaultCodexIconPath(): string {
   const repoRoot = path.resolve(__dirname, "..", "..", "..");
   const candidates = [
     path.join(repoRoot, "icons", "codex.ico"),
-    path.join(repoRoot, "reference", "Codex-Windows-main-3", "icons", "codex.ico"),
-    path.join(repoRoot, "reference", "Codex-Windows-main-2", "codexd-launcher", "codex.ico"),
   ];
   for (const candidate of candidates) {
     if (fileExists(candidate)) return candidate;
