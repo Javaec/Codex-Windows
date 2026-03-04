@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-04T18:40:13.915Z",
+  "generatedAtIso": "2026-03-04T19:22:25.074Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
     {
@@ -50,10 +50,10 @@
   "mode": "path-surface-only",
   "pathCreated": 19,
   "pathRekeyed": 1,
-  "pathRemoved": 14,
+  "pathRemoved": 0,
   "pathUpdated": 17,
   "staleCleanupExecuted": {
-    "pathRemoved": 14,
+    "pathRemoved": 0,
     "surfaceRemoved": 19,
     "symbolRemoved": 0
   },

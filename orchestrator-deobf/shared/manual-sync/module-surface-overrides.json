@@ -1,6 +1,6 @@
 {
   "contractVersion": 2,
-  "generatedAtIso": "2026-03-04T18:40:13.909Z",
+  "generatedAtIso": "2026-03-04T19:22:25.070Z",
   "migrationVersion": 1,
   "overrides": [
     {
@@ -40,7 +40,7 @@
         "main-entry:symbol:75",
         "main-entry:symbol:83"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.881Z"
+      "updatedAtIso": "2026-03-04T19:22:25.061Z"
     },
     {
       "archetype": "hook",
@@ -62,7 +62,7 @@
         "main-entry:symbol:264",
         "main-entry:symbol:498"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.881Z"
+      "updatedAtIso": "2026-03-04T19:22:25.061Z"
     },
     {
       "archetype": "store",
@@ -611,7 +611,7 @@
         "main-entry:symbol:320",
         "main-entry:symbol:94"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.880Z"
+      "updatedAtIso": "2026-03-04T19:22:25.061Z"
     },
     {
       "archetype": "service",
@@ -779,7 +779,7 @@
         "main-entry:symbol:652",
         "main-entry:symbol:737"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.880Z"
+      "updatedAtIso": "2026-03-04T19:22:25.061Z"
     },
     {
       "archetype": "store",
@@ -904,7 +904,7 @@
         "main-entry:symbol:696",
         "main-entry:symbol:737"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.880Z"
+      "updatedAtIso": "2026-03-04T19:22:25.061Z"
     },
     {
       "archetype": "store",
@@ -1235,7 +1235,7 @@
         "main-entry:symbol:696",
         "main-entry:symbol:737"
       ],
-      "updatedAtIso": "2026-03-04T18:40:13.879Z"
+      "updatedAtIso": "2026-03-04T19:22:25.060Z"
     },
     {
       "archetype": "store",

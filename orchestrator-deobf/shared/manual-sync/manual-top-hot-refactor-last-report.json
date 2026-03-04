@@ -3,141 +3,132 @@
   "files": [
     {
       "after": {
-        "importCount": 2,
-        "lineCount": 260,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 2,
-        "lineCount": 717,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/services/service/service-run-quality-03-behavior-split.ts",
-      "filePath": "src/services/service/service-run-quality-03.ts",
-      "movedSymbolCount": 37,
-      "movedSymbolNames": [
-        "serviceAgentSettingsEventNodebclNode",
-        "serviceAgentSettingsEventNodebgjNode",
-        "serviceAgentSettingsEventNodebikNode",
-        "serviceAgentSettingsEventNodebkiNode",
-        "serviceAgentSettingsEventNodecbcNode",
-        "serviceAgentSettingsEventNodecblNode",
-        "serviceAgentSettingsEventNodecejNode",
-        "serviceAgentSettingsEventNodedagNode",
-        "serviceAgentSettingsEventNodedigNode",
-        "serviceAgentSettingsEventNodeeafNode",
-        "serviceAgentSettingsEventNodeejdNode",
-        "serviceAgentSettingsEventNodefilNode",
-        "serviceAgentSettingsEventNodegndNode",
-        "serviceAgentSettingsEventNodepbiNode",
-        "serviceAgentSettingsEventNodepjpNode",
-        "serviceAngularHtmlEventNodecmpNode",
-        "serviceAxeAgentSettingsNode",
-        "serviceBaeAgentSettingsNodeBfo",
-        "serviceBlockdiagramEventNavigateNodedphNod",
-        "serviceBlockdiagramEventNavigateNodefjmNod",
-        "serviceDaeAgentSettingsNode",
-        "serviceFaeAgentSettingsNode",
-        "serviceGxeAgentSettingsNode",
-        "serviceHxeAgentSettingsNode",
-        "serviceJaeAgentSettingsNode",
-        "serviceNaeAgentSettingsNode",
-        "serviceNyeAgentSettingsNode",
-        "serviceRyeAgentSettingsNode",
-        "serviceSyeAgentSettingsNode",
-        "serviceUxeAgentSettingsNode",
-        "serviceVxeAgentSettingsNode",
-        "serviceWxeAgentSettingsNode",
-        "serviceXbeAgentSettingsNode",
-        "serviceYaeAgentSettingsNode",
-        "serviceYxeAgentSettingsNode",
-        "serviceZaeAgentSettingsNode",
-        "serviceZxeAgentSettingsNode"
-      ]
-    },
-    {
-      "after": {
-        "importCount": 2,
-        "lineCount": 564,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 1,
-        "lineCount": 930,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/services/service/service-run-quality-02-behavior-split.ts",
-      "filePath": "src/services/service/service-run-quality-02.ts",
-      "movedSymbolCount": 6,
-      "movedSymbolNames": [
-        "__safeParserTableCall",
-        "__safeWrapperInvoke",
-        "serviceBlockdiagramEventNavigateNodecnkNod",
-        "serviceBslEventNavigateNodebjpNode",
-        "serviceCairoEventNavigateNodeddpNode",
-        "svcBlockdiagramPageDepcdhDep"
-      ]
-    },
-    {
-      "after": {
-        "importCount": 2,
-        "lineCount": 797,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "before": {
-        "importCount": 4,
-        "lineCount": 1231,
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "behaviorModulePath": "src/services/store/store-state-g003-quality-02-behavior-split.ts",
-      "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "movedSymbolCount": 12,
-      "movedSymbolNames": [
-        "storeBlockdiagramEventNavigateNodedblNodeAol",
-        "storeBlockdiagramEventNavigateNodedneNode",
-        "storeEventNavigatePageNodeakbNode",
-        "storeEventNavigatePageNodeanbNode",
-        "storeEventNavigatePageNodebabNode",
-        "storeEventNavigatePageNodebbbNode",
-        "storeEventNavigatePageNodebmcNode",
-        "storeEventNavigatePageNodedjlNode",
-        "storeEventNavigatePageNodeelkNode",
-        "storeEventNavigatePageNodeenkNode",
-        "storeEventNavigatePageNodeeokNode",
-        "storeXeeEventNavigateNode"
-      ]
-    },
-    {
-      "after": {
         "importCount": 10,
         "lineCount": 100,
         "namespaceImportCount": 1,
         "runtimeVendorImportCount": 3
       },
       "before": {
-        "importCount": 39,
-        "lineCount": 312,
+        "importCount": 10,
+        "lineCount": 100,
         "namespaceImportCount": 1,
-        "runtimeVendorImportCount": 34
+        "runtimeVendorImportCount": 3
       },
       "behaviorModulePath": "src/renderer/features/ui/ui-components-behavior-split.ts",
       "filePath": "src/renderer/features/ui/ui-components.ts",
-      "movedSymbolCount": 4,
+      "movedSymbolCount": 3,
       "movedSymbolNames": [
-        "uiAgentSettingsEventNodeacpNode",
-        "uiArchitectureDiagramVxujarfqNodeeajNode",
-        "uiComponentsActionscriptEventNodecipNode",
-        "uiComponentsAgentSettingsNodeappNode"
+        "uiComponentsApexEventNodecipNode",
+        "uiComponentsAuroraEventNodebjpNode",
+        "uiComponentsBallerinaEventNodecipNode"
+      ]
+    },
+    {
+      "after": {
+        "importCount": 2,
+        "lineCount": 255,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 9,
+        "lineCount": 694,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-g002-quality-01-behavior-split.ts",
+      "filePath": "src/services/store/store-state-g002-quality-01.ts",
+      "movedSymbolCount": 9,
+      "movedSymbolNames": [
+        "storeAgentSettingsEventNodeebcNode",
+        "storeAgentSettingsEventNodeejjNode",
+        "storeEventNavigatePageNodeakbNode",
+        "storeEventNavigatePageNodeanbNode",
+        "storeEventNavigatePageNodebabNode",
+        "storeEventNavigatePageNodebbbNode",
+        "storeEventNavigatePageNodebmcNode",
+        "storeEventNavigatePageNodeelkNode",
+        "storeXeeEventNavigateNode"
+      ]
+    },
+    {
+      "after": {
+        "importCount": 3,
+        "lineCount": 304,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 2,
+        "lineCount": 500,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-quality-01-behavior-split.ts",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "movedSymbolCount": 7,
+      "movedSymbolNames": [
+        "storeHandleWneResultOkk",
+        "storeHandleZoeResult",
+        "storeLanguageDepBje",
+        "storeLanguageDepIch",
+        "storeOrchestrateYeeResult",
+        "storeRuntimeLocalAIFhf",
+        "storeRuntimeLocalBNCkg"
+      ]
+    },
+    {
+      "after": {
+        "importCount": 2,
+        "lineCount": 290,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 2,
+        "lineCount": 625,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-g002-quality-02-behavior-split.ts",
+      "filePath": "src/services/store/store-state-g002-quality-02.ts",
+      "movedSymbolCount": 31,
+      "movedSymbolNames": [
+        "storeAppendSvgLabelRows",
+        "storeCollectIntersectionCandidates",
+        "storeCollectPathBounds",
+        "storeCoreDepChd",
+        "storeCoreDepHoi",
+        "storeCoreDepMmk",
+        "storeCoreDepNag",
+        "storeHandleNavigateResultBee",
+        "storeHandlePathResultOph",
+        "storeHandleRneResultBnn",
+        "storeHandleTueResultEof",
+        "storeNormalizeSvgLabelRows",
+        "storeOrchestrateHueResultPlf",
+        "storeOrchestrateHueResultPmf",
+        "storeOrchestrateNavigateResultBbl",
+        "storeOrchestrateRnePreloadResult",
+        "storeOrchestrateRneResultLjj",
+        "storeRuntimeLocalCKPda",
+        "storeRuntimeLocalEFDel",
+        "storeRuntimeLocalEKGmh",
+        "storeRuntimeLocalEPAaj",
+        "storeRuntimeLocalFLEhf",
+        "storeRuntimeLocalHHKoi",
+        "storeRuntimeLocalHM",
+        "storeRuntimeLocalJKHdo",
+        "storeRuntimeLocalLOIeh",
+        "storeRuntimeLocalMFHeo",
+        "storeRuntimeLocalMPNpe",
+        "storeRuntimeLocalNLLdn",
+        "storeSelectClosestIntersection",
+        "storeSelectPagePreloadResult"
       ]
     }
   ],
-  "generatedAtIso": "2026-03-04T18:36:48.275Z",
+  "generatedAtIso": "2026-03-04T19:12:25.949Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "maxClustersPerFile": 3,
   "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-last-report.json",
