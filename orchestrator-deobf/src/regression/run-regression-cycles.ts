@@ -717,6 +717,7 @@ function buildAdaptiveWeights(
 async function createAdaptiveProfileWeights(
   outputRoot: string,
   cycleRunId: string,
+  cycleMode: "fast" | "full",
   suite: RegressionSuite,
   baseWeights: ToolWeights,
   previousExecution: RegressionSuiteExecution | undefined,
@@ -736,8 +737,17 @@ async function createAdaptiveProfileWeights(
     referenceAverageScore: number;
   }> = [];
 
+  const shouldAdapt = cycleMode === "full";
   for (const profile of suite.profiles) {
-    const adaptive = buildAdaptiveWeights(baseWeights, profile, previousExecution);
+    const adaptive = shouldAdapt
+      ? buildAdaptiveWeights(baseWeights, profile, previousExecution)
+      : {
+        weights: { ...baseWeights },
+        performanceScale: 1,
+        flagScale: buildFlagScale(profile),
+        referenceScore: 0,
+        referenceAverageScore: 0,
+      };
     const weightsPath = path.join(adaptiveDirectory, `${sanitizeToken(profile.id)}.weights.json`);
     await writeJsonFile(weightsPath, adaptive.weights);
     weightsByProfileId[profile.id] = weightsPath;
@@ -756,6 +766,8 @@ async function createAdaptiveProfileWeights(
   await writeJsonFile(reportPath, {
     generatedAtIso: new Date().toISOString(),
     cycleRunId,
+    cycleMode,
+    adaptiveEnabled: shouldAdapt,
     profileCount: profileEntries.length,
     baseWeights,
     profiles: profileEntries,
@@ -1162,6 +1174,7 @@ async function run(): Promise<void> {
     const adaptiveWeights = await createAdaptiveProfileWeights(
       cli.outputRoot,
       cycleRunId,
+      cycleMode,
       cycleSuite,
       baseWeights,
       previousExecution,

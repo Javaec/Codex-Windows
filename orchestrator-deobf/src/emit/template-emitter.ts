@@ -171,6 +171,7 @@ const MAX_PARTS_PER_HEAVY_DOMAIN_TOPIC = 3;
 const HARD_SYMBOL_LIMIT_PER_MODULE = 560;
 const FILE_QUALITY_WORST_PERCENT = 0.1;
 const HOT_FIRST_REGENERATION_ENABLED = true;
+const HOT_FIRST_STRICT_SELECTION = true;
 const HOT_FIRST_MIN_TARGET_FILES = 10;
 const HOT_FIRST_MAX_TARGET_FILES = 10;
 const HOT_FIRST_MIN_SYMBOL_COUNT = 1;
@@ -13889,7 +13890,7 @@ export async function emitTemplateProject(
   const criticalHotSelectionKeys = hotTargets.criticalHotSelectionKeys;
   const preferredHotFilePaths = hotTargets.preferredHotFilePaths;
   const preferredHotSelectionKeys = hotTargets.preferredHotSelectionKeys;
-  const strictHotSelection = hotTargets.strictHotSelection;
+  const strictHotSelection = HOT_FIRST_STRICT_SELECTION || hotTargets.strictHotSelection;
   const preliftRawPlans = buildModulePlans(
     ownershipModel,
     Math.max(statementBudget * QUALITY_PLAN_BUDGET_MULTIPLIER, QUALITY_PLAN_BUDGET_MIN),

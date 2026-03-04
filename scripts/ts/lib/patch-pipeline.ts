@@ -171,27 +171,17 @@ export function runCodexPatchPipeline(input: PatchPipelineInput): PatchPipelineR
   writeHeader(`Applying patch pipeline (${report.profileId})`);
 
   for (const stage of resolvedProfile.profile.stageExecutions) {
-    const hasInjectors = stage.selectedModIds.length > 0;
-    writeHeader(`Patch stage: ${stage.id} (${stage.inputContract} -> ${stage.outputContract})`);
-
-    if (!hasInjectors) {
-      report.stages.push({
-        id: stage.id,
-        inputContract: stage.inputContract,
-        outputContract: stage.outputContract,
-        selectedModIds: [],
-        status: "pass-through",
-        stepCount: 0,
-        detail: "no injector mods selected",
-      });
-      writeSuccess(`Patch stage ${stage.id}: pass-through (no injector mods selected)`);
-      continue;
+    if (stage.id !== "mods" && stage.selectedModIds.length > 0) {
+      throw new Error(`Patch stage ${stage.id} contains injector mods but runtime pipeline executes only "mods" stage`);
     }
+  }
+  const modsStage = resolvedProfile.profile.stageExecutions.find((stage) => stage.id === "mods");
+  if (!modsStage) {
+    throw new Error("Patch profile is missing required mods stage execution");
+  }
 
-    if (stage.id !== "mods") {
-      throw new Error(`Patch stage ${stage.id} contains injector mods but is not executable by runtime patch pipeline`);
-    }
-
+  writeHeader(`Patch stage: ${modsStage.id} (${modsStage.inputContract} -> ${modsStage.outputContract})`);
+  if (modsStage.selectedModIds.length > 0) {
     for (const step of resolvedProfile.profile.steps) {
       const stepLabel = `${step.id}${step.required ? " [required]" : " [optional]"}`;
       writeHeader(`Patch step: ${stepLabel}`);
@@ -199,17 +189,18 @@ export function runCodexPatchPipeline(input: PatchPipelineInput): PatchPipelineR
       report.steps.push(stepResult);
       writeSuccess(`Patch step ${step.id}: ${stepResult.status} (${stepResult.detail})`);
     }
-
-    report.stages.push({
-      id: stage.id,
-      inputContract: stage.inputContract,
-      outputContract: stage.outputContract,
-      selectedModIds: [...stage.selectedModIds],
-      status: "executed",
-      stepCount: resolvedProfile.profile.steps.length,
-      detail: `executed ${resolvedProfile.profile.steps.length} patch steps`,
-    });
   }
+  report.stages.push({
+    id: modsStage.id,
+    inputContract: modsStage.inputContract,
+    outputContract: modsStage.outputContract,
+    selectedModIds: [...modsStage.selectedModIds],
+    status: modsStage.selectedModIds.length > 0 ? "executed" : "pass-through",
+    stepCount: modsStage.selectedModIds.length > 0 ? resolvedProfile.profile.steps.length : 0,
+    detail: modsStage.selectedModIds.length > 0
+      ? `executed ${resolvedProfile.profile.steps.length} patch steps`
+      : "no injector mods selected",
+  });
 
   ensureDir(input.diagnosticsDir);
   fs.writeFileSync(report.reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");

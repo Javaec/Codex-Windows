@@ -184,3 +184,7 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 - Branding icon resolution was simplified to one canonical source (`icons/codex.ico`).
   - Removed legacy fallback references to `reference/Codex-Windows-main-2` and `reference/Codex-Windows-main-3`.
   - Reason: those mirror folders are obsolete and should not be runtime dependencies of repack scripts.
+- Legacy reverse CLI subtree was removed from active scripts/runtime:
+  - deleted `scripts/ts/reverse*`, `scripts/ts/reverse/**`, `scripts/node/reverse*`, `scripts/node/reverse/**`,
+  - removed npm entrypoints `reverse:codex-app` and `reverse:regression`.
+  - Reason: decompile/deobf pipeline is orchestrator-first; maintaining duplicate reverse toolchain added dead weight and slowed iteration.

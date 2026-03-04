@@ -1155,7 +1155,7 @@ async function run(): Promise<void> {
     sweepProfiles: semanticSweepProfiles,
   };
   const semanticIrOutput = await runStage<SemanticIrStageInput, SemanticIrStageOutput>(semanticIrStage, semanticIrInput, runDirectory, {
-    cacheEnabled: effectiveStageCacheEnabled,
+    cacheEnabled: false,
   });
 
   const manualSyncSymbolNameOverridesExists =
@@ -1451,7 +1451,11 @@ async function run(): Promise<void> {
     runMetricsPath,
     decisionDashboardPath: decisionDashboardOutput.outputJsonPath,
     stageOutputs: {
-      asarExtract: asarOutput,
+      asarExtract: {
+        ...asarOutput,
+        discoveredJsFiles: asarOutput.discoveredJsFiles.slice(0, 48),
+        discoveredMapFiles: asarOutput.discoveredMapFiles.slice(0, 48),
+      },
       webcrack: webcrackOutput,
       monolithCensus: monolithCensusOutput,
       monolithPass: monolithPassOutput,

@@ -558,3 +558,9 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
     - `runs/*`: keep last 8 fresh runs, prune old/noisy runs,
     - `.cache/stage-cache/*`: per-stage TTL + keep-per-stage cap.
   Verified reason: most storage/time overhead came from low-yield cache and historical run accumulation; this keeps pipeline fast and deterministic.
+- 2026-03-04 regression and emitter simplification follow-up:
+  - fast cycles now skip adaptive profile-weight auto-calibration and use fixed base weights,
+  - `semantic-ir` stage cache disabled (always recomputed from current evidence),
+  - run summary payload trims oversized `asarExtract.discoveredJsFiles/discoveredMapFiles` lists,
+  - emitter enforces strict hot-first selection (`HOT_FIRST_STRICT_SELECTION=true`) to reduce non-hot rerender drift.
+  Verified reason: these branches were high-cost with low KPI movement and produced oversized artifacts/noisy iterations.

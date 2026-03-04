@@ -12,5 +12,11 @@
     "types": ["node"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["scripts/ts/**/*.ts"]
+  "include": ["scripts/ts/**/*.ts"],
+  "exclude": [
+    "scripts/ts/reverse.ts",
+    "scripts/ts/reverse-engine.ts",
+    "scripts/ts/reverse-regression.ts",
+    "scripts/ts/reverse/**"
+  ]
 }

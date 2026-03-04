@@ -12,9 +12,7 @@
     "orchestrator:migration:enforce-size-budget": "node ./orchestrator-deobf/dist/migration/enforce-generated-size-budget.js",
     "orchestrator:daily:migrate:10711": "node ./orchestrator-deobf/dist/migration/daily-migrate-10711.js",
     "orchestrator:naming-memory:compact": "node ./orchestrator-deobf/dist/naming/compact-naming-memory-store.js",
-    "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse",
-    "reverse:codex-app": "node scripts/node/reverse.js",
-    "reverse:regression": "node scripts/node/reverse-regression.js"
+    "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",
