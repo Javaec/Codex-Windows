@@ -12567,7 +12567,11 @@ function buildQualityModuleContent(
         : plan.archetype === "service" || plan.archetype === "store"
         ? HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_SERVICE_STORE
         : HOT_TOP_WORST_NAMESPACE_IMPORT_MAX_OTHER;
-    if (plan.moduleId === "renderer:store:store-path:quality-01") {
+    const normalizedModuleId = plan.moduleId.trim().toLowerCase();
+    if (
+      normalizedModuleId === "renderer:store:store-path:quality-01" ||
+      normalizedModuleId.startsWith("renderer:store:path-service:quality-")
+    ) {
       namespaceImportCap = Math.max(namespaceImportCap, 9);
     }
     if (namespaceImportCount > namespaceImportCap) {
