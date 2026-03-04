@@ -1,71 +1,44 @@
 {
-  "generatedAtIso": "2026-03-04T19:22:25.074Z",
-  "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
+  "generatedAtIso": "2026-03-04T19:32:48.196Z",
+  "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\latest\\project",
   "lengthMismatches": [
     {
-      "filePath": "src/services/store/store-state-g002-quality-01.ts",
-      "generatedExports": 34,
-      "manualExports": 26
-    },
-    {
-      "filePath": "src/services/store/store-state-g003-quality-01.ts",
-      "generatedExports": 27,
-      "manualExports": 0
-    },
-    {
       "filePath": "src/services/store/store-state-g003-quality-02.ts",
-      "generatedExports": 22,
+      "generatedExports": 63,
       "manualExports": 29
     },
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
-      "generatedExports": 30,
+      "generatedExports": 6,
       "manualExports": 0
     },
     {
       "filePath": "src/services/store/store-state-quality-02.ts",
-      "generatedExports": 28,
+      "generatedExports": 8,
       "manualExports": 0
     }
   ],
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "missingModuleFiles": [
-    "src-tauri-adapter/state/transport-store-apl-asar-state.ts",
-    "src/main/lib/service/service-domain.ts",
-    "src/main/lib/transport/transport-bridge-quality-01.ts",
-    "src/main/lib/transport/transport-bridge-quality-02.ts",
-    "src/renderer/features/hooks/hook-hooks-service-quality-01.ts",
-    "src/renderer/features/hooks/hook-hooks-service-quality-02.ts",
-    "src/renderer/features/layout/ui-path-route.ts",
-    "src/renderer/features/store/store-state-quality-01.ts",
-    "src/renderer/features/store/store-state-quality-02.ts",
-    "src/renderer/features/store/store-state-quality-03.ts",
-    "src/services/service/service-domain-quality-01.ts",
-    "src/services/service/service-domain-quality-02.ts",
-    "src/services/service/service-store-quality-01.ts",
-    "src/services/service/service-store-quality-02.ts",
-    "src/services/store/store-state-g002-quality-03.ts",
-    "src/services/store/store-state-quality-03.ts"
-  ],
+  "missingModuleFiles": [],
   "mode": "path-surface-only",
-  "pathCreated": 19,
+  "pathCreated": 0,
   "pathRekeyed": 1,
-  "pathRemoved": 0,
-  "pathUpdated": 17,
+  "pathRemoved": 19,
+  "pathUpdated": 0,
   "staleCleanupExecuted": {
-    "pathRemoved": 0,
-    "surfaceRemoved": 19,
+    "pathRemoved": 19,
+    "surfaceRemoved": 0,
     "symbolRemoved": 0
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 19,
-  "surfaceRemoved": 19,
-  "surfaceUpdated": 6,
+  "surfaceCreated": 0,
+  "surfaceRemoved": 0,
+  "surfaceUpdated": 2,
   "symbolNameCreated": 0,
   "symbolNamePromotedFromMergedEvidence": 0,
   "symbolNameRekeyed": 0,
   "symbolNameRemoved": 0,
   "symbolNameUpdated": 0,
-  "topHotLimit": 0,
-  "topHotSelectedCount": 0
+  "topHotLimit": 5,
+  "topHotSelectedCount": 5
 }
