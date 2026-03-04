@@ -50,6 +50,8 @@ Implement deterministic import/export bridges between generated project output a
   - `--snapshot-label` (required when preflight is enabled),
   - optional `--patch-profile`.
   Verified reason: prevents `app.asar` label ambiguity in roundtrip runs and keeps patch-pack resolver deterministic.
+- Batch runs `regression:cycles` with `--output-profile latest` (not `regression-latest`) to avoid Windows lock contention on `output/regression-latest/project` during parallel/manual roundtrip work.
+- Roundtrip keeps `--profile latest` for the same lock-avoidance reason.
 - One batch can run at most one generator sync pass; if stop-rule streak is reached, generator sync is frozen via `shared/manual-sync/manual-generator-freeze.json`.
 - Batch includes strict hot-rescue gate against manual top-10 files from `regression/manual-refactor-candidates.json`.
 - Hot-rescue report is emitted to `shared/manual-sync/manual-hot-rescue-last-report.json`.
