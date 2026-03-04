@@ -13091,7 +13091,7 @@ function buildSmokeRunner(modulePaths: string[]): string {
     "  ensureGlobal('window', () => globalThis);",
     "  ensureGlobal('self', () => globalThis);",
     "  ensureGlobal('Element', () => class Element {});",
-    "  ensureGlobal('HTMLElement', () => class HTMLElement extends Element {});",
+    "  ensureGlobal('HTMLElement', () => class HTMLElement extends globalThis.Element {});",
     "  ensureGlobal('document', () => {",
     "    const createClassList = () => {",
     "      const values = new Set();",
