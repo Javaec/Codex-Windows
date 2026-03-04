@@ -59,7 +59,11 @@ function readJsonFileStrict(filePath, label) {
     }
 }
 function ensureStepId(value) {
-    if (value === "preload" || value === "webview-sunset" || value === "webview-cwd" || value === "main-runtime-shim") {
+    if (value === "preload" ||
+        value === "webview-sunset" ||
+        value === "webview-cwd" ||
+        value === "webview-settings-limits" ||
+        value === "main-runtime-shim") {
         return value;
     }
     throw new Error(`patch-pack: unsupported patch step id: ${value}`);

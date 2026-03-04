@@ -4,6 +4,7 @@
     "preload",
     "webview-sunset",
     "webview-cwd",
+    "webview-settings-limits",
     "main-runtime-shim"
   ],
   "steps": {
@@ -17,6 +18,10 @@
     },
     "webview-cwd": {
       "description": "Normalize cwd path comparison helpers in webview bundles.",
+      "stage": "webview"
+    },
+    "webview-settings-limits": {
+      "description": "Inject a usage limits panel above Settings in the webview sidebar.",
       "stage": "webview"
     },
     "main-runtime-shim": {

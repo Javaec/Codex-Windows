@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-settings-limits-panel",
+  "description": "Inject a small limits panel above Settings in webview sidebar.",
+  "lane": "webview",
+  "priority": 240,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "webview-settings-limits", "required": true }
+  ]
+}

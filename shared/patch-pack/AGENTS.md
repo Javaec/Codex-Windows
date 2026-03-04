@@ -35,3 +35,12 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - required stages: `extract`, `deobf`, `mods`, `runtime-pack`,
   - injector mods are allowed only on `mods` stage by policy,
   - all mod manifests now use `lane + injector` instead of legacy free-form stage ranking.
+
+## 2026-03-05 Decisions
+- Added sidebar UI mod `webview-settings-limits-panel`:
+  - new patch step id: `webview-settings-limits`,
+  - injects a small limits card above `Settings` using DOM observer runtime injection,
+  - enabled in `codex-106x`, `codex-10711`, and `generic` profiles.
+- Rationale:
+  - avoid brittle AST patch points in obfuscated renderer bundles,
+  - keep mod resilient across snapshot obfuscation drift.

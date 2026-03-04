@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
-const STEP_IDS = new Set(["preload", "webview-sunset", "webview-cwd", "main-runtime-shim"]);
+const STEP_IDS = new Set(["preload", "webview-sunset", "webview-cwd", "webview-settings-limits", "main-runtime-shim"]);
 
 function parseArgs(argv) {
   let snapshotLabel = "";

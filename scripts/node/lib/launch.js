@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.patchPreload = patchPreload;
 exports.patchWebviewCwdNormalization = patchWebviewCwdNormalization;
 exports.patchWebviewAppSunsetGate = patchWebviewAppSunsetGate;
+exports.patchWebviewSettingsLimitsPanel = patchWebviewSettingsLimitsPanel;
 exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
 exports.ensureGitOnPath = ensureGitOnPath;
 exports.startCodexDirectLaunch = startCodexDirectLaunch;
@@ -44,6 +45,8 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
+const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V1 */";
+const WEBVIEW_SETTINGS_LIMIT_PANEL_SCRIPT = String.raw `(function(){if(typeof window==="undefined"||typeof document==="undefined")return;if(window.__CODEX_WINDOWS_SETTINGS_LIMIT_PANEL_V1__)return;window.__CODEX_WINDOWS_SETTINGS_LIMIT_PANEL_V1__=true;const PANEL_ID="codex-windows-settings-limit-panel-v1";const STYLE_ID="codex-windows-settings-limit-panel-style-v1";const PANEL_HTML='<div class="codex-windows-limit-title">Usage limits</div><div class="codex-windows-limit-row"><span>5-hour limit</span><strong>-- / 5h</strong></div><div class="codex-windows-limit-row"><span>Weekly limit</span><strong>-- / 7d</strong></div>';const ensureStyle=()=>{if(document.getElementById(STYLE_ID))return;const style=document.createElement("style");style.id=STYLE_ID;style.textContent=".codex-windows-limit-panel{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);font-size:12px;line-height:1.3}.codex-windows-limit-title{font-weight:600;opacity:.95}.codex-windows-limit-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.codex-windows-limit-row strong{font-weight:700;letter-spacing:.2px}";document.head?.appendChild(style)};const isSettingsLabel=value=>String(value??"").trim().toLowerCase()==="settings";const findSettingsAnchor=()=>{const candidates=document.querySelectorAll("button,[role='button'],a,div,span");for(const node of candidates){if(!(node instanceof HTMLElement))continue;if(!isSettingsLabel(node.textContent))continue;return node}return null};const resolveHost=node=>{const host=node.closest("button,[role='button'],a,li,div")??node;return host instanceof HTMLElement?host:null};const injectPanel=()=>{ensureStyle();const anchor=findSettingsAnchor();if(!anchor)return false;const host=resolveHost(anchor);if(!host||!host.parentElement)return false;const parent=host.parentElement;if(parent.querySelector("#"+PANEL_ID))return true;const panel=document.createElement("div");panel.id=PANEL_ID;panel.className="codex-windows-limit-panel";panel.innerHTML=PANEL_HTML;parent.insertBefore(panel,host);return true};injectPanel();const observer=new MutationObserver(()=>{injectPanel()});observer.observe(document.documentElement||document.body,{childList:true,subtree:true});window.setInterval(injectPanel,2500)})();`;
 function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundError, patchContent, optionalPatch = false) {
     const assetsDir = path.join(appDir, "webview", "assets");
     if (!(0, exec_1.fileExists)(assetsDir)) {
@@ -193,6 +196,21 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
     const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
     if (!matched && allowMissingPatchPoint) {
         (0, exec_1.writeWarn)("webview app sunset patch skipped: patch point not found for current bundle signature.");
+    }
+    return summary;
+}
+function patchWebviewSettingsLimitsPanel(appDir, options = {}) {
+    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
+    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for settings limits panel patch.", "webview settings limits panel patch point not found.", (raw) => {
+        if (raw.includes(WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG)) {
+            return { alreadyPatched: true, patched: false, content: raw };
+        }
+        const content = `${raw};\n${WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG}\n${WEBVIEW_SETTINGS_LIMIT_PANEL_SCRIPT}\n`;
+        return { alreadyPatched: false, patched: true, content };
+    }, allowMissingPatchPoint);
+    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+    if (!matched && allowMissingPatchPoint) {
+        (0, exec_1.writeWarn)("webview settings limits panel patch skipped: patch point not found for current bundle signature.");
     }
     return summary;
 }

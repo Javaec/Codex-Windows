@@ -1,7 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export type PatchStepId = "preload" | "webview-sunset" | "webview-cwd" | "main-runtime-shim";
+export type PatchStepId =
+  | "preload"
+  | "webview-sunset"
+  | "webview-cwd"
+  | "webview-settings-limits"
+  | "main-runtime-shim";
 export type PatchProfileSource = "forced" | "selector-rule" | "default";
 
 export interface PatchStepPlan {
@@ -177,7 +182,13 @@ function readJsonFileStrict(filePath: string, label: string): unknown {
 }
 
 function ensureStepId(value: string): PatchStepId {
-  if (value === "preload" || value === "webview-sunset" || value === "webview-cwd" || value === "main-runtime-shim") {
+  if (
+    value === "preload" ||
+    value === "webview-sunset" ||
+    value === "webview-cwd" ||
+    value === "webview-settings-limits" ||
+    value === "main-runtime-shim"
+  ) {
     return value;
   }
   throw new Error(`patch-pack: unsupported patch step id: ${value}`);

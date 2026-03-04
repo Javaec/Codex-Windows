@@ -6,6 +6,7 @@
     "core-preload",
     "webview-sunset-optional",
     "webview-cwd-normalization",
+    "webview-settings-limits-panel",
     "windows-runtime-shim"
   ]
 }

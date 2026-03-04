@@ -85,6 +85,16 @@ function runPatchStep(input, step) {
                 sourceModId: step.sourceModId,
             };
         }
+        case "webview-settings-limits": {
+            const summary = (0, launch_1.patchWebviewSettingsLimitsPanel)(input.appDir, { allowMissingPatchPoint: !step.required });
+            return {
+                id: step.id,
+                required: step.required,
+                status: summarizeWebviewPatch(summary),
+                detail: formatWebviewDetail(summary),
+                sourceModId: step.sourceModId,
+            };
+        }
         case "main-runtime-shim": {
             (0, launch_1.patchMainForWindowsEnvironment)(input.appDir, input.buildNumber, input.buildFlavor);
             return {
