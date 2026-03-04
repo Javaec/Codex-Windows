@@ -81,6 +81,10 @@ Implement deterministic import/export bridges between generated project output a
   - tracks `avgFunctionBodyLength`, `glueRatio`, `domainCallDensity` on fixed top-3 files,
   - cycle is considered successful only when global `nameQuality` and local readability KPI both improve,
   - generator rollback now triggers only when both roundtrip and local readability KPI fail to grow.
+- Manual-first targeted rename policy:
+  - perform role/io renames directly in manual store/service files when size-reduction passes plateau,
+  - keep external deps compatibility by aliasing renamed imports (`oldExport as newLocalName`) instead of changing upstream export contract.
+  Verified reason: improves local readability without widening generator blast radius.
 
 ## Resolution Rules
 - Manual overrides always have higher priority than generated quality/coverage naming.
