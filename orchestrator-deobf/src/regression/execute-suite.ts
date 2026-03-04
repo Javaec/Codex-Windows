@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { ArtifactRetentionMode, GateMode, RunMetrics, ToolWeights } from "../contracts";
+import { ArtifactRetentionMode, GateMode, OutputProfile, RunMetrics, ToolWeights } from "../contracts";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "../utils/fs-json";
 import { scoreNameQuality } from "../ir/name-quality";
 import { SemanticIrModel } from "../ir/semantic-ir";
@@ -166,7 +166,7 @@ export interface ExecuteRegressionSuiteOptions {
   weightsConfigPath: string;
   profileWeightsConfigPathByProfileId?: Record<string, string>;
   suiteRunId: string;
-  outputProfile: "regression-latest";
+  outputProfile: OutputProfile;
   outputDirectory: string;
   gateMode: GateMode;
   artifactRetention: ArtifactRetentionMode;

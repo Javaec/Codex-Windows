@@ -1,13 +1,13 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-04T18:00:56.675Z",
+  "generatedAtIso": "2026-03-04T18:30:00.753Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
   "targetCount": 10,
   "targets": [
     {
-      "averageScore": 0.9106,
+      "averageScore": 0.8731,
       "exists": true,
       "manualFilePath": "src/services/service/service-run-quality-03.ts",
       "mappedBy": "exact",
@@ -38,7 +38,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8769,
+      "averageScore": 0.8428,
       "exists": true,
       "manualFilePath": "src/services/service/service-run-quality-02.ts",
       "mappedBy": "exact",
@@ -69,7 +69,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8915,
+      "averageScore": 0.8677,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-g003-quality-02.ts",
       "mappedBy": "exact",
@@ -100,7 +100,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8988,
+      "averageScore": 0.8585,
       "exists": true,
       "manualFilePath": "src/renderer/features/hooks/hook-hooks-render.ts",
       "mappedBy": "fallback",
@@ -131,7 +131,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.9107,
+      "averageScore": 0.8713,
       "exists": true,
       "manualFilePath": "src/renderer/features/ui/ui-components.ts",
       "mappedBy": "fallback",
@@ -162,7 +162,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8134,
+      "averageScore": 0.7387,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-g002-quality-01.ts",
       "mappedBy": "exact",
@@ -193,7 +193,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.7703,
+      "averageScore": 0.6554,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-quality-01.ts",
       "mappedBy": "exact",
@@ -224,7 +224,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8143,
+      "averageScore": 0.741,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-g002-quality-02.ts",
       "mappedBy": "exact",
@@ -255,7 +255,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8202,
+      "averageScore": 0.7463,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-quality-02.ts",
       "mappedBy": "exact",
@@ -286,7 +286,7 @@
       "violations": []
     },
     {
-      "averageScore": 0.8485,
+      "averageScore": 0.8102,
       "exists": true,
       "manualFilePath": "src/services/store/store-state-quality-01.ts",
       "mappedBy": "normalized",

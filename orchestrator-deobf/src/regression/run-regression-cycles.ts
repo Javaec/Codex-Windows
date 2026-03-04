@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { ArtifactRetentionMode, GateMode, ToolWeights } from "../contracts";
+import { ArtifactRetentionMode, GateMode, OutputProfile, ToolWeights } from "../contracts";
 import { cleanupKeepLastN } from "./cleanup";
 import { executeRegressionSuite, RegressionSuiteExecution } from "./execute-suite";
 import { applyMergedEvidencePromotion, ApplyMergedEvidencePromotionResult } from "./merged-evidence-promotion";
@@ -14,6 +14,7 @@ interface CliOptions {
   snapshotAsarPath: string;
   suiteConfigPath: string;
   weightsConfigPath: string;
+  outputProfile: OutputProfile;
   outputRoot: string;
   baselinePath: string;
   keepLastN: number;
@@ -457,6 +458,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   let snapshotAsarPath = "";
   let suiteConfigPath = path.join(projectRoot, "config", "regression-suite.json");
   let weightsConfigPath = path.join(projectRoot, "config", "tool-weights.json");
+  let outputProfile: OutputProfile = "regression-latest";
   let outputRoot = path.join(projectRoot, "regression", "runs");
   let baselinePath = path.join(projectRoot, "regression", "baseline-metrics.json");
   let keepLastN = 8;
@@ -505,6 +507,18 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           throw new Error("Missing value for --output-root");
         }
         outputRoot = path.resolve(value);
+        index += 1;
+        break;
+      }
+      case "--output-profile": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --output-profile");
+        }
+        if (value !== "latest" && value !== "regression-latest") {
+          throw new Error(`Invalid --output-profile value: ${value}`);
+        }
+        outputProfile = value;
         index += 1;
         break;
       }
@@ -602,6 +616,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           "  --suite-config <path>",
           "  --weights-config <path>",
           "  --output-root <path>",
+          "  --output-profile <latest|regression-latest>",
           "  --baseline-path <path>",
           "  --keep-last-n <n>",
           "  --max-cycles <n>",
@@ -630,6 +645,7 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
     snapshotAsarPath,
     suiteConfigPath,
     weightsConfigPath,
+    outputProfile,
     outputRoot,
     baselinePath,
     keepLastN,
@@ -1187,7 +1203,7 @@ async function run(): Promise<void> {
       weightsConfigPath: cli.weightsConfigPath,
       profileWeightsConfigPathByProfileId: adaptiveWeights.weightsByProfileId,
       suiteRunId: cycleRunId,
-      outputProfile: "regression-latest",
+      outputProfile: cli.outputProfile,
       outputDirectory: cli.outputRoot,
       gateMode: cycleGateMode,
       artifactRetention: cycleArtifactRetention,
