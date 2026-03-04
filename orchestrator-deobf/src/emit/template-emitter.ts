@@ -13308,6 +13308,11 @@ function buildSmokeRunner(modulePaths: string[]): string {
     "  };",
     '  await fs.writeFile(new URL("./smoke-skipped.json", import.meta.url), `${JSON.stringify(payload, null, 2)}\\n`, "utf8");',
     "}",
+    "await new Promise((resolve) => setTimeout(resolve, 0));",
+    "const nodeProcess = globalThis.process;",
+    "if (nodeProcess && typeof nodeProcess.exit === 'function') {",
+    "  nodeProcess.exit(0);",
+    "}",
     "",
   ].join("\n");
 }
