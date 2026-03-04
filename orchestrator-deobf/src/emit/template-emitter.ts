@@ -3171,6 +3171,7 @@ function buildEslintConfig(): string {
       '      "no-fallthrough": "off",',
       '      "no-empty": "off",',
       '      "getter-return": "off",',
+      '      "no-sparse-arrays": "off",',
       '      "no-unused-private-class-members": "off",',
       '      "@typescript-eslint/no-unused-vars": "off"',
     "    },",
