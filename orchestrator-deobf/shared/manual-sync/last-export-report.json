@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-04T13:11:57.887Z",
+  "generatedAtIso": "2026-03-04T18:04:04.351Z",
   "generatedProjectPath": "C:\\Codex-Windows\\orchestrator-deobf\\output\\regression-latest\\project",
   "lengthMismatches": [
     {
@@ -20,16 +20,15 @@
     {
       "filePath": "src/services/store/store-state-quality-01.ts",
       "generatedExports": 30,
-      "manualExports": 26
+      "manualExports": 0
     },
     {
       "filePath": "src/services/store/store-state-quality-02.ts",
       "generatedExports": 28,
-      "manualExports": 19
+      "manualExports": 0
     }
   ],
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260304-062854-c01\\merged-evidence.json",
   "missingModuleFiles": [
     "src-tauri-adapter/state/transport-store-apl-asar-state.ts",
     "src/main/lib/service/service-domain.ts",
@@ -52,15 +51,15 @@
   "pathCreated": 0,
   "pathRekeyed": 0,
   "pathRemoved": 0,
-  "pathUpdated": 21,
+  "pathUpdated": 36,
   "staleCleanupExecuted": {
     "pathRemoved": 0,
-    "surfaceRemoved": 14,
+    "surfaceRemoved": 17,
     "symbolRemoved": 0
   },
   "staleCleanupMandatory": true,
-  "surfaceCreated": 14,
-  "surfaceRemoved": 14,
+  "surfaceCreated": 17,
+  "surfaceRemoved": 17,
   "surfaceUpdated": 0,
   "symbolNameCreated": 0,
   "symbolNamePromotedFromMergedEvidence": 0,

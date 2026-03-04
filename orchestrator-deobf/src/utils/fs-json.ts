@@ -22,8 +22,34 @@ export async function ensureDirectory(directoryPath: string): Promise<void> {
   await fs.mkdir(directoryPath, { recursive: true });
 }
 
+async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
+  const retryableErrorCodes = new Set<string>(["EBUSY", "EPERM", "ENOTEMPTY"]);
+  const maxAttempts = 8;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await fs.rm(directoryPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const errorCode =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+          ? ((error as { code: string }).code ?? "")
+          : "";
+      if (!retryableErrorCodes.has(errorCode) || attempt >= maxAttempts) {
+        throw error;
+      }
+      const delayMs = attempt * 120;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs);
+      });
+    }
+  }
+}
+
 export async function ensureCleanDirectory(directoryPath: string): Promise<void> {
-  await fs.rm(directoryPath, { recursive: true, force: true });
+  await removeDirectoryWithRetry(directoryPath);
   await fs.mkdir(directoryPath, { recursive: true });
 }
 

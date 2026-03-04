@@ -1,17 +1,17 @@
 {
   "afterMetrics": {
-    "buildHealth": true,
+    "buildHealth": false,
     "classCoverage": 1,
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8178,
+    "nameQuality": 0.8197,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "batchIndex": 12,
+  "batchIndex": 16,
   "beforeMetrics": {
-    "buildHealth": true,
+    "buildHealth": false,
     "classCoverage": 1,
     "devHealth": true,
     "functionClassCoverage": 1,
@@ -23,47 +23,47 @@
   "cycleSuccessful": false,
   "exportReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-export-report.json",
   "fullGateExecuted": true,
-  "generatedAtIso": "2026-03-04T13:13:13.623Z",
+  "generatedAtIso": "2026-03-04T18:07:06.427Z",
   "generatorSyncExecuted": false,
   "generatorSyncFrozen": true,
   "generatorSyncRolledBack": false,
-  "generatorSyncSkippedReason": "generator_sync_failed:Command failed (1): npm run regression:cycles -- --snapshot \"C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar\" --max-cycles 1 --allow-after-freeze --suite-run-prefix \"manual-sync-cycle\" --fast-profile-id \"core-no-binary\" --fast-focus-count 10 --promotion-budget-per-cycle 140;roundtrip_failed:Command failed (1): npm run manual-sync:roundtrip -- --snapshot \"C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar\" --manual-project \"C:\\Codex-Windows\\manual-codex-app\" --snapshot-label \"Codex-10711.dmg\"",
+  "generatorSyncSkippedReason": "generator_sync_failed:Command failed (1): npm run regression:cycles -- --snapshot \"C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar\" --max-cycles 1 --allow-after-freeze --suite-run-prefix \"manual-sync-cycle\" --fast-profile-id \"core-no-binary\" --fast-focus-count 10 --promotion-budget-per-cycle 140",
   "hotRescueReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-last-report.json",
   "hotRescueTargetCount": 10,
   "hotRescueViolationCount": 0,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260304-062854-c01\\merged-evidence.json",
-  "noGrowthStreak": 5,
+  "noGrowthStreak": 9,
   "readabilityAfter": {
-    "avgFunctionBodyLength": 5.968799102132436,
-    "domainCallDensity": 0.14812169782407344,
+    "avgFunctionBodyLength": 1.964678320418093,
+    "domainCallDensity": 0.1473967602099019,
     "files": [
       {
-        "avgFunctionBodyLength": 6.679425837320574,
-        "domainCallDensity": 0.16756112104949314,
+        "avgFunctionBodyLength": 0,
+        "domainCallDensity": 0,
         "filePath": "src/renderer/features/store/store-state.impl.ts",
-        "functionCount": 209,
-        "glueRatio": 0.001386001386001386,
-        "lineCount": 1471
+        "functionCount": 0,
+        "glueRatio": 0.016483516483516484,
+        "lineCount": 184
       },
       {
-        "avgFunctionBodyLength": 6.950877192982456,
-        "domainCallDensity": 0.13998613998613998,
+        "avgFunctionBodyLength": 3.7096774193548385,
+        "domainCallDensity": 0.30666666666666664,
         "filePath": "src/services/store/store-state-g003-quality-01.impl.ts",
-        "functionCount": 285,
-        "glueRatio": 0.00132890365448505,
-        "lineCount": 1528
+        "functionCount": 31,
+        "glueRatio": 0.016597510373443983,
+        "lineCount": 262
       },
       {
-        "avgFunctionBodyLength": 4.276094276094276,
-        "domainCallDensity": 0.13681783243658724,
+        "avgFunctionBodyLength": 2.184357541899441,
+        "domainCallDensity": 0.13552361396303902,
         "filePath": "src/services/service/service-run-quality-01.impl.ts",
-        "functionCount": 297,
-        "glueRatio": 0.0029585798816568047,
-        "lineCount": 1377
+        "functionCount": 179,
+        "glueRatio": 0.009950248756218905,
+        "lineCount": 623
       }
     ],
-    "glueRatio": 0.0018911616407144135,
+    "glueRatio": 0.014343758537726459,
     "targetFiles": [
       "src/renderer/features/store/store-state.impl.ts",
       "src/services/store/store-state-g003-quality-01.impl.ts",
@@ -71,35 +71,35 @@
     ]
   },
   "readabilityBefore": {
-    "avgFunctionBodyLength": 5.968799102132436,
-    "domainCallDensity": 0.14812169782407344,
+    "avgFunctionBodyLength": 1.964678320418093,
+    "domainCallDensity": 0.1473967602099019,
     "files": [
       {
-        "avgFunctionBodyLength": 6.679425837320574,
-        "domainCallDensity": 0.16756112104949314,
+        "avgFunctionBodyLength": 0,
+        "domainCallDensity": 0,
         "filePath": "src/renderer/features/store/store-state.impl.ts",
-        "functionCount": 209,
-        "glueRatio": 0.001386001386001386,
-        "lineCount": 1471
+        "functionCount": 0,
+        "glueRatio": 0.016483516483516484,
+        "lineCount": 184
       },
       {
-        "avgFunctionBodyLength": 6.950877192982456,
-        "domainCallDensity": 0.13998613998613998,
+        "avgFunctionBodyLength": 3.7096774193548385,
+        "domainCallDensity": 0.30666666666666664,
         "filePath": "src/services/store/store-state-g003-quality-01.impl.ts",
-        "functionCount": 285,
-        "glueRatio": 0.00132890365448505,
-        "lineCount": 1528
+        "functionCount": 31,
+        "glueRatio": 0.016597510373443983,
+        "lineCount": 262
       },
       {
-        "avgFunctionBodyLength": 4.276094276094276,
-        "domainCallDensity": 0.13681783243658724,
+        "avgFunctionBodyLength": 2.184357541899441,
+        "domainCallDensity": 0.13552361396303902,
         "filePath": "src/services/service/service-run-quality-01.impl.ts",
-        "functionCount": 297,
-        "glueRatio": 0.0029585798816568047,
-        "lineCount": 1377
+        "functionCount": 179,
+        "glueRatio": 0.009950248756218905,
+        "lineCount": 623
       }
     ],
-    "glueRatio": 0.0018911616407144135,
+    "glueRatio": 0.014343758537726459,
     "targetFiles": [
       "src/renderer/features/store/store-state.impl.ts",
       "src/services/store/store-state-g003-quality-01.impl.ts",

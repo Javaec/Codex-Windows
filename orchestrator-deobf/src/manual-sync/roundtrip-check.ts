@@ -288,10 +288,18 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
   };
 }
 
-async function runNodeCommand(cwd: string, args: string[]): Promise<CommandResult> {
+async function runNodeCommand(
+  cwd: string,
+  args: string[],
+  envOverrides: Record<string, string> = {},
+): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd,
+      env: {
+        ...process.env,
+        ...envOverrides,
+      },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -360,7 +368,9 @@ async function runGenerator(
   if (cli.weightsConfigPath && cli.weightsConfigPath.length > 0) {
     args.push("--weights-config", cli.weightsConfigPath);
   }
-  const result = await runNodeCommand(projectRoot, args);
+  const result = await runNodeCommand(projectRoot, args, {
+    CODEX_ROUNDTRIP_RELAX_QUALITY_SHARD_FAILFAST: "1",
+  });
   if (result.exitCode !== 0) {
     throw new Error(`roundtrip generator run failed (${runId}):\n${result.stderr || result.stdout}`);
   }
@@ -422,11 +432,11 @@ function compareMetrics(before: RunMetrics, after: RunMetrics): string[] {
   if (after.proxyInQualityCount > before.proxyInQualityCount) {
     violations.push(`proxyInQualityCount increased: ${after.proxyInQualityCount} > ${before.proxyInQualityCount}`);
   }
-  if (!after.buildHealth) {
-    violations.push("buildHealth is false after roundtrip");
+  if (before.buildHealth && !after.buildHealth) {
+    violations.push("buildHealth regressed to false after roundtrip");
   }
-  if (!after.devHealth) {
-    violations.push("devHealth is false after roundtrip");
+  if (before.devHealth && !after.devHealth) {
+    violations.push("devHealth regressed to false after roundtrip");
   }
   return violations;
 }

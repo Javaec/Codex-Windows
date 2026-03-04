@@ -596,7 +596,7 @@ async function run(): Promise<void> {
   let roundtripFailureReason = "";
   try {
     await runCommand(
-      `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}"${roundtripPatchPackArgs}`,
+      `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}" --profile latest${roundtripPatchPackArgs}`,
       projectRoot,
     );
   } catch (error) {
