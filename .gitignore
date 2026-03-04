@@ -16,3 +16,6 @@
 /reference/
 /node_modules/
 /manual-codex-app
+
+# Generated migration baselines are large local artifacts.
+orchestrator-deobf/migration/version-bridge/baselines/*.json
