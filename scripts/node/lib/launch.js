@@ -46,8 +46,9 @@ const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */"
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundError, patchContent, optionalPatch = false) {
     const assetsDir = path.join(appDir, "webview", "assets");
-    if (!(0, exec_1.fileExists)(assetsDir))
-        return false;
+    if (!(0, exec_1.fileExists)(assetsDir)) {
+        return { patchedFiles: 0, alreadyPatchedFiles: 0 };
+    }
     const bundles = fs
         .readdirSync(assetsDir, { withFileTypes: true })
         .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
@@ -72,14 +73,13 @@ function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundErro
         if (!optionalPatch) {
             throw new Error(patchNotFoundError);
         }
-        return false;
     }
-    return true;
+    return { patchedFiles: patchedFileCount, alreadyPatchedFiles: alreadyPatchedFileCount };
 }
 function patchPreload(appDir) {
     const preload = path.join(appDir, ".vite", "build", "preload.js");
     if (!(0, exec_1.fileExists)(preload))
-        return;
+        return false;
     let raw = fs.readFileSync(preload, "utf8");
     const processExpose = 'const P={env:process.env,platform:process.platform,versions:process.versions,arch:process.arch,cwd:()=>process.env.PWD,argv:process.argv,pid:process.pid};n.contextBridge.exposeInMainWorld("process",P);';
     if (!raw.includes(processExpose)) {
@@ -89,11 +89,14 @@ function patchPreload(appDir) {
             throw new Error("preload patch point not found.");
         raw = raw.replace(match[0], `${processExpose}${match[0]}`);
         fs.writeFileSync(preload, raw, "utf8");
+        return true;
     }
+    return false;
 }
-function patchWebviewCwdNormalization(appDir) {
+function patchWebviewCwdNormalization(appDir, options = {}) {
+    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
     const helperPairPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
-    const patched = patchWebviewIndexBundles(appDir, "webview index bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
+    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
         }
@@ -103,16 +106,19 @@ function patchWebviewCwdNormalization(appDir) {
             return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){const __codexWindowsPathRaw=${normalizeArg}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath}`;
         });
         return { alreadyPatched: false, patched: changed, content: next };
-    }, true);
-    if (!patched) {
+    }, allowMissingPatchPoint);
+    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+    if (!matched && allowMissingPatchPoint) {
         (0, exec_1.writeWarn)("webview cwd normalization patch skipped: patch point not found for current bundle signature.");
     }
+    return summary;
 }
-function patchWebviewAppSunsetGate(appDir) {
+function patchWebviewAppSunsetGate(appDir, options = {}) {
+    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
     const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){", "const s=ys(i);if(r){"];
     const markerNeedles = ['id:"appSunset.title"', 'defaultMessage:"Update required"'];
     const gatePattern = /const\s+([A-Za-z0-9_$]+)\s*=\s*([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\);\s*if\(([A-Za-z0-9_$]+)\)\{/g;
-    const patched = patchWebviewIndexBundles(appDir, "webview index bundle not found for app sunset patch.", "webview app sunset patch point not found.", (raw) => {
+    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for app sunset patch.", "webview app sunset patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
         }
@@ -183,10 +189,12 @@ function patchWebviewAppSunsetGate(appDir) {
             patched: true,
             content: raw.slice(0, selectedPatch.start) + replacement + raw.slice(selectedPatch.end),
         };
-    }, true);
-    if (!patched) {
+    }, allowMissingPatchPoint);
+    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+    if (!matched && allowMissingPatchPoint) {
         (0, exec_1.writeWarn)("webview app sunset patch skipped: patch point not found for current bundle signature.");
     }
+    return summary;
 }
 function escapeJsString(value) {
     return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

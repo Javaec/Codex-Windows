@@ -267,10 +267,8 @@ function buildDepsImportPath(fileRelativePath: string, depsRelativePath: string)
   const fromDir = path.posix.dirname(fileRelativePath);
   const toPathWithoutExtension = depsRelativePath.replace(/\.ts$/u, "");
   const relative = path.posix.relative(fromDir, toPathWithoutExtension).replace(/\\/g, "/");
-  if (relative.startsWith(".")) {
-    return relative;
-  }
-  return `./${relative}`;
+  const withPrefix = relative.startsWith(".") ? relative : `./${relative}`;
+  return `${withPrefix}.js`;
 }
 
 async function rewriteFileWithQuarantinedImports(

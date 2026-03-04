@@ -21,12 +21,9 @@ import {
 } from "./lib/manifest";
 import {
   ensureGitOnPath,
-  patchMainForWindowsEnvironment,
-  patchPreload,
-  patchWebviewAppSunsetGate,
-  patchWebviewCwdNormalization,
   startCodexDirectLaunch,
 } from "./lib/launch";
+import { runCodexPatchPipeline } from "./lib/patch-pipeline";
 import { invokeNativeStage } from "./lib/native";
 import { invokePortableBuild, startPortableDirectLaunch } from "./lib/portable";
 import { invokeSingleExeBuild } from "./lib/sfx";
@@ -128,13 +125,6 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   const diagDir = path.join(workDir, "diagnostics", effectiveProfile);
   const gitCapabilityCachePath = ensureGitCapabilityCachePath(workDir, effectiveProfile);
 
-  writeHeader("Patching preload");
-  patchPreload(appDir);
-  writeHeader("Patching webview app sunset gate");
-  patchWebviewAppSunsetGate(appDir);
-  writeHeader("Patching webview cwd normalization");
-  patchWebviewCwdNormalization(appDir);
-
   writeHeader("Reading app metadata");
   const pkgPath = path.join(appDir, "package.json");
   if (!fs.existsSync(pkgPath)) throw new Error("package.json not found.");
@@ -153,6 +143,17 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   const buildFlavor = pkg.codexBuildFlavor || "prod";
   const appVersion = pkg.version || buildNumber;
   const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+
+  const patchReport = runCodexPatchPipeline({
+    appDir,
+    diagnosticsDir: diagDir,
+    buildNumber,
+    buildFlavor,
+    appVersion,
+    snapshotLabel: path.basename(resolvedDmgPath),
+    forcedProfileId: options.patchProfile,
+  });
+  writeSuccess(`Patch pipeline report: ${patchReport.reportPath}`);
 
   const nativeSignature = getStepSignature({
     dmgSha256: dmgDescriptor.sha256,
@@ -175,8 +176,6 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
     nativeSignature,
   );
   const electronExe = nativeResult.electronExe;
-
-  patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor);
 
   writeHeader("Environment contract checks");
   assertEnvironmentContract(options.strictContract);

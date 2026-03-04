@@ -1,0 +1,45 @@
+{
+  "appVersion": "26.303.1606",
+  "buildNumber": "806",
+  "gateMode": "light",
+  "generatedAtIso": "2026-03-04T10:29:47.515Z",
+  "kpi": {
+    "baselineGuardPassed": true,
+    "buildHealth": true,
+    "devHealth": true,
+    "genericNames": 0,
+    "mappedSymbols": 1069,
+    "nameQuality": 0.8198,
+    "namingEntries": 25373
+  },
+  "migrationRun": {
+    "reportGeneratedAtIso": "2026-03-04T10:29:47.431Z",
+    "runId": "version-bridge-20260304-102537",
+    "snapshotKey": "021bdb2f7755"
+  },
+  "outputProfile": "regression-latest",
+  "patchProfile": "codex-10711",
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "snapshotLabel": "Codex-10711.dmg",
+  "steps": [
+    {
+      "command": "C:\\Program Files\\nodejs\\node.exe C:\\Codex-Windows\\shared\\patch-pack\\preflight.mjs --snapshot-label Codex-10711.dmg --app-version 26.303.1606 --build-number 806 --patch-profile codex-10711",
+      "durationMs": 69,
+      "exitCode": 0,
+      "id": "preflight"
+    },
+    {
+      "command": "C:\\Program Files\\nodejs\\node.exe C:\\Codex-Windows\\shared\\patch-pack\\test-mod-conflict.mjs",
+      "durationMs": 125,
+      "exitCode": 0,
+      "id": "conflict-test"
+    },
+    {
+      "command": "C:\\Program Files\\nodejs\\node.exe C:\\Codex-Windows\\orchestrator-deobf\\dist\\migration\\codex-version-bridge.js --snapshot C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar --snapshot-label Codex-10711.dmg --patch-profile codex-10711 --app-version 26.303.1606 --build-number 806 --profile regression-latest --gate-mode light --statement-budget 32 --promotion-budget 180 --allow-after-freeze",
+      "durationMs": 254007,
+      "exitCode": 0,
+      "id": "migration-bridge"
+    }
+  ],
+  "version": 1
+}

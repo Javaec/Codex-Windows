@@ -5,65 +5,65 @@
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8192,
+    "nameQuality": 0.8197,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
-  "batchIndex": 8,
+  "batchIndex": 11,
   "beforeMetrics": {
     "buildHealth": true,
     "classCoverage": 1,
     "devHealth": true,
     "functionClassCoverage": 1,
     "functionCoverage": 1,
-    "nameQuality": 0.8181,
+    "nameQuality": 0.8186,
     "proxyInQualityCount": 0,
     "variableCoverage": 1
   },
   "cycleSuccessful": false,
   "exportReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\last-export-report.json",
-  "fullGateExecuted": true,
-  "generatedAtIso": "2026-03-03T17:48:44.874Z",
+  "fullGateExecuted": false,
+  "generatedAtIso": "2026-03-04T06:40:39.670Z",
   "generatorSyncExecuted": true,
-  "generatorSyncFrozen": false,
+  "generatorSyncFrozen": true,
   "generatorSyncRolledBack": false,
   "generatorSyncSkippedReason": "",
   "hotRescueReportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-last-report.json",
   "hotRescueTargetCount": 10,
   "hotRescueViolationCount": 0,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260303-173642-c01\\merged-evidence.json",
-  "noGrowthStreak": 1,
+  "mergedEvidencePath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\runs\\manual-sync-cycle-20260304-062854-c01\\merged-evidence.json",
+  "noGrowthStreak": 4,
   "readabilityAfter": {
-    "avgFunctionBodyLength": 14.239210659303723,
-    "domainCallDensity": 0.1263135134089779,
+    "avgFunctionBodyLength": 8.474653567651346,
+    "domainCallDensity": 0.15774566248180474,
     "files": [
       {
-        "avgFunctionBodyLength": 11.512635379061372,
-        "domainCallDensity": 0.1595037660611431,
+        "avgFunctionBodyLength": 5.048780487804878,
+        "domainCallDensity": 0.19914529914529913,
         "filePath": "src/services/store/store-state-quality-01.ts",
-        "functionCount": 277,
-        "glueRatio": 0.0047169811320754715,
-        "lineCount": 2165
+        "functionCount": 164,
+        "glueRatio": 0.017932489451476793,
+        "lineCount": 1005
       },
       {
-        "avgFunctionBodyLength": 14.87378640776699,
-        "domainCallDensity": 0.085219707057257,
+        "avgFunctionBodyLength": 7.690140845070423,
+        "domainCallDensity": 0.11231101511879049,
         "filePath": "src/services/store/store-state-g002-quality-01.ts",
-        "functionCount": 103,
-        "glueRatio": 0.0073461891643709825,
-        "lineCount": 1110
+        "functionCount": 71,
+        "glueRatio": 0.01337295690936107,
+        "lineCount": 694
       },
       {
-        "avgFunctionBodyLength": 16.331210191082803,
-        "domainCallDensity": 0.13421706710853357,
+        "avgFunctionBodyLength": 12.68503937007874,
+        "domainCallDensity": 0.16178067318132464,
         "filePath": "src/services/store/store-state-quality-02.ts",
-        "functionCount": 157,
-        "glueRatio": 0.0020646937370956643,
-        "lineCount": 1459
+        "functionCount": 127,
+        "glueRatio": 0.004677268475210477,
+        "lineCount": 1078
       }
     ],
-    "glueRatio": 0.0047092880111807055,
+    "glueRatio": 0.01199423827868278,
     "targetFiles": [
       "src/services/store/store-state-quality-01.ts",
       "src/services/store/store-state-g002-quality-01.ts",
@@ -71,35 +71,35 @@
     ]
   },
   "readabilityBefore": {
-    "avgFunctionBodyLength": 14.239210659303723,
-    "domainCallDensity": 0.1263135134089779,
+    "avgFunctionBodyLength": 8.474653567651346,
+    "domainCallDensity": 0.15774566248180474,
     "files": [
       {
-        "avgFunctionBodyLength": 11.512635379061372,
-        "domainCallDensity": 0.1595037660611431,
+        "avgFunctionBodyLength": 5.048780487804878,
+        "domainCallDensity": 0.19914529914529913,
         "filePath": "src/services/store/store-state-quality-01.ts",
-        "functionCount": 277,
-        "glueRatio": 0.0047169811320754715,
-        "lineCount": 2165
+        "functionCount": 164,
+        "glueRatio": 0.017932489451476793,
+        "lineCount": 1005
       },
       {
-        "avgFunctionBodyLength": 14.87378640776699,
-        "domainCallDensity": 0.085219707057257,
+        "avgFunctionBodyLength": 7.690140845070423,
+        "domainCallDensity": 0.11231101511879049,
         "filePath": "src/services/store/store-state-g002-quality-01.ts",
-        "functionCount": 103,
-        "glueRatio": 0.0073461891643709825,
-        "lineCount": 1110
+        "functionCount": 71,
+        "glueRatio": 0.01337295690936107,
+        "lineCount": 694
       },
       {
-        "avgFunctionBodyLength": 16.331210191082803,
-        "domainCallDensity": 0.13421706710853357,
+        "avgFunctionBodyLength": 12.68503937007874,
+        "domainCallDensity": 0.16178067318132464,
         "filePath": "src/services/store/store-state-quality-02.ts",
-        "functionCount": 157,
-        "glueRatio": 0.0020646937370956643,
-        "lineCount": 1459
+        "functionCount": 127,
+        "glueRatio": 0.004677268475210477,
+        "lineCount": 1078
       }
     ],
-    "glueRatio": 0.0047092880111807055,
+    "glueRatio": 0.01199423827868278,
     "targetFiles": [
       "src/services/store/store-state-quality-01.ts",
       "src/services/store/store-state-g002-quality-01.ts",

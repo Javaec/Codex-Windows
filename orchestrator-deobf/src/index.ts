@@ -73,9 +73,12 @@ import { greenGatesStage } from "./stages/green-gates-stage";
 import { decisionDashboardStage } from "./stages/decision-dashboard-stage";
 import { defaultManualSyncRootPath, resolveManualSyncPaths } from "./manual-sync/contracts";
 import { validateManualSyncContracts } from "./manual-sync/validator";
+import { resolvePatchProfile } from "./modding/patch-pack";
 
 interface CliOptions {
   snapshotAsarPath: string;
+  snapshotLabel: string;
+  patchProfile: string;
   runId: string;
   seed: number;
   forceOverwriteOutputs: boolean;
@@ -118,6 +121,8 @@ function printUsage(): void {
     "",
     "Options:",
     "  --run-id <id>",
+    "  --snapshot-label <label>",
+    "  --patch-profile <profile-id>",
     "  --seed <n>",
     "  --wakaru-concurrency <n>",
     "  --enable-wakaru",
@@ -197,6 +202,8 @@ function parseArtifactRetention(value: string): ArtifactRetentionMode {
 
 function parseCli(argv: string[]): CliOptions {
   let snapshotAsarPath = "";
+  let snapshotLabel = "";
+  let patchProfile = "";
   let runId = buildDefaultRunId();
   let seed = 424242;
   let forceOverwriteOutputs = true;
@@ -239,6 +246,24 @@ function parseCli(argv: string[]): CliOptions {
           throw new Error("Missing value for --run-id");
         }
         runId = value;
+        index += 1;
+        break;
+      }
+      case "--snapshot-label": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --snapshot-label");
+        }
+        snapshotLabel = value;
+        index += 1;
+        break;
+      }
+      case "--patch-profile": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --patch-profile");
+        }
+        patchProfile = value;
         index += 1;
         break;
       }
@@ -433,6 +458,8 @@ function parseCli(argv: string[]): CliOptions {
 
   return {
     snapshotAsarPath,
+    snapshotLabel,
+    patchProfile,
     runId,
     seed,
     forceOverwriteOutputs,
@@ -766,6 +793,15 @@ async function run(): Promise<void> {
 
   const inputArtifact = await hashFileSha256(cli.snapshotAsarPath);
   const snapshotKey = inputArtifact.sha256.slice(0, 12);
+  const resolvedSnapshotLabel = cli.snapshotLabel.length > 0 ? cli.snapshotLabel : path.basename(cli.snapshotAsarPath);
+  const patchProfile = await resolvePatchProfile({
+    projectRoot,
+    snapshotPath: cli.snapshotAsarPath,
+    snapshotLabel: resolvedSnapshotLabel,
+    buildNumber: "",
+    appVersion: "",
+    forcedProfileId: cli.patchProfile,
+  });
   const coverageLineageId = buildCoverageOwnerLineageId(snapshotKey);
   const namingMemoryProfile = await resolveNamingMemoryProfilePath(projectRoot, snapshotKey);
   const bootstrapSnapshotMode = namingMemoryProfile.seededFrom !== "existing";
@@ -801,6 +837,12 @@ async function run(): Promise<void> {
     ],
     tools,
     flags: {
+      patchPackRootPath: patchProfile.patchPackRootPath,
+      patchProfileId: patchProfile.profile.profileId,
+      patchProfileSource: patchProfile.source,
+      patchProfilePath: patchProfile.profile.profilePath,
+      snapshotLabel: patchProfile.snapshotLabel,
+      snapshotBuildHint: patchProfile.buildHint,
       forceOverwriteOutputs: cli.forceOverwriteOutputs,
       wakaruConcurrency: cli.wakaruConcurrency,
       enableWakaru: effectiveEnableWakaru,
@@ -840,12 +882,44 @@ async function run(): Promise<void> {
   await writeJsonFile(path.join(runDirectory, "snapshot-profile.json"), {
     version: 1,
     snapshotKey,
+    snapshotLabel: patchProfile.snapshotLabel,
+    snapshotBuildHint: patchProfile.buildHint,
+    patchProfileId: patchProfile.profile.profileId,
+    patchProfileSource: patchProfile.source,
+    patchProfilePath: patchProfile.profile.profilePath,
+    patchSelectorPath: patchProfile.selectorPath,
+    patchPackRootPath: patchProfile.patchPackRootPath,
     snapshotAsarSha256: inputArtifact.sha256,
     coverageLineageId,
     namingMemoryProfilePath: namingMemoryProfile.profilePath,
     namingMemoryLegacyPath: namingMemoryProfile.legacyPath,
     namingMemorySeededFrom: namingMemoryProfile.seededFrom,
     namingMemorySeededFromSnapshotKey: namingMemoryProfile.seededFromSnapshotKey,
+  });
+  await writeJsonFile(path.join(runDirectory, "patch-pack-profile.json"), {
+    version: 2,
+    snapshotPath: cli.snapshotAsarPath,
+    snapshotLabel: patchProfile.snapshotLabel,
+    snapshotBuildHint: patchProfile.buildHint,
+    selectorPath: patchProfile.selectorPath,
+    patchPackRootPath: patchProfile.patchPackRootPath,
+    profile: {
+      profileId: patchProfile.profile.profileId,
+      description: patchProfile.profile.description,
+      profilePath: patchProfile.profile.profilePath,
+      source: patchProfile.source,
+      stageRegistryPath: patchProfile.profile.stageRegistryPath,
+      stages: patchProfile.profile.stages,
+      stageExecutions: patchProfile.profile.stageExecutions,
+      mods: patchProfile.profile.mods.map((mod) => ({
+        id: mod.id,
+        stageId: mod.stageId,
+        lane: mod.lane,
+        priority: mod.priority,
+        sourcePath: mod.sourcePath,
+      })),
+      steps: patchProfile.profile.steps,
+    },
   });
 
   const asarInput: AsarExtractStageInput = {

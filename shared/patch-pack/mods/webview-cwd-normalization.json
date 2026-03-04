@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-cwd-normalization",
+  "description": "Best-effort webview cwd normalization patch.",
+  "lane": "webview",
+  "priority": 230,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "webview-cwd", "required": false }
+  ]
+}

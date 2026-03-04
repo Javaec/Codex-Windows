@@ -65,6 +65,9 @@ function parseArgs(argv) {
             case "codexclipath":
                 options.codexCliPath = readValue();
                 break;
+            case "patchprofile":
+                options.patchProfile = readValue();
+                break;
             case "profilename":
                 options.profileName = readValue();
                 break;
@@ -112,6 +115,7 @@ function printUsage() {
     process.stdout.write("  -WorkDir <path>\n");
     process.stdout.write("  -DistDir <path>\n");
     process.stdout.write("  -CodexCliPath <path>\n");
+    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <name>  -PersistRipgrepPath  -StrictContract\n");
 }

@@ -42,6 +42,14 @@ Implement deterministic import/export bridges between generated project output a
 ## Batch Loop
 - `manual-sync:batch` is the default Step-3/Step-4 executor.
 - Batch policy is configured in `config/manual-first-workflow.json` and enforced by state files in `shared/manual-sync/manual-batch-*.json`.
+- Batch now starts with patch-pack preflight gate from workflow config (`patchPackPreflight`):
+  - runs `npm run patch-pack:preflight -- --snapshot-label ... --app-version ... --build-number ...`,
+  - optionally runs `npm run patch-pack:test:mod-conflict`.
+  Verified reason: migration/version drift in patch-pack is detected before regression/manual-sync work starts.
+- Batch now forwards patch-pack identity into roundtrip generator calls:
+  - `--snapshot-label` (required when preflight is enabled),
+  - optional `--patch-profile`.
+  Verified reason: prevents `app.asar` label ambiguity in roundtrip runs and keeps patch-pack resolver deterministic.
 - One batch can run at most one generator sync pass; if stop-rule streak is reached, generator sync is frozen via `shared/manual-sync/manual-generator-freeze.json`.
 - Batch includes strict hot-rescue gate against manual top-10 files from `regression/manual-refactor-candidates.json`.
 - Hot-rescue report is emitted to `shared/manual-sync/manual-hot-rescue-last-report.json`.

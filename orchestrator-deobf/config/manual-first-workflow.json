@@ -2,6 +2,14 @@
   "version": 1,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "patchPackPreflight": {
+    "enabled": true,
+    "snapshotLabel": "Codex-10711.dmg",
+    "appVersion": "26.303.1606",
+    "buildNumber": "806",
+    "patchProfile": "",
+    "runConflictFixture": true
+  },
   "domainSourceRoots": [
     "src/main/",
     "src/renderer/",

@@ -1,0 +1,31 @@
+{
+  "changedCount": 1,
+  "files": [
+    {
+      "after": {
+        "importCount": 17,
+        "lineCount": 1005,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 16,
+        "lineCount": 1343,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-quality-01-behavior-split.ts",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "movedSymbolCount": 1,
+      "movedSymbolNames": [
+        "storeRuntimeLocalKN"
+      ]
+    }
+  ],
+  "generatedAtIso": "2026-03-04T06:28:19.296Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\top1-store-quality-01-custom-report.json",
+  "targetCount": 1,
+  "topUnique": 1,
+  "unchangedCount": 0
+}

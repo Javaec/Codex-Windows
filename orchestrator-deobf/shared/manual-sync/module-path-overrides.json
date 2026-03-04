@@ -1,6 +1,6 @@
 {
   "contractVersion": 2,
-  "generatedAtIso": "2026-03-03T19:07:27.056Z",
+  "generatedAtIso": "2026-03-04T09:54:46.916Z",
   "migrationVersion": 1,
   "overrides": [
     {
@@ -33,7 +33,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:101",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -65,7 +65,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:108",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -251,7 +251,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:164",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -345,7 +345,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:189",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -409,7 +409,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:242",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.897Z"
     },
     {
       "confidence": 0.84,
@@ -474,39 +474,6 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:278",
-      "updatedAtIso": "2026-03-03T16:10:20.118Z"
-    },
-    {
-      "confidence": 0.84,
-      "enabled": true,
-      "evidence": "manual-sync-relocated:servicePathRouteHeeAplService",
-      "filePath": "src/services/service/service-run-quality-01.ts",
-      "provenance": "manual-export-unique-file",
-      "symbolFingerprint": {
-        "apiShape": "class-constructor",
-        "callTokens": [
-          "coe",
-          "ooe",
-          "tce"
-        ],
-        "incomingBucket": 2,
-        "mutationProfile": "pure",
-        "outgoingBucket": 1,
-        "parameterCount": 0,
-        "role": "orchestrator",
-        "stateTokens": [
-          "abcdefghijklmnopqrstuvwxyz",
-          "abnormal",
-          "abort",
-          "aborted",
-          "before",
-          "error",
-          "exit",
-          "start"
-        ],
-        "version": 1
-      },
-      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:283",
       "updatedAtIso": "2026-03-03T16:10:20.118Z"
     },
     {
@@ -671,7 +638,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:328",
-      "updatedAtIso": "2026-03-03T19:07:27.054Z"
+      "updatedAtIso": "2026-03-04T09:54:46.916Z"
     },
     {
       "confidence": 0.84,
@@ -971,7 +938,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:382",
-      "updatedAtIso": "2026-03-03T19:07:27.056Z"
+      "updatedAtIso": "2026-03-04T09:54:46.916Z"
     },
     {
       "confidence": 0.84,
@@ -1298,7 +1265,7 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:494",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -1362,39 +1329,6 @@
         "version": 1
       },
       "symbolKey": "main-entry-asar:021bdb2f7755:symbol:77",
-      "updatedAtIso": "2026-03-03T17:02:35.402Z"
-    },
-    {
-      "confidence": 0.84,
-      "enabled": true,
-      "evidence": "manual-sync-relocated:servicePathRouteHeeService",
-      "filePath": "src/services/service/service-run-quality-01.ts",
-      "provenance": "manual-export-unique-file",
-      "symbolFingerprint": {
-        "apiShape": "sync-function",
-        "callTokens": [
-          "hte",
-          "jte",
-          "vte"
-        ],
-        "incomingBucket": 1,
-        "mutationProfile": "pure",
-        "outgoingBucket": 2,
-        "parameterCount": 0,
-        "role": "orchestrator",
-        "stateTokens": [
-          "abcdefghijklmnopqrstuvwxyz",
-          "abnormal",
-          "abort",
-          "aborted",
-          "before",
-          "error",
-          "exit",
-          "start"
-        ],
-        "version": 1
-      },
-      "symbolKey": "main-entry-asar:021bdb2f7755:symbol:92",
       "updatedAtIso": "2026-03-03T17:02:35.402Z"
     },
     {
@@ -1874,7 +1808,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:242",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -1968,7 +1902,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:258",
-      "updatedAtIso": "2026-03-03T18:45:42.162Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2034,7 +1968,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:264",
-      "updatedAtIso": "2026-03-03T18:45:42.162Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2097,7 +2031,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:321",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2225,6 +2159,37 @@
     {
       "confidence": 0.84,
       "enabled": true,
+      "evidence": "manual-sync-relocated:storePathRouteAbnormalJenmgState",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "provenance": "manual-export-unique-file",
+      "symbolFingerprint": {
+        "apiShape": "sync-function",
+        "callTokens": [
+          "mle"
+        ],
+        "incomingBucket": 1,
+        "mutationProfile": "state-mutation",
+        "outgoingBucket": 0,
+        "parameterCount": 0,
+        "role": "store",
+        "stateTokens": [
+          "abcdefghijklmnopqrstuvwxyz",
+          "abnormal",
+          "abort",
+          "aborted",
+          "before",
+          "error",
+          "exit",
+          "start"
+        ],
+        "version": 1
+      },
+      "symbolKey": "main-entry:symbol:417",
+      "updatedAtIso": "2026-03-04T06:51:20.558Z"
+    },
+    {
+      "confidence": 0.84,
+      "enabled": true,
       "evidence": "manual-sync-relocated:storePathRouteAbnormalCTState",
       "filePath": "src/services/store/store-state-g003-quality-01.ts",
       "provenance": "manual-export-unique-file",
@@ -2316,7 +2281,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:464",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2444,7 +2409,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:498",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2565,7 +2530,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:75",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2597,7 +2562,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:83",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
@@ -2629,13 +2594,13 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:86",
-      "updatedAtIso": "2026-03-03T18:45:42.161Z"
+      "updatedAtIso": "2026-03-04T09:54:46.898Z"
     },
     {
       "confidence": 0.84,
       "enabled": true,
-      "evidence": "manual-sync-relocated:serviceC4diagramYg6gdrkoService",
-      "filePath": "src/services/service/service-run-quality-03.ts",
+      "evidence": "manual-sync-relocated:servicePathRouteHeeService",
+      "filePath": "src/services/service/service-run-quality-01.ts",
       "provenance": "manual-export-unique-file",
       "symbolFingerprint": {
         "apiShape": "sync-function",
@@ -2662,7 +2627,7 @@
         "version": 1
       },
       "symbolKey": "main-entry:symbol:92",
-      "updatedAtIso": "2026-03-03T16:10:20.118Z"
+      "updatedAtIso": "2026-03-04T09:48:52.447Z"
     }
   ]
 }

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "stepOrder": [
+    "preload",
+    "webview-sunset",
+    "webview-cwd",
+    "main-runtime-shim"
+  ],
+  "steps": {
+    "preload": {
+      "description": "Inject process bridge into preload bundle.",
+      "stage": "preload"
+    },
+    "webview-sunset": {
+      "description": "Bypass forced app sunset gate in webview bundles.",
+      "stage": "webview"
+    },
+    "webview-cwd": {
+      "description": "Normalize cwd path comparison helpers in webview bundles.",
+      "stage": "webview"
+    },
+    "main-runtime-shim": {
+      "description": "Inject Windows runtime shim and SQLite path normalization hooks.",
+      "stage": "main"
+    }
+  }
+}

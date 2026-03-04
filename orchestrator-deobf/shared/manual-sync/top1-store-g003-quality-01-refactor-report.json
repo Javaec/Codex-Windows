@@ -1,0 +1,45 @@
+{
+  "changedCount": 1,
+  "files": [
+    {
+      "after": {
+        "importCount": 3,
+        "lineCount": 1552,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 2,
+        "lineCount": 1670,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-g003-quality-01-behavior-split.ts",
+      "filePath": "src/services/store/store-state-g003-quality-01.ts",
+      "movedSymbolCount": 15,
+      "movedSymbolNames": [
+        "storeAgentSettingsEventNodebclNode",
+        "storeAgentSettingsEventNodecbcNode",
+        "storeAgentSettingsEventNodecblNode",
+        "storeAgentSettingsEventNodedagNode",
+        "storeAgentSettingsEventNodedigNode",
+        "storeAgentSettingsEventNodeeafNode",
+        "storeAgentSettingsEventNodefilNode",
+        "storeAgentSettingsEventNodegndNode",
+        "storeAgentSettingsEventNodepbiNode",
+        "storeBaeAgentSettingsNodeLdj",
+        "storeFaeAgentSettingsNode",
+        "storeHxeAgentSettingsNode",
+        "storeRyeAgentSettingsNode",
+        "storeUxeAgentSettingsNode",
+        "storeXbeAgentSettingsNode"
+      ]
+    }
+  ],
+  "generatedAtIso": "2026-03-04T06:22:21.465Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\top1-store-g003-quality-01-report.json",
+  "targetCount": 1,
+  "topUnique": 1,
+  "unchangedCount": 0
+}

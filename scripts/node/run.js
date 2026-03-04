@@ -45,6 +45,7 @@ const exec_1 = require("./lib/exec");
 const extract_1 = require("./lib/extract");
 const manifest_1 = require("./lib/manifest");
 const launch_1 = require("./lib/launch");
+const patch_pipeline_1 = require("./lib/patch-pipeline");
 const native_1 = require("./lib/native");
 const portable_1 = require("./lib/portable");
 const sfx_1 = require("./lib/sfx");
@@ -126,12 +127,6 @@ async function runPipeline(options) {
     const cacheDir = path.join(workDir, isDefaultProfile ? "cache" : `cache-${effectiveProfile}`);
     const diagDir = path.join(workDir, "diagnostics", effectiveProfile);
     const gitCapabilityCachePath = (0, git_capability_cache_1.ensureGitCapabilityCachePath)(workDir, effectiveProfile);
-    (0, exec_1.writeHeader)("Patching preload");
-    (0, launch_1.patchPreload)(appDir);
-    (0, exec_1.writeHeader)("Patching webview app sunset gate");
-    (0, launch_1.patchWebviewAppSunsetGate)(appDir);
-    (0, exec_1.writeHeader)("Patching webview cwd normalization");
-    (0, launch_1.patchWebviewCwdNormalization)(appDir);
     (0, exec_1.writeHeader)("Reading app metadata");
     const pkgPath = path.join(appDir, "package.json");
     if (!fs.existsSync(pkgPath))
@@ -146,6 +141,16 @@ async function runPipeline(options) {
     const buildFlavor = pkg.codexBuildFlavor || "prod";
     const appVersion = pkg.version || buildNumber;
     const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+    const patchReport = (0, patch_pipeline_1.runCodexPatchPipeline)({
+        appDir,
+        diagnosticsDir: diagDir,
+        buildNumber,
+        buildFlavor,
+        appVersion,
+        snapshotLabel: path.basename(resolvedDmgPath),
+        forcedProfileId: options.patchProfile,
+    });
+    (0, exec_1.writeSuccess)(`Patch pipeline report: ${patchReport.reportPath}`);
     const nativeSignature = (0, manifest_1.getStepSignature)({
         dmgSha256: dmgDescriptor.sha256,
         electron: electronVersion,
@@ -156,7 +161,6 @@ async function runPipeline(options) {
     (0, exec_1.writeHeader)("Preparing native modules");
     const nativeResult = (0, native_1.invokeNativeStage)(appDir, nativeDir, electronVersion, betterVersion, ptyVersion, arch, manifest, manifestPath, nativeSignature);
     const electronExe = nativeResult.electronExe;
-    (0, launch_1.patchMainForWindowsEnvironment)(appDir, buildNumber, buildFlavor);
     (0, exec_1.writeHeader)("Environment contract checks");
     (0, env_1.assertEnvironmentContract)(options.strictContract);
     const preferredCodexCliPath = resolvePreferredCodexCliPath(options.codexCliPath, distDir);

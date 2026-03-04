@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "defaultProfileId": "generic",
+  "rules": [
+    {
+      "profileId": "codex-10711",
+      "snapshotRegex": "codex[-_]?10711",
+      "minBuild": 10711
+    },
+    {
+      "profileId": "codex-106x",
+      "snapshotRegex": "codex[-_]?10(?:6|61|6\\d)",
+      "minBuild": 1060
+    }
+  ]
+}

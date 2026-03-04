@@ -21,6 +21,27 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
 
 ## Current Decisions
 - Snapshot-scoped naming memory lives in `naming-memory-store/snapshots/snapshot-<sha12>.json`.
+- Patch profile selection is now shared with repacker/manual via patch-pack source-of-truth:
+  - `C:\\Codex-Windows\\shared\\patch-pack\\profile-selector.json`
+  - `C:\\Codex-Windows\\shared\\patch-pack\\profiles\\*.json`
+  - `C:\\Codex-Windows\\shared\\patch-pack\\mods\\*.json`
+  - `C:\\Codex-Windows\\shared\\patch-pack\\patch-catalog.json`
+  - `C:\\Codex-Windows\\shared\\patch-pack\\stage-registry.json`
+  - resolved profile metadata is written to each run: `runs/<runId>/patch-pack-profile.json`.
+- Stage order for patch-pack is now registry-only (no code fallback): `extract -> deobf -> mods -> runtime-pack`.
+- Mods are injectors with strict contract binding:
+  - each mod declares `injector.stageId`, `injector.inputContract`, `injector.outputContract`,
+  - contracts must exactly match stage-registry, otherwise fail-fast.
+- Added shared patch-pack preflight gate (`npm run patch-pack:preflight`) to validate selector/catalog/profiles/mod conflicts before migration runs.
+- Added pinned preflight and conflict-fixture commands for migration cadence:
+  - `npm run patch-pack:preflight:10711`
+  - `npm run patch-pack:test:mod-conflict`
+- Added deterministic version migration bridge command:
+  - `npm run migration:bridge -- --snapshot <path-to-app.asar> --snapshot-label Codex-10711.dmg [--patch-profile codex-10711]`
+  - freezes source naming profile, pre-seeds target snapshot profile, runs patch-pack preflight, then executes orchestrator and emits migration report.
+- Added one-shot daily migration scenario for Codex-10711:
+  - `npm run daily:migrate:10711 -- --snapshot <path-to-app.asar> --allow-after-freeze`
+  - sequence: `preflight -> conflict-test -> migration-bridge -> KPI summary`.
 - New snapshot bootstraps naming memory from legacy file or latest snapshot profile.
 - Coverage contour stays in artifacts (`pending-lift-symbols.json`) and does not pollute quality TS tree.
 - Regression suite merges evidence at symbol/file level into `merged-evidence.json` to pick best winners across profiles.
@@ -158,6 +179,10 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: prevents accidental ingestion of Vite bootstrap (`__vite__mapDeps`/`modulepreload`) and giant static dictionaries into `store-state-g*` quality modules.
 - Inline dependency declarations now run through the same static payload extraction path as source declarations.
   Verified reason: large literal payloads from inline paths are externalized to `assets/payloads/*`, reducing heavy `services/store` module size without proxy fallback.
+- Manual top-hot refactor now emits ESM-safe behavior imports with explicit `.js` suffix in generated TS imports.
+  Verified reason: prevented recurring `ERR_MODULE_NOT_FOUND` in `dev:smoke` after behavior-split extraction for manual hot modules.
+- Manual top-hot refactor no longer overwrites existing `*-behavior-split.ts` files.
+  Verified reason: when behavior module already exists, pass appends only missing exported declarations; this prevents destructive self-import/clobber regressions across repeated hot-refactor cycles.
 - Import-hygiene finalizer now demotes reassigned `const` declarations to `let` by AST assignment scan.
   Verified reason: removes residual `no-const-assign` lint failures in heavy lifted modules without broad lint-rule suppression.
 - Namespace import ownership-reduction now applies to all hot worst store/service modules (`store-state-g*`, `service-run.ts`), not only critical pair.
@@ -503,3 +528,26 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   Verified reason: prevents roundtrip `nameQuality` degradation while still syncing structural/manual module decisions.
 - Added generator-side open-file path normalization pass in template emitter.
   Verified reason: generated quality modules now wrap `open-file` mutation `path` fields with `__normalizeOpenFilePath(...)`, preventing malformed Windows drive-prefixed paths (`\C:\...`, `/C:/...`) from reaching Electron open handlers.
+- Refactor-top-hot seed selection widened to include runtime/parser-style large variable clusters (not only long functions).
+  Verified reason: hot manual files are dominated by giant top-level runtime/vendor declarations; extraction candidates must include these clusters to improve readability where function-length heuristics are insufficient.
+- Manual hot-rescue target selection now uses refactorability-aware ranking (candidate pool `topN*4`, then prioritize real actionable files over no-op mappings).
+  Verified reason: removes repeated no-op focus on `store-path*` / `transport-bridge` and keeps top-hot loop on large store/service modules where extraction/quarantine can produce measurable gains.
+- Refactor-top-hot extraction upgraded for heavy store/service files:
+  - default `maxImportGrowth` relaxed from `0` to `2` (line-growth still constrained),
+  - variable-seed support now accepts multi-declarator `const a=..., b=...` statements (primary-name record),
+  - dependency-closure now expands unresolved top-level symbol references iteratively instead of immediate skip,
+  - closure size limits are adaptive for heavy modules (`services/store|service`) and variable seeds.
+  Verified reason: previous strict policy caused `changedCount=0` in top-hot cycles even when large extractable runtime/parser clusters existed.
+- Variable declaration name collector now resolves identifiers from object/array destructuring patterns (not only plain identifiers).
+  Verified reason: extracted closures previously missed alias deps like `const { \"ab\": storePagePathDepemgDep } = ...`, causing runtime `is not defined` regressions after move.
+- Hot import quarantine pass validated on heavy service module (`service-run-quality-03`):
+  - moved 23 heavy artifact/payload import declarations into generated deps module,
+  - reduced local module import-noise to 2 imports, namespace imports to 0.
+  Verified reason: this materially improves manual readability without changing runtime behavior when paired with smoke gate.
+- One-file manual-first refactor loop validated for current hot snapshot:
+  - custom top-1 reports were used to force targeted extraction on specific heavy modules instead of broad top-N churn,
+  - strongest impact in this loop: `store-state-quality-01.ts` reduced to ~1005 lines after moving a heavy cluster into behavior-split.
+  Verified reason: focused extraction gives measurable readability gain per cycle and avoids no-op passes on low-refactorability files.
+- Post-extraction runtime regression class captured and fixed (`storeCoreDepBen is not defined` in behavior-split):
+  - behavior-split now uses aliased import + deterministic local function binding for the extracted parser cluster.
+  Verified reason: keeps extraction benefits while preserving `build/dev-smoke` green gate on manual project.

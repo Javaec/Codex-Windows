@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "stageOrder": [
+    "extract",
+    "deobf",
+    "mods",
+    "runtime-pack"
+  ],
+  "stages": {
+    "extract": {
+      "description": "Unpack and materialize snapshot artifacts for downstream processing.",
+      "inputContract": "snapshot.app-bundle",
+      "outputContract": "artifact.extracted-app",
+      "minBuild": 0,
+      "maxBuild": 0
+    },
+    "deobf": {
+      "description": "Normalize and deobfuscate extracted artifacts before any mod injection.",
+      "inputContract": "artifact.extracted-app",
+      "outputContract": "artifact.deobfuscated-app",
+      "minBuild": 0,
+      "maxBuild": 0
+    },
+    "mods": {
+      "description": "Apply deterministic mod injectors over deobfuscated artifacts.",
+      "inputContract": "artifact.deobfuscated-app",
+      "outputContract": "artifact.patched-app",
+      "minBuild": 0,
+      "maxBuild": 0
+    },
+    "runtime-pack": {
+      "description": "Assemble runtime package from patched artifacts.",
+      "inputContract": "artifact.patched-app",
+      "outputContract": "artifact.runtime-package",
+      "minBuild": 0,
+      "maxBuild": 0
+    }
+  },
+  "modInjectors": {
+    "defaultStageId": "mods",
+    "allowedStageIds": [
+      "mods"
+    ]
+  }
+}

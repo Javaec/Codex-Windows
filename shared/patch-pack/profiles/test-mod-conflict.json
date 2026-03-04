@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "profileId": "test-mod-conflict",
+  "description": "Test fixture profile that intentionally includes conflicting sunset mods.",
+  "mods": [
+    "core-preload",
+    "webview-sunset-strict",
+    "webview-sunset-optional",
+    "windows-runtime-shim"
+  ]
+}

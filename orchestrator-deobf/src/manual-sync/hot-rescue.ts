@@ -208,6 +208,39 @@ function buildRecommendedActions(metrics: ManualHotFileMetrics): string[] {
   return [...actions];
 }
 
+function hasRealRefactorAction(target: ManualHotRescueTarget): boolean {
+  return target.recommendedActions.some((action) => !/^maintain current structure;/iu.test(action));
+}
+
+function isNoOpPath(target: ManualHotRescueTarget): boolean {
+  return /store-path|transport-bridge/iu.test(target.manualFilePath);
+}
+
+function computeRefactorabilityRank(target: ManualHotRescueTarget): number {
+  if (!target.exists || !target.metrics) {
+    return -10;
+  }
+  const hasAction = hasRealRefactorAction(target);
+  const boundaryStrength = (target.metrics.boundaryTokenCounts.state ?? 0) + (target.metrics.boundaryTokenCounts.event ?? 0);
+  let rank = 0;
+  if (hasAction) {
+    rank += 4;
+  }
+  if (target.metrics.lineCount >= 400) {
+    rank += 2;
+  }
+  if (target.metrics.longFunctionCandidates.length > 0) {
+    rank += 2;
+  }
+  if (boundaryStrength >= 8) {
+    rank += 1;
+  }
+  if (isNoOpPath(target)) {
+    rank -= 4;
+  }
+  return rank;
+}
+
 async function resolveManualTarget(
   manualProjectPath: string,
   sourceRelativePath: string,
@@ -240,12 +273,12 @@ export async function runManualHotRescue(options: ManualHotRescueOptions): Promi
   const longFunctionLineThreshold = Math.max(20, Math.trunc(options.longFunctionLineThreshold));
   const model = await readJsonFile<ManualRefactorCandidatesModel>(candidatesPath);
   const sourceCandidates = Array.isArray(model.candidates) ? model.candidates : [];
-  const topCandidates = [...sourceCandidates]
+  const candidatePool = [...sourceCandidates]
     .sort((left, right) => (left.averageScore ?? 0) - (right.averageScore ?? 0))
-    .slice(0, topN);
+    .slice(0, Math.max(topN * 4, topN));
   const targets: ManualHotRescueTarget[] = [];
-  for (let index = 0; index < topCandidates.length; index += 1) {
-    const candidate = topCandidates[index];
+  for (let index = 0; index < candidatePool.length; index += 1) {
+    const candidate = candidatePool[index];
     if (!candidate) {
       continue;
     }
@@ -280,6 +313,16 @@ export async function runManualHotRescue(options: ManualHotRescueOptions): Promi
     }
     targets.push(target);
   }
+  const selectedTargets = [...targets]
+    .sort((left, right) => {
+      const refactorabilityDelta = computeRefactorabilityRank(right) - computeRefactorabilityRank(left);
+      if (refactorabilityDelta !== 0) {
+        return refactorabilityDelta;
+      }
+      return (left.averageScore ?? 0) - (right.averageScore ?? 0);
+    })
+    .slice(0, topN)
+    .map((target, index) => ({ ...target, rank: index + 1 }));
   const report: ManualHotRescueReport = {
     generatedAtIso: new Date().toISOString(),
     manualProjectPath,
@@ -287,10 +330,10 @@ export async function runManualHotRescue(options: ManualHotRescueOptions): Promi
     topN,
     namespaceImportCap,
     longFunctionLineThreshold,
-    targetCount: targets.length,
-    unresolvedCount: targets.filter((target) => !target.exists).length,
-    violationCount: targets.reduce((sum, target) => sum + target.violations.length, 0),
-    targets,
+    targetCount: selectedTargets.length,
+    unresolvedCount: selectedTargets.filter((target) => !target.exists).length,
+    violationCount: selectedTargets.reduce((sum, target) => sum + target.violations.length, 0),
+    targets: selectedTargets,
   };
   await writeJsonFile(path.resolve(options.outputPath), report);
   return report;

@@ -1,10 +1,39 @@
 {
-  "changedCount": 0,
-  "files": [],
-  "generatedAtIso": "2026-03-03T19:46:16.224Z",
+  "changedCount": 1,
+  "files": [
+    {
+      "after": {
+        "importCount": 16,
+        "lineCount": 1343,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 15,
+        "lineCount": 1772,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-quality-01-behavior-split.ts",
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "movedSymbolCount": 9,
+      "movedSymbolNames": [
+        "storeCoreDepKbc",
+        "storeCoreDepLpn",
+        "storeCoreDepMib",
+        "storeCoreDepPef",
+        "storeHandleDomainResultNbm",
+        "storeHandlePathPreloadResult",
+        "storeHandlePathResultPeh",
+        "storeRuntimeLocalKABde",
+        "storeRuntimeLocalOC"
+      ]
+    }
+  ],
+  "generatedAtIso": "2026-03-03T23:38:36.762Z",
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
-  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\refactorability-top3-report.json",
-  "targetCount": 3,
-  "topUnique": 3,
-  "unchangedCount": 3
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\manual-hot-rescue-last-report.json",
+  "targetCount": 1,
+  "topUnique": 1,
+  "unchangedCount": 0
 }

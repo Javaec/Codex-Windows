@@ -1,0 +1,46 @@
+{
+  "baselineCopyPath": "C:\\Codex-Windows\\orchestrator-deobf\\migration\\version-bridge\\baselines\\20260304-100246-snapshot-702f4ba34200.json",
+  "gateMode": "light",
+  "generatedAtIso": "2026-03-04T10:02:49.755Z",
+  "metricsPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\version-bridge-20260304-100248\\run-metrics.json",
+  "namingMemoryStage": null,
+  "notes": [
+    "baseline-copied:C:\\Codex-Windows\\orchestrator-deobf\\migration\\version-bridge\\baselines\\20260304-100246-snapshot-702f4ba34200.json",
+    "target-preserved:C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-021bdb2f7755.json",
+    "dry-run:no-orchestrator-run"
+  ],
+  "outputProfile": "regression-latest",
+  "patchProfile": "codex-10711",
+  "runDirectory": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\version-bridge-20260304-100248",
+  "runExecuted": false,
+  "runId": "version-bridge-20260304-100248",
+  "runMetrics": null,
+  "snapshotAsarPath": "C:\\Codex-Windows\\work\\compare-new\\electron\\Codex Installer\\Codex.app\\Contents\\Resources\\app.asar",
+  "snapshotKey": "021bdb2f7755",
+  "snapshotLabel": "Codex-10711.dmg",
+  "snapshotSha256": "021bdb2f77559032d1d8645f6b8013c8dbf54a31ce94e66a4ca09c296efb2a9e",
+  "sourceProfilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-702f4ba34200.json",
+  "sourceProfileStats": {
+    "averageNameQuality": 0.8605,
+    "entryCount": 40814,
+    "genericNameCount": 0,
+    "profilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-702f4ba34200.json"
+  },
+  "summaryPath": "C:\\Codex-Windows\\orchestrator-deobf\\runs\\version-bridge-20260304-100248\\summary.json",
+  "targetProfileExistedBefore": true,
+  "targetProfilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-021bdb2f7755.json",
+  "targetProfilePreseeded": false,
+  "targetProfileStatsAfterRun": {
+    "averageNameQuality": 0.8827,
+    "entryCount": 25373,
+    "genericNameCount": 0,
+    "profilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-021bdb2f7755.json"
+  },
+  "targetProfileStatsBeforeRun": {
+    "averageNameQuality": 0.8827,
+    "entryCount": 25373,
+    "genericNameCount": 0,
+    "profilePath": "C:\\Codex-Windows\\orchestrator-deobf\\naming-memory-store\\snapshots\\snapshot-021bdb2f7755.json"
+  },
+  "version": 1
+}

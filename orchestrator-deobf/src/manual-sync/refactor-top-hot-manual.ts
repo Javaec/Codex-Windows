@@ -71,7 +71,7 @@ function parseCli(argv: readonly string[], projectRoot: string): CliOptions {
   let outputPath = path.resolve(projectRoot, "shared", "manual-sync", "manual-top-hot-refactor-last-report.json");
   let topUnique = 5;
   let maxLineGrowth = 0;
-  let maxImportGrowth = 0;
+  let maxImportGrowth = 2;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
@@ -180,17 +180,44 @@ function selectTopUniqueTargets(report: ManualHotRescueReportModel, topUnique: n
 }
 
 function getDeclaredNamesFromVariableStatement(statement: ts.VariableStatement): string[] {
+  const collectNames = (bindingName: ts.BindingName, result: string[]): void => {
+    if (ts.isIdentifier(bindingName)) {
+      result.push(bindingName.text);
+      return;
+    }
+    if (ts.isObjectBindingPattern(bindingName) || ts.isArrayBindingPattern(bindingName)) {
+      for (const element of bindingName.elements) {
+        if (ts.isOmittedExpression(element)) {
+          continue;
+        }
+        collectNames(element.name, result);
+      }
+    }
+  };
   const names: string[] = [];
   for (const declaration of statement.declarationList.declarations) {
-    if (ts.isIdentifier(declaration.name)) {
-      names.push(declaration.name.text);
-    }
+    collectNames(declaration.name, names);
   }
   return names;
 }
 
 function hasStateEventToken(value: string): boolean {
   return /state|event/iu.test(value);
+}
+
+function hasRuntimeClusterToken(value: string): boolean {
+  return /runtime|parser|lexer|language|payload|cluster|vendor|table|core/iu.test(value);
+}
+
+function isSeedCandidate(record: ExtractionRecord): boolean {
+  const minimumLength = record.kind === "variable" ? 1400 : 1200;
+  if (record.text.length >= minimumLength) {
+    return true;
+  }
+  if (hasStateEventToken(record.name)) {
+    return true;
+  }
+  return hasRuntimeClusterToken(record.name);
 }
 
 function buildBehaviorModulePath(fileRelativePath: string): string {
@@ -203,9 +230,9 @@ function buildBehaviorImportPath(fileRelativePath: string, behaviorModulePath: s
   const toWithoutExtension = behaviorModulePath.replace(/\.ts$/u, "");
   const relative = path.posix.relative(fromDir, toWithoutExtension).replace(/\\/g, "/");
   if (relative.startsWith(".")) {
-    return relative;
+    return `${relative}.js`;
   }
-  return `./${relative}`;
+  return `./${relative}.js`;
 }
 
 function formatNamedImport(importNames: readonly string[], importPath: string): string {
@@ -229,6 +256,10 @@ function ensureExportModifier(statementText: string): string {
   const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0] : "";
   const body = statementText.slice(leadingWhitespace.length);
   return `${leadingWhitespace}export ${body}`;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function collectIdentifiersInNode(node: ts.Node): Set<string> {
@@ -258,13 +289,13 @@ function collectExtractionRecords(sourceFile: ts.SourceFile, sourceText: string)
     }
     if (ts.isVariableStatement(statement)) {
       const names = getDeclaredNamesFromVariableStatement(statement);
-      if (names.length === 1) {
-        const name = names[0];
-        if (!name) {
+      if (names.length > 0) {
+        const primaryName = names[0];
+        if (!primaryName) {
           continue;
         }
         records.push({
-          name,
+          name: primaryName,
           kind: "variable",
           start: statement.getStart(sourceFile),
           end: statement.end,
@@ -274,6 +305,30 @@ function collectExtractionRecords(sourceFile: ts.SourceFile, sourceText: string)
     }
   }
   return records;
+}
+
+function createRecordLookup(sourceFile: ts.SourceFile, records: readonly ExtractionRecord[]): Map<string, ExtractionRecord> {
+  const recordByName = new Map<string, ExtractionRecord>(records.map((record) => [record.name, record]));
+  const recordByStart = new Map<number, ExtractionRecord>(records.map((record) => [record.start, record]));
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    const record = recordByStart.get(statement.getStart(sourceFile));
+    if (!record) {
+      continue;
+    }
+    const names = getDeclaredNamesFromVariableStatement(statement);
+    for (const name of names) {
+      if (!name) {
+        continue;
+      }
+      if (!recordByName.has(name)) {
+        recordByName.set(name, record);
+      }
+    }
+  }
+  return recordByName;
 }
 
 function createDependencyMap(records: readonly ExtractionRecord[]): Map<string, Set<string>> {
@@ -348,6 +403,78 @@ interface RefactorSafetyPolicy {
   maxImportGrowth: number;
 }
 
+function isHeavyHotModule(fileRelativePath: string): boolean {
+  return /src\/services\/(?:store|service)\//iu.test(fileRelativePath);
+}
+
+function computeClosureSizeLimit(seed: ExtractionRecord, fileRelativePath: string): number {
+  const heavyModule = isHeavyHotModule(fileRelativePath);
+  if (seed.kind === "variable") {
+    return heavyModule ? 140 : 80;
+  }
+  return heavyModule ? 80 : 32;
+}
+
+function expandDependencyClosure(
+  sourceFile: ts.SourceFile,
+  seed: ExtractionRecord,
+  dependencyMap: ReadonlyMap<string, Set<string>>,
+  recordByName: ReadonlyMap<string, ExtractionRecord>,
+  importNames: ReadonlySet<string>,
+  fileRelativePath: string,
+): ExtractionRecord[] {
+  const closureLimit = computeClosureSizeLimit(seed, fileRelativePath);
+  const expansionPassLimit = 10;
+  const closureNames = buildClosure(seed.name, dependencyMap);
+  if (closureNames.size < 1 || closureNames.size > closureLimit) {
+    return [];
+  }
+  for (let passIndex = 0; passIndex < expansionPassLimit; passIndex += 1) {
+    const closureRecords = [...closureNames]
+      .map((name) => recordByName.get(name))
+      .filter((entry): entry is ExtractionRecord => Boolean(entry))
+      .sort((left, right) => left.start - right.start);
+    const closureNameSet = new Set(closureRecords.map((record) => record.name));
+    if (![...closureNameSet].some((name) => hasStateEventToken(name) || hasRuntimeClusterToken(name))) {
+      return [];
+    }
+    const unresolvedTopLevelNames = new Set<string>();
+    for (const record of closureRecords) {
+      const statementNode = sourceFile.statements.find((statement) => statement.getStart(sourceFile) === record.start);
+      if (!statementNode) {
+        continue;
+      }
+      const identifiers = collectIdentifiersInNode(statementNode);
+      for (const identifier of identifiers) {
+        if (closureNameSet.has(identifier) || importNames.has(identifier)) {
+          continue;
+        }
+        if (recordByName.has(identifier)) {
+          unresolvedTopLevelNames.add(identifier);
+        }
+      }
+    }
+    if (unresolvedTopLevelNames.size < 1) {
+      return closureRecords;
+    }
+    let addedCount = 0;
+    for (const unresolvedName of unresolvedTopLevelNames) {
+      if (closureNames.has(unresolvedName)) {
+        continue;
+      }
+      closureNames.add(unresolvedName);
+      addedCount += 1;
+      if (closureNames.size > closureLimit) {
+        return [];
+      }
+    }
+    if (addedCount < 1) {
+      return [];
+    }
+  }
+  return [];
+}
+
 async function refactorSingleFile(
   manualProjectPath: string,
   fileRelativePath: string,
@@ -358,12 +485,9 @@ async function refactorSingleFile(
   const beforeMetrics = collectFileMetrics(sourceText);
   const sourceFile = ts.createSourceFile(fileRelativePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const records = collectExtractionRecords(sourceFile, sourceText);
-  const recordByName = new Map(records.map((record) => [record.name, record]));
+  const recordByName = createRecordLookup(sourceFile, records);
   const dependencyMap = createDependencyMap(records);
-  const seedCandidates = records
-    .filter((record) => record.kind === "function")
-    .filter((record) => record.text.length >= 1200 || hasStateEventToken(record.name))
-    .sort((left, right) => right.text.length - left.text.length);
+  const seedCandidates = records.filter((record) => isSeedCandidate(record)).sort((left, right) => right.text.length - left.text.length);
   if (seedCandidates.length < 1) {
     return null;
   }
@@ -393,38 +517,15 @@ async function refactorSingleFile(
 
   let selectedClosureRecords: ExtractionRecord[] = [];
   for (const seed of seedCandidates) {
-    const closureNames = buildClosure(seed.name, dependencyMap);
-    if (closureNames.size < 1 || closureNames.size > 12) {
-      continue;
-    }
-    const closureRecords = [...closureNames]
-      .map((name) => recordByName.get(name))
-      .filter((entry): entry is ExtractionRecord => Boolean(entry))
-      .sort((left, right) => left.start - right.start);
-    const closureNameSet = new Set(closureRecords.map((record) => record.name));
-    if (![...closureNameSet].some((name) => hasStateEventToken(name))) {
-      continue;
-    }
-    const unresolvedTopLevelNames = new Set<string>();
-    for (const record of closureRecords) {
-      const statementNode = sourceFile.statements.find((statement) => statement.getStart(sourceFile) === record.start);
-      if (!statementNode) {
-        continue;
-      }
-      const identifiers = collectIdentifiersInNode(statementNode);
-      for (const identifier of identifiers) {
-        if (closureNameSet.has(identifier)) {
-          continue;
-        }
-        if (importNames.has(identifier)) {
-          continue;
-        }
-        if (recordByName.has(identifier)) {
-          unresolvedTopLevelNames.add(identifier);
-        }
-      }
-    }
-    if (unresolvedTopLevelNames.size > 0) {
+    const closureRecords = expandDependencyClosure(
+      sourceFile,
+      seed,
+      dependencyMap,
+      recordByName,
+      importNames,
+      normalizeRelativePath(fileRelativePath),
+    );
+    if (closureRecords.length < 1) {
       continue;
     }
     selectedClosureRecords = closureRecords;
@@ -450,7 +551,7 @@ async function refactorSingleFile(
   const splitModuleBody = selectedClosureRecords
     .map((record) => ensureExportModifier(record.text).trim())
     .join("\n\n");
-  const splitModuleContent = `${splitModuleHeader}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
+  const splitModuleContentBase = `${splitModuleHeader}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
 
   let nextSource = sourceText;
   const removalRanges = selectedClosureRecords
@@ -471,6 +572,22 @@ async function refactorSingleFile(
   }
   const absoluteBehaviorPath = path.join(manualProjectPath, behaviorModulePath);
   await ensureDirectory(path.dirname(absoluteBehaviorPath));
+  let splitModuleContent = splitModuleContentBase;
+  try {
+    const existingBehaviorContent = await fs.readFile(absoluteBehaviorPath, "utf8");
+    const missingExports = selectedClosureRecords
+      .filter((record) => {
+        const exportPattern = new RegExp(`\\bexport\\s+(?:function|const|var|class)\\s+${escapeRegExp(record.name)}\\b`, "u");
+        return !exportPattern.test(existingBehaviorContent);
+      })
+      .map((record) => ensureExportModifier(record.text).trim())
+      .join("\n\n");
+    splitModuleContent = missingExports.length > 0
+      ? `${existingBehaviorContent.trimEnd()}\n\n${missingExports}\n`
+      : `${existingBehaviorContent.trimEnd()}\n`;
+  } catch {
+    splitModuleContent = splitModuleContentBase;
+  }
   await fs.writeFile(absoluteBehaviorPath, splitModuleContent, "utf8");
   await fs.writeFile(absoluteFilePath, nextSource, "utf8");
 

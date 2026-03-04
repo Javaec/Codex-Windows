@@ -11,15 +11,26 @@ type WebviewPatchResult = {
   content: string;
 };
 
+export type WebviewPatchSummary = {
+  patchedFiles: number;
+  alreadyPatchedFiles: number;
+};
+
+export type WebviewPatchOptions = {
+  allowMissingPatchPoint?: boolean;
+};
+
 function patchWebviewIndexBundles(
   appDir: string,
   bundleNotFoundError: string,
   patchNotFoundError: string,
   patchContent: (raw: string) => WebviewPatchResult,
   optionalPatch = false,
-): boolean {
+): WebviewPatchSummary {
   const assetsDir = path.join(appDir, "webview", "assets");
-  if (!fileExists(assetsDir)) return false;
+  if (!fileExists(assetsDir)) {
+    return { patchedFiles: 0, alreadyPatchedFiles: 0 };
+  }
 
   const bundles = fs
     .readdirSync(assetsDir, { withFileTypes: true })
@@ -48,14 +59,13 @@ function patchWebviewIndexBundles(
     if (!optionalPatch) {
       throw new Error(patchNotFoundError);
     }
-    return false;
   }
-  return true;
+  return { patchedFiles: patchedFileCount, alreadyPatchedFiles: alreadyPatchedFileCount };
 }
 
-export function patchPreload(appDir: string): void {
+export function patchPreload(appDir: string): boolean {
   const preload = path.join(appDir, ".vite", "build", "preload.js");
-  if (!fileExists(preload)) return;
+  if (!fileExists(preload)) return false;
   let raw = fs.readFileSync(preload, "utf8");
   const processExpose =
     'const P={env:process.env,platform:process.platform,versions:process.versions,arch:process.arch,cwd:()=>process.env.PWD,argv:process.argv,pid:process.pid};n.contextBridge.exposeInMainWorld("process",P);';
@@ -66,14 +76,20 @@ export function patchPreload(appDir: string): void {
     if (!match) throw new Error("preload patch point not found.");
     raw = raw.replace(match[0], `${processExpose}${match[0]}`);
     fs.writeFileSync(preload, raw, "utf8");
+    return true;
   }
+  return false;
 }
 
-export function patchWebviewCwdNormalization(appDir: string): void {
+export function patchWebviewCwdNormalization(
+  appDir: string,
+  options: WebviewPatchOptions = {},
+): WebviewPatchSummary {
+  const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
   const helperPairPattern =
     /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
 
-  const patched = patchWebviewIndexBundles(
+  const summary = patchWebviewIndexBundles(
     appDir,
     "webview index bundle not found for cwd normalization patch.",
     "webview cwd normalization patch point not found.",
@@ -88,20 +104,26 @@ export function patchWebviewCwdNormalization(appDir: string): void {
       });
       return { alreadyPatched: false, patched: changed, content: next };
     },
-    true,
+    allowMissingPatchPoint,
   );
-  if (!patched) {
+  const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+  if (!matched && allowMissingPatchPoint) {
     writeWarn("webview cwd normalization patch skipped: patch point not found for current bundle signature.");
   }
+  return summary;
 }
 
-export function patchWebviewAppSunsetGate(appDir: string): void {
+export function patchWebviewAppSunsetGate(
+  appDir: string,
+  options: WebviewPatchOptions = {},
+): WebviewPatchSummary {
+  const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
   const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){", "const s=ys(i);if(r){"];
   const markerNeedles = ['id:"appSunset.title"', 'defaultMessage:"Update required"'];
   const gatePattern =
     /const\s+([A-Za-z0-9_$]+)\s*=\s*([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\);\s*if\(([A-Za-z0-9_$]+)\)\{/g;
 
-  const patched = patchWebviewIndexBundles(
+  const summary = patchWebviewIndexBundles(
     appDir,
     "webview index bundle not found for app sunset patch.",
     "webview app sunset patch point not found.",
@@ -190,11 +212,13 @@ export function patchWebviewAppSunsetGate(appDir: string): void {
         content: raw.slice(0, selectedPatch.start) + replacement + raw.slice(selectedPatch.end),
       };
     },
-    true,
+    allowMissingPatchPoint,
   );
-  if (!patched) {
+  const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+  if (!matched && allowMissingPatchPoint) {
     writeWarn("webview app sunset patch skipped: patch point not found for current bundle signature.");
   }
+  return summary;
 }
 
 function escapeJsString(value: string): string {

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "profileId": "codex-106x",
+  "description": "Codex 106x compatibility profile with strict sunset bypass and runtime shim.",
+  "mods": [
+    "core-preload",
+    "webview-sunset-strict",
+    "webview-cwd-normalization",
+    "windows-runtime-shim"
+  ]
+}

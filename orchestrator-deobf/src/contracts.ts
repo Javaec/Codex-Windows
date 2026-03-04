@@ -55,6 +55,12 @@ export interface InputArtifacts {
 }
 
 export interface RunFlags {
+  patchPackRootPath: string;
+  patchProfileId: string;
+  patchProfileSource: string;
+  patchProfilePath: string;
+  snapshotLabel: string;
+  snapshotBuildHint: number;
   forceOverwriteOutputs: boolean;
   wakaruConcurrency: number;
   enableWakaru: boolean;

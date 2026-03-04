@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "windows-runtime-shim",
+  "description": "Inject runtime shim with sqlite path normalization and shell open-path guards.",
+  "lane": "main",
+  "priority": 400,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "main-runtime-shim", "required": true }
+  ]
+}

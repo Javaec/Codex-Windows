@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-sunset-strict",
+  "description": "Strict webview sunset bypass for codex snapshots.",
+  "lane": "webview",
+  "priority": 210,
+  "conflicts": ["webview-sunset-optional"],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex",
+    "minBuild": 1060
+  },
+  "steps": [
+    { "id": "webview-sunset", "required": true }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "core-preload",
+  "description": "Inject process bridge into preload bundle.",
+  "lane": "preload",
+  "priority": 100,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "preload", "required": true }
+  ]
+}

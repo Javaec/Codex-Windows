@@ -8,6 +8,8 @@ import { readJsonFile, writeJsonFile } from "../utils/fs-json";
 
 interface CliOptions {
   snapshotAsarPath: string;
+  snapshotLabel: string;
+  patchProfile: string;
   manualProjectPath: string;
   generatedProjectPath: string;
   manualSyncRootPath: string;
@@ -57,6 +59,8 @@ function printUsage(): void {
     "",
     "Options:",
     "  --generated-project <path>   default: output/regression-latest/project",
+    "  --snapshot-label <label>     optional: forwards to generator patch-pack resolver",
+    "  --patch-profile <profile>    optional: forces patch-pack profile in generator runs",
     "  --manual-sync-root <path>    default: shared/manual-sync",
     "  --merged-evidence <path>     optional: merged-evidence.json for top-N export promotion",
     "  --promotion-top-n <n>        default: 120",
@@ -82,6 +86,8 @@ function parseIntegerOption(flag: string, value: string, minimum: number): numbe
 
 function parseCli(argv: string[], projectRoot: string): CliOptions {
   let snapshotAsarPath = "";
+  let snapshotLabel = "";
+  let patchProfile = "";
   let manualProjectPath = "";
   let generatedProjectPath = path.join(projectRoot, "output", "regression-latest", "project");
   let manualSyncRootPath = defaultManualSyncRootPath(projectRoot);
@@ -114,6 +120,24 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
           throw new Error("Missing value for --manual-project");
         }
         manualProjectPath = path.resolve(value);
+        index += 1;
+        break;
+      }
+      case "--snapshot-label": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --snapshot-label");
+        }
+        snapshotLabel = value.trim();
+        index += 1;
+        break;
+      }
+      case "--patch-profile": {
+        const value = argv[index + 1];
+        if (!value) {
+          throw new Error("Missing value for --patch-profile");
+        }
+        patchProfile = value.trim().toLowerCase();
         index += 1;
         break;
       }
@@ -246,6 +270,8 @@ function parseCli(argv: string[], projectRoot: string): CliOptions {
 
   return {
     snapshotAsarPath,
+    snapshotLabel,
+    patchProfile,
     manualProjectPath,
     generatedProjectPath,
     manualSyncRootPath,
@@ -325,6 +351,12 @@ async function runGenerator(
     "--manual-sync-root",
     cli.manualSyncRootPath,
   ];
+  if (cli.snapshotLabel.length > 0) {
+    args.push("--snapshot-label", cli.snapshotLabel);
+  }
+  if (cli.patchProfile.length > 0) {
+    args.push("--patch-profile", cli.patchProfile);
+  }
   if (cli.weightsConfigPath && cli.weightsConfigPath.length > 0) {
     args.push("--weights-config", cli.weightsConfigPath);
   }

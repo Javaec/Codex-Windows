@@ -1,0 +1,32 @@
+{
+  "changedCount": 1,
+  "files": [
+    {
+      "after": {
+        "importCount": 6,
+        "lineCount": 1953,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 5,
+        "lineCount": 1958,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/service/service-run-quality-01-behavior-split.ts",
+      "filePath": "src/services/service/service-run-quality-01.ts",
+      "movedSymbolCount": 2,
+      "movedSymbolNames": [
+        "serviceBlockdiagramEventNavigateNodecpdNod",
+        "serviceBlockdiagramEventNavigateNodedldNod"
+      ]
+    }
+  ],
+  "generatedAtIso": "2026-03-03T23:01:33.616Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\top3-hot-rescue-report.json",
+  "targetCount": 3,
+  "topUnique": 3,
+  "unchangedCount": 2
+}

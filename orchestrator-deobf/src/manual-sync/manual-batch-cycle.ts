@@ -28,10 +28,20 @@ interface ReadabilityKpiConfig {
   targetFiles: string[];
 }
 
+interface PatchPackPreflightConfig {
+  enabled: boolean;
+  snapshotLabel: string;
+  appVersion: string;
+  buildNumber: string;
+  patchProfile: string;
+  runConflictFixture: boolean;
+}
+
 interface ManualFirstWorkflowConfig {
   version: number;
   manualProjectPath: string;
   snapshotAsarPath: string;
+  patchPackPreflight: PatchPackPreflightConfig;
   domainSourceRoots: string[];
   lightGateCommands: string[];
   fullGateCommands: string[];
@@ -285,6 +295,36 @@ function normalizeRelativePath(input: string): string {
   return input.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
+function requireNonEmpty(value: string, label: string): string {
+  const normalized = value.trim();
+  if (normalized.length < 1) {
+    throw new Error(`manual batch config invalid: ${label} must be non-empty`);
+  }
+  return normalized;
+}
+
+function buildPatchPackPreflightCommand(config: PatchPackPreflightConfig): string {
+  const snapshotLabel = requireNonEmpty(config.snapshotLabel, "patchPackPreflight.snapshotLabel");
+  const appVersion = requireNonEmpty(config.appVersion, "patchPackPreflight.appVersion");
+  const buildNumber = requireNonEmpty(config.buildNumber, "patchPackPreflight.buildNumber");
+  const patchProfile = config.patchProfile.trim();
+  const patchProfileArg = patchProfile.length > 0 ? ` --patch-profile "${patchProfile}"` : "";
+  return (
+    `npm run patch-pack:preflight -- --snapshot-label "${snapshotLabel}" ` +
+    `--app-version "${appVersion}" --build-number "${buildNumber}"${patchProfileArg}`
+  );
+}
+
+function buildRoundtripPatchPackArgs(config: PatchPackPreflightConfig): string {
+  if (!config.enabled) {
+    return "";
+  }
+  const snapshotLabel = requireNonEmpty(config.snapshotLabel, "patchPackPreflight.snapshotLabel");
+  const patchProfile = config.patchProfile.trim();
+  const patchProfileArg = patchProfile.length > 0 ? ` --patch-profile "${patchProfile}"` : "";
+  return ` --snapshot-label "${snapshotLabel}"${patchProfileArg}`;
+}
+
 function resolveReadabilityConfig(workflow: ManualFirstWorkflowConfig): ReadabilityKpiConfig {
   const defaultTargetFiles = [
     "src/services/store/store-state-quality-01.ts",
@@ -438,6 +478,12 @@ async function run(): Promise<void> {
   if (!(await fileExists(snapshotAsarPath))) {
     throw new Error(`snapshot not found: ${snapshotAsarPath}`);
   }
+  if (workflow.patchPackPreflight.enabled) {
+    await runCommand(buildPatchPackPreflightCommand(workflow.patchPackPreflight), projectRoot);
+    if (workflow.patchPackPreflight.runConflictFixture) {
+      await runCommand("npm run patch-pack:test:mod-conflict", projectRoot);
+    }
+  }
   const freezePath = path.join(projectRoot, MANUAL_GENERATOR_FREEZE_RELATIVE_PATH);
   const freezeExists = await fileExists(freezePath);
   if (freezeExists && !cli.allowAfterFreeze) {
@@ -538,8 +584,9 @@ async function run(): Promise<void> {
     `npm run manual-sync:export -- --manual-project "${manualProjectPath}" --merged-evidence "${mergedEvidencePath}" --promotion-top-n ${Math.max(1, Math.trunc(workflow.promotionTopN))}`,
     projectRoot,
   );
+  const roundtripPatchPackArgs = buildRoundtripPatchPackArgs(workflow.patchPackPreflight);
   await runCommand(
-    `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}"`,
+    `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}"${roundtripPatchPackArgs}`,
     projectRoot,
   );
 

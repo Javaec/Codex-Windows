@@ -1,0 +1,22 @@
+{
+  "generatedAtIso": "2026-03-04T00:00:00.000Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "targetCount": 3,
+  "targets": [
+    {
+      "rank": 1,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-quality-01.ts"
+    },
+    {
+      "rank": 2,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-g002-quality-01.ts"
+    },
+    {
+      "rank": 3,
+      "exists": true,
+      "manualFilePath": "src/services/store/store-state-quality-02.ts"
+    }
+  ]
+}

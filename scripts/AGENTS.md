@@ -29,6 +29,39 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 
 ## Current Decisions
 - Reverse-engineering tooling is implemented as a separate CLI (`reverse.ts`) and not mixed into launch/build pipeline.
+- 2026-03-04: Introduced a profile-driven patch pipeline in runner (`scripts/ts/lib/patch-pipeline.ts`).
+  - Patch flow is now a single orchestrated stage with explicit profile selection.
+  - Profiles are no longer hardcoded in runner code; they are loaded from shared patch-pack:
+    - `C:\Codex-Windows\shared\patch-pack\profile-selector.json`
+    - `C:\Codex-Windows\shared\patch-pack\profiles\*.json`
+    - `C:\Codex-Windows\shared\patch-pack\mods\*.json`
+    - `C:\Codex-Windows\shared\patch-pack\patch-catalog.json`
+  - Step contract is explicit (`preload`, `webview-sunset`, `webview-cwd`, `main-runtime-shim`) with per-step required/optional semantics.
+  - `run.ts` no longer hardcodes independent patch calls; it invokes one patch pipeline entrypoint and writes `patch-pipeline-report.json`.
+  - Auto profile resolver now uses snapshot label (`Codex-10711.dmg` style) before package metadata because newer builds may expose low/ambiguous `codexBuildNumber`.
+  - `-PatchProfile` override added for deterministic version-transition runs.
+  - Why: lower coupling, less legacy branching in `run.ts`, easier migration across obfuscation shifts between Codex builds.
+- 2026-03-04: Patch-pack is now mod-loader based.
+  - Profiles select ordered mod sets; runner merges steps from selected mods only.
+  - Step report includes `sourceModId` for deterministic provenance.
+  - Stage orchestration is now registry-driven via `shared/patch-pack/stage-registry.json`:
+    - required stages: `extract -> deobf -> mods -> runtime-pack`,
+    - mods are injectors (`lane` + `injector.stageId/inputContract/outputContract`),
+    - stage order is loaded from registry (no stage-rank fallback in code).
+  - Added shared fail-fast preflight command: `npm run patch-pack:preflight`.
+  - Added snapshot-pinned preflight command for daily migration checks:
+    - `npm run patch-pack:preflight:10711`
+  - Added conflict fixture assertion:
+    - `npm run patch-pack:test:mod-conflict`
+  - Why: one patch source-of-truth for repacker/generator/manual, easier upgrade between Codex versions.
+- 2026-03-04: Webview patch APIs now return structured summaries.
+  - `patchWebviewAppSunsetGate` and `patchWebviewCwdNormalization` now support strict/optional mode via `allowMissingPatchPoint`.
+  - Why: pipeline can enforce fail-fast in known profiles and controlled recovery in generic profile without hidden behavior.
+
+### Reference files used for this design
+- `reference/decompile/asar/src/asar.ts` (clear stage boundaries and deterministic flow).
+- `reference/decompile/pkg-unpacker/src/unpacker.ts` (strict parsing path and explicit error-first control flow).
+
 - Webview sunset-gate patching is signature-tolerant:
   - keep legacy exact needles for known bundles;
   - fallback to semantic detection (`appSunset.title` / `Update required`) and patch the gating branch by component reference.
