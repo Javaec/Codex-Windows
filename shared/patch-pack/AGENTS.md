@@ -44,3 +44,7 @@ Single source of truth for patch profiles across repacker, generator, and manual
 - Rationale:
   - avoid brittle AST patch points in obfuscated renderer bundles,
   - keep mod resilient across snapshot obfuscation drift.
+- Upgraded limits panel injector to V2:
+  - patch tag: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V2`,
+  - panel values are runtime-updated from intercepted `fetch`/`XMLHttpRequest` JSON payloads,
+  - values are cached in `localStorage` (`codex-windows-limits-panel-cache-v1`) and restored on reload.
