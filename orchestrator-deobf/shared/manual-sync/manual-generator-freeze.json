@@ -1,8 +1,8 @@
 {
-  "batchIndex": 11,
-  "generatedAtIso": "2026-03-04T06:40:39.668Z",
-  "lastNameQuality": 0.8197,
-  "noGrowthStreak": 4,
+  "batchIndex": 12,
+  "generatedAtIso": "2026-03-04T13:13:13.622Z",
+  "lastNameQuality": 0.8178,
+  "noGrowthStreak": 5,
   "reason": "manual-batch stop-rule reached: no global+local readability growth",
   "stopAfterNoGrowth": 3,
   "version": 1

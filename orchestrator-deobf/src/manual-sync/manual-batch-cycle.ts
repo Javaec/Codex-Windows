@@ -593,13 +593,28 @@ async function run(): Promise<void> {
     projectRoot,
   );
   const roundtripPatchPackArgs = buildRoundtripPatchPackArgs(workflow.patchPackPreflight);
-  await runCommand(
-    `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}"${roundtripPatchPackArgs}`,
-    projectRoot,
-  );
+  let roundtripFailureReason = "";
+  try {
+    await runCommand(
+      `npm run manual-sync:roundtrip -- --snapshot "${snapshotAsarPath}" --manual-project "${manualProjectPath}"${roundtripPatchPackArgs}`,
+      projectRoot,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? (error.message || "unknown_error") : String(error);
+    roundtripFailureReason = reason;
+    generatorSyncSkippedReason = generatorSyncSkippedReason.length > 0
+      ? `${generatorSyncSkippedReason};roundtrip_failed:${reason}`
+      : `roundtrip_failed:${reason}`;
+  }
 
   const roundtripReportPath = path.join(projectRoot, MANUAL_ROUNDTRIP_REPORT_RELATIVE_PATH);
-  const roundtripReport = await readJsonFile<Record<string, unknown>>(roundtripReportPath);
+  const roundtripReport = (await fileExists(roundtripReportPath))
+    ? await readJsonFile<Record<string, unknown>>(roundtripReportPath)
+    : {};
+  if (roundtripFailureReason.length > 0 && !Object.prototype.hasOwnProperty.call(roundtripReport, "afterMetrics")) {
+    roundtripReport.beforeMetrics = {};
+    roundtripReport.afterMetrics = {};
+  }
   const beforeMetrics = toRoundtripMetrics(
     (typeof roundtripReport.beforeMetrics === "object" && roundtripReport.beforeMetrics
       ? roundtripReport.beforeMetrics
