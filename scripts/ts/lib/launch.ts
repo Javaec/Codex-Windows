@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, runCommand } from "./exec";
+import { ensureDir, fileExists, runCommand, writeWarn } from "./exec";
 
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
@@ -16,9 +16,10 @@ function patchWebviewIndexBundles(
   bundleNotFoundError: string,
   patchNotFoundError: string,
   patchContent: (raw: string) => WebviewPatchResult,
-): void {
+  optionalPatch = false,
+): boolean {
   const assetsDir = path.join(appDir, "webview", "assets");
-  if (!fileExists(assetsDir)) return;
+  if (!fileExists(assetsDir)) return false;
 
   const bundles = fs
     .readdirSync(assetsDir, { withFileTypes: true })
@@ -44,8 +45,12 @@ function patchWebviewIndexBundles(
   }
 
   if (patchedFileCount === 0 && alreadyPatchedFileCount === 0) {
-    throw new Error(patchNotFoundError);
+    if (!optionalPatch) {
+      throw new Error(patchNotFoundError);
+    }
+    return false;
   }
+  return true;
 }
 
 export function patchPreload(appDir: string): void {
@@ -68,7 +73,7 @@ export function patchWebviewCwdNormalization(appDir: string): void {
   const helperPairPattern =
     /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
 
-  patchWebviewIndexBundles(
+  const patched = patchWebviewIndexBundles(
     appDir,
     "webview index bundle not found for cwd normalization patch.",
     "webview cwd normalization patch point not found.",
@@ -83,16 +88,20 @@ export function patchWebviewCwdNormalization(appDir: string): void {
       });
       return { alreadyPatched: false, patched: changed, content: next };
     },
+    true,
   );
+  if (!patched) {
+    writeWarn("webview cwd normalization patch skipped: patch point not found for current bundle signature.");
+  }
 }
 
 export function patchWebviewAppSunsetGate(appDir: string): void {
-  const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){"];
+  const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){", "const s=ys(i);if(r){"];
   const markerNeedles = ['id:"appSunset.title"', 'defaultMessage:"Update required"'];
   const gatePattern =
     /const\s+([A-Za-z0-9_$]+)\s*=\s*([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\);\s*if\(([A-Za-z0-9_$]+)\)\{/g;
 
-  patchWebviewIndexBundles(
+  const patched = patchWebviewIndexBundles(
     appDir,
     "webview index bundle not found for app sunset patch.",
     "webview app sunset patch point not found.",
@@ -130,7 +139,12 @@ export function patchWebviewAppSunsetGate(appDir: string): void {
       }
 
       const sunsetComponentName = sunsetComponentMatch[1];
-      const usageNeedles = [`h.jsx(${sunsetComponentName},`, `h.jsxs(${sunsetComponentName},`];
+      const usageNeedles = [
+        `h.jsx(${sunsetComponentName},`,
+        `h.jsxs(${sunsetComponentName},`,
+        `f.jsx(${sunsetComponentName},`,
+        `f.jsxs(${sunsetComponentName},`,
+      ];
       const usageIndex = usageNeedles
         .map((needle) => raw.indexOf(needle, markerIndex))
         .find((index) => index >= 0);
@@ -156,7 +170,8 @@ export function patchWebviewAppSunsetGate(appDir: string): void {
         const guardVar = match[4];
         const branchWindow = searchWindow.slice(match.index, Math.min(searchWindow.length, match.index + 640));
         if (!branchWindow.includes(`else if(${gateVar}){`)) continue;
-        if (!branchWindow.includes(`h.jsx(${sunsetComponentName},`)) continue;
+        const componentRenderedInBranch = usageNeedles.some((needle) => branchWindow.includes(needle));
+        if (!componentRenderedInBranch) continue;
         selectedPatch = {
           start: searchStart + match.index,
           end: searchStart + match.index + full.length,
@@ -175,7 +190,11 @@ export function patchWebviewAppSunsetGate(appDir: string): void {
         content: raw.slice(0, selectedPatch.start) + replacement + raw.slice(selectedPatch.end),
       };
     },
+    true,
   );
+  if (!patched) {
+    writeWarn("webview app sunset patch skipped: patch point not found for current bundle signature.");
+  }
 }
 
 function escapeJsString(value: string): string {
@@ -325,6 +344,51 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
       return out;
     }
 
+    function normalizeThreadPathPrefix(rawValue) {
+      if (typeof rawValue !== "string") return "";
+      let value = rawValue.trim().replace(/^"+|"+$/g, "");
+      if (!value) return value;
+      if (value.startsWith("\\\\?\\")) value = value.slice(4);
+      else if (value.startsWith("//?/")) value = value.slice(4);
+      else if (value.startsWith("/??/")) value = value.slice(4);
+      if (/^[/\\][A-Za-z]:[\\/]/.test(value)) value = value.slice(1);
+      return value;
+    }
+
+    function buildThreadPathNormalizeExpression(column) {
+      return (
+        "CASE " +
+        "WHEN typeof(" + column + ")='text' AND length(" + column + ") > 4 AND substr(hex(" + column + "), 1, 8)='5C5C3F5C' THEN substr(" + column + ", 5) " +
+        "WHEN typeof(" + column + ")='text' AND " + column + " LIKE '//?/%' THEN substr(" + column + ", 5) " +
+        "WHEN typeof(" + column + ")='text' AND " + column + " LIKE '/??/%' THEN substr(" + column + ", 5) " +
+        "WHEN typeof(" + column + ")='text' AND " + column + " GLOB '/[A-Za-z]:/*' THEN substr(" + column + ", 2) " +
+        "WHEN typeof(" + column + ")='text' AND substr(" + column + ", 1, 1)='\\\\' AND substr(" + column + ", 2, 2) GLOB '[A-Za-z]:' THEN substr(" + column + ", 2) " +
+        "ELSE " + column + " END"
+      );
+    }
+
+    function ensureThreadPathNormalizationTriggers(db, migrationTargets, availableColumns) {
+      for (const column of migrationTargets) {
+        if (!availableColumns.includes(column)) continue;
+        const normalizeExpr = buildThreadPathNormalizeExpression(column);
+        const triggerPrefix = "codex_windows_threads_" + column + "_normalize";
+        const createInsertTrigger =
+          "CREATE TRIGGER IF NOT EXISTS " + triggerPrefix + "_insert " +
+          "AFTER INSERT ON threads " +
+          "FOR EACH ROW BEGIN " +
+          "UPDATE threads SET " + column + " = " + normalizeExpr + " WHERE id = NEW.id; " +
+          "END;";
+        const createUpdateTrigger =
+          "CREATE TRIGGER IF NOT EXISTS " + triggerPrefix + "_update " +
+          "AFTER UPDATE OF " + column + " ON threads " +
+          "FOR EACH ROW BEGIN " +
+          "UPDATE threads SET " + column + " = " + normalizeExpr + " WHERE id = NEW.id; " +
+          "END;";
+        db.exec(createInsertTrigger);
+        db.exec(createUpdateTrigger);
+      }
+    }
+
     function migrateThreadCwdPrefixInSqlite(codexHomeDir) {
       const report = {
         codexHomeDir: codexHomeDir || "",
@@ -348,12 +412,7 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
         return report;
       }
 
-      const updateQueries = [
-        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND length(cwd) > 4 AND substr(hex(cwd), 1, 8)='5C5C3F5C'",
-        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND cwd LIKE '//?/%'",
-        "UPDATE threads SET cwd = substr(cwd, 5) WHERE typeof(cwd)='text' AND cwd LIKE '/??/%'",
-        "UPDATE threads SET cwd = substr(cwd, 2) WHERE typeof(cwd)='text' AND cwd GLOB '/[A-Za-z]:/*'"
-      ];
+      const migrationTargets = ["cwd", "rollout_path"];
       const hasThreadsTableQuery = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads' LIMIT 1";
 
       for (const databasePath of databasePaths) {
@@ -363,10 +422,30 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
           report.scannedDatabases += 1;
           const hasThreadsTable = db.prepare(hasThreadsTableQuery).get();
           if (!hasThreadsTable) continue;
+          let availableColumns = [];
+          try {
+            availableColumns = db.prepare("PRAGMA table_info(threads)").all().map((row) => String(row && row.name ? row.name : ""));
+          } catch {
+            availableColumns = [];
+          }
+          ensureThreadPathNormalizationTriggers(db, migrationTargets, availableColumns);
           let changedRows = 0;
-          for (const updateQuery of updateQueries) {
-            const result = db.prepare(updateQuery).run();
-            changedRows += Number(result && result.changes ? result.changes : 0);
+          for (const column of migrationTargets) {
+            if (!availableColumns.includes(column)) continue;
+            const rows = db
+              .prepare("SELECT id, " + column + " AS pathValue FROM threads WHERE typeof(" + column + ")='text'")
+              .all();
+            if (!Array.isArray(rows) || rows.length === 0) continue;
+            const updateStatement = db.prepare("UPDATE threads SET " + column + " = ? WHERE id = ?");
+            for (const row of rows) {
+              const threadId = row && typeof row.id === "string" ? row.id : "";
+              const currentPath = row && typeof row.pathValue === "string" ? row.pathValue : "";
+              if (!threadId || !currentPath) continue;
+              const normalizedPath = normalizeThreadPathPrefix(currentPath);
+              if (!normalizedPath || normalizedPath === currentPath) continue;
+              const updateResult = updateStatement.run(normalizedPath, threadId);
+              changedRows += Number(updateResult && updateResult.changes ? updateResult.changes : 0);
+            }
           }
           if (changedRows > 0) {
             report.updatedDatabases += 1;
@@ -417,6 +496,10 @@ function buildWindowsRuntimeShim(buildNumber: string, buildFlavor: string): stri
         const envValue = process.env[envName];
         return envValue ? envValue : all;
       });
+      if (value.startsWith("\\\\?\\")) value = value.slice(4);
+      else if (value.startsWith("//?/")) value = value.slice(4);
+      else if (value.startsWith("/??/")) value = value.slice(4);
+      if (/^[/\\][A-Za-z]:[\\/]/.test(value)) value = value.slice(1);
       if (value.includes("%")) return "";
       return path.normalize(value);
     }

@@ -33,6 +33,20 @@ import { invokeSingleExeBuild } from "./lib/sfx";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
+function resolvePreferredCodexCliPath(explicit: string | undefined, distDir: string): string | undefined {
+  if (explicit) return explicit;
+  const candidates = [
+    path.join(distDir, "Codex-win32-x64", "resources", "codex.exe"),
+    path.join(distDir, "Codex-win32-arm64", "resources", "codex.exe"),
+    path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex.exe"),
+    path.join(REPO_ROOT, "dist", "Codex-win32-arm64", "resources", "codex.exe"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 function resolveAndProbeCodexCli(
   codexCliPath: string | undefined,
   requireFound: boolean,
@@ -167,12 +181,13 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   writeHeader("Environment contract checks");
   assertEnvironmentContract(options.strictContract);
 
+  const preferredCodexCliPath = resolvePreferredCodexCliPath(options.codexCliPath, distDir);
   const cliTracePath = path.join(diagDir, "cli-resolution.log");
 
   if (options.buildPortable) {
     writeHeader("Resolving Codex CLI");
     const cliResolution = resolveAndProbeCodexCli(
-      options.codexCliPath,
+      preferredCodexCliPath,
       false,
       cliTracePath,
       "Codex CLI preflight failed for portable packaging",
@@ -231,7 +246,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
   if (!options.noLaunch) {
     writeHeader("Resolving Codex CLI");
     const cliResolution = resolveAndProbeCodexCli(
-      options.codexCliPath,
+      preferredCodexCliPath,
       true,
       cliTracePath,
       "Codex CLI preflight failed",
@@ -255,7 +270,7 @@ async function runPipeline(options: ReturnType<typeof parseArgs>["options"]): Pr
       gitCapabilityCachePath,
     );
   } else {
-    const cliResolution = resolveCodexCliPathContract(options.codexCliPath, false);
+    const cliResolution = resolveCodexCliPathContract(preferredCodexCliPath, false);
     writeCliResolutionTrace(cliResolution, cliTracePath);
   }
 

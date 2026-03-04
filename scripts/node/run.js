@@ -49,6 +49,21 @@ const native_1 = require("./lib/native");
 const portable_1 = require("./lib/portable");
 const sfx_1 = require("./lib/sfx");
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
+function resolvePreferredCodexCliPath(explicit, distDir) {
+    if (explicit)
+        return explicit;
+    const candidates = [
+        path.join(distDir, "Codex-win32-x64", "resources", "codex.exe"),
+        path.join(distDir, "Codex-win32-arm64", "resources", "codex.exe"),
+        path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex.exe"),
+        path.join(REPO_ROOT, "dist", "Codex-win32-arm64", "resources", "codex.exe"),
+    ];
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate))
+            return candidate;
+    }
+    return undefined;
+}
 function resolveAndProbeCodexCli(codexCliPath, requireFound, tracePath, probeFailurePrefix, missingWarnMessage) {
     const resolution = (0, cli_1.resolveCodexCliPathContract)(codexCliPath, requireFound);
     (0, cli_1.writeCliResolutionTrace)(resolution, tracePath);
@@ -144,10 +159,11 @@ async function runPipeline(options) {
     (0, launch_1.patchMainForWindowsEnvironment)(appDir, buildNumber, buildFlavor);
     (0, exec_1.writeHeader)("Environment contract checks");
     (0, env_1.assertEnvironmentContract)(options.strictContract);
+    const preferredCodexCliPath = resolvePreferredCodexCliPath(options.codexCliPath, distDir);
     const cliTracePath = path.join(diagDir, "cli-resolution.log");
     if (options.buildPortable) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = resolveAndProbeCodexCli(options.codexCliPath, false, cliTracePath, "Codex CLI preflight failed for portable packaging", "codex.exe not found; portable build will rely on runtime PATH detection.");
+        const cliResolution = resolveAndProbeCodexCli(preferredCodexCliPath, false, cliTracePath, "Codex CLI preflight failed for portable packaging", "codex.exe not found; portable build will rely on runtime PATH detection.");
         (0, exec_1.writeHeader)("Packaging portable app");
         const portable = await (0, portable_1.invokePortableBuild)(distDir, nativeDir, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
         (0, exec_1.writeSuccess)(`Portable build ready: ${portable.outputDir}`);
@@ -183,7 +199,7 @@ async function runPipeline(options) {
     }
     if (!options.noLaunch) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = resolveAndProbeCodexCli(options.codexCliPath, true, cliTracePath, "Codex CLI preflight failed");
+        const cliResolution = resolveAndProbeCodexCli(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed");
         (0, launch_1.ensureGitOnPath)();
         const directLaunchExe = await (0, branding_1.prepareDirectLaunchExecutable)(electronExe, appVersion, workDir);
         reportWorkspaceSanitizer((0, workspace_registry_1.sanitizeWorkspaceRegistry)(userDataDir, diagDir));
@@ -193,7 +209,7 @@ async function runPipeline(options) {
         (0, launch_1.startCodexDirectLaunch)(directLaunchExe, appDir, userDataDir, cacheDir, cliResolution.path, buildNumber, buildFlavor, gitCapabilityCachePath);
     }
     else {
-        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(options.codexCliPath, false);
+        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(preferredCodexCliPath, false);
         (0, cli_1.writeCliResolutionTrace)(cliResolution, cliTracePath);
     }
     return 0;
