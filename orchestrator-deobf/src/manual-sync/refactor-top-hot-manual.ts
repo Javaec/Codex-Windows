@@ -38,6 +38,11 @@ interface ExtractionRecord {
   text: string;
 }
 
+interface ClosureExpansionResult {
+  records: ExtractionRecord[];
+  unresolvedNames: string[];
+}
+
 interface FileRefactorResult {
   filePath: string;
   behaviorModulePath: string;
@@ -464,21 +469,24 @@ function expandDependencyClosure(
   recordByName: ReadonlyMap<string, ExtractionRecord>,
   importNames: ReadonlySet<string>,
   fileRelativePath: string,
-): ExtractionRecord[] {
+): ClosureExpansionResult {
   const closureLimit = computeClosureSizeLimit(seed, fileRelativePath);
   const expansionPassLimit = isHeavyHotModule(fileRelativePath) ? 200 : 10;
   const closureNames = buildClosure(seed.name, dependencyMap);
   if (closureNames.size < 1 || closureNames.size > closureLimit) {
-    return [];
+    return { records: [], unresolvedNames: [] };
   }
+  let lastRecords: ExtractionRecord[] = [];
+  let lastUnresolvedNames: string[] = [];
   for (let passIndex = 0; passIndex < expansionPassLimit; passIndex += 1) {
     const closureRecords = [...closureNames]
       .map((name) => recordByName.get(name))
       .filter((entry): entry is ExtractionRecord => Boolean(entry))
       .sort((left, right) => left.start - right.start);
+    lastRecords = closureRecords;
     const closureNameSet = new Set(closureRecords.map((record) => record.name));
     if (![...closureNameSet].some((name) => hasStateEventToken(name) || hasRuntimeClusterToken(name))) {
-      return [];
+      return { records: [], unresolvedNames: [] };
     }
     const unresolvedTopLevelNames = new Set<string>();
     for (const record of closureRecords) {
@@ -496,8 +504,9 @@ function expandDependencyClosure(
         }
       }
     }
+    lastUnresolvedNames = [...unresolvedTopLevelNames].sort((left, right) => left.localeCompare(right));
     if (unresolvedTopLevelNames.size < 1) {
-      return closureRecords;
+      return { records: closureRecords, unresolvedNames: [] };
     }
     let addedCount = 0;
     for (const unresolvedName of unresolvedTopLevelNames) {
@@ -507,14 +516,17 @@ function expandDependencyClosure(
       closureNames.add(unresolvedName);
       addedCount += 1;
       if (closureNames.size > closureLimit) {
-        return [];
+        return { records: closureRecords, unresolvedNames: lastUnresolvedNames };
       }
     }
     if (addedCount < 1) {
-      return [];
+      return { records: closureRecords, unresolvedNames: lastUnresolvedNames };
     }
   }
-  return [];
+  return {
+    records: lastRecords,
+    unresolvedNames: lastUnresolvedNames,
+  };
 }
 
 function expandSingleRecordFallback(
@@ -522,10 +534,10 @@ function expandSingleRecordFallback(
   seed: ExtractionRecord,
   recordByName: ReadonlyMap<string, ExtractionRecord>,
   importNames: ReadonlySet<string>,
-): ExtractionRecord[] {
+): ClosureExpansionResult {
   const statementNode = sourceFile.statements.find((statement) => statement.getStart(sourceFile) === seed.start);
   if (!statementNode) {
-    return [];
+    return { records: [], unresolvedNames: [] };
   }
   const identifiers = collectIdentifiersInNode(statementNode);
   const unresolvedTopLevelNames = new Set<string>();
@@ -538,12 +550,15 @@ function expandSingleRecordFallback(
     }
   }
   if (unresolvedTopLevelNames.size > 0) {
-    return [];
+    return {
+      records: [seed],
+      unresolvedNames: [...unresolvedTopLevelNames].sort((left, right) => left.localeCompare(right)),
+    };
   }
   if (seed.text.length < 500 && !hasStateEventToken(seed.name) && !hasRuntimeClusterToken(seed.name)) {
-    return [];
+    return { records: [], unresolvedNames: [] };
   }
-  return [seed];
+  return { records: [seed], unresolvedNames: [] };
 }
 
 async function refactorSingleFile(
@@ -589,8 +604,9 @@ async function refactorSingleFile(
   const selectedClosureRecords: ExtractionRecord[] = [];
   const selectedRanges: Array<{ start: number; end: number }> = [];
   const selectedRecordNames = new Set<string>();
+  const unresolvedFromSource = new Set<string>();
   for (const seed of seedCandidates) {
-    let closureRecords = expandDependencyClosure(
+    let expansionResult = expandDependencyClosure(
       sourceFile,
       seed,
       dependencyMap,
@@ -598,9 +614,10 @@ async function refactorSingleFile(
       importNames,
       normalizeRelativePath(fileRelativePath),
     );
-    if (closureRecords.length < 1) {
-      closureRecords = expandSingleRecordFallback(sourceFile, seed, recordByName, importNames);
+    if (expansionResult.records.length < 1) {
+      expansionResult = expandSingleRecordFallback(sourceFile, seed, recordByName, importNames);
     }
+    const closureRecords = expansionResult.records;
     if (closureRecords.length < 1) {
       continue;
     }
@@ -629,6 +646,11 @@ async function refactorSingleFile(
       selectedClosureRecords.push(record);
       selectedRecordNames.add(record.name);
     }
+    for (const unresolvedName of expansionResult.unresolvedNames) {
+      if (!selectedRecordNames.has(unresolvedName)) {
+        unresolvedFromSource.add(unresolvedName);
+      }
+    }
     if (selectedRanges.length >= policy.maxClustersPerFile) {
       break;
     }
@@ -641,7 +663,11 @@ async function refactorSingleFile(
   const fileRelativePosix = normalizeRelativePath(fileRelativePath);
   const behaviorModulePath = buildBehaviorModulePath(fileRelativePosix);
   const behaviorImportPath = buildBehaviorImportPath(fileRelativePosix, behaviorModulePath);
+  const sourceModuleImportPath = buildBehaviorImportPath(normalizeRelativePath(behaviorModulePath), fileRelativePosix);
   const movedNames = [...new Set(selectedClosureRecords.map((record) => record.name))];
+  const unresolvedNames = [...unresolvedFromSource]
+    .filter((name) => !movedNames.includes(name))
+    .sort((left, right) => left.localeCompare(right));
 
   const { importStatements, lastImportEnd, existingBehaviorImportNames } = collectImportsText(
     sourceFile,
@@ -654,10 +680,18 @@ async function refactorSingleFile(
     "// Extracted behavior cluster for state/event boundary readability.",
     "",
   ].join("\n");
+  const sourceContextImportName = "__sourceContext";
+  const sourceDependencyPrelude = unresolvedNames.length > 0
+    ? [
+      `import * as ${sourceContextImportName} from "${sourceModuleImportPath}";`,
+      ...unresolvedNames.map((name) => `const ${name} = ${sourceContextImportName}.${name};`),
+      "",
+    ].join("\n")
+    : "";
   const splitModuleBody = selectedClosureRecords
     .map((record) => ensureExportModifier(record.text).trim())
     .join("\n\n");
-  const splitModuleContentBase = `${splitModuleHeader}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
+  const splitModuleContentBase = `${splitModuleHeader}${sourceDependencyPrelude}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
 
   let nextSource = sourceText;
   const removalRanges = selectedClosureRecords
@@ -689,9 +723,23 @@ async function refactorSingleFile(
       })
       .map((record) => ensureExportModifier(record.text).trim())
       .join("\n\n");
+    const missingSourceBindings = unresolvedNames
+      .filter((name) => {
+        const bindingPattern = new RegExp(`\\bconst\\s+${escapeRegExp(name)}\\s*=\\s*${escapeRegExp(sourceContextImportName)}\\.${escapeRegExp(name)}\\b`, "u");
+        return !bindingPattern.test(existingBehaviorContent);
+      })
+      .map((name) => `const ${name} = ${sourceContextImportName}.${name};`);
+    const sourceImportPattern = new RegExp(`\\bimport\\s+\\*\\s+as\\s+${escapeRegExp(sourceContextImportName)}\\s+from\\s+["']${escapeRegExp(sourceModuleImportPath)}["']`, "u");
+    const needsSourceImport = unresolvedNames.length > 0 && !sourceImportPattern.test(existingBehaviorContent);
+    const sourcePrelude = (needsSourceImport || missingSourceBindings.length > 0)
+      ? [
+        needsSourceImport ? `import * as ${sourceContextImportName} from "${sourceModuleImportPath}";` : "",
+        ...missingSourceBindings,
+      ].filter((line) => line.length > 0).join("\n")
+      : "";
     splitModuleContent = missingExports.length > 0
-      ? `${existingBehaviorContent.trimEnd()}\n\n${missingExports}\n`
-      : `${existingBehaviorContent.trimEnd()}\n`;
+      ? `${sourcePrelude.length > 0 ? `${sourcePrelude}\n` : ""}${existingBehaviorContent.trimEnd()}\n\n${missingExports}\n`
+      : `${sourcePrelude.length > 0 ? `${sourcePrelude}\n` : ""}${existingBehaviorContent.trimEnd()}\n`;
   } catch {
     splitModuleContent = splitModuleContentBase;
   }

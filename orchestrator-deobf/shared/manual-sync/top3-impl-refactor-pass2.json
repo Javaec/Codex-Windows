@@ -1,0 +1,77 @@
+{
+  "changedCount": 2,
+  "files": [
+    {
+      "after": {
+        "importCount": 4,
+        "lineCount": 354,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 3,
+        "lineCount": 1055,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/store/store-state-g003-quality-01.impl-behavior-split.ts",
+      "filePath": "src/services/store/store-state-g003-quality-01.impl.ts",
+      "movedSymbolCount": 8,
+      "movedSymbolNames": [
+        "storeAgentSettingsEventNodebgjNode",
+        "storeAngularHtmlEventNodecmpNode",
+        "storeBlockdiagramEventNavigateNodecnkNode",
+        "storeBlockdiagramEventNavigateNodedblNode",
+        "storeGxeAgentSettingsNode",
+        "storeVxeAgentSettingsNode",
+        "storeWxeAgentSettingsNode",
+        "storeYxeAgentSettingsNode"
+      ]
+    },
+    {
+      "after": {
+        "importCount": 6,
+        "lineCount": 629,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "before": {
+        "importCount": 5,
+        "lineCount": 916,
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "behaviorModulePath": "src/services/service/service-run-quality-01.impl-behavior-split.ts",
+      "filePath": "src/services/service/service-run-quality-01.impl.ts",
+      "movedSymbolCount": 19,
+      "movedSymbolNames": [
+        "serviceBlockdiagramEventNavigateNodebhbNod",
+        "serviceBlockdiagramEventNavigateNodecpfNod",
+        "serviceBlockdiagramEventNavigateNodedbhNod",
+        "serviceBlockdiagramEventNavigateNodedbhNodOjn",
+        "serviceBlockdiagramEventNavigateNodedbjNod",
+        "serviceBlockdiagramEventNavigateNodedblNod",
+        "serviceBlockdiagramEventNavigateNodeddjNod",
+        "serviceBlockdiagramEventNavigateNodedlgNod",
+        "serviceBlockdiagramEventNavigateNodedlhNod",
+        "serviceBlockdiagramEventNavigateNodedlkNod",
+        "serviceBlockdiagramEventNavigateNodednhNod",
+        "serviceBlockdiagramEventNavigateNodednkNod",
+        "serviceBlockdiagramEventNavigateNodeeblNod",
+        "serviceBlockdiagramEventNavigateNodeeokNod",
+        "serviceBlockdiagramEventNavigateNodehjlNod",
+        "serviceBlockdiagramEventNavigateNodehklNod",
+        "serviceBlockdiagramEventNavigateNodehmlNod",
+        "serviceBlockdiagramEventNavigateNodeppgNod",
+        "serviceBslEventNavigateNodebjpNode"
+      ]
+    }
+  ],
+  "generatedAtIso": "2026-03-04T13:18:23.946Z",
+  "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
+  "maxClustersPerFile": 6,
+  "reportPath": "C:\\Codex-Windows\\orchestrator-deobf\\shared\\manual-sync\\top3-manual-hot-report.json",
+  "targetCount": 3,
+  "topUnique": 3,
+  "unchangedCount": 1
+}

@@ -590,3 +590,15 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - updated manual KPI/refactorability focus to impl files in config/manual-first-workflow.json and config/manual-refactorability-policy.json.
   - refreshed shared/manual-sync/top3-manual-hot-report.json to impl targets.
   Verified reason: immediate line-count reduction in hot entry files while preserving build/smoke stability; next extraction cycles now target impl modules directly.
+- 2026-03-04 top-3 impl reduction pass (manual-first):
+  - target files reduced below 900 lines:
+    - src/renderer/features/store/store-state.impl.ts -> 184 lines,
+    - src/services/store/store-state-g003-quality-01.impl.ts -> 262 lines,
+    - src/services/service/service-run-quality-01.impl.ts -> 623 lines.
+  - reports updated:
+    - shared/manual-sync/top3-impl-before-reduction.json
+    - shared/manual-sync/top3-impl-after-reduction.json
+    - shared/manual-sync/top3-impl-delta-reduction.json
+  - extraction path hardened with unresolved source-binding support in src/manual-sync/refactor-top-hot-manual.ts.
+  - manual runtime validated after targeted stabilization fixes (uild + dev:smoke => imported 15 / skipped 0).
+  Note: glue-ratio increased in reduced impl files due intentional import/extract split; next cycle should optimize body-level readability KPI (median function length + domain-call density) rather than line count only.
