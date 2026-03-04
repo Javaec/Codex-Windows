@@ -24,7 +24,7 @@ export async function ensureDirectory(directoryPath: string): Promise<void> {
 
 async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
   const retryableErrorCodes = new Set<string>(["EBUSY", "EPERM", "ENOTEMPTY"]);
-  const maxAttempts = 8;
+  const maxAttempts = 40;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await fs.rm(directoryPath, { recursive: true, force: true });
@@ -40,7 +40,7 @@ async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
       if (!retryableErrorCodes.has(errorCode) || attempt >= maxAttempts) {
         throw error;
       }
-      const delayMs = attempt * 120;
+      const delayMs = Math.min(3000, attempt * 250);
       await new Promise<void>((resolve) => {
         setTimeout(resolve, delayMs);
       });

@@ -542,7 +542,7 @@ async function run(): Promise<void> {
     }
     try {
       await runCommand(
-        `npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}" --fast-profile-id "${fastProfileId}" --fast-focus-count ${fastFocusCount} --promotion-budget-per-cycle ${promotionBudgetPerCycle}`,
+        `set "CODEX_ROUNDTRIP_RELAX_QUALITY_SHARD_FAILFAST=1" && npm run regression:cycles -- --snapshot "${snapshotAsarPath}" --max-cycles 1 --allow-after-freeze --suite-run-prefix "${workflow.generatorSync.suiteRunPrefix}" --fast-profile-id "${fastProfileId}" --fast-focus-count ${fastFocusCount} --promotion-budget-per-cycle ${promotionBudgetPerCycle}`,
         projectRoot,
       );
     } catch (error) {
