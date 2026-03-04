@@ -602,3 +602,33 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - extraction path hardened with unresolved source-binding support in src/manual-sync/refactor-top-hot-manual.ts.
   - manual runtime validated after targeted stabilization fixes (uild + dev:smoke => imported 15 / skipped 0).
   Note: glue-ratio increased in reduced impl files due intentional import/extract split; next cycle should optimize body-level readability KPI (median function length + domain-call density) rather than line count only.
+- 2026-03-04 top-3 reduction safety hardening (latest pass):
+  - fixed duplicate-range extraction bug in `src/manual-sync/refactor-top-hot-manual.ts` by deduplicating closure records before removal/write.
+  - added behavior-module sanitizer on write (`sanitizeBehaviorModuleContent`) to dedupe imports and repeated declarations.
+  - verified targeted pass on top-3 hot files (`store-state-quality-01.ts`, `service-run-quality-03.ts`, `store-state-quality-02.ts`) with strong line reduction and green gates.
+  - latest health: `manual-codex-app` build green, dev smoke `imported 15 / skipped 0`.
+- 2026-03-04 top-3 glue reduction pass:
+  - merged duplicate imports per module in hot files (especially repeated `*-behavior-split.js` imports).
+  - added import dedupe into `src/manual-sync/refactor-top-hot-manual.ts` (`dedupeImportDeclarations`) with strict conflict checks.
+  - preservation rule: first import replacement starts at `getStart(...)` to keep file prologue comments (`// @ts-nocheck`).
+  - measured effect on top-3 (`shared/manual-sync/top3-delta-latest.json`):
+    - totalLines: 3246 -> 1841 (-43.28%),
+    - glueRatio: 0.008399 -> 0.004005 (improved),
+    - manual runtime still green (`dev:smoke imported 15 / skipped 0`).
+- 2026-03-04 desktop startup parity smoke (manual/generated shells):
+  - manual project has `desktop:smoke` script (`build:web` + Electron launch marker).
+  - generated project (`output/regression-latest/project`) has same desktop smoke script.
+  - this gives deterministic launch verification from source-built frontend shell in addition to `dev:smoke` import checks.
+- 2026-03-04 runtime import-normalizer hotfix loop (generated project):
+  - extended `runtime/normalize-runtime-imports.mjs` + emitter template parity (`src/emit/template-emitter.ts`) with deterministic safety passes:
+    - missing-symbol prelude with scoped symbol allowlist,
+    - async export-function promotion for broken lifted `await` functions,
+    - tuple-call guards for context-factory symbols,
+    - parser-utility guard for `storeOrchestratePathResult` (`n.forEach` fallback),
+    - widened chunk safety to keep `chunk-index-*` + `chunk-baseuniq-*` stable.
+  - achieved smoke recovery on generated snapshot:
+    - `dev:smoke` from `imported 17 / skipped 10` -> `imported 27 / skipped 0`,
+    - top store/service: `5/8` -> `13/0`.
+  - verified parity/manual stability:
+    - generated `parity:smoke` passed,
+    - `manual-codex-app dev:smoke` stays green (`15/0`).

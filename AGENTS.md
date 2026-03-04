@@ -82,3 +82,13 @@
   - `select count(*) from threads where typeof(cwd)='text' and substr(hex(cwd),1,8)='5C5C3F5C';` => `0`
   - `select count(*) from threads where typeof(rollout_path)='text' and substr(hex(rollout_path),1,8)='5C5C3F5C';` => `0`
   - `select name from sqlite_master where type='trigger' and name like 'codex_windows_threads_%_normalize_%';` => triggers exist.
+
+## 2026-03-04: Source build launch parity smoke (manual + generated)
+
+- Added shared source parity checker in `shared/patch-pack/source-parity-smoke.mjs`.
+- Parity checker now uses resilient matching:
+  - open-file path normalization can be validated either from dedicated helper file or from inlined `__normalizeOpenFilePath` declarations.
+  - transport bridge check is strict when explicit bridge file exists; otherwise warning-only for generated snapshots that have no stable bridge layer.
+  - `thread/list` marker in repacked `.vite/build/*.js` is warning-only (obfuscation-dependent), not hard-fail.
+  - missing `runtime/patch-pack-profile.json` is warning-only for generated snapshots.
+- Goal: keep `parity:smoke` actionable and avoid false red on generated/manual variants with different layout.

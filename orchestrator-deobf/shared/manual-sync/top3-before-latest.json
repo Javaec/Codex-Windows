@@ -1,0 +1,45 @@
+{
+  "generatedAtIso": "2026-03-04T13:56:14.639Z",
+  "manualProjectPath": "C:/Codex-Windows/manual-codex-app",
+  "files": [
+    {
+      "filePath": "src/services/store/store-state-quality-01.ts",
+      "lineCount": 1005,
+      "importCount": 17,
+      "namespaceImportCount": 0,
+      "runtimeVendorImportCount": 0,
+      "functionCount": 164,
+      "avgFunctionBodyLength": 5.048780487804878,
+      "glueRatio": 0.017932489451476793,
+      "domainCallDensity": 0.19914529914529913
+    },
+    {
+      "filePath": "src/services/service/service-run-quality-03.ts",
+      "lineCount": 1163,
+      "importCount": 3,
+      "namespaceImportCount": 0,
+      "runtimeVendorImportCount": 0,
+      "functionCount": 307,
+      "avgFunctionBodyLength": 3.736156351791531,
+      "glueRatio": 0.0025884383088869713,
+      "domainCallDensity": 0.13709677419354838
+    },
+    {
+      "filePath": "src/services/store/store-state-quality-02.ts",
+      "lineCount": 1078,
+      "importCount": 5,
+      "namespaceImportCount": 0,
+      "runtimeVendorImportCount": 0,
+      "functionCount": 127,
+      "avgFunctionBodyLength": 12.68503937007874,
+      "glueRatio": 0.004677268475210477,
+      "domainCallDensity": 0.16178067318132464
+    }
+  ],
+  "summary": {
+    "avgFunctionBodyLength": 7.156658736558383,
+    "glueRatio": 0.008399398745191413,
+    "domainCallDensity": 0.1660075821733907,
+    "totalLines": 3246
+  }
+}

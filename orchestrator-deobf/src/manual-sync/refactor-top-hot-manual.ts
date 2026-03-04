@@ -64,6 +64,24 @@ interface RefactorReport {
   files: FileRefactorResult[];
 }
 
+interface ImportGroupState {
+  declarations: ts.ImportDeclaration[];
+  namedBindings: Map<string, string>;
+  defaultImportName: string;
+  namespaceImportName: string;
+}
+
+function deduplicateRecords(records: readonly ExtractionRecord[]): ExtractionRecord[] {
+  const byRange = new Map<string, ExtractionRecord>();
+  for (const record of records) {
+    const key = `${record.start}:${record.end}`;
+    if (!byRange.has(key)) {
+      byRange.set(key, record);
+    }
+  }
+  return [...byRange.values()].sort((left, right) => left.start - right.start);
+}
+
 function parseIntegerFlag(flag: string, rawValue: string, minValue: number): number {
   const parsed = Number.parseInt(rawValue, 10);
   if (Number.isNaN(parsed) || parsed < minValue) {
@@ -278,6 +296,170 @@ function ensureExportModifier(statementText: string): string {
 
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function collectDeclaredNamesFromStatement(statement: ts.Statement): string[] {
+  if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+    return [statement.name.text];
+  }
+  if (ts.isVariableStatement(statement)) {
+    return getDeclaredNamesFromVariableStatement(statement);
+  }
+  return [];
+}
+
+function buildMergedImportStatement(modulePath: string, group: ImportGroupState): string {
+  const named = [...group.namedBindings.values()].sort((left, right) => left.localeCompare(right));
+  const namedChunk = named.length > 0 ? `{ ${named.join(", ")} }` : "";
+  if (group.namespaceImportName.length > 0 && named.length > 0) {
+    throw new Error(`Import merge conflict: mixed namespace+named import for ${modulePath}`);
+  }
+  if (group.namespaceImportName.length > 0 && group.defaultImportName.length > 0) {
+    return `import ${group.defaultImportName}, * as ${group.namespaceImportName} from "${modulePath}";`;
+  }
+  if (group.namespaceImportName.length > 0) {
+    return `import * as ${group.namespaceImportName} from "${modulePath}";`;
+  }
+  if (group.defaultImportName.length > 0 && named.length > 0) {
+    return `import ${group.defaultImportName}, ${namedChunk} from "${modulePath}";`;
+  }
+  if (group.defaultImportName.length > 0) {
+    return `import ${group.defaultImportName} from "${modulePath}";`;
+  }
+  if (named.length > 0) {
+    if (named.length <= 8) {
+      return `import ${namedChunk} from "${modulePath}";`;
+    }
+    const lines = named.map((name) => `  ${name},`).join("\n");
+    return `import {\n${lines}\n} from "${modulePath}";`;
+  }
+  return `import "${modulePath}";`;
+}
+
+function dedupeImportDeclarations(content: string): string {
+  const sourceFile = ts.createSourceFile("module.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const byModule = new Map<string, ImportGroupState>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      continue;
+    }
+    const modulePath = statement.moduleSpecifier.text;
+    let group = byModule.get(modulePath);
+    if (!group) {
+      group = {
+        declarations: [],
+        namedBindings: new Map<string, string>(),
+        defaultImportName: "",
+        namespaceImportName: "",
+      };
+      byModule.set(modulePath, group);
+    }
+    group.declarations.push(statement);
+    const importClause = statement.importClause;
+    if (!importClause) {
+      continue;
+    }
+    if (importClause.name) {
+      if (group.defaultImportName.length > 0 && group.defaultImportName !== importClause.name.text) {
+        throw new Error(`Import merge conflict: default binding mismatch for ${modulePath}`);
+      }
+      group.defaultImportName = importClause.name.text;
+    }
+    const namedBindings = importClause.namedBindings;
+    if (!namedBindings) {
+      continue;
+    }
+    if (ts.isNamespaceImport(namedBindings)) {
+      if (group.namespaceImportName.length > 0 && group.namespaceImportName !== namedBindings.name.text) {
+        throw new Error(`Import merge conflict: namespace binding mismatch for ${modulePath}`);
+      }
+      group.namespaceImportName = namedBindings.name.text;
+      continue;
+    }
+    for (const element of namedBindings.elements) {
+      const imported = element.propertyName ? element.propertyName.text : element.name.text;
+      const local = element.name.text;
+      const key = `${imported}|${local}`;
+      const token = imported === local ? local : `${imported} as ${local}`;
+      group.namedBindings.set(key, token);
+    }
+  }
+
+  const edits: Array<{ start: number; end: number; text: string }> = [];
+  for (const [modulePath, group] of byModule.entries()) {
+    if (group.declarations.length < 2) {
+      continue;
+    }
+    group.declarations.sort((left, right) => left.getStart(sourceFile) - right.getStart(sourceFile));
+    const first = group.declarations[0];
+    if (!first) {
+      continue;
+    }
+    edits.push({
+      // Keep header comments (`// @ts-nocheck`) by replacing from `getStart`, not `getFullStart`.
+      start: first.getStart(sourceFile),
+      end: first.end,
+      text: `${buildMergedImportStatement(modulePath, group)}\n`,
+    });
+    for (let index = 1; index < group.declarations.length; index += 1) {
+      const duplicate = group.declarations[index];
+      if (!duplicate) {
+        continue;
+      }
+      edits.push({
+        start: duplicate.getFullStart(),
+        end: duplicate.end,
+        text: "",
+      });
+    }
+  }
+  if (edits.length < 1) {
+    return content;
+  }
+  let next = content;
+  edits.sort((left, right) => right.start - left.start);
+  for (const edit of edits) {
+    next = `${next.slice(0, edit.start)}${edit.text}${next.slice(edit.end)}`;
+  }
+  return next.replace(/\n{3,}/gu, "\n\n");
+}
+
+function sanitizeBehaviorModuleContent(content: string): string {
+  const markerIndex = content.indexOf("// @ts-nocheck");
+  const sourceText = markerIndex > 0 ? content.slice(markerIndex) : content;
+  const sourceFile = ts.createSourceFile("behavior-split.ts", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const seenImports = new Set<string>();
+  const seenDeclaredNames = new Set<string>();
+  const importBlocks: string[] = [];
+  const bodyBlocks: string[] = [];
+  for (const statement of sourceFile.statements) {
+    const text = sourceText.slice(statement.getStart(sourceFile), statement.end).trim();
+    if (text.length < 1) {
+      continue;
+    }
+    if (ts.isImportDeclaration(statement)) {
+      if (!seenImports.has(text)) {
+        seenImports.add(text);
+        importBlocks.push(text);
+      }
+      continue;
+    }
+    const names = collectDeclaredNamesFromStatement(statement);
+    if (names.length > 0 && names.some((name) => seenDeclaredNames.has(name))) {
+      continue;
+    }
+    for (const name of names) {
+      seenDeclaredNames.add(name);
+    }
+    bodyBlocks.push(text);
+  }
+  const header = [
+    "// @ts-nocheck",
+    "// Auto-generated by manual hot refactor pass.",
+    "// Extracted behavior cluster for state/event boundary readability.",
+    "",
+  ].join("\n");
+  return `${header}${importBlocks.join("\n")}\n\n${bodyBlocks.join("\n\n")}\n`;
 }
 
 function collectIdentifiersInNode(node: ts.Node): Set<string> {
@@ -602,6 +784,7 @@ async function refactorSingleFile(
   }
 
   const selectedClosureRecords: ExtractionRecord[] = [];
+  const selectedRangeKeys = new Set<string>();
   const selectedRanges: Array<{ start: number; end: number }> = [];
   const selectedRecordNames = new Set<string>();
   const unresolvedFromSource = new Set<string>();
@@ -617,7 +800,7 @@ async function refactorSingleFile(
     if (expansionResult.records.length < 1) {
       expansionResult = expandSingleRecordFallback(sourceFile, seed, recordByName, importNames);
     }
-    const closureRecords = expansionResult.records;
+    const closureRecords = deduplicateRecords(expansionResult.records);
     if (closureRecords.length < 1) {
       continue;
     }
@@ -643,6 +826,11 @@ async function refactorSingleFile(
       end: lastRange.end,
     });
     for (const record of closureRecords) {
+      const rangeKey = `${record.start}:${record.end}`;
+      if (selectedRangeKeys.has(rangeKey)) {
+        continue;
+      }
+      selectedRangeKeys.add(rangeKey);
       selectedClosureRecords.push(record);
       selectedRecordNames.add(record.name);
     }
@@ -664,7 +852,8 @@ async function refactorSingleFile(
   const behaviorModulePath = buildBehaviorModulePath(fileRelativePosix);
   const behaviorImportPath = buildBehaviorImportPath(fileRelativePosix, behaviorModulePath);
   const sourceModuleImportPath = buildBehaviorImportPath(normalizeRelativePath(behaviorModulePath), fileRelativePosix);
-  const movedNames = [...new Set(selectedClosureRecords.map((record) => record.name))];
+  const uniqueSelectedClosureRecords = deduplicateRecords(selectedClosureRecords);
+  const movedNames = [...new Set(uniqueSelectedClosureRecords.map((record) => record.name))];
   const unresolvedNames = [...unresolvedFromSource]
     .filter((name) => !movedNames.includes(name))
     .sort((left, right) => left.localeCompare(right));
@@ -688,13 +877,13 @@ async function refactorSingleFile(
       "",
     ].join("\n")
     : "";
-  const splitModuleBody = selectedClosureRecords
+  const splitModuleBody = uniqueSelectedClosureRecords
     .map((record) => ensureExportModifier(record.text).trim())
     .join("\n\n");
   const splitModuleContentBase = `${splitModuleHeader}${sourceDependencyPrelude}${importStatements.join("\n")}\n\n${splitModuleBody}\n`;
 
   let nextSource = sourceText;
-  const removalRanges = selectedClosureRecords
+  const removalRanges = uniqueSelectedClosureRecords
     .map((record) => ({ start: record.start, end: record.end }))
     .sort((left, right) => right.start - left.start);
   for (const range of removalRanges) {
@@ -705,6 +894,7 @@ async function refactorSingleFile(
   const insertionOffset = Math.max(0, lastImportEnd);
   nextSource = `${nextSource.slice(0, insertionOffset)}\n${importStatement}${nextSource.slice(insertionOffset)}`;
   nextSource = nextSource.replace(/\n{3,}/gu, "\n\n");
+  nextSource = dedupeImportDeclarations(nextSource);
   const afterMetrics = collectFileMetrics(nextSource);
   const lineGrowth = afterMetrics.lineCount - beforeMetrics.lineCount;
   const importGrowth = afterMetrics.importCount - beforeMetrics.importCount;
@@ -716,7 +906,7 @@ async function refactorSingleFile(
   let splitModuleContent = splitModuleContentBase;
   try {
     const existingBehaviorContent = await fs.readFile(absoluteBehaviorPath, "utf8");
-    const missingExports = selectedClosureRecords
+    const missingExports = uniqueSelectedClosureRecords
       .filter((record) => {
         const exportPattern = new RegExp(`\\bexport\\s+(?:function|const|var|class)\\s+${escapeRegExp(record.name)}\\b`, "u");
         return !exportPattern.test(existingBehaviorContent);
@@ -743,6 +933,7 @@ async function refactorSingleFile(
   } catch {
     splitModuleContent = splitModuleContentBase;
   }
+  splitModuleContent = sanitizeBehaviorModuleContent(splitModuleContent);
   await fs.writeFile(absoluteBehaviorPath, splitModuleContent, "utf8");
   await fs.writeFile(absoluteFilePath, nextSource, "utf8");
 
