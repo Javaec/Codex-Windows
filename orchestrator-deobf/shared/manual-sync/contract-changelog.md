@@ -317,3 +317,9 @@ Auto-generated record of contract changes (`shared/manual-sync/*`).
 - 2026-03-04T19:36:48.987Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=19 | updated=18 | reason=auto-import module relocation overrides from manual project
 - 2026-03-04T19:36:48.987Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=19 | updated=5 | reason=auto-import module export surface and owner-layer from manual project
 - 2026-03-04T19:36:48.987Z | actor=`manual-sync:export` | scope=`system` | created=19 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 0/0/19
+- 2026-03-04T19:43:20.320Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=0 | updated=1 | reason=auto-import module relocation overrides from manual project
+- 2026-03-04T19:43:20.320Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=0 | updated=2 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-04T19:43:20.320Z | actor=`manual-sync:export` | scope=`system` | created=19 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 0/19/0
+- 2026-03-04T19:46:21.936Z | actor=`manual-sync:export` | scope=`module-path-overrides` | created=19 | updated=18 | reason=auto-import module relocation overrides from manual project
+- 2026-03-04T19:46:21.936Z | actor=`manual-sync:export` | scope=`module-surface-overrides` | created=19 | updated=4 | reason=auto-import module export surface and owner-layer from manual project
+- 2026-03-04T19:46:21.936Z | actor=`manual-sync:export` | scope=`system` | created=19 | updated=0 | reason=stale-cleanup removed symbol/path/surface overrides: 0/0/19

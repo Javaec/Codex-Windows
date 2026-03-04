@@ -1,42 +1,11 @@
 {
   "candidatesPath": "C:\\Codex-Windows\\orchestrator-deobf\\regression\\manual-refactor-candidates.json",
-  "generatedAtIso": "2026-03-04T19:33:22.881Z",
+  "generatedAtIso": "2026-03-04T19:43:12.556Z",
   "longFunctionLineThreshold": 120,
   "manualProjectPath": "C:\\Codex-Windows\\manual-codex-app",
   "namespaceImportCap": 8,
   "targetCount": 10,
   "targets": [
-    {
-      "averageScore": 0.8677,
-      "exists": true,
-      "manualFilePath": "src/services/store/store-state-g003-quality-02.ts",
-      "mappedBy": "exact",
-      "metrics": {
-        "boundaryTokenCounts": {
-          "event": 0,
-          "ipc": 0,
-          "route": 0,
-          "session": 0,
-          "state": 4,
-          "transport": 0,
-          "workspace": 0
-        },
-        "importCount": 2,
-        "lineCount": 616,
-        "longFunctionCandidates": [],
-        "namespaceImportCount": 0,
-        "runtimeVendorImportCount": 0
-      },
-      "moduleIds": [
-        "services:store:store-state:g003:quality-02"
-      ],
-      "rank": 1,
-      "recommendedActions": [
-        "maintain current structure; no rescue action required"
-      ],
-      "sourceFilePath": "src/services/store/store-state-g003-quality-02.ts",
-      "violations": []
-    },
     {
       "averageScore": 0.6554,
       "exists": true,
@@ -61,7 +30,7 @@
       "moduleIds": [
         "services:store:state:quality-01"
       ],
-      "rank": 2,
+      "rank": 1,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -92,7 +61,7 @@
       "moduleIds": [
         "renderer:store:store-state:quality-01"
       ],
-      "rank": 3,
+      "rank": 2,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -123,7 +92,7 @@
       "moduleIds": [
         "services:store:state-store:g002:quality-01"
       ],
-      "rank": 4,
+      "rank": 3,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -154,7 +123,7 @@
       "moduleIds": [
         "services:store:state-store:g002:quality-02"
       ],
-      "rank": 5,
+      "rank": 4,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -185,7 +154,7 @@
       "moduleIds": [
         "services:store:state:quality-02"
       ],
-      "rank": 6,
+      "rank": 5,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -216,7 +185,7 @@
       "moduleIds": [
         "renderer:store:store-state:quality-02"
       ],
-      "rank": 7,
+      "rank": 6,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -247,7 +216,7 @@
       "moduleIds": [
         "services:store:state:quality-03"
       ],
-      "rank": 8,
+      "rank": 7,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -278,7 +247,7 @@
       "moduleIds": [
         "services:service:run:quality-01"
       ],
-      "rank": 9,
+      "rank": 8,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
@@ -309,11 +278,42 @@
       "moduleIds": [
         "services:service:run:quality-02"
       ],
-      "rank": 10,
+      "rank": 9,
       "recommendedActions": [
         "maintain current structure; no rescue action required"
       ],
       "sourceFilePath": "src/services/service/service-run-quality-02.ts",
+      "violations": []
+    },
+    {
+      "averageScore": 0.8585,
+      "exists": true,
+      "manualFilePath": "src/renderer/features/hooks/hook-hooks-render.ts",
+      "mappedBy": "fallback",
+      "metrics": {
+        "boundaryTokenCounts": {
+          "event": 0,
+          "ipc": 0,
+          "route": 0,
+          "session": 0,
+          "state": 0,
+          "transport": 0,
+          "workspace": 0
+        },
+        "importCount": 1,
+        "lineCount": 64,
+        "longFunctionCandidates": [],
+        "namespaceImportCount": 0,
+        "runtimeVendorImportCount": 0
+      },
+      "moduleIds": [
+        "renderer:hook:render:quality-01"
+      ],
+      "rank": 10,
+      "recommendedActions": [
+        "maintain current structure; no rescue action required"
+      ],
+      "sourceFilePath": "src/renderer/features/hooks/hook-render-quality-01.ts",
       "violations": []
     }
   ],
