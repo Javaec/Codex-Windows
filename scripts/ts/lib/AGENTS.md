@@ -48,3 +48,11 @@
   - removed `Usage limits` title and made the output compact: `5h X% | wk Y%`,
   - Settings DOM parser skips the injected panel subtree to avoid self-parsing loops,
   - ignores mirrored Settings snapshots when they would overwrite already-distinct windows (prevents 100% -> 0% flapping).
+
+## 2026-03-05: Thread List Default Limit (10 -> 6)
+
+- Added new webview mod `webview-thread-per-project-cap`:
+  - patch tag: `CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2`,
+  - intercepts `electronBridge.sendMessageFromView` and rewrites `thread/list` requests:
+    - if `params.limit === 10` then set `params.limit = 6`,
+  - rationale: keep upstream Show more/Show less behavior; only reduce the default collapsed list size.

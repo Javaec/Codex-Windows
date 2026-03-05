@@ -83,3 +83,10 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - compact summary line output: `5h X% | wk Y%` (no header),
   - Settings DOM scan excludes the injected panel (prevents self-reading),
   - drops mirrored snapshots that would overwrite already-distinct windows (reduces flapping).
+
+## 2026-03-05: Thread List Default Limit (10 -> 6)
+
+- Added webview patch step `webview-thread-per-project-cap`:
+  - patch tag: `CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2`,
+  - rewrites outgoing `thread/list` requests with `limit=10` to `limit=6`,
+  - keeps existing Show more/Show less behavior intact (only changes the default collapsed limit).

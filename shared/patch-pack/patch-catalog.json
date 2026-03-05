@@ -26,7 +26,7 @@
       "stage": "webview"
     },
     "webview-thread-per-project-cap": {
-      "description": "Cap thread/list responses (limit=10) to 6 threads per project (cwd).",
+      "description": "Rewrite thread/list requests limit=10 -> 6 (keeps Show more/Show less behavior).",
       "stage": "webview"
     },
     "main-runtime-shim": {

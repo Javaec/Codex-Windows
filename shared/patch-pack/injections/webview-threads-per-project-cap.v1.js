@@ -4,16 +4,14 @@
   }
 
   const globalRecord = window;
-  if (globalRecord.__CODEX_WINDOWS_THREADS_PER_PROJECT_CAP_V1__) {
+  if (globalRecord.__CODEX_WINDOWS_THREADS_PER_PROJECT_CAP_V2__) {
     return;
   }
-  globalRecord.__CODEX_WINDOWS_THREADS_PER_PROJECT_CAP_V1__ = true;
+  globalRecord.__CODEX_WINDOWS_THREADS_PER_PROJECT_CAP_V2__ = true;
 
   const TARGET_METHOD = "thread/list";
   const TARGET_LIMIT = 10;
-  const PER_PROJECT_LIMIT = 6;
-
-  const trackedRequestIds = new Set();
+  const REPLACEMENT_LIMIT = 6;
 
   function hasOwn(target, key) {
     return Object.prototype.hasOwnProperty.call(target, key);
@@ -42,17 +40,6 @@
     return value;
   }
 
-  function readRequestId(message) {
-    const direct = readStringField(message, "id") || readStringField(message, "requestId") || readStringField(message, "request_id");
-    if (direct.length > 0) return direct;
-    const nestedRequest = readObjectField(message, "request");
-    if (nestedRequest) {
-      const nested = readStringField(nestedRequest, "id") || readStringField(nestedRequest, "requestId") || readStringField(nestedRequest, "request_id");
-      if (nested.length > 0) return nested;
-    }
-    return "";
-  }
-
   function readMethod(message) {
     const direct = readStringField(message, "method");
     if (direct.length > 0) return direct;
@@ -75,7 +62,7 @@
     return undefined;
   }
 
-  function shouldTrackThreadListRequest(message) {
+  function shouldRewriteThreadListRequest(message) {
     const method = readMethod(message);
     if (method !== TARGET_METHOD) return false;
     const params = readParams(message);
@@ -84,80 +71,31 @@
     return limit === TARGET_LIMIT;
   }
 
-  function readThreadProjectKey(thread) {
-    if (!thread || typeof thread !== "object") return "";
-    const cwd = readStringField(thread, "cwd");
-    if (cwd.length > 0) return cwd;
-    const rolloutPath = readStringField(thread, "rollout_path") || readStringField(thread, "rolloutPath");
-    if (rolloutPath.length > 0) return rolloutPath;
-    return "";
-  }
+  function rewriteLimit(message) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return message;
 
-  function capThreadsPerProject(list) {
-    if (!Array.isArray(list) || list.length === 0) return list;
-    const counts = new Map();
-    const capped = [];
-    for (const thread of list) {
-      const key = readThreadProjectKey(thread) || "__unknown__";
-      const current = counts.get(key) || 0;
-      if (current >= PER_PROJECT_LIMIT) continue;
-      counts.set(key, current + 1);
-      capped.push(thread);
+    const directParams = readObjectField(message, "params");
+    if (directParams && readNumberField(directParams, "limit") === TARGET_LIMIT) {
+      return { ...message, params: { ...directParams, limit: REPLACEMENT_LIMIT } };
     }
-    return capped;
-  }
 
-  function applyCapToResultObject(result) {
-    if (!result || typeof result !== "object" || Array.isArray(result)) return false;
-    if (!hasOwn(result, "data")) return false;
-    const data = result.data;
-    if (!Array.isArray(data)) return false;
-    const capped = capThreadsPerProject(data);
-    if (capped.length === data.length) return false;
-    result.data = capped;
-    return true;
+    const directRequest = readObjectField(message, "request");
+    if (directRequest) {
+      const requestParams = readObjectField(directRequest, "params");
+      if (requestParams && readNumberField(requestParams, "limit") === TARGET_LIMIT) {
+        return { ...message, request: { ...directRequest, params: { ...requestParams, limit: REPLACEMENT_LIMIT } } };
+      }
+    }
+
+    return message;
   }
 
   const bridge = globalRecord.electronBridge;
   if (bridge && typeof bridge === "object" && typeof bridge.sendMessageFromView === "function") {
     const originalSendMessageFromView = bridge.sendMessageFromView.bind(bridge);
     bridge.sendMessageFromView = async (message) => {
-      try {
-        if (shouldTrackThreadListRequest(message)) {
-          const id = readRequestId(message);
-          if (id.length > 0) {
-            trackedRequestIds.add(id);
-          }
-        }
-      } catch {
-        // keep IPC path stable
-      }
-      return originalSendMessageFromView(message);
+      const patchedMessage = shouldRewriteThreadListRequest(message) ? rewriteLimit(message) : message;
+      return originalSendMessageFromView(patchedMessage);
     };
   }
-
-  window.addEventListener(
-    "message",
-    (event) => {
-      try {
-        const payload = event && typeof event === "object" ? event.data : undefined;
-        if (!payload || typeof payload !== "object") return;
-
-        const id = readRequestId(payload);
-        if (id.length === 0) return;
-        if (!trackedRequestIds.has(id)) return;
-        trackedRequestIds.delete(id);
-
-        const result = readObjectField(payload, "result");
-        if (result && applyCapToResultObject(result)) {
-          return;
-        }
-        applyCapToResultObject(payload);
-      } catch {
-        // ignore malformed bridge payloads
-      }
-    },
-    true,
-  );
 })();
-
