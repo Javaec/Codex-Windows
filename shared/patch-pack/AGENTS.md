@@ -37,72 +37,18 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - all mod manifests now use `lane + injector` instead of legacy free-form stage ranking.
 
 ## 2026-03-05 Decisions
-- Added sidebar UI mod `webview-settings-limits-panel`:
-  - new patch step id: `webview-settings-limits`,
-  - injects a small limits card above `Settings` using DOM observer runtime injection,
-  - enabled in `codex-106x`, `codex-10711`, and `generic` profiles.
-- Rationale:
-  - avoid brittle AST patch points in obfuscated renderer bundles,
-  - keep mod resilient across snapshot obfuscation drift.
-- Upgraded limits panel injector to V2:
-  - patch tag: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V2`,
-  - panel values are runtime-updated from intercepted `fetch`/`XMLHttpRequest` JSON payloads,
-  - values are cached in `localStorage` (`codex-windows-limits-panel-cache-v1`) and restored on reload.
-- Upgraded limits panel injector to V3 and moved code to one file source:
-  - patch tag: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V3`,
-  - injector source path: `shared/patch-pack/injections/webview-settings-limits-panel.v3.js`,
-  - runner loads injector from file (no giant inline string in launch pipeline).
-- V3 data sources for panel values:
-  - `fetch` / `XMLHttpRequest` payload scan,
-  - `window.message` payload scan,
-  - direct Settings DOM scan (`5h` / `7d` rows) as fallback for IPC-only flows.
-- V3 patch upgrades legacy V2/V1 injected blocks in-place on `-Reuse`.
-- Upgraded limits panel injector to V6:
-  - patch tag: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V6`,
-  - primary source switched to renderer bridge messages (`window.message`) + Settings DOM burst,
-  - removed network interception hooks from injector to reduce runtime side-effects on 10711 builds.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V7` to force reinjection on reused bundles after V6 script updates.
-- V7 keeps in-place upgrade path for legacy tags V1..V6 on reused app bundles.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V8`:
-  - adds Settings page text-near-label parser (`5 hour` / `weekly`) as deterministic fallback,
-  - accepts JSON-string message payloads from bridge `window.message`,
-  - increases payload hint traversal depth for nested data envelopes.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V9`:
-  - tie-break now prefers fresher/higher usage snapshots when scores are equal,
-  - parser scans all Settings label occurrences and handles duplicated sections (`general` / `spark`),
-  - bridge payload parse runs unconditionally for object/JSON-string messages.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V10`:
-  - settings DOM values became authoritative for panel state,
-  - bridge payload path remains fallback-only and cannot overwrite settings snapshots,
-  - panel output normalized to `% left` to match Usage Settings semantics.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V11`:
-  - text fallback only patches missing windows (avoids 5h/weekly mirroring),
-  - persistent mount fallback added (sidebar, then floating) to keep panel always visible,
-  - periodic 45-second refresh added for continuous panel presence/update.
-- Follow-up patch tag bump: `CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V12`:
-  - compact summary line output: `5h X% | wk Y%` (no header),
-  - Settings DOM scan excludes the injected panel (prevents self-reading),
-  - drops mirrored snapshots that would overwrite already-distinct windows (reduces flapping).
 
-## 2026-03-05: Thread List Default Limit (10 -> 6)
+## 2026-03-05: Split Platform Patches vs Feature Mods (Forge-like)
 
-- Added webview patch step `webview-thread-per-project-cap`:
-  - patch tag: `CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2`,
-  - rewrites outgoing `thread/list` requests with `limit=10` to `limit=6`,
-  - keeps existing Show more/Show less behavior intact (only changes the default collapsed limit).
-
-## 2026-03-05 Updates: Limits + Threads Cap + CLI 0.110.0 History
-
-- Limits panel injector is now V15 (`CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V15`):
-  - mounts as a sibling directly above the real sidebar Settings row when possible,
-  - compact single-line output (`5h X% | wk Y%`),
-  - avoids flapping by refusing to overwrite known values with unknown/partial snapshots,
-  - fixes percent derivation (`remaining` is treated as count only when `limit` exists; generic `%` parsing removed),
-  - refreshes mount/render on a 30s timer to keep the panel visible without navigating to Settings.
-- Thread list cap patch is now V8 (`CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V8`):
-  - primary strategy: rewrite the renderer-side `maxItems:<id>` constant (`const <id>=10` -> `6`) so the default collapsed view shows 6,
-  - legacy fallback: keep older request-level limit rewriting for builds that do not expose `maxItems` caps,
-  - no renderer monkeypatching of `electronBridge` (it can be frozen/read-only on newer builds).
-- Added webview patch step `webview-persist-extended-history` (`CODEX-WINDOWS-WEBVIEW-PERSIST-EXTENDED-HISTORY-V1`):
-  - forces `persistExtendedHistory=true` in the webview config,
-  - fixes missing legacy conversations after upgrading Codex CLI to `0.110.0` (older rollouts remain on disk under `.codex/sessions` / `.codex/archived_sessions`).
+- patch-pack is now strictly "platform patching":
+  - preload bridge
+  - webview sunset bypass
+  - webview cwd normalization (optional by profile)
+  - webview thread cap (10 -> 6)
+  - webview persistExtendedHistory=true
+  - main Windows runtime shim (env + SQLite path normalization + open-path fix + renderer mod-loader hook)
+- Feature UI tweaks moved out of brittle webview bundle patching:
+  - runtime-loaded by the main-process mod loader from `shared/codex-mod-loader/mods/*`
+  - bundled into portable outputs as `resources/mods/*`
+  - injected into renderer via `webContents.executeJavaScript` (DOM-only, must not mutate `window.electronBridge`)
+- patch-pack preflight now validates runtime modpack presence + manifest/entry integrity.

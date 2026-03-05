@@ -41,6 +41,8 @@ const exec_1 = require("./exec");
 const branding_1 = require("./branding");
 const args_1 = require("./args");
 const launch_1 = require("./launch");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const CODEX_MODS_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods");
 function composePortablePath(basePath, outputDir) {
     const entries = basePath.split(";").filter(Boolean);
     const seen = new Set();
@@ -239,6 +241,11 @@ async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buil
     const resourcesDir = (0, exec_1.ensureDir)(path.join(outputDir, "resources"));
     const appDstDir = path.join(resourcesDir, "app");
     (0, exec_1.copyDirectory)(appDir, appDstDir);
+    if (!(0, exec_1.fileExists)(CODEX_MODS_SRC_DIR)) {
+        throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+    }
+    (0, exec_1.writeInfo)("Bundling Codex mods...");
+    (0, exec_1.copyDirectory)(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
     const defaultAsar = path.join(resourcesDir, "default_app.asar");
     (0, exec_1.removePath)(defaultAsar);
     (0, launch_1.patchMainForWindowsEnvironment)(appDstDir, buildNumber, buildFlavor);

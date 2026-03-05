@@ -5,8 +5,6 @@ export type PatchStepId =
   | "preload"
   | "webview-sunset"
   | "webview-cwd"
-  | "webview-settings-limits"
-  | "webview-disable-logout"
   | "webview-thread-per-project-cap"
   | "webview-persist-extended-history"
   | "main-runtime-shim";
@@ -189,7 +187,6 @@ function ensureStepId(value: string): PatchStepId {
     value === "preload" ||
     value === "webview-sunset" ||
     value === "webview-cwd" ||
-    value === "webview-settings-limits" ||
     value === "webview-thread-per-project-cap" ||
     value === "webview-persist-extended-history" ||
     value === "main-runtime-shim"

@@ -99,5 +99,6 @@
   - `TypeError: Cannot assign to read only property 'sendMessageFromView' of object '#<Object>'`
 - Root cause: on newer Codex builds `electronBridge` is exposed by `contextBridge` as a read-only/frozen object. Renderer-level mods must not mutate it.
 - Fix:
-  - `shared/patch-pack/injections/webview-threads-per-project-cap.v1.js` is now a safe no-op marker only.
-  - Default collapsed thread list limit (10 -> 6) is applied in the main runtime shim by wrapping `electron.ipcMain.handle` + `electron.ipcMain.on` and rewriting `thread/list` requests.
+  - Renderer mods must be DOM-only and injected by the main-process mod loader (no direct bundle monkeypatching).
+  - Default collapsed thread list limit (10 -> 6) is applied via webview bundle text rewrite (caps are patched without touching `window.electronBridge`).
+  - Feature UI tweaks (limits panel, disable logout, etc) are now runtime mods under `shared/codex-mod-loader/mods/*` and are injected with `webContents.executeJavaScript`.

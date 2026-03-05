@@ -62,7 +62,6 @@ function ensureStepId(value) {
     if (value === "preload" ||
         value === "webview-sunset" ||
         value === "webview-cwd" ||
-        value === "webview-settings-limits" ||
         value === "webview-thread-per-project-cap" ||
         value === "webview-persist-extended-history" ||
         value === "main-runtime-shim") {

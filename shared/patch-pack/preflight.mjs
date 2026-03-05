@@ -73,6 +73,69 @@ function readJson(filePath, label) {
   }
 }
 
+function validateRuntimeModpack(modpackRoot) {
+  if (!fs.existsSync(modpackRoot)) {
+    throw new Error(`patch-pack preflight: missing runtime modpack: ${modpackRoot}`);
+  }
+
+  const entries = fs
+    .readdirSync(modpackRoot, { withFileTypes: true })
+    .filter((entry) => entry && entry.isDirectory())
+    .map((entry) => String(entry.name || "").trim())
+    .filter((name) => name.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (entries.length === 0) {
+    throw new Error(`patch-pack preflight: runtime modpack is empty: ${modpackRoot}`);
+  }
+
+  const seen = new Set();
+  let rendererModCount = 0;
+  for (const dirName of entries) {
+    const modDir = path.join(modpackRoot, dirName);
+    const manifestPath = path.join(modDir, "mod.json");
+    const manifest = readJson(manifestPath, `runtime mod ${dirName}`);
+    if (!manifest || typeof manifest !== "object") {
+      throw new Error(`patch-pack preflight: runtime mod ${dirName} manifest must be an object`);
+    }
+    if (Number(manifest.schemaVersion) !== 1) {
+      throw new Error(`patch-pack preflight: runtime mod ${dirName} schemaVersion must be 1`);
+    }
+    const id = String(manifest.id || "").trim();
+    if (!id) throw new Error(`patch-pack preflight: runtime mod ${dirName} is missing id`);
+    if (id !== dirName) {
+      throw new Error(`patch-pack preflight: runtime mod id mismatch (${id} != ${dirName})`);
+    }
+    if (seen.has(id)) throw new Error(`patch-pack preflight: runtime mod duplicated id: ${id}`);
+    seen.add(id);
+
+    if (manifest.enabled === false) continue;
+
+    const entrypoints = manifest.entrypoints;
+    if (!entrypoints || typeof entrypoints !== "object") {
+      throw new Error(`patch-pack preflight: runtime mod ${id} is missing entrypoints`);
+    }
+
+    if (entrypoints.renderer) {
+      const rendererEntry = String(entrypoints.renderer || "").trim();
+      if (!rendererEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty renderer entry`);
+      const rendererPath = path.join(modDir, rendererEntry);
+      if (!fs.existsSync(rendererPath)) {
+        throw new Error(`patch-pack preflight: runtime mod ${id} missing renderer entry: ${rendererPath}`);
+      }
+      const size = fs.statSync(rendererPath).size;
+      if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} renderer entry is empty`);
+      rendererModCount += 1;
+    }
+  }
+
+  return {
+    modCount: entries.length,
+    rendererModCount,
+    root: modpackRoot,
+  };
+}
+
 function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
   let best = 0;
   const parsedBuild = Number.parseInt(String(buildNumber || ""), 10);
@@ -476,11 +539,13 @@ function loadAllProfiles(profilesDir, includeTestProfiles) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const patchPackRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+  const repoRoot = path.resolve(patchPackRoot, "..", "..");
   const selectorPath = path.join(patchPackRoot, "profile-selector.json");
   const catalogPath = path.join(patchPackRoot, "patch-catalog.json");
   const stageRegistryPath = path.join(patchPackRoot, "stage-registry.json");
   const profilesDir = path.join(patchPackRoot, "profiles");
   const modsDir = path.join(patchPackRoot, "mods");
+  const runtimeModpackRoot = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
 
   const selector = readJson(selectorPath, "selector");
   validateSelector(selector);
@@ -554,10 +619,13 @@ function main() {
     }
   }
 
+  const runtimeModpack = validateRuntimeModpack(runtimeModpackRoot);
+
   const summary = {
     version: 2,
     generatedAtIso: new Date().toISOString(),
     patchPackRoot,
+    runtimeModpack,
     selectorPath,
     catalogPath,
     stageRegistryPath,

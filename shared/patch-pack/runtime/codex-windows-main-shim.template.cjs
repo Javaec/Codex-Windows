@@ -188,6 +188,140 @@
       return report;
     }
 
+    function parseBuildNumberHint(value) {
+      const parsed = Number.parseInt(String(value || ""), 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function resolveModsRootPath() {
+      const configured = normalizePathString(process.env.CODEX_MODS_DIR || "");
+      if (configured) return path.resolve(configured);
+
+      const resourcesPath = normalizePathString(process.resourcesPath || "");
+      if (resourcesPath) return path.join(resourcesPath, "mods");
+
+      // Fallback for unpacked execution (rare): shim lives under `resources/app/.vite/build`.
+      return path.resolve(resourcesRoot, "..", "mods");
+    }
+
+    function loadRendererMods(modsRoot, buildHint) {
+      if (!modsRoot || !fs.existsSync(modsRoot)) return [];
+      if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
+
+      const mods = [];
+      const entries = fs.readdirSync(modsRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry || !entry.isDirectory()) continue;
+        const modDir = path.join(modsRoot, entry.name);
+        const manifestPath = path.join(modDir, "mod.json");
+        if (!fs.existsSync(manifestPath)) continue;
+
+        const rawManifest = fs.readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, "");
+        let manifest;
+        try {
+          manifest = JSON.parse(rawManifest);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`codex-mod-loader: failed to parse ${manifestPath}: ${message}`);
+        }
+
+        const id = normalizePathString(manifest && manifest.id ? manifest.id : "");
+        if (!id) throw new Error(`codex-mod-loader: missing id in ${manifestPath}`);
+        if (id !== entry.name) {
+          throw new Error(`codex-mod-loader: id mismatch for ${manifestPath} (${id} != ${entry.name})`);
+        }
+
+        if (manifest && manifest.enabled === false) continue;
+
+        const priority = Number(manifest && manifest.priority !== undefined ? manifest.priority : 0);
+        if (!Number.isFinite(priority)) {
+          throw new Error(`codex-mod-loader: invalid priority for ${id} (${manifest && manifest.priority})`);
+        }
+
+        const compat = manifest && manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
+        const minBuild = Number(compat.minBuild !== undefined ? compat.minBuild : 0);
+        const maxBuild = Number(compat.maxBuild !== undefined ? compat.maxBuild : 0);
+        if (!Number.isFinite(minBuild) || minBuild < 0) throw new Error(`codex-mod-loader: invalid minBuild for ${id}`);
+        if (!Number.isFinite(maxBuild) || maxBuild < 0) throw new Error(`codex-mod-loader: invalid maxBuild for ${id}`);
+        if (maxBuild > 0 && minBuild > 0 && maxBuild < minBuild) {
+          throw new Error(`codex-mod-loader: invalid build range for ${id} (maxBuild < minBuild)`);
+        }
+        if (buildHint > 0 && minBuild > 0 && buildHint < minBuild) continue;
+        if (buildHint > 0 && maxBuild > 0 && buildHint > maxBuild) continue;
+
+        const entrypoints = manifest && manifest.entrypoints && typeof manifest.entrypoints === "object" ? manifest.entrypoints : {};
+        const rendererEntry = normalizePathString(entrypoints.renderer || "");
+        if (!rendererEntry) continue;
+
+        const rendererEntryPath = path.join(modDir, rendererEntry);
+        if (!fs.existsSync(rendererEntryPath)) {
+          throw new Error(`codex-mod-loader: missing renderer entry for ${id}: ${rendererEntryPath}`);
+        }
+
+        const script = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
+        if (script.trim().length < 16) {
+          throw new Error(`codex-mod-loader: renderer entry is empty for ${id}: ${rendererEntryPath}`);
+        }
+
+        mods.push({ id, priority, script });
+      }
+
+      mods.sort((left, right) => {
+        if (left.priority !== right.priority) return left.priority - right.priority;
+        return String(left.id).localeCompare(String(right.id));
+      });
+
+      const selected = new Set();
+      for (const mod of mods) {
+        if (selected.has(mod.id)) throw new Error(`codex-mod-loader: duplicate mod id selected: ${mod.id}`);
+        selected.add(mod.id);
+      }
+
+      return mods;
+    }
+
+    function installRendererMods(electron, rendererMods) {
+      if (!electron || !rendererMods || rendererMods.length === 0) return;
+      if (globalThis.__CODEX_MOD_LOADER_RENDERER_V1__) return;
+      globalThis.__CODEX_MOD_LOADER_RENDERER_V1__ = true;
+
+      const injectedByWebContents = new WeakMap();
+      const getInjected = (contents) => {
+        let injected = injectedByWebContents.get(contents);
+        if (!injected) {
+          injected = new Set();
+          injectedByWebContents.set(contents, injected);
+        }
+        return injected;
+      };
+
+      electron.app.on("web-contents-created", (_event, contents) => {
+        if (!contents || typeof contents.executeJavaScript !== "function") return;
+        const inject = () => {
+          const currentUrl = typeof contents.getURL === "function" ? String(contents.getURL() || "") : "";
+          if (currentUrl.startsWith("devtools://")) return;
+
+          const injected = getInjected(contents);
+          for (const mod of rendererMods) {
+            if (injected.has(mod.id)) continue;
+            injected.add(mod.id);
+            const wrapped = `/* CODEX-MOD:${mod.id} */\\n${mod.script}\\n`;
+            Promise.resolve(contents.executeJavaScript(wrapped, true)).catch((error) => {
+              console.error(`[codex-mod-loader] renderer mod failed (${mod.id})`, error);
+            });
+          }
+        };
+
+        contents.on("dom-ready", () => {
+          try {
+            inject();
+          } catch (error) {
+            console.error("[codex-mod-loader] inject failed", error);
+          }
+        });
+      });
+    }
+
     // Minimal environment contract.
     if (!process.env.ELECTRON_FORCE_IS_PACKAGED) process.env.ELECTRON_FORCE_IS_PACKAGED = "1";
     if (!process.env.CODEX_BUILD_NUMBER) process.env.CODEX_BUILD_NUMBER = BUILD_NUMBER;
@@ -231,11 +365,14 @@
           electron.shell.showItemInFolder = (targetPath) => originalShowItemInFolder(normalizeWindowsOpenPath(targetPath));
         }
       }
-    } catch {
-      // ignore
+
+      const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
+      const rendererMods = loadRendererMods(resolveModsRootPath(), buildHint);
+      installRendererMods(electron, rendererMods);
+    } catch (error) {
+      console.error("[codex-windows-main-shim] electron patch failed", error);
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    console.error("[codex-windows-main-shim] init failed", error);
   }
 })();
-

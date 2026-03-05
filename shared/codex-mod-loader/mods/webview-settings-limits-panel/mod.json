@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-settings-limits-panel",
+  "name": "Usage limits panel",
+  "description": "Show 5h/weekly usage summary in the sidebar.",
+  "enabled": true,
+  "priority": 200,
+  "compatibility": {
+    "minBuild": 0,
+    "maxBuild": 0
+  },
+  "entrypoints": {
+    "renderer": "renderer.js"
+  },
+  "conflicts": []
+}
+

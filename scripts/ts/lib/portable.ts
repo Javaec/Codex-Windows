@@ -20,6 +20,9 @@ export interface PortableBuildResult {
   launcherPath: string;
 }
 
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const CODEX_MODS_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods");
+
 function composePortablePath(basePath: string, outputDir: string): string {
   const entries = basePath.split(";").filter(Boolean);
   const seen = new Set<string>();
@@ -240,6 +243,12 @@ export async function invokePortableBuild(
   const resourcesDir = ensureDir(path.join(outputDir, "resources"));
   const appDstDir = path.join(resourcesDir, "app");
   copyDirectory(appDir, appDstDir);
+
+  if (!fileExists(CODEX_MODS_SRC_DIR)) {
+    throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+  }
+  writeInfo("Bundling Codex mods...");
+  copyDirectory(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
 
   const defaultAsar = path.join(resourcesDir, "default_app.asar");
   removePath(defaultAsar);

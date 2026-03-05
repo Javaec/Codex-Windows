@@ -4,8 +4,6 @@
     "preload",
     "webview-sunset",
     "webview-cwd",
-    "webview-settings-limits",
-    "webview-disable-logout",
     "webview-thread-per-project-cap",
     "webview-persist-extended-history",
     "main-runtime-shim"
@@ -21,14 +19,6 @@
     },
     "webview-cwd": {
       "description": "Normalize cwd path comparison helpers in webview bundles.",
-      "stage": "webview"
-    },
-    "webview-settings-limits": {
-      "description": "Inject a usage limits panel above Settings in the webview sidebar.",
-      "stage": "webview"
-    },
-    "webview-disable-logout": {
-      "description": "Disable Log out controls inside the webview UI to prevent accidental sign-outs.",
       "stage": "webview"
     },
     "webview-thread-per-project-cap": {
