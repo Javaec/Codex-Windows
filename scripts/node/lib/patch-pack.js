@@ -63,6 +63,7 @@ function ensureStepId(value) {
         value === "webview-sunset" ||
         value === "webview-cwd" ||
         value === "webview-settings-limits" ||
+        value === "webview-thread-per-project-cap" ||
         value === "main-runtime-shim") {
         return value;
     }

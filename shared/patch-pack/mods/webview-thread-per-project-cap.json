@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-thread-per-project-cap",
+  "description": "Cap thread/list responses (limit=10) to 6 threads per project (cwd).",
+  "lane": "webview",
+  "priority": 235,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "webview-thread-per-project-cap", "required": true }
+  ]
+}
+

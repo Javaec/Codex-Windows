@@ -37,6 +37,7 @@ exports.patchPreload = patchPreload;
 exports.patchWebviewCwdNormalization = patchWebviewCwdNormalization;
 exports.patchWebviewAppSunsetGate = patchWebviewAppSunsetGate;
 exports.patchWebviewSettingsLimitsPanel = patchWebviewSettingsLimitsPanel;
+exports.patchWebviewThreadsPerProjectCap = patchWebviewThreadsPerProjectCap;
 exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
 exports.ensureGitOnPath = ensureGitOnPath;
 exports.startCodexDirectLaunch = startCodexDirectLaunch;
@@ -46,6 +47,7 @@ const exec_1 = require("./exec");
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V12 */";
+const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V11 */",
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V10 */",
@@ -59,8 +61,11 @@ const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V2 */",
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V1 */",
 ];
+const WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS = [];
 const WEBVIEW_SETTINGS_LIMIT_PANEL_SCRIPT_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "injections", "webview-settings-limits-panel.v3.js");
+const WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "injections", "webview-threads-per-project-cap.v1.js");
 let webviewSettingsLimitPanelScriptCache = "";
+let webviewThreadsPerProjectCapScriptCache = "";
 function resolveWebviewSettingsLimitPanelScript() {
     if (webviewSettingsLimitPanelScriptCache.length > 0) {
         return webviewSettingsLimitPanelScriptCache;
@@ -74,6 +79,20 @@ function resolveWebviewSettingsLimitPanelScript() {
     }
     webviewSettingsLimitPanelScriptCache = script;
     return webviewSettingsLimitPanelScriptCache;
+}
+function resolveWebviewThreadsPerProjectCapScript() {
+    if (webviewThreadsPerProjectCapScriptCache.length > 0) {
+        return webviewThreadsPerProjectCapScriptCache;
+    }
+    if (!(0, exec_1.fileExists)(WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH)) {
+        throw new Error(`threads per project cap script not found: ${WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH}`);
+    }
+    const script = fs.readFileSync(WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH, "utf8").trim();
+    if (script.length < 16) {
+        throw new Error(`threads per project cap script is empty: ${WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH}`);
+    }
+    webviewThreadsPerProjectCapScriptCache = script;
+    return webviewThreadsPerProjectCapScriptCache;
 }
 function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundError, patchContent, optionalPatch = false) {
     const assetsDir = path.join(appDir, "webview", "assets");
@@ -254,6 +273,30 @@ function patchWebviewSettingsLimitsPanel(appDir, options = {}) {
     const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
     if (!matched && allowMissingPatchPoint) {
         (0, exec_1.writeWarn)("webview settings limits panel patch skipped: patch point not found for current bundle signature.");
+    }
+    return summary;
+}
+function patchWebviewThreadsPerProjectCap(appDir, options = {}) {
+    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
+    const script = resolveWebviewThreadsPerProjectCapScript();
+    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for threads per project cap patch.", "webview threads per project cap patch point not found.", (raw) => {
+        if (raw.includes(WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG)) {
+            return { alreadyPatched: true, patched: false, content: raw };
+        }
+        let next = raw;
+        const legacyIndexes = WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS
+            .map((tag) => next.indexOf(tag))
+            .filter((index) => index >= 0)
+            .sort((left, right) => left - right);
+        if (legacyIndexes.length > 0) {
+            next = next.slice(0, legacyIndexes[0]).trimEnd();
+        }
+        const content = `${next};\n${WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG}\n${script}\n`;
+        return { alreadyPatched: false, patched: true, content };
+    }, allowMissingPatchPoint);
+    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
+    if (!matched && allowMissingPatchPoint) {
+        (0, exec_1.writeWarn)("webview threads per project cap patch skipped: patch point not found for current bundle signature.");
     }
     return summary;
 }

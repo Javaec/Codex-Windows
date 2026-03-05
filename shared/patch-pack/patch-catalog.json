@@ -5,6 +5,7 @@
     "webview-sunset",
     "webview-cwd",
     "webview-settings-limits",
+    "webview-thread-per-project-cap",
     "main-runtime-shim"
   ],
   "steps": {
@@ -22,6 +23,10 @@
     },
     "webview-settings-limits": {
       "description": "Inject a usage limits panel above Settings in the webview sidebar.",
+      "stage": "webview"
+    },
+    "webview-thread-per-project-cap": {
+      "description": "Cap thread/list responses (limit=10) to 6 threads per project (cwd).",
       "stage": "webview"
     },
     "main-runtime-shim": {

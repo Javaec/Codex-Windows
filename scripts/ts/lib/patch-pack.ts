@@ -6,6 +6,7 @@ export type PatchStepId =
   | "webview-sunset"
   | "webview-cwd"
   | "webview-settings-limits"
+  | "webview-thread-per-project-cap"
   | "main-runtime-shim";
 export type PatchProfileSource = "forced" | "selector-rule" | "default";
 
@@ -187,6 +188,7 @@ function ensureStepId(value: string): PatchStepId {
     value === "webview-sunset" ||
     value === "webview-cwd" ||
     value === "webview-settings-limits" ||
+    value === "webview-thread-per-project-cap" ||
     value === "main-runtime-shim"
   ) {
     return value;
