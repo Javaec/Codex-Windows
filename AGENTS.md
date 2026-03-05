@@ -92,3 +92,12 @@
   - `thread/list` marker in repacked `.vite/build/*.js` is warning-only (obfuscation-dependent), not hard-fail.
   - missing `runtime/patch-pack-profile.json` is warning-only for generated snapshots.
 - Goal: keep `parity:smoke` actionable and avoid false red on generated/manual variants with different layout.
+
+## 2026-03-05: Webview Mod Crash Fix (Frozen electronBridge)
+
+- Symptom: black screen / no content with renderer console error:
+  - `TypeError: Cannot assign to read only property 'sendMessageFromView' of object '#<Object>'`
+- Root cause: on newer Codex builds `electronBridge` is exposed by `contextBridge` as a read-only/frozen object. Renderer-level mods must not mutate it.
+- Fix:
+  - `shared/patch-pack/injections/webview-threads-per-project-cap.v1.js` is now a safe no-op marker only.
+  - Default collapsed thread list limit (10 -> 6) is applied in the main runtime shim by wrapping `electron.ipcMain.handle` + `electron.ipcMain.on` and rewriting `thread/list` requests.
