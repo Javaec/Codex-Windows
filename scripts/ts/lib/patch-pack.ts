@@ -6,6 +6,7 @@ export type PatchStepId =
   | "webview-sunset"
   | "webview-cwd"
   | "webview-settings-limits"
+  | "webview-disable-logout"
   | "webview-thread-per-project-cap"
   | "webview-persist-extended-history"
   | "main-runtime-shim";

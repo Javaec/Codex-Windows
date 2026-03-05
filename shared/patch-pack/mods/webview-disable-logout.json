@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "webview-disable-logout",
+  "description": "Disable Log out controls in webview UI to prevent accidental sign-outs.",
+  "lane": "webview",
+  "priority": 245,
+  "conflicts": [],
+  "injector": {
+    "stageId": "mods",
+    "inputContract": "artifact.deobfuscated-app",
+    "outputContract": "artifact.patched-app"
+  },
+  "compatibility": {
+    "snapshotRegex": "codex"
+  },
+  "steps": [
+    { "id": "webview-disable-logout", "required": true }
+  ]
+}
+

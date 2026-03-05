@@ -95,6 +95,16 @@ function runPatchStep(input, step) {
                 sourceModId: step.sourceModId,
             };
         }
+        case "webview-disable-logout": {
+            const summary = (0, launch_1.patchWebviewDisableLogout)(input.appDir, { allowMissingPatchPoint: !step.required });
+            return {
+                id: step.id,
+                required: step.required,
+                status: summarizeWebviewPatch(summary),
+                detail: formatWebviewDetail(summary),
+                sourceModId: step.sourceModId,
+            };
+        }
         case "webview-thread-per-project-cap": {
             const summary = (0, launch_1.patchWebviewThreadsPerProjectCap)(input.appDir, { allowMissingPatchPoint: !step.required });
             return {

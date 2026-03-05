@@ -6,6 +6,7 @@ const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */"
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V16 */";
 const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V9 */";
+const WEBVIEW_DISABLE_LOGOUT_PATCH_TAG = "/* CODEX-WINDOWS-DISABLE-LOGOUT-V1 */";
 const WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG = "/* CODEX-WINDOWS-WEBVIEW-PERSIST-EXTENDED-HISTORY-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
   "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V15 */",
@@ -44,6 +45,16 @@ const WEBVIEW_SETTINGS_LIMIT_PANEL_SCRIPT_PATH = path.resolve(
   "injections",
   "webview-settings-limits-panel.v3.js",
 );
+const WEBVIEW_DISABLE_LOGOUT_SCRIPT_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "shared",
+  "patch-pack",
+  "injections",
+  "webview-disable-logout.v1.js",
+);
 
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
@@ -58,6 +69,7 @@ const MAIN_SHIM_TEMPLATE_PATH = path.resolve(
   "codex-windows-main-shim.template.cjs",
 );
 let webviewSettingsLimitPanelScriptCache = "";
+let webviewDisableLogoutScriptCache = "";
 let mainShimTemplateCache = "";
 
 function resolveWebviewSettingsLimitPanelScript(): string {
@@ -73,6 +85,21 @@ function resolveWebviewSettingsLimitPanelScript(): string {
   }
   webviewSettingsLimitPanelScriptCache = script;
   return webviewSettingsLimitPanelScriptCache;
+}
+
+function resolveWebviewDisableLogoutScript(): string {
+  if (webviewDisableLogoutScriptCache.length > 0) {
+    return webviewDisableLogoutScriptCache;
+  }
+  if (!fileExists(WEBVIEW_DISABLE_LOGOUT_SCRIPT_PATH)) {
+    throw new Error(`disable logout script not found: ${WEBVIEW_DISABLE_LOGOUT_SCRIPT_PATH}`);
+  }
+  const script = fs.readFileSync(WEBVIEW_DISABLE_LOGOUT_SCRIPT_PATH, "utf8").trim();
+  if (script.length < 16) {
+    throw new Error(`disable logout script is empty: ${WEBVIEW_DISABLE_LOGOUT_SCRIPT_PATH}`);
+  }
+  webviewDisableLogoutScriptCache = script;
+  return webviewDisableLogoutScriptCache;
 }
 
 function resolveMainShimTemplate(): string {
@@ -340,6 +367,30 @@ export function patchWebviewSettingsLimitsPanel(
   if (!matched && allowMissingPatchPoint) {
     writeWarn("webview settings limits panel patch skipped: patch point not found for current bundle signature.");
   }
+  return summary;
+}
+
+export function patchWebviewDisableLogout(
+  appDir: string,
+  options: WebviewPatchOptions = {},
+): WebviewPatchSummary {
+  const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
+  const script = resolveWebviewDisableLogoutScript();
+
+  const summary = patchWebviewIndexBundles(
+    appDir,
+    "webview index bundle not found for disable logout patch.",
+    "webview disable logout patch point not found.",
+    (raw) => {
+      if (raw.includes(WEBVIEW_DISABLE_LOGOUT_PATCH_TAG)) {
+        return { alreadyPatched: true, patched: false, content: raw };
+      }
+
+      const content = `${raw.trimEnd()};\n${WEBVIEW_DISABLE_LOGOUT_PATCH_TAG}\n${script}\n`;
+      return { alreadyPatched: false, patched: true, content };
+    },
+    allowMissingPatchPoint,
+  );
   return summary;
 }
 
