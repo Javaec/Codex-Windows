@@ -13,6 +13,7 @@
   const STYLE_ID = "codex-windows-settings-limit-panel-style-v1";
   const LIMITS_CACHE_KEY = "codex-windows-limits-panel-cache-v1";
   const REFRESH_INTERVAL_MS = 30000;
+  const SETTINGS_TRUST_WINDOW_MS = 10 * 60 * 1000;
 
   const PANEL_HTML = '<div class="codex-windows-limit-summary" data-codex-limit-summary>5h -- | wk --</div>';
 
@@ -20,6 +21,7 @@
     fiveHour: undefined,
     weekly: undefined,
     updatedAtIso: "",
+    settingsTrustUntilMs: 0,
   };
 
   function ensureStyle() {
@@ -158,11 +160,13 @@
   function scoreEntry(entry) {
     if (!entry) return 0;
     let score = 0;
-    if (entry.used !== undefined) score += 3;
-    if (entry.limit !== undefined) score += 3;
-    if (entry.usedPercent !== undefined) score += 4;
-    if (entry.remaining !== undefined) score += 2;
+    const percent = tryUsedPercent(entry);
+    if (typeof percent === "number") score += 10;
+    if (entry.used !== undefined) score += 2;
+    if (entry.limit !== undefined) score += 2;
+    if (entry.remaining !== undefined) score += 1;
     if (entry.resetAt && entry.resetAt.length > 0) score += 1;
+    if (entry.source === "settings") score += 6;
     return score;
   }
 
@@ -177,6 +181,17 @@
     const nextPercent = tryUsedPercent(next);
     const currentResetAt = typeof current.resetAt === "string" ? current.resetAt : "";
     const nextResetAt = typeof next.resetAt === "string" ? next.resetAt : "";
+
+    if (
+      Date.now() < panelState.settingsTrustUntilMs &&
+      current.source === "settings" &&
+      next.source === "payload" &&
+      typeof currentPercent === "number" &&
+      typeof nextPercent === "number" &&
+      Math.abs(currentPercent - nextPercent) >= 15
+    ) {
+      return current;
+    }
 
     if (typeof currentPercent === "number" && typeof nextPercent !== "number") {
       return current;
@@ -216,9 +231,6 @@
       entry.limit > 0
     ) {
       return clampPercent(((entry.limit - entry.remaining) / entry.limit) * 100);
-    }
-    if (typeof entry.remaining === "number" && Number.isFinite(entry.remaining) && entry.remaining >= 0 && entry.remaining <= 100) {
-      return clampPercent(100 - entry.remaining);
     }
     return undefined;
   }
@@ -291,13 +303,18 @@
   }
 
   function commitSnapshot(snapshot) {
+    let source = "payload";
+    if (arguments.length >= 2 && typeof arguments[1] === "string" && arguments[1].length > 0) {
+      source = arguments[1];
+    }
     if (!snapshot || typeof snapshot !== "object") return;
     if (shouldIgnoreMirroredSnapshot(snapshot)) return;
 
     let changed = false;
 
     if (snapshot.fiveHour) {
-      const merged = chooseBetterEntry(panelState.fiveHour, snapshot.fiveHour);
+      const incoming = { ...snapshot.fiveHour, source };
+      const merged = chooseBetterEntry(panelState.fiveHour, incoming);
       if (merged !== panelState.fiveHour) {
         panelState.fiveHour = merged;
         changed = true;
@@ -305,7 +322,8 @@
     }
 
     if (snapshot.weekly) {
-      const merged = chooseBetterEntry(panelState.weekly, snapshot.weekly);
+      const incoming = { ...snapshot.weekly, source };
+      const merged = chooseBetterEntry(panelState.weekly, incoming);
       if (merged !== panelState.weekly) {
         panelState.weekly = merged;
         changed = true;
@@ -314,6 +332,9 @@
 
     if (!changed) return;
 
+    if (source === "settings") {
+      panelState.settingsTrustUntilMs = Date.now() + SETTINGS_TRUST_WINDOW_MS;
+    }
     panelState.updatedAtIso = new Date().toISOString();
     saveSnapshot();
     renderPanel();
@@ -349,48 +370,12 @@
     return looksLikeWindow(primary) && looksLikeWindow(secondary);
   }
 
-  function findRateLimitsEnvelope(payload) {
-    if (!payload || typeof payload !== "object") return undefined;
-    const stack = [payload];
-    const seen = new Set();
-    let visited = 0;
-
-    while (stack.length > 0) {
-      if (visited > 160) return undefined;
-      visited += 1;
-
-      const current = stack.pop();
-      if (!current || typeof current !== "object") continue;
-      if (seen.has(current)) continue;
-      seen.add(current);
-
-      if (looksLikeRateLimits(current)) {
-        return current;
-      }
-
-      if (Array.isArray(current)) {
-        for (let index = 0; index < Math.min(current.length, 10); index += 1) {
-          stack.push(current[index]);
-        }
-        continue;
-      }
-
-      const keys = Object.keys(current);
-      for (let index = 0; index < Math.min(keys.length, 20); index += 1) {
-        stack.push(current[keys[index]]);
-      }
-    }
-
-    return undefined;
-  }
-
-  function parseSnapshotFromPayload(payload) {
+  function parseSnapshotFromRateLimitsRecord(record) {
     const result = { fiveHour: undefined, weekly: undefined };
-    const envelope = findRateLimitsEnvelope(payload);
-    if (!envelope) return result;
+    if (!record || typeof record !== "object") return result;
 
-    const primaryCandidate = envelope.primary_window || envelope.primaryWindow || envelope.primary;
-    const secondaryCandidate = envelope.secondary_window || envelope.secondaryWindow || envelope.secondary;
+    const primaryCandidate = record.primary_window || record.primaryWindow || record.primary;
+    const secondaryCandidate = record.secondary_window || record.secondaryWindow || record.secondary;
 
     const primary = parseWindowEntry(primaryCandidate, "primary");
     const secondary = parseWindowEntry(secondaryCandidate, "secondary");
@@ -401,6 +386,59 @@
     if (secondary && secondary.kind === "weekly") result.weekly = chooseBetterEntry(result.weekly, secondary.entry);
 
     return result;
+  }
+
+  function scoreSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return 0;
+    let score = 0;
+    if (snapshot.fiveHour) score += scoreEntry(snapshot.fiveHour);
+    if (snapshot.weekly) score += scoreEntry(snapshot.weekly);
+    if (snapshot.fiveHour && snapshot.weekly) score += 4;
+    return score;
+  }
+
+  function parseSnapshotFromPayload(payload) {
+    const best = { fiveHour: undefined, weekly: undefined };
+    if (!payload || typeof payload !== "object") return best;
+
+    const stack = [payload];
+    const seen = new Set();
+    let visited = 0;
+    let bestScore = 0;
+
+    while (stack.length > 0) {
+      if (visited > 220) break;
+      visited += 1;
+
+      const current = stack.pop();
+      if (!current || typeof current !== "object") continue;
+      if (seen.has(current)) continue;
+      seen.add(current);
+
+      if (looksLikeRateLimits(current)) {
+        const snapshot = parseSnapshotFromRateLimitsRecord(current);
+        const snapshotScore = scoreSnapshot(snapshot);
+        if (snapshotScore > bestScore) {
+          bestScore = snapshotScore;
+          best.fiveHour = snapshot.fiveHour;
+          best.weekly = snapshot.weekly;
+        }
+      }
+
+      if (Array.isArray(current)) {
+        for (let index = 0; index < Math.min(current.length, 10); index += 1) {
+          stack.push(current[index]);
+        }
+        continue;
+      }
+
+      const keys = Object.keys(current);
+      for (let index = 0; index < Math.min(keys.length, 24); index += 1) {
+        stack.push(current[keys[index]]);
+      }
+    }
+
+    return best;
   }
 
   function firstNeedleIndex(hayLower, needles) {
@@ -523,7 +561,7 @@
   function captureFromSettingsIfOpen() {
     const routeText = (String(window.location.pathname || "") + " " + String(window.location.hash || "")).toLowerCase();
     if (!routeText.includes("settings")) return;
-    commitSnapshot(parseSnapshotFromSettingsText());
+    commitSnapshot(parseSnapshotFromSettingsText(), "settings");
   }
 
   function isSettingsCandidate(node) {
@@ -660,7 +698,7 @@
           if (!payload || typeof payload !== "object") return;
           const snapshot = parseSnapshotFromPayload(payload);
           if (snapshot.fiveHour || snapshot.weekly) {
-            commitSnapshot(snapshot);
+            commitSnapshot(snapshot, "payload");
           }
         } catch {
           // ignore malformed bridge payloads

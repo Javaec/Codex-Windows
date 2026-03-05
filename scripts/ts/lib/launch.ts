@@ -4,10 +4,11 @@ import { ensureDir, fileExists, runCommand, writeWarn } from "./exec";
 
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
-const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V15 */";
-const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V8 */";
+const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V16 */";
+const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V9 */";
 const WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG = "/* CODEX-WINDOWS-WEBVIEW-PERSIST-EXTENDED-HISTORY-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
+  "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V15 */",
   "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V14 */",
   "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V13 */",
   "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V12 */",
@@ -24,6 +25,7 @@ const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
   "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V1 */",
 ];
 const WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS: string[] = [
+  "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V8 */",
   "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V7 */",
   "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V6 */",
   "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V5 */",
@@ -369,19 +371,19 @@ export function patchWebviewThreadsPerProjectCap(
         patched = true;
         return "maxItems:6";
       });
-      if (!patched) {
-        const ids = new Set<string>();
-        for (const match of next.matchAll(/maxItems:([A-Za-z0-9_$]+)/g)) {
-          const id = match[1];
-          if (id && id.length >= 3) ids.add(id);
-        }
-        for (const id of ids) {
-          const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          next = next.replace(new RegExp(`\\b(const|let|var)\\s+${escaped}=10\\b`), (_match, keyword) => {
-            patched = true;
-            return `${keyword} ${id}=6`;
-          });
-        }
+
+      const ids = new Set<string>();
+      for (const match of next.matchAll(/maxItems:([A-Za-z0-9_$]+)/g)) {
+        const id = match[1];
+        if (id && id.length >= 3) ids.add(id);
+      }
+      for (const id of ids) {
+        const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        next = next.replace(new RegExp(`\\b(const|let|var)\\s+${escaped}=(\\d+)\\b`), (_match, keyword, value) => {
+          if (value === "6") return `${keyword} ${id}=6`;
+          patched = true;
+          return `${keyword} ${id}=6`;
+        });
       }
 
       // Legacy fallback: older builds cap by request `limit=<pageSize>*this.recentConversationsPageCount`.
