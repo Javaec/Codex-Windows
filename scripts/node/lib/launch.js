@@ -47,7 +47,7 @@ const exec_1 = require("./exec");
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_PATCH_TAG = "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V12 */";
-const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2 */";
+const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V3 */";
 const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V11 */",
     "/* CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V10 */",
@@ -63,6 +63,7 @@ const WEBVIEW_SETTINGS_LIMIT_PANEL_LEGACY_TAGS = [
 ];
 const WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS = [
     "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V1 */",
+    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2 */",
 ];
 const WEBVIEW_SETTINGS_LIMIT_PANEL_SCRIPT_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "injections", "webview-settings-limits-panel.v3.js");
 const WEBVIEW_THREADS_PER_PROJECT_CAP_SCRIPT_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "injections", "webview-threads-per-project-cap.v1.js");
@@ -308,10 +309,10 @@ function escapeJsString(value) {
 function buildWindowsRuntimeShim(buildNumber, buildFlavor) {
     const safeBuildNumber = escapeJsString(buildNumber);
     const safeBuildFlavor = escapeJsString(buildFlavor);
-    const shim = String.raw `/* CODEX-WINDOWS-ENV-SHIM-V7 */
+    const shim = String.raw `/* CODEX-WINDOWS-ENV-SHIM-V8 */
 (function () {
-  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V7__) return;
-  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V7__ = true;
+  if (globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V8__) return;
+  globalThis.__CODEX_WINDOWS_RUNTIME_PATCH_V8__ = true;
   try {
     const fs = require("node:fs");
     const path = require("node:path");
@@ -1122,6 +1123,73 @@ function buildWindowsRuntimeShim(buildNumber, buildFlavor) {
 
     try {
       const electron = require("electron");
+      function rewriteThreadListLimit(message) {
+        try {
+          if (!message || typeof message !== "object" || Array.isArray(message)) return message;
+          let method = "";
+          if (typeof message.method === "string") method = message.method;
+          else if (message.request && typeof message.request === "object" && typeof message.request.method === "string") {
+            method = message.request.method;
+          }
+          if (method !== "thread/list") return message;
+          if (message.params && typeof message.params === "object" && !Array.isArray(message.params)) {
+            const limitValue = Number(message.params.limit);
+            if (Number.isFinite(limitValue) && limitValue === 10) {
+              const nextParams = Object.assign({}, message.params, { limit: 6 });
+              return Object.assign({}, message, { params: nextParams });
+            }
+          }
+          if (message.request && typeof message.request === "object" && message.request.params && typeof message.request.params === "object" && !Array.isArray(message.request.params)) {
+            const limitValue = Number(message.request.params.limit);
+            if (Number.isFinite(limitValue) && limitValue === 10) {
+              const nextParams = Object.assign({}, message.request.params, { limit: 6 });
+              const nextRequest = Object.assign({}, message.request, { params: nextParams });
+              return Object.assign({}, message, { request: nextRequest });
+            }
+          }
+          return message;
+        } catch {
+          return message;
+        }
+      }
+
+      if (electron && electron.ipcMain && !globalThis.__CODEX_WINDOWS_IPC_THREAD_LIST_LIMIT_PATCHED__) {
+        globalThis.__CODEX_WINDOWS_IPC_THREAD_LIST_LIMIT_PATCHED__ = true;
+        const ipcMain = electron.ipcMain;
+        const originalHandle = typeof ipcMain.handle === "function" ? ipcMain.handle.bind(ipcMain) : null;
+        if (originalHandle) {
+          ipcMain.handle = (channel, handler) => {
+            if (typeof handler !== "function") return originalHandle(channel, handler);
+            return originalHandle(channel, function patchedIpcHandle(event) {
+              if (arguments.length < 2) return handler.apply(this, arguments);
+              const args = Array.prototype.slice.call(arguments, 1);
+              try {
+                for (let i = 0; i < args.length; i += 1) args[i] = rewriteThreadListLimit(args[i]);
+              } catch {
+                // ignore
+              }
+              return handler.apply(this, [event].concat(args));
+            });
+          };
+        }
+
+        const originalOn = typeof ipcMain.on === "function" ? ipcMain.on.bind(ipcMain) : null;
+        if (originalOn) {
+          ipcMain.on = (channel, listener) => {
+            if (typeof listener !== "function") return originalOn(channel, listener);
+            return originalOn(channel, function patchedIpcOn(event) {
+              if (arguments.length < 2) return listener.apply(this, arguments);
+              const args = Array.prototype.slice.call(arguments, 1);
+              try {
+                for (let i = 0; i < args.length; i += 1) args[i] = rewriteThreadListLimit(args[i]);
+              } catch {
+                // ignore
+              }
+              return listener.apply(this, [event].concat(args));
+            });
+          };
+        }
+      }
       if (electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
         globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__ = true;
         const originalOpenPath = typeof electron.shell.openPath === "function" ? electron.shell.openPath.bind(electron.shell) : null;
