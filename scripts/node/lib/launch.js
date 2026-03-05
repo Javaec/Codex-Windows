@@ -36,8 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.patchPreload = patchPreload;
 exports.patchWebviewCwdNormalization = patchWebviewCwdNormalization;
 exports.patchWebviewAppSunsetGate = patchWebviewAppSunsetGate;
-exports.patchWebviewThreadsPerProjectCap = patchWebviewThreadsPerProjectCap;
-exports.patchWebviewPersistExtendedHistory = patchWebviewPersistExtendedHistory;
 exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
 exports.ensureGitOnPath = ensureGitOnPath;
 exports.startCodexDirectLaunch = startCodexDirectLaunch;
@@ -46,18 +44,6 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
-const WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG = "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V9 */";
-const WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG = "/* CODEX-WINDOWS-WEBVIEW-PERSIST-EXTENDED-HISTORY-V1 */";
-const WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS = [
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V8 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V7 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V6 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V5 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V4 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V1 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2 */",
-    "/* CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V3 */",
-];
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
@@ -227,106 +213,6 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
     }
     return summary;
 }
-function patchWebviewThreadsPerProjectCap(appDir, options = {}) {
-    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
-    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for threads per project cap patch.", "webview threads per project cap patch point not found.", (raw) => {
-        if (raw.includes(WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG)) {
-            return { alreadyPatched: true, patched: false, content: raw };
-        }
-        let next = raw;
-        const legacyIndexes = WEBVIEW_THREADS_PER_PROJECT_CAP_LEGACY_TAGS
-            .map((tag) => next.indexOf(tag))
-            .filter((index) => index >= 0)
-            .sort((left, right) => left - right);
-        if (legacyIndexes.length > 0) {
-            next = next.slice(0, legacyIndexes[0]).trimEnd();
-        }
-        let patched = false;
-        // Newer builds cap the recent section via `maxItems:<token>`.
-        next = next.replace(/maxItems:10(?=,)/g, () => {
-            patched = true;
-            return "maxItems:6";
-        });
-        const ids = new Set();
-        for (const match of next.matchAll(/maxItems:([A-Za-z0-9_$]+)/g)) {
-            const id = match[1];
-            if (id && id.length >= 3)
-                ids.add(id);
-        }
-        for (const id of ids) {
-            const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            next = next.replace(new RegExp(`\\b(const|let|var)\\s+${escaped}=(\\d+)\\b`), (_match, keyword, value) => {
-                if (value === "6")
-                    return `${keyword} ${id}=6`;
-                patched = true;
-                return `${keyword} ${id}=6`;
-            });
-        }
-        // Legacy fallback: older builds cap by request `limit=<pageSize>*this.recentConversationsPageCount`.
-        if (!patched) {
-            next = next.replace(/(const\s+[A-Za-z0-9_$]+\s*=\s*)([A-Za-z0-9_$]+)\*this\.recentConversationsPageCount/g, (_match, prefix) => {
-                patched = true;
-                return `${prefix}6*this.recentConversationsPageCount`;
-            });
-        }
-        // Legacy fallback: load-more uses `limit:<pageSize>,cursor:this.recentConversationsNextCursor`.
-        if (!patched) {
-            next = next.replace(/sendRequest\((["'])thread\/list\1,\{limit:[A-Za-z0-9_$]+,cursor:this\.recentConversationsNextCursor/g, (_match, quote) => {
-                patched = true;
-                return `sendRequest(${quote}thread/list${quote},{limit:6,cursor:this.recentConversationsNextCursor`;
-            });
-        }
-        if (!patched) {
-            return { alreadyPatched: false, patched: false, content: raw };
-        }
-        const content = `${next};\n${WEBVIEW_THREADS_PER_PROJECT_CAP_PATCH_TAG}\n`;
-        return { alreadyPatched: false, patched: true, content };
-    }, allowMissingPatchPoint);
-    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
-    if (!matched && allowMissingPatchPoint) {
-        (0, exec_1.writeWarn)("webview threads per project cap patch skipped: patch point not found for current bundle signature.");
-    }
-    return summary;
-}
-function patchWebviewPersistExtendedHistory(appDir, options = {}) {
-    const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
-    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for persistExtendedHistory patch.", "webview persistExtendedHistory patch point not found.", (raw) => {
-        if (raw.includes(WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG)) {
-            return { alreadyPatched: true, patched: false, content: raw };
-        }
-        let next = raw;
-        let patched = false;
-        // If another patch removed our tag but the bundle is already patched, re-tag without failing the pipeline.
-        if (next.includes("persistExtendedHistory:!0") ||
-            next.includes("persistExtendedHistory:true") ||
-            next.includes("persistExtendedHistory:1")) {
-            const content = `${next};\n${WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG}\n`;
-            return { alreadyPatched: false, patched: true, content };
-        }
-        next = next.replace(/persistExtendedHistory:!1\b/g, () => {
-            patched = true;
-            return "persistExtendedHistory:!0";
-        });
-        next = next.replace(/persistExtendedHistory:false\b/g, () => {
-            patched = true;
-            return "persistExtendedHistory:!0";
-        });
-        next = next.replace(/persistExtendedHistory:0\b/g, () => {
-            patched = true;
-            return "persistExtendedHistory:1";
-        });
-        if (!patched) {
-            return { alreadyPatched: false, patched: false, content: raw };
-        }
-        const content = `${next};\n${WEBVIEW_PERSIST_EXTENDED_HISTORY_PATCH_TAG}\n`;
-        return { alreadyPatched: false, patched: true, content };
-    }, allowMissingPatchPoint);
-    const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
-    if (!matched && allowMissingPatchPoint) {
-        (0, exec_1.writeWarn)("webview persistExtendedHistory patch skipped: patch point not found for current bundle signature.");
-    }
-    return summary;
-}
 function escapeJsString(value) {
     return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -398,6 +284,14 @@ function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, code
     env.PWD = appDir;
     if (gitCapabilityCachePath)
         env.CODEX_GIT_CAPABILITY_CACHE = gitCapabilityCachePath;
+    if (!env.CODEX_MODS_DIR) {
+        const repoRoot = path.resolve(__dirname, "..", "..", "..");
+        const modsDir = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
+        if (!(0, exec_1.fileExists)(modsDir)) {
+            throw new Error(`Codex mods directory missing: ${modsDir}`);
+        }
+        env.CODEX_MODS_DIR = modsDir;
+    }
     (0, exec_1.ensureDir)(userDataDir);
     (0, exec_1.ensureDir)(cacheDir);
     const result = (0, exec_1.runCommand)(electronExe, [appDir, "--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: appDir, env, capture: false, allowNonZero: true });

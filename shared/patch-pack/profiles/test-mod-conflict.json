@@ -6,7 +6,6 @@
     "core-preload",
     "webview-sunset-strict",
     "webview-sunset-optional",
-    "webview-thread-per-project-cap",
     "windows-runtime-shim"
   ]
 }

@@ -91,6 +91,7 @@ function validateRuntimeModpack(modpackRoot) {
 
   const seen = new Set();
   let rendererModCount = 0;
+  let mainModCount = 0;
   for (const dirName of entries) {
     const modDir = path.join(modpackRoot, dirName);
     const manifestPath = path.join(modDir, "mod.json");
@@ -116,6 +117,12 @@ function validateRuntimeModpack(modpackRoot) {
       throw new Error(`patch-pack preflight: runtime mod ${id} is missing entrypoints`);
     }
 
+    const hasRenderer = Boolean(entrypoints.renderer);
+    const hasMain = Boolean(entrypoints.main);
+    if (!hasRenderer && !hasMain) {
+      throw new Error(`patch-pack preflight: runtime mod ${id} has no entrypoints`);
+    }
+
     if (entrypoints.renderer) {
       const rendererEntry = String(entrypoints.renderer || "").trim();
       if (!rendererEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty renderer entry`);
@@ -127,11 +134,24 @@ function validateRuntimeModpack(modpackRoot) {
       if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} renderer entry is empty`);
       rendererModCount += 1;
     }
+
+    if (entrypoints.main) {
+      const mainEntry = String(entrypoints.main || "").trim();
+      if (!mainEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty main entry`);
+      const mainPath = path.join(modDir, mainEntry);
+      if (!fs.existsSync(mainPath)) {
+        throw new Error(`patch-pack preflight: runtime mod ${id} missing main entry: ${mainPath}`);
+      }
+      const size = fs.statSync(mainPath).size;
+      if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} main entry is empty`);
+      mainModCount += 1;
+    }
   }
 
   return {
     modCount: entries.length,
     rendererModCount,
+    mainModCount,
     root: modpackRoot,
   };
 }

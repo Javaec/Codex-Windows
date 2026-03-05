@@ -100,5 +100,6 @@
 - Root cause: on newer Codex builds `electronBridge` is exposed by `contextBridge` as a read-only/frozen object. Renderer-level mods must not mutate it.
 - Fix:
   - Renderer mods must be DOM-only and injected by the main-process mod loader (no direct bundle monkeypatching).
-  - Default collapsed thread list limit (10 -> 6) is applied via webview bundle text rewrite (caps are patched without touching `window.electronBridge`).
   - Feature UI tweaks (limits panel, disable logout, etc) are now runtime mods under `shared/codex-mod-loader/mods/*` and are injected with `webContents.executeJavaScript`.
+  - App-server behavior tweaks are main-process mods (no webview bundle patching):
+    - `mods/app-server-tweaks` rewrites `thread/*` IPC request payloads to enforce `persistExtendedHistory=true` and change the default collapsed `thread/list` limit (10 -> 6).

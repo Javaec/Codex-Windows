@@ -44,11 +44,13 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - preload bridge
   - webview sunset bypass
   - webview cwd normalization (optional by profile)
-  - webview thread cap (10 -> 6)
-  - webview persistExtendedHistory=true
   - main Windows runtime shim (env + SQLite path normalization + open-path fix + renderer mod-loader hook)
 - Feature UI tweaks moved out of brittle webview bundle patching:
   - runtime-loaded by the main-process mod loader from `shared/codex-mod-loader/mods/*`
   - bundled into portable outputs as `resources/mods/*`
   - injected into renderer via `webContents.executeJavaScript` (DOM-only, must not mutate `window.electronBridge`)
+- App-server request tweaks are also runtime mods (main-process):
+  - `mods/app-server-tweaks` rewrites IPC request payloads:
+    - `thread/list` default limit 10 -> 6
+    - `thread/*` forced `persistExtendedHistory=true`
 - patch-pack preflight now validates runtime modpack presence + manifest/entry integrity.

@@ -204,7 +204,7 @@
       return path.resolve(resourcesRoot, "..", "mods");
     }
 
-    function loadRendererMods(modsRoot, buildHint) {
+    function loadRuntimeMods(modsRoot, buildHint) {
       if (!modsRoot || !fs.existsSync(modsRoot)) return [];
       if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
 
@@ -251,19 +251,39 @@
 
         const entrypoints = manifest && manifest.entrypoints && typeof manifest.entrypoints === "object" ? manifest.entrypoints : {};
         const rendererEntry = normalizePathString(entrypoints.renderer || "");
-        if (!rendererEntry) continue;
-
-        const rendererEntryPath = path.join(modDir, rendererEntry);
-        if (!fs.existsSync(rendererEntryPath)) {
-          throw new Error(`codex-mod-loader: missing renderer entry for ${id}: ${rendererEntryPath}`);
+        const mainEntry = normalizePathString(entrypoints.main || "");
+        if (!rendererEntry && !mainEntry) {
+          throw new Error(`codex-mod-loader: mod has no entrypoints: ${id}`);
         }
 
-        const script = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
-        if (script.trim().length < 16) {
-          throw new Error(`codex-mod-loader: renderer entry is empty for ${id}: ${rendererEntryPath}`);
+        let rendererScript = "";
+        if (rendererEntry) {
+          const rendererEntryPath = path.join(modDir, rendererEntry);
+          if (!fs.existsSync(rendererEntryPath)) {
+            throw new Error(`codex-mod-loader: missing renderer entry for ${id}: ${rendererEntryPath}`);
+          }
+          const script = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
+          if (script.trim().length < 16) {
+            throw new Error(`codex-mod-loader: renderer entry is empty for ${id}: ${rendererEntryPath}`);
+          }
+          rendererScript = script;
         }
 
-        mods.push({ id, priority, script });
+        let mainEntryPath = "";
+        if (mainEntry) {
+          const candidate = path.join(modDir, mainEntry);
+          if (!fs.existsSync(candidate)) {
+            throw new Error(`codex-mod-loader: missing main entry for ${id}: ${candidate}`);
+          }
+          mainEntryPath = candidate;
+        }
+
+        const conflicts = Array.isArray(manifest && manifest.conflicts) ? manifest.conflicts : [];
+        const normalizedConflicts = conflicts
+          .map((value) => normalizePathString(value))
+          .filter((value) => value.length > 0);
+
+        mods.push({ id, priority, rendererScript, mainEntryPath, conflicts: normalizedConflicts });
       }
 
       mods.sort((left, right) => {
@@ -277,7 +297,33 @@
         selected.add(mod.id);
       }
 
+      for (const mod of mods) {
+        for (const conflictId of mod.conflicts) {
+          if (!selected.has(conflictId)) continue;
+          throw new Error(`codex-mod-loader: conflicting mods selected: ${mod.id} x ${conflictId}`);
+        }
+      }
+
       return mods;
+    }
+
+    function applyMainMods(electron, loadedMods, buildHint) {
+      if (!electron || !loadedMods || loadedMods.length === 0) return;
+      if (globalThis.__CODEX_MOD_LOADER_MAIN_V1__) return;
+      globalThis.__CODEX_MOD_LOADER_MAIN_V1__ = true;
+
+      for (const mod of loadedMods) {
+        if (!mod.mainEntryPath) continue;
+        const exported = require(mod.mainEntryPath);
+        const apply =
+          typeof exported === "function"
+            ? exported
+            : (exported && typeof exported.activate === "function" ? exported.activate : null);
+        if (typeof apply !== "function") {
+          throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate})`);
+        }
+        apply({ electron, buildHint, modId: mod.id });
+      }
     }
 
     function installRendererMods(electron, rendererMods) {
@@ -367,7 +413,9 @@
       }
 
       const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
-      const rendererMods = loadRendererMods(resolveModsRootPath(), buildHint);
+      const loadedMods = loadRuntimeMods(resolveModsRootPath(), buildHint);
+      applyMainMods(electron, loadedMods, buildHint);
+      const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
       installRendererMods(electron, rendererMods);
     } catch (error) {
       console.error("[codex-windows-main-shim] electron patch failed", error);

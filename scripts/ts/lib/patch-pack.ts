@@ -5,8 +5,6 @@ export type PatchStepId =
   | "preload"
   | "webview-sunset"
   | "webview-cwd"
-  | "webview-thread-per-project-cap"
-  | "webview-persist-extended-history"
   | "main-runtime-shim";
 export type PatchProfileSource = "forced" | "selector-rule" | "default";
 
@@ -187,8 +185,6 @@ function ensureStepId(value: string): PatchStepId {
     value === "preload" ||
     value === "webview-sunset" ||
     value === "webview-cwd" ||
-    value === "webview-thread-per-project-cap" ||
-    value === "webview-persist-extended-history" ||
     value === "main-runtime-shim"
   ) {
     return value;
