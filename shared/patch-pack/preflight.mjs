@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
-const STEP_IDS = new Set(["preload", "webview-sunset", "webview-cwd", "webview-settings-limits", "main-runtime-shim"]);
 
 function parseArgs(argv) {
   let snapshotLabel = "";
@@ -96,13 +95,6 @@ function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
   return best;
 }
 
-function ensureStepId(value) {
-  if (!STEP_IDS.has(value)) {
-    throw new Error(`patch-pack preflight: unsupported step id: ${value}`);
-  }
-  return value;
-}
-
 function parseBuildLimit(rawValue, label) {
   if (rawValue === undefined || rawValue === null || rawValue === "") {
     return 0;
@@ -140,9 +132,12 @@ function validateCatalog(catalog) {
     throw new Error("patch-pack preflight: catalog steps must be an object");
   }
   for (const stepId of catalog.stepOrder) {
-    ensureStepId(String(stepId));
-    if (!Object.prototype.hasOwnProperty.call(catalog.steps, stepId)) {
-      throw new Error(`patch-pack preflight: stepOrder references missing step '${stepId}'`);
+    const normalizedStepId = String(stepId || "").trim();
+    if (!normalizedStepId) {
+      throw new Error("patch-pack preflight: catalog stepOrder contains empty step id");
+    }
+    if (!Object.prototype.hasOwnProperty.call(catalog.steps, normalizedStepId)) {
+      throw new Error(`patch-pack preflight: stepOrder references missing step '${normalizedStepId}'`);
     }
   }
 }
@@ -274,7 +269,10 @@ function loadMod(modsDir, modId, catalog, stageRegistry) {
   }
 
   const normalizedSteps = mod.steps.map((step) => {
-    const id = ensureStepId(String(step.id || ""));
+    const id = String(step && typeof step === "object" ? step.id : "").trim();
+    if (!id) {
+      throw new Error(`patch-pack preflight: mod ${modId} has empty step id`);
+    }
     if (!Object.prototype.hasOwnProperty.call(catalog.steps, id)) {
       throw new Error(`patch-pack preflight: mod ${modId} references unknown catalog step '${id}'`);
     }

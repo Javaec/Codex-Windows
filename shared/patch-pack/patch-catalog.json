@@ -6,6 +6,7 @@
     "webview-cwd",
     "webview-settings-limits",
     "webview-thread-per-project-cap",
+    "webview-persist-extended-history",
     "main-runtime-shim"
   ],
   "steps": {
@@ -26,7 +27,11 @@
       "stage": "webview"
     },
     "webview-thread-per-project-cap": {
-      "description": "Rewrite thread/list requests limit=10 -> 6 (keeps Show more/Show less behavior).",
+      "description": "Rewrite the renderer recent section cap (10 -> 6) while keeping Show more/Show less behavior.",
+      "stage": "webview"
+    },
+    "webview-persist-extended-history": {
+      "description": "Force persistExtendedHistory=true for thread resume so legacy chats keep loading after CLI upgrades.",
       "stage": "webview"
     },
     "main-runtime-shim": {

@@ -90,3 +90,19 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - patch tag: `CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V2`,
   - rewrites outgoing `thread/list` requests with `limit=10` to `limit=6`,
   - keeps existing Show more/Show less behavior intact (only changes the default collapsed limit).
+
+## 2026-03-05 Updates: Limits + Threads Cap + CLI 0.110.0 History
+
+- Limits panel injector is now V15 (`CODEX-WINDOWS-SETTINGS-LIMIT-PANEL-V15`):
+  - mounts as a sibling directly above the real sidebar Settings row when possible,
+  - compact single-line output (`5h X% | wk Y%`),
+  - avoids flapping by refusing to overwrite known values with unknown/partial snapshots,
+  - fixes percent derivation (`remaining` is treated as count only when `limit` exists; generic `%` parsing removed),
+  - refreshes mount/render on a 30s timer to keep the panel visible without navigating to Settings.
+- Thread list cap patch is now V8 (`CODEX-WINDOWS-THREADS-PER-PROJECT-CAP-V8`):
+  - primary strategy: rewrite the renderer-side `maxItems:<id>` constant (`const <id>=10` -> `6`) so the default collapsed view shows 6,
+  - legacy fallback: keep older request-level limit rewriting for builds that do not expose `maxItems` caps,
+  - no renderer monkeypatching of `electronBridge` (it can be frozen/read-only on newer builds).
+- Added webview patch step `webview-persist-extended-history` (`CODEX-WINDOWS-WEBVIEW-PERSIST-EXTENDED-HISTORY-V1`):
+  - forces `persistExtendedHistory=true` in the webview config,
+  - fixes missing legacy conversations after upgrading Codex CLI to `0.110.0` (older rollouts remain on disk under `.codex/sessions` / `.codex/archived_sessions`).

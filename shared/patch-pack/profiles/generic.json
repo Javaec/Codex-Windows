@@ -8,6 +8,7 @@
     "webview-cwd-normalization",
     "webview-settings-limits-panel",
     "webview-thread-per-project-cap",
+    "webview-persist-extended-history",
     "windows-runtime-shim"
   ]
 }

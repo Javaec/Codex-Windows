@@ -7,6 +7,7 @@ export type PatchStepId =
   | "webview-cwd"
   | "webview-settings-limits"
   | "webview-thread-per-project-cap"
+  | "webview-persist-extended-history"
   | "main-runtime-shim";
 export type PatchProfileSource = "forced" | "selector-rule" | "default";
 
@@ -189,6 +190,7 @@ function ensureStepId(value: string): PatchStepId {
     value === "webview-cwd" ||
     value === "webview-settings-limits" ||
     value === "webview-thread-per-project-cap" ||
+    value === "webview-persist-extended-history" ||
     value === "main-runtime-shim"
   ) {
     return value;

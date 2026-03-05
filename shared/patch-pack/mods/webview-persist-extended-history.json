@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "webview-thread-per-project-cap",
-  "description": "Rewrite the renderer recent section cap (10 -> 6) while keeping Show more/Show less behavior intact.",
+  "id": "webview-persist-extended-history",
+  "description": "Force persistExtendedHistory=true so older chats continue to load after Codex CLI upgrades.",
   "lane": "webview",
-  "priority": 235,
+  "priority": 240,
   "conflicts": [],
   "injector": {
     "stageId": "mods",
@@ -14,6 +14,7 @@
     "snapshotRegex": "codex"
   },
   "steps": [
-    { "id": "webview-thread-per-project-cap", "required": true }
+    { "id": "webview-persist-extended-history", "required": true }
   ]
 }
+

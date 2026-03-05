@@ -105,6 +105,16 @@ function runPatchStep(input, step) {
                 sourceModId: step.sourceModId,
             };
         }
+        case "webview-persist-extended-history": {
+            const summary = (0, launch_1.patchWebviewPersistExtendedHistory)(input.appDir, { allowMissingPatchPoint: !step.required });
+            return {
+                id: step.id,
+                required: step.required,
+                status: summarizeWebviewPatch(summary),
+                detail: formatWebviewDetail(summary),
+                sourceModId: step.sourceModId,
+            };
+        }
         case "main-runtime-shim": {
             (0, launch_1.patchMainForWindowsEnvironment)(input.appDir, input.buildNumber, input.buildFlavor);
             return {

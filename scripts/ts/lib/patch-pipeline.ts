@@ -6,6 +6,7 @@ import {
   patchPreload,
   patchWebviewAppSunsetGate,
   patchWebviewCwdNormalization,
+  patchWebviewPersistExtendedHistory,
   patchWebviewSettingsLimitsPanel,
   patchWebviewThreadsPerProjectCap,
   type WebviewPatchSummary,
@@ -132,6 +133,16 @@ function runPatchStep(input: PatchPipelineInput, step: PatchStepPlan): PatchStep
     }
     case "webview-thread-per-project-cap": {
       const summary = patchWebviewThreadsPerProjectCap(input.appDir, { allowMissingPatchPoint: !step.required });
+      return {
+        id: step.id,
+        required: step.required,
+        status: summarizeWebviewPatch(summary),
+        detail: formatWebviewDetail(summary),
+        sourceModId: step.sourceModId,
+      };
+    }
+    case "webview-persist-extended-history": {
+      const summary = patchWebviewPersistExtendedHistory(input.appDir, { allowMissingPatchPoint: !step.required });
       return {
         id: step.id,
         required: step.required,
