@@ -5,10 +5,14 @@ Keep the generated project runnable as a standalone source build (not only repac
 
 ## 2026-03-04 Decisions
 - Added desktop smoke support to generated project scaffold:
-  - `package.json` script: `desktop:smoke`
+  - `package.json` scripts:
+    - `desktop:smoke` (repack-host smoke)
+    - `desktop:host` (manual runtime run against real extracted app)
+    - `desktop:shell:smoke` (legacy shell-only smoke)
   - emitted runtime files:
     - `runtime/desktop-main.cjs`
     - `runtime/desktop-smoke.mjs`
+    - `runtime/desktop-repack-host.mjs`
 - Desktop smoke validates real Electron startup (`app-ready` + `window-ready`) against built `dist/index.html`.
 - Electron executable resolution order is deterministic:
   1. `ELECTRON_EXE_PATH`
@@ -19,3 +23,4 @@ Keep the generated project runnable as a standalone source build (not only repac
 - Fail fast if desktop entry or built index is missing.
 - Do not add fallback-heavy runtime behavior in emitter for this path.
 - Keep desktop smoke scripts minimal and reproducible.
+- Repack-host mode is the default smoke path to avoid false-green shell checks.
