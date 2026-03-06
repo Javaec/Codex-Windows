@@ -95,6 +95,10 @@ async function runSmokeLane(outputDir, lane, holdSeconds) {
         detached: false,
         stdio: "ignore",
         windowsHide: true,
+        env: {
+            ...process.env,
+            CODEX_WINDOWS_USABILITY_SMOKE: "1",
+        },
     });
     await sleep(holdSeconds * 1000);
     (0, node_child_process_1.spawnSync)("cmd.exe", ["/c", "taskkill", "/PID", String(child.pid), "/T", "/F"], {
@@ -132,6 +136,7 @@ function readLaneSummary(outputDir) {
 }
 function evaluateLaneSummary(summary) {
     const failures = [];
+    const requireAuthenticatedSurface = summary.lane !== "isolated-home" && summary.auth_unset < 1;
     if (summary.cli_initialized < 1)
         failures.push("cli_initialized=0");
     if (summary.ready_message < 1)
@@ -144,10 +149,16 @@ function evaluateLaneSummary(summary) {
         failures.push("ready_to_show=0");
     if (summary.window_show < 1)
         failures.push("window_show=0");
-    if (summary.thread_list < 1)
+    if (requireAuthenticatedSurface && summary.thread_list < 1)
         failures.push("thread_list=0");
-    if (summary.app_list < 1)
+    if (requireAuthenticatedSurface && summary.app_list < 1)
         failures.push("app_list=0");
+    if (requireAuthenticatedSurface && summary.usability_sidebar_present < 1)
+        failures.push("usability_sidebar_present=0");
+    if (requireAuthenticatedSurface && summary.usability_settings_present < 1)
+        failures.push("usability_settings_present=0");
+    if (requireAuthenticatedSurface && summary.usability_surface_ready < 1)
+        failures.push("usability_surface_ready=0");
     if (summary.syntax_error > 0)
         failures.push(`syntax_error=${summary.syntax_error}`);
     if (summary.renderer_mod_failed > 0)
@@ -160,6 +171,8 @@ function evaluateLaneSummary(summary) {
         failures.push(`did_fail_load=${summary.did_fail_load}`);
     if (summary.render_process_gone > 0)
         failures.push(`render_process_gone=${summary.render_process_gone}`);
+    if (summary.usability_blocking_spinner > 0)
+        failures.push(`usability_blocking_spinner=${summary.usability_blocking_spinner}`);
     return failures;
 }
 function writeSmokeResult(result) {

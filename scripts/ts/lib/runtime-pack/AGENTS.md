@@ -39,6 +39,18 @@
   - `window_show`
   - `thread_list`
   - `app_list`
+  - `usability_sidebar_present`
+  - `usability_settings_present`
+  - `usability_surface_ready`
+  for user-state lanes (`no-mods`, `minimal`, `with-mods`).
+- Auth matters:
+  - if a lane reports `authMethod=unset`, smoke must treat it as an unauthenticated surface and must not fail solely because sidebar/settings/project data are absent.
+- In that case smoke still requires the launchability core:
+  - CLI initialized
+  - ready message
+  - renderer/dom load
+  - ready-to-show/show
+- `isolated-home` is diagnostic; it still must reach startup markers and core API traffic, but it must not fail solely because an empty isolated home lacks the normal sidebar/settings surface.
   and fail on:
   - `syntax_error`
   - `renderer_mod_failed`
@@ -46,6 +58,7 @@
   - `update_required`
   - `did_fail_load`
   - `render_process_gone`
+  - `usability_blocking_spinner`
 - Shared-home smoke failures caused by real `C:\\Users\\lensm\\.codex` contention (for example `state db locked`) are valid failures and must not be “fixed” by cleanup logic inside the smoke harness.
 - `isolated-home` exists specifically to separate platform/mod issues from user-state contention without mutating the real home.
 - `dist` is canonical; temporary fallback outputs belong under `work/portable-output`.

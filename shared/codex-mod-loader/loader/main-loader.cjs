@@ -94,6 +94,19 @@ function loadRendererApiScript(modApiRoot) {
   return script;
 }
 
+function loadOptionalUsabilityProbeScript(loaderRoot) {
+  if (normalizePathString(process.env.CODEX_WINDOWS_USABILITY_SMOKE || "") !== "1") return "";
+  const probePath = path.join(loaderRoot, "usability-probe.js");
+  if (!fs.existsSync(probePath)) {
+    throw new Error(`codex-mod-loader: usability probe missing: ${probePath}`);
+  }
+  const script = fs.readFileSync(probePath, "utf8").replace(/^\uFEFF/, "");
+  if (script.trim().length < 32) {
+    throw new Error(`codex-mod-loader: usability probe is empty: ${probePath}`);
+  }
+  return script;
+}
+
 function loadCreateMainModApi(modApiRoot) {
   const mainApiPath = path.join(modApiRoot, "main-api.cjs");
   if (!fs.existsSync(mainApiPath)) {
@@ -239,8 +252,11 @@ function applyMainMods(electron, loadedMods, buildHint, createMainModApi) {
   }
 }
 
-function installRendererMods(electron, rendererApiScript, rendererMods) {
-  if (!electron || !rendererMods || rendererMods.length === 0) return;
+function installRendererMods(electron, rendererApiScript, rendererMods, usabilityProbeScript) {
+  if (!electron) return;
+  const hasRendererMods = Array.isArray(rendererMods) && rendererMods.length > 0;
+  const hasUsabilityProbe = typeof usabilityProbeScript === "string" && usabilityProbeScript.trim().length > 0;
+  if (!hasRendererMods && !hasUsabilityProbe) return;
   if (globalThis.__CODEX_MOD_LOADER_RENDERER_V1__) return;
   globalThis.__CODEX_MOD_LOADER_RENDERER_V1__ = true;
 
@@ -266,8 +282,12 @@ function installRendererMods(electron, rendererApiScript, rendererMods) {
         await contents.executeJavaScript(`/* CODEX-MOD-API:renderer */\n${rendererApiScript}\n`, true);
         injected.add("__renderer_api_v1__");
       }
+      if (usabilityProbeScript && !injected.has("__usability_probe_v1__")) {
+        await contents.executeJavaScript(`/* CODEX-MOD-LOADER:usability-probe */\n${usabilityProbeScript}\n`, true);
+        injected.add("__usability_probe_v1__");
+      }
 
-      for (const mod of rendererMods) {
+      for (const mod of rendererMods || []) {
         if (injected.has(mod.id)) continue;
         await contents.executeJavaScript(`/* CODEX-MOD:${mod.id} */\n${mod.script}\n`, true);
         injected.add(mod.id);
@@ -302,16 +322,18 @@ function activateRuntimeMods(context) {
   const capabilityRegistry = loadCapabilityRegistry(modLoaderRootPath);
   const modsRootPath = resolveRuntimeDirectory("mods", "CODEX_MODS_DIR", resourcesRoot);
   const modApiRootPath = resolveRuntimeDirectory("mod-api", "CODEX_MOD_API_DIR", resourcesRoot);
+  const rendererApiScript = loadRendererApiScript(modApiRootPath);
+  const usabilityProbeScript = loadOptionalUsabilityProbeScript(modLoaderRootPath);
   if (minimalPlatform) {
+    installRendererMods(electron, rendererApiScript, [], usabilityProbeScript);
     return { modsRootPath, modApiRootPath, modLoaderRootPath, loadedModCount: 0 };
   }
 
   const createMainModApi = loadCreateMainModApi(modApiRootPath);
-  const rendererApiScript = loadRendererApiScript(modApiRootPath);
   const loadedMods = loadRuntimeMods(modsRootPath, buildHint, capabilityRegistry);
   applyMainMods(electron, loadedMods, buildHint, createMainModApi);
   const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
-  installRendererMods(electron, rendererApiScript, rendererMods);
+  installRendererMods(electron, rendererApiScript, rendererMods, usabilityProbeScript);
   return { modsRootPath, modApiRootPath, modLoaderRootPath, loadedModCount: loadedMods.length };
 }
 

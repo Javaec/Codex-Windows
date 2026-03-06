@@ -49,3 +49,19 @@
   - `getProjectLists`
 - Rule:
   - if a mod can be expressed through a typed hook or shared capability, do not let the mod walk raw IPC/DOM structures itself.
+
+## 2026-03-06: Usability probe is loader-owned smoke instrumentation
+
+- `loader/usability-probe.js` is not a feature mod.
+- It is injected only when:
+  - `CODEX_WINDOWS_USABILITY_SMOKE=1`
+- It exists only to log read-only UI readiness markers for smoke:
+  - sidebar present
+  - settings present
+  - project list present
+  - surface ready
+  - blocking spinner present
+- Rule:
+  - do not put business logic or UI mutations in the usability probe.
+- The probe must remain injectable even when runtime feature mods are disabled.
+- `minimal` should still receive the shared renderer API plus the smoke probe; only feature mods stay disabled there.

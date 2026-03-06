@@ -12,6 +12,7 @@ export type SmokeLaneSummary = {
   cli_initialized: number;
   ready_message: number;
   statsig_ready: number;
+  auth_unset: number;
   dom_ready: number;
   did_finish_load: number;
   window_show: number;
@@ -26,6 +27,11 @@ export type SmokeLaneSummary = {
   thread_list: number;
   app_list: number;
   skills_list: number;
+  usability_sidebar_present: number;
+  usability_settings_present: number;
+  usability_project_list_present: number;
+  usability_surface_ready: number;
+  usability_blocking_spinner: number;
   git_origin_failed: number;
   thread_backfill_failed: number;
 };
@@ -101,6 +107,10 @@ async function runSmokeLane(outputDir: string, lane: SmokeLaneName, holdSeconds:
     detached: false,
     stdio: "ignore",
     windowsHide: true,
+    env: {
+      ...process.env,
+      CODEX_WINDOWS_USABILITY_SMOKE: "1",
+    },
   });
   await sleep(holdSeconds * 1000);
   spawnSync("cmd.exe", ["/c", "taskkill", "/PID", String(child.pid), "/T", "/F"], {
@@ -141,20 +151,25 @@ function readLaneSummary(outputDir: string): SmokeLaneSummary[] {
 
 function evaluateLaneSummary(summary: SmokeLaneSummary): string[] {
   const failures: string[] = [];
+  const requireAuthenticatedSurface = summary.lane !== "isolated-home" && summary.auth_unset < 1;
   if (summary.cli_initialized < 1) failures.push("cli_initialized=0");
   if (summary.ready_message < 1) failures.push("ready_message=0");
   if (summary.dom_ready < 1) failures.push("dom_ready=0");
   if (summary.did_finish_load < 1) failures.push("did_finish_load=0");
   if (summary.ready_to_show < 1) failures.push("ready_to_show=0");
   if (summary.window_show < 1) failures.push("window_show=0");
-  if (summary.thread_list < 1) failures.push("thread_list=0");
-  if (summary.app_list < 1) failures.push("app_list=0");
+  if (requireAuthenticatedSurface && summary.thread_list < 1) failures.push("thread_list=0");
+  if (requireAuthenticatedSurface && summary.app_list < 1) failures.push("app_list=0");
+  if (requireAuthenticatedSurface && summary.usability_sidebar_present < 1) failures.push("usability_sidebar_present=0");
+  if (requireAuthenticatedSurface && summary.usability_settings_present < 1) failures.push("usability_settings_present=0");
+  if (requireAuthenticatedSurface && summary.usability_surface_ready < 1) failures.push("usability_surface_ready=0");
   if (summary.syntax_error > 0) failures.push(`syntax_error=${summary.syntax_error}`);
   if (summary.renderer_mod_failed > 0) failures.push(`renderer_mod_failed=${summary.renderer_mod_failed}`);
   if (summary.preload_error > 0) failures.push(`preload_error=${summary.preload_error}`);
   if (summary.update_required > 0) failures.push(`update_required=${summary.update_required}`);
   if (summary.did_fail_load > 0) failures.push(`did_fail_load=${summary.did_fail_load}`);
   if (summary.render_process_gone > 0) failures.push(`render_process_gone=${summary.render_process_gone}`);
+  if (summary.usability_blocking_spinner > 0) failures.push(`usability_blocking_spinner=${summary.usability_blocking_spinner}`);
   return failures;
 }
 
