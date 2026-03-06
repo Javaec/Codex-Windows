@@ -89,11 +89,3 @@ Mod contract (v1):
 
 - Renderer mods that inject persistent UI must anchor to the best visible sidebar container first, not to one brittle text node.
 - Specific buttons like `Settings` may still be used as preferred insertion anchors inside that sidebar, but they are no longer the root selector.
-
-## 2026-03-05: Renderer noise guard
-
-- `mods/webview-runtime-noise-guard` suppresses known startup log spam in renderer:
-  - `No promise for request ID`
-  - repeated `[desktop-notifications] service starting`
-- Rule:
-  - do not hide transport failures, syntax errors, or business-logic exceptions.
