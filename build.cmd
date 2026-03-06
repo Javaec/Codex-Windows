@@ -32,5 +32,4 @@ echo Optional:
 echo   -WorkDir .\work  -DistDir .\dist  -Reuse  -NoLaunch  -CodexCliPath C:\path\to\codex.exe
 echo   -SingleExe
 echo   -DevProfile      -ProfileName dev
-echo   -PersistRipgrepPath
 exit /b 0

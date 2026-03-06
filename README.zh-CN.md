@@ -110,7 +110,6 @@ build.cmd -DmgPath .\Codex.dmg
 | `-SingleExe` | 构建自解压 EXE |
 | `-DevProfile` | 使用隔离 dev 配置 |
 | `-ProfileName <name>` | 指定配置名称 |
-| `-PersistRipgrepPath` | 持久化 ripgrep 路径 |
 | `-StrictContract` | 严格环境契约检查 |
 
 品牌化覆盖变量：

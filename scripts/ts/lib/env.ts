@@ -1,10 +1,11 @@
 import * as path from "node:path";
 import { ensureDir, fileExists, resolveCommand, runCommand, writeError, writeSuccess, writeWarn } from "./exec";
+import { getWindowsRuntimeDonorRipgrepPath } from "./runtime-donor/windows-apps";
 
 export interface RipgrepResult {
   installed: boolean;
-  path: string | null;
-  source: "path" | "winget" | "portable" | "unavailable";
+  path: string;
+  source: "path" | "windows-runtime-donor" | "portable";
 }
 
 export interface ContractCheck {
@@ -16,6 +17,11 @@ export interface ContractCheck {
 export interface ContractResult {
   passed: boolean;
   checks: ContractCheck[];
+}
+
+function isWindowsRuntimeDonorExecutable(filePath: string): boolean {
+  const normalized = path.resolve(filePath).replace(/\//g, "\\").toLowerCase();
+  return normalized.includes("\\program files\\windowsapps\\openai.codex_");
 }
 
 export function resolveCmdPath(): string | null {
@@ -112,100 +118,33 @@ export function ensureWindowsEnvironment(): void {
   if (pwsh) process.env.CODEX_PWSH_PATH = pwsh;
 }
 
-async function downloadFile(url: string, outputPath: string): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Download failed (${response.status}) for ${url}`);
-  }
-  const data = Buffer.from(await response.arrayBuffer());
-  await import("node:fs/promises").then((fsp) => fsp.writeFile(outputPath, data));
-}
-
-function addUserPathEntry(entry: string): void {
-  const pwsh = resolvePwshPath();
-  if (!pwsh) return;
-  const escaped = entry.replace(/'/g, "''");
-  const script = `$entry='${escaped}';$cur=[Environment]::GetEnvironmentVariable('Path','User');if(-not $cur){$cur=''};$parts=$cur -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ };$exists=$false;foreach($p in $parts){if($p.ToLowerInvariant() -eq $entry.ToLowerInvariant()){$exists=$true;break}};if(-not $exists){$new=if($cur){$cur+';'+$entry}else{$entry};[Environment]::SetEnvironmentVariable('Path',$new,'User')}`;
-  runCommand(pwsh, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    allowNonZero: true,
-    capture: true,
-  });
-}
-
-function extractZipArchive(zipPath: string, destinationDir: string): boolean {
-  const sevenZip = resolveCommand("7z.exe") ?? resolveCommand("7z");
-  if (sevenZip) {
-    const extracted = runCommand(sevenZip, ["x", "-y", zipPath, `-o${destinationDir}`], {
-      capture: true,
-      allowNonZero: true,
-    });
-    if (extracted.status === 0) return true;
-  }
-
-  const tar = resolveCommand("tar.exe") ?? resolveCommand("tar");
-  if (tar) {
-    const extracted = runCommand(tar, ["-xf", zipPath, "-C", destinationDir], {
-      capture: true,
-      allowNonZero: true,
-    });
-    if (extracted.status === 0) return true;
-  }
-
-  return false;
-}
-
-export async function ensureRipgrepInPath(workDir: string, persistUserPath: boolean): Promise<RipgrepResult> {
+export async function ensureRipgrepInPath(workDir: string): Promise<RipgrepResult> {
   const existing = resolveCommand("rg.exe") ?? resolveCommand("rg");
-  if (existing) return { installed: false, path: existing, source: "path" };
-
-  const winget = resolveCommand("winget.exe") ?? resolveCommand("winget");
-  if (winget) {
-    runCommand(
-      winget,
-      [
-        "install",
-        "--id",
-        "BurntSushi.ripgrep",
-        "-e",
-        "--source",
-        "winget",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-        "--silent",
-      ],
-      { allowNonZero: true, capture: true },
-    );
-    ensureWindowsEnvironment();
-    const afterWinget = resolveCommand("rg.exe") ?? resolveCommand("rg");
-    if (afterWinget) return { installed: true, path: afterWinget, source: "winget" };
+  if (existing && !isWindowsRuntimeDonorExecutable(existing)) {
+    return { installed: false, path: existing, source: "path" };
   }
 
-  const toolsDir = ensureDir(path.join(workDir, "tools"));
-  const rgRoot = ensureDir(path.join(toolsDir, "ripgrep"));
-  const version = "14.1.1";
-  const zipName = `ripgrep-${version}-x86_64-pc-windows-msvc.zip`;
-  const zipPath = path.join(rgRoot, zipName);
-  const extractDir = path.join(rgRoot, `ripgrep-${version}-x86_64-pc-windows-msvc`);
-  const rgExe = path.join(extractDir, "rg.exe");
-
-  if (!fileExists(rgExe)) {
-    if (!fileExists(zipPath)) {
-      const url = `https://github.com/BurntSushi/ripgrep/releases/download/${version}/${zipName}`;
-      await downloadFile(url, zipPath);
-    }
-    if (!extractZipArchive(zipPath, rgRoot)) {
-      return { installed: false, path: null, source: "unavailable" };
-    }
-  }
-
-  if (fileExists(rgExe)) {
-    process.env.PATH = mergePathEntries([extractDir, ...(process.env.PATH || "").split(";")]).join(";");
+  const donorRipgrep = existing && isWindowsRuntimeDonorExecutable(existing) ? existing : getWindowsRuntimeDonorRipgrepPath();
+  if (donorRipgrep) {
+    const donorDir = path.dirname(donorRipgrep);
+    process.env.PATH = mergePathEntries([donorDir, ...(process.env.PATH || "").split(";")]).join(";");
     process.env.Path = process.env.PATH;
-    if (persistUserPath) addUserPathEntry(extractDir);
+    return { installed: false, path: donorRipgrep, source: "windows-runtime-donor" };
+  }
+
+  const repoRoot = path.resolve(__dirname, "..", "..", "..");
+  const portableCandidates = [
+    path.join(workDir, "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
+    path.join(repoRoot, "work", "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
+  ];
+  const rgExe = portableCandidates.find((candidate) => fileExists(candidate)) || "";
+  if (fileExists(rgExe)) {
+    process.env.PATH = mergePathEntries([path.dirname(rgExe), ...(process.env.PATH || "").split(";")]).join(";");
+    process.env.Path = process.env.PATH;
     return { installed: true, path: rgExe, source: "portable" };
   }
 
-  return { installed: false, path: null, source: "unavailable" };
+  throw new Error("rg.exe not found. Allowed sources: PATH, Windows runtime donor, repo-local work/tools/ripgrep.");
 }
 
 function runCmdCheck(cmdPath: string, args: string[]): number {

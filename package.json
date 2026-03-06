@@ -5,6 +5,7 @@
   "scripts": {
     "build:runner": "tsc -p tsconfig.json",
     "runner": "node scripts/node/run.js",
+    "verify:runner": "node scripts/node/run.js verify",
     "patch-pack:preflight": "node ./shared/patch-pack/preflight.mjs",
     "patch-pack:preflight:10711": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-10711.dmg --app-version 26.303.1606 --build-number 806",
     "patch-pack:preflight:11012": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863",

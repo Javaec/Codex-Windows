@@ -12,6 +12,7 @@
 
     const BUILD_NUMBER = "__BUILD_NUMBER__";
     const BUILD_FLAVOR = "__BUILD_FLAVOR__";
+    const IS_MINIMAL_PLATFORM = normalizePathString(process.env.CODEX_WINDOWS_MINIMAL || "") === "1";
 
     const resourcesRoot = process.resourcesPath || path.join(__dirname, "..", "..", "..");
 
@@ -39,62 +40,6 @@
       return value;
     }
 
-    function sanitizeExistingPathList(values) {
-      if (!Array.isArray(values)) return { nextValues: values, removedCount: 0, changed: false };
-
-      const nextValues = [];
-      const seen = new Set();
-      let removedCount = 0;
-      for (const rawValue of values) {
-        if (typeof rawValue !== "string") {
-          removedCount += 1;
-          continue;
-        }
-        const normalizedPath = normalizeWindowsOpenPath(rawValue);
-        if (!normalizedPath || !fs.existsSync(normalizedPath)) {
-          removedCount += 1;
-          continue;
-        }
-        const key = normalizedPath.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        nextValues.push(normalizedPath);
-      }
-
-      const changed = removedCount > 0 || JSON.stringify(nextValues) !== JSON.stringify(values);
-      return { nextValues, removedCount, changed };
-    }
-
-    function sanitizeExistingPathMap(values) {
-      if (!values || typeof values !== "object" || Array.isArray(values)) {
-        return { nextValues: values, removedCount: 0, changed: false };
-      }
-
-      const nextValues = {};
-      const seen = new Set();
-      let removedCount = 0;
-      let changed = false;
-
-      for (const [rawKey, rawValue] of Object.entries(values)) {
-        const normalizedKey = normalizeWindowsOpenPath(rawKey);
-        if (!normalizedKey || !fs.existsSync(normalizedKey)) {
-          removedCount += 1;
-          changed = true;
-          continue;
-        }
-        const key = normalizedKey.toLowerCase();
-        if (seen.has(key)) {
-          changed = true;
-          continue;
-        }
-        seen.add(key);
-        if (normalizedKey !== rawKey) changed = true;
-        nextValues[normalizedKey] = rawValue;
-      }
-
-      return { nextValues, removedCount, changed };
-    }
-
     function resolveCodexHomeDir() {
       const configured = normalizePathString(process.env.CODEX_HOME || "");
       if (configured) return path.resolve(configured);
@@ -120,46 +65,6 @@
       }
       out.sort((a, b) => String(a).localeCompare(String(b)));
       return out;
-    }
-
-    function loadKnownThreadIds(codexHomeDir) {
-      const databasePaths = listStateDatabasePaths(codexHomeDir);
-      if (databasePaths.length === 0) return null;
-
-      let DatabaseCtor;
-      try {
-        DatabaseCtor = require("better-sqlite3");
-      } catch {
-        return null;
-      }
-      if (typeof DatabaseCtor !== "function") return null;
-
-      const knownThreadIds = new Set();
-      for (const databasePath of databasePaths) {
-        let db;
-        try {
-          db = new DatabaseCtor(databasePath, { fileMustExist: true, readonly: true });
-          const hasThreadsTable = db
-            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads' LIMIT 1")
-            .get();
-          if (!hasThreadsTable) continue;
-          const rows = db.prepare("SELECT id FROM threads").all();
-          for (const row of rows) {
-            const id = row && typeof row.id === "string" ? row.id : "";
-            if (id) knownThreadIds.add(id);
-          }
-        } catch {
-          // ignore unreadable databases
-        } finally {
-          try {
-            if (db && typeof db.close === "function") db.close();
-          } catch {
-            // ignore close errors
-          }
-        }
-      }
-
-      return knownThreadIds;
     }
 
     function normalizeThreadPathPrefix(rawValue) {
@@ -284,193 +189,102 @@
       return report;
     }
 
-    function sanitizeCodexGlobalState(codexHomeDir) {
-      const globalStatePath = codexHomeDir ? path.join(codexHomeDir, ".codex-global-state.json") : "";
-      if (!globalStatePath || !fs.existsSync(globalStatePath)) {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-
-      let rawState = "";
-      try {
-        rawState = fs.readFileSync(globalStatePath, "utf8").replace(/^\uFEFF/, "");
-      } catch {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-      if (!rawState.trim()) {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-
-      let parsedState;
-      try {
-        parsedState = JSON.parse(rawState);
-      } catch {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-      if (!parsedState || typeof parsedState !== "object" || Array.isArray(parsedState)) {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-
-      let changed = false;
-      let workspaceRootsRemoved = 0;
-      let threadTitlesRemoved = 0;
-
-      for (const key of ["electron-saved-workspace-roots", "active-workspace-roots"]) {
-        const result = sanitizeExistingPathList(parsedState[key]);
-        if (!result.changed) continue;
-        parsedState[key] = result.nextValues;
-        workspaceRootsRemoved += result.removedCount;
-        changed = true;
-      }
-
-      const workspaceLabels = sanitizeExistingPathMap(parsedState["electron-workspace-root-labels"]);
-      if (workspaceLabels.changed) {
-        parsedState["electron-workspace-root-labels"] = workspaceLabels.nextValues;
-        workspaceRootsRemoved += workspaceLabels.removedCount;
-        changed = true;
-      }
-
-      const openInTarget = parsedState["open-in-target-preferences"];
-      if (openInTarget && typeof openInTarget === "object" && !Array.isArray(openInTarget)) {
-        const perPathResult = sanitizeExistingPathMap(openInTarget.perPath);
-        if (perPathResult.changed) {
-          openInTarget.perPath = perPathResult.nextValues;
-          workspaceRootsRemoved += perPathResult.removedCount;
-          changed = true;
-        }
-      }
-
-      const knownThreadIds = loadKnownThreadIds(codexHomeDir);
-      const threadTitlesRoot = parsedState["thread-titles"];
-      if (threadTitlesRoot && typeof threadTitlesRoot === "object" && !Array.isArray(threadTitlesRoot)) {
-        const currentTitles = threadTitlesRoot.titles && typeof threadTitlesRoot.titles === "object" && !Array.isArray(threadTitlesRoot.titles)
-          ? threadTitlesRoot.titles
-          : {};
-        const currentOrder = Array.isArray(threadTitlesRoot.order) ? threadTitlesRoot.order : Object.keys(currentTitles);
-        const nextTitles = {};
-        const nextOrder = [];
-        const seen = new Set();
-
-        for (const rawId of currentOrder) {
-          if (typeof rawId !== "string" || !rawId) continue;
-          if (seen.has(rawId)) continue;
-          if (knownThreadIds && !knownThreadIds.has(rawId)) {
-            threadTitlesRemoved += 1;
-            changed = true;
-            continue;
-          }
-          const title = typeof currentTitles[rawId] === "string" ? currentTitles[rawId].trim() : "";
-          if (!title) {
-            threadTitlesRemoved += 1;
-            changed = true;
-            continue;
-          }
-          seen.add(rawId);
-          nextTitles[rawId] = title;
-          nextOrder.push(rawId);
-          if (nextOrder.length >= 80) break;
-        }
-
-        if (nextOrder.length === 0) {
-          if (parsedState["thread-titles"]) {
-            delete parsedState["thread-titles"];
-            changed = true;
-          }
-        } else {
-          if (
-            JSON.stringify(nextOrder) !== JSON.stringify(currentOrder) ||
-            JSON.stringify(nextTitles) !== JSON.stringify(currentTitles)
-          ) {
-            parsedState["thread-titles"] = { titles: nextTitles, order: nextOrder };
-            changed = true;
-          }
-        }
-      }
-
-      if (!changed) {
-        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
-      }
-
-      fs.writeFileSync(globalStatePath, `${JSON.stringify(parsedState, null, 2)}\n`, "utf8");
-      return { changed: true, workspaceRootsRemoved, threadTitlesRemoved };
-    }
-
     function parseBuildNumberHint(value) {
       const parsed = Number.parseInt(String(value || ""), 10);
       return Number.isFinite(parsed) ? parsed : 0;
     }
 
-    function shouldSuppressConsoleMessage(messageText) {
-      const text = String(messageText || "");
-      if (!text) return false;
-      if (text.includes("[wsl] error retrieving eligible distro")) return true;
-      if (text.includes("[git-origin-and-roots] Failed to resolve origin for workspace errorMessage=\"ENOENT: path does not exist:")) return true;
-      if (text.includes("[electron-fetch-handler] [git-origins] failed to list worktrees for dir=")) return true;
-      if (text.includes("Failed to backfill app thread title errorMessage=\"thread not found:")) return true;
-      if (text.includes("[git] git.command.complete") && text.includes("remote.upstream.url") && text.includes("exitCode=1")) return true;
-      return false;
-    }
-
-    function installNoiseGuards() {
-      if (globalThis.__CODEX_WINDOWS_NOISE_GUARDS_V1__) return;
-      globalThis.__CODEX_WINDOWS_NOISE_GUARDS_V1__ = true;
-
-      function patchConsoleMethod(methodName) {
-        const original = console && typeof console[methodName] === "function" ? console[methodName].bind(console) : null;
-        if (!original) return;
-        console[methodName] = (...args) => {
-          let text = "";
-          try {
-            text = args
-              .map((value) => {
-                if (typeof value === "string") return value;
-                if (value && typeof value.stack === "string") return value.stack;
-                if (value && typeof value.message === "string") return value.message;
-                return String(value);
-              })
-              .join(" ");
-          } catch {
-            text = "";
-          }
-          if (shouldSuppressConsoleMessage(text)) return;
-          return original(...args);
-        };
-      }
-
-      patchConsoleMethod("warn");
-      patchConsoleMethod("error");
-      patchConsoleMethod("log");
-
-      const originalEmitWarning = typeof process.emitWarning === "function" ? process.emitWarning.bind(process) : null;
-      if (originalEmitWarning) {
-        process.emitWarning = (warning, ...args) => {
-          const text = typeof warning === "string"
-            ? warning
-            : String(warning && warning.message ? warning.message : warning || "");
-          const firstArg = args.length > 0 ? args[0] : "";
-          const code = typeof firstArg === "string"
-            ? firstArg
-            : String(firstArg && firstArg.code ? firstArg.code : (warning && warning.code ? warning.code : ""));
-          if (code === "DEP0169") return;
-          if (text.includes("url.parse() behavior is not standardized")) return;
-          return originalEmitWarning(warning, ...args);
-        };
-      }
-    }
-
     function resolveModsRootPath() {
+      const resourcesPath = normalizePathString(process.resourcesPath || "");
+      if (resourcesPath) {
+        const bundled = path.join(resourcesPath, "mods");
+        if (fs.existsSync(bundled)) return bundled;
+      }
+
       const configured = normalizePathString(process.env.CODEX_MODS_DIR || "");
       if (configured) return path.resolve(configured);
-
-      const resourcesPath = normalizePathString(process.resourcesPath || "");
-      if (resourcesPath) return path.join(resourcesPath, "mods");
 
       // Fallback for unpacked execution (rare): shim lives under `resources/app/.vite/build`.
       return path.resolve(resourcesRoot, "..", "mods");
     }
 
+    function resolveModApiRootPath() {
+      const resourcesPath = normalizePathString(process.resourcesPath || "");
+      if (resourcesPath) {
+        const bundled = path.join(resourcesPath, "mod-api");
+        if (fs.existsSync(bundled)) return bundled;
+      }
+
+      const configured = normalizePathString(process.env.CODEX_MOD_API_DIR || "");
+      if (configured) return path.resolve(configured);
+
+      return path.resolve(resourcesRoot, "..", "mod-api");
+    }
+
+    function loadRendererApiScript(modApiRoot) {
+      const rendererApiPath = path.join(modApiRoot, "renderer-api.js");
+      if (!fs.existsSync(rendererApiPath)) {
+        throw new Error(`codex-mod-loader: renderer API missing: ${rendererApiPath}`);
+      }
+      const script = fs.readFileSync(rendererApiPath, "utf8").replace(/^\uFEFF/, "");
+      if (script.trim().length < 32) {
+        throw new Error(`codex-mod-loader: renderer API is empty: ${rendererApiPath}`);
+      }
+      return script;
+    }
+
+    function loadCreateMainModApi(modApiRoot) {
+      const mainApiPath = path.join(modApiRoot, "main-api.cjs");
+      if (!fs.existsSync(mainApiPath)) {
+        throw new Error(`codex-mod-loader: main API missing: ${mainApiPath}`);
+      }
+      const exported = require(mainApiPath);
+      const createMainModApi =
+        typeof exported === "function"
+          ? exported
+          : (exported && typeof exported.createMainModApi === "function" ? exported.createMainModApi : null);
+      if (typeof createMainModApi !== "function") {
+        throw new Error(`codex-mod-loader: main API must export createMainModApi(): ${mainApiPath}`);
+      }
+      return createMainModApi;
+    }
+
+    function logRuntimeContract(codexHomeDir, modsRootPath) {
+      if (globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__) return;
+      globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__ = true;
+      try {
+        const electron = require("electron");
+        const userDataDir =
+          electron && electron.app && typeof electron.app.getPath === "function"
+            ? normalizePathString(electron.app.getPath("userData"))
+            : "";
+        const executablePath = normalizePathString(process.execPath || "");
+        const cliPath = normalizePathString(process.env.CODEX_CLI_PATH || "");
+        const resourcesPath = normalizePathString(process.resourcesPath || "");
+        console.log(
+          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} mods=${modsRootPath} resources=${resourcesPath} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
+        );
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error || "");
+        console.warn(`[codex-windows-runtime] runtime contract logging failed: ${message}`);
+      }
+    }
+
+    function parseModSelectionList(rawValue) {
+      if (typeof rawValue !== "string") return [];
+      return rawValue
+        .split(",")
+        .map((value) => normalizePathString(value))
+        .filter((value) => value.length > 0);
+    }
+
     function loadRuntimeMods(modsRoot, buildHint) {
       if (!modsRoot || !fs.existsSync(modsRoot)) return [];
+      if (normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") !== "1") return [];
       if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
+
+      const enabledOnlyIds = new Set(parseModSelectionList(process.env.CODEX_MODS_ONLY || ""));
+      const disabledIds = new Set(parseModSelectionList(process.env.CODEX_MODS_EXCLUDE || ""));
 
       const mods = [];
       const entries = fs.readdirSync(modsRoot, { withFileTypes: true });
@@ -494,6 +308,8 @@
         if (id !== entry.name) {
           throw new Error(`codex-mod-loader: id mismatch for ${manifestPath} (${id} != ${entry.name})`);
         }
+        if (enabledOnlyIds.size > 0 && !enabledOnlyIds.has(id)) continue;
+        if (disabledIds.has(id)) continue;
 
         if (manifest && manifest.enabled === false) continue;
 
@@ -571,7 +387,7 @@
       return mods;
     }
 
-    function applyMainMods(electron, loadedMods, buildHint) {
+    function applyMainMods(electron, loadedMods, buildHint, createMainModApi) {
       if (!electron || !loadedMods || loadedMods.length === 0) return;
       if (globalThis.__CODEX_MOD_LOADER_MAIN_V1__) return;
       globalThis.__CODEX_MOD_LOADER_MAIN_V1__ = true;
@@ -586,11 +402,11 @@
         if (typeof apply !== "function") {
           throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate})`);
         }
-        apply({ electron, buildHint, modId: mod.id });
+        apply(createMainModApi({ electron, buildHint, modId: mod.id }));
       }
     }
 
-    function installRendererMods(electron, rendererMods) {
+    function installRendererMods(electron, rendererApiScript, rendererMods) {
       if (!electron || !rendererMods || rendererMods.length === 0) return;
       if (globalThis.__CODEX_MOD_LOADER_RENDERER_V1__) return;
       globalThis.__CODEX_MOD_LOADER_RENDERER_V1__ = true;
@@ -607,29 +423,35 @@
 
       electron.app.on("web-contents-created", (_event, contents) => {
         if (!contents || typeof contents.executeJavaScript !== "function") return;
-        const inject = () => {
+        const inject = async () => {
           const currentUrl = typeof contents.getURL === "function" ? String(contents.getURL() || "") : "";
           if (currentUrl.startsWith("devtools://")) return;
 
           const injected = getInjected(contents);
+          if (!injected.has("__renderer_api_v1__")) {
+            await contents.executeJavaScript(`/* CODEX-MOD-API:renderer */\n${rendererApiScript}\n`, true);
+            injected.add("__renderer_api_v1__");
+          }
           for (const mod of rendererMods) {
             if (injected.has(mod.id)) continue;
-            injected.add(mod.id);
             const wrapped = `/* CODEX-MOD:${mod.id} */
 ${mod.script}
 `;
-            Promise.resolve(contents.executeJavaScript(wrapped, true)).catch((error) => {
-              console.error(`[codex-mod-loader] renderer mod failed (${mod.id})`, error);
-            });
+            await contents.executeJavaScript(wrapped, true);
+            injected.add(mod.id);
           }
         };
 
         contents.on("dom-ready", () => {
-          try {
-            inject();
-          } catch (error) {
-            console.error("[codex-mod-loader] inject failed", error);
-          }
+          Promise.resolve()
+            .then(inject)
+            .catch((error) => {
+              if (error && error.message && String(error.message).includes("CODEX-MOD:")) {
+                console.error("[codex-mod-loader] inject failed", error);
+                return;
+              }
+              console.error("[codex-mod-loader] inject failed", error);
+            });
         });
       });
     }
@@ -660,14 +482,17 @@ ${mod.script}
 
     // Apply SQLite normalization early (before UI loads threads).
     const codexHomeDir = resolveCodexHomeDir();
-    installNoiseGuards();
-    migrateThreadCwdPrefixInSqlite(codexHomeDir);
-    sanitizeCodexGlobalState(codexHomeDir);
+    const modsRootPath = resolveModsRootPath();
+    const modApiRootPath = resolveModApiRootPath();
+    if (!IS_MINIMAL_PLATFORM) {
+      migrateThreadCwdPrefixInSqlite(codexHomeDir);
+    }
+    logRuntimeContract(codexHomeDir, modsRootPath);
 
     // Fix Windows path opening.
     try {
       const electron = require("electron");
-      if (electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
+      if (!IS_MINIMAL_PLATFORM && electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
         globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__ = true;
         const originalOpenPath = typeof electron.shell.openPath === "function" ? electron.shell.openPath.bind(electron.shell) : null;
         const originalShowItemInFolder = typeof electron.shell.showItemInFolder === "function"
@@ -682,10 +507,12 @@ ${mod.script}
       }
 
       const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
-      const loadedMods = loadRuntimeMods(resolveModsRootPath(), buildHint);
-      applyMainMods(electron, loadedMods, buildHint);
+      const loadedMods = IS_MINIMAL_PLATFORM ? [] : loadRuntimeMods(modsRootPath, buildHint);
+      const createMainModApi = loadCreateMainModApi(modApiRootPath);
+      applyMainMods(electron, loadedMods, buildHint, createMainModApi);
+      const rendererApiScript = loadRendererApiScript(modApiRootPath);
       const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
-      installRendererMods(electron, rendererMods);
+      installRendererMods(electron, rendererApiScript, rendererMods);
     } catch (error) {
       console.error("[codex-windows-main-shim] electron patch failed", error);
     }

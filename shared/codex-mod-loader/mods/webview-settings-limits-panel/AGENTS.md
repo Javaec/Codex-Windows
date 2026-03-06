@@ -6,6 +6,7 @@
 
 ## Current Decisions
 
+- This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
 - One source of truth: live `/wham/usage` responses over the Electron fetch bridge.
 - The panel shows remaining percentage, matching Settings (`x% left`), not raw `used_percent`.
 - Do not parse Settings page text at all; text scraping caused drift and mirrored values.
@@ -19,6 +20,7 @@
 
 ## Why
 
+- Shared bridge/sidebar helpers cut duplicated DOM and fetch wiring out of the mod itself.
 - Root `/wham/usage` data survives route changes and updates without needing Settings to be open.
 - The root limit entry is not the same as `rate_limit_name`; treating it as a model-specific row produced wrong or missing sidebar values.
 - Sidebar-first anchoring survives DOM churn better than searching the whole page for one exact Settings node.

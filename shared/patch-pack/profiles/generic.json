@@ -1,11 +1,10 @@
 {
   "schemaVersion": 2,
   "profileId": "generic",
-  "description": "Generic profile for unknown signatures with strict core patching and optional webview signature steps.",
+  "description": "Generic profile for unknown signatures with strict core patching only.",
   "mods": [
     "core-preload",
     "webview-sunset-optional",
-    "webview-cwd-normalization",
     "windows-runtime-shim"
   ]
 }

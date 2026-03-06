@@ -26,10 +26,11 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
 - `scripts/ts/run.ts` -> main pipeline.
 - `scripts/ts/lib/*` -> shared helpers.
 - `scripts/node/*` -> compiled runtime artifacts.
+- `scripts/ts/lib/runner/*` -> top-level orchestration only.
 
 ## Current Decisions
 - Reverse-engineering tooling is implemented as a separate CLI (`reverse.ts`) and not mixed into launch/build pipeline.
-- 2026-03-04: Introduced a profile-driven patch pipeline in runner (`scripts/ts/lib/patch-pipeline.ts`).
+- 2026-03-04: Introduced a profile-driven patch pipeline in runner (`scripts/ts/lib/platform-patches/patch-pipeline.ts`).
   - Patch flow is now a single orchestrated stage with explicit profile selection.
   - Profiles are no longer hardcoded in runner code; they are loaded from shared patch-pack:
     - `C:\Codex-Windows\shared\patch-pack\profile-selector.json`

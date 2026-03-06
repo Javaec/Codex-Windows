@@ -1,14 +1,18 @@
 (function () {
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
-  const globalRecord = window;
-  if (globalRecord.__CODEX_WINDOWS_DISABLE_LOGOUT_V1__) return;
-  globalRecord.__CODEX_WINDOWS_DISABLE_LOGOUT_V1__ = true;
+  const api = window.__CODEX_MOD_API_V1__;
+  if (!api || api.version !== 1) {
+    throw new Error("webview-disable-logout: Codex Mod API v1 is required");
+  }
+
+  if (window.__CODEX_WINDOWS_DISABLE_LOGOUT_V2__) return;
+  window.__CODEX_WINDOWS_DISABLE_LOGOUT_V2__ = true;
 
   const MARKER_ATTR = "data-codex-windows-logout-disabled";
 
   function normalizeText(value) {
-    return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return api.normalizeText(value).toLowerCase();
   }
 
   function isLogoutText(text) {
@@ -40,13 +44,5 @@
   }
 
   scan();
-  const observer = new MutationObserver(() => {
-    try {
-      scan();
-    } catch {
-      // ignore observer errors
-    }
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  api.observeDom(scan);
 })();
-

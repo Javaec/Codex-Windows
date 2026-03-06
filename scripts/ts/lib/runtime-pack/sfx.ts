@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, removePath, runCommand, writeInfo } from "./exec";
-import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "./branding";
-import { resolve7z } from "./extract";
+import { ensureDir, removePath, runCommand, writeInfo } from "../exec";
+import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "../branding";
+import { resolve7z } from "../source-bundle/extract";
 
 export interface SingleExeBuildResult {
   outputExe: string;

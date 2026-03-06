@@ -1,13 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, writeHeader, writeSuccess } from "./exec";
+import { ensureDir, writeHeader, writeSuccess } from "../exec";
 import {
   patchMainForWindowsEnvironment,
   patchPreload,
   patchWebviewAppSunsetGate,
   patchWebviewCwdNormalization,
   type WebviewPatchSummary,
-} from "./launch";
+} from "./bundle-patches";
 import {
   type PatchStepId,
   type PatchStepPlan,

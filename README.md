@@ -110,7 +110,6 @@ build.cmd -DmgPath .\Codex.dmg
 | `-SingleExe` | build self-extracting EXE |
 | `-DevProfile` | use isolated dev profile |
 | `-ProfileName <name>` | named profile isolation |
-| `-PersistRipgrepPath` | persist resolved ripgrep path |
 | `-StrictContract` | strict environment contract checks |
 
 Branding overrides:

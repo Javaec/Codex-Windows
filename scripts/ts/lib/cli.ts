@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureDir, fileExists, resolveCommand, runCommand, uniqueExistingDirs } from "./exec";
 import { invokeNpmCapture } from "./npm";
+import { getWindowsRuntimeDonorCliPath } from "./runtime-donor/windows-apps";
 
 export interface CliResolution {
   found: boolean;
@@ -14,6 +15,10 @@ export interface CliResolution {
 export interface CliProbeResult {
   ok: boolean;
   details: string;
+}
+
+export interface CliResolveOptions {
+  allowEnvCliPath?: boolean;
 }
 
 function newCliResolveResult(preferredArch: string): CliResolution {
@@ -110,9 +115,14 @@ function resolveNpmShimToVendorExe(shimPath: string, preferredArch: string, resu
   return null;
 }
 
-export function resolveCodexCliPathContract(explicit: string | undefined, throwOnFailure: boolean): CliResolution {
+export function resolveCodexCliPathContract(
+  explicit: string | undefined,
+  throwOnFailure: boolean,
+  options: CliResolveOptions = {},
+): CliResolution {
   const preferredArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
   const result = newCliResolveResult(preferredArch);
+  const allowEnvCliPath = options.allowEnvCliPath === true;
 
   const resolveCandidate = (candidate: string | undefined, source: string): string | null => {
     if (!candidate) return null;
@@ -149,12 +159,23 @@ export function resolveCodexCliPathContract(explicit: string | undefined, throwO
     return result;
   }
 
-  if (process.env.CODEX_CLI_PATH) {
+  if (allowEnvCliPath && process.env.CODEX_CLI_PATH) {
     const resolvedEnv = resolveCandidate(process.env.CODEX_CLI_PATH, "env:CODEX_CLI_PATH");
     if (resolvedEnv) {
       result.found = true;
       result.path = resolvedEnv;
       result.source = "env:CODEX_CLI_PATH";
+      return result;
+    }
+  }
+
+  const windowsRuntimeCli = getWindowsRuntimeDonorCliPath();
+  if (windowsRuntimeCli) {
+    const resolvedWindowsRuntimeCli = resolveCandidate(windowsRuntimeCli, "windows-runtime-donor");
+    if (resolvedWindowsRuntimeCli) {
+      result.found = true;
+      result.path = resolvedWindowsRuntimeCli;
+      result.source = "windows-runtime-donor";
       return result;
     }
   }
@@ -219,4 +240,18 @@ export function probeCodexCliExecutable(exePath: string): CliProbeResult {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, details: message };
   }
+}
+
+export function isCopyOnlyCliSource(source: string | null): boolean {
+  return source === "windows-runtime-donor";
+}
+
+export function probeResolvedCodexCli(resolution: CliResolution): CliProbeResult {
+  if (!resolution.path) return { ok: false, details: "CLI path is empty." };
+  if (isCopyOnlyCliSource(resolution.source)) {
+    return fileExists(resolution.path)
+      ? { ok: true, details: "copy-only donor source" }
+      : { ok: false, details: `CLI donor path does not exist: ${resolution.path}` };
+  }
+  return probeCodexCliExecutable(resolution.path);
 }

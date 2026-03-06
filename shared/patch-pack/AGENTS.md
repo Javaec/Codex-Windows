@@ -91,3 +91,13 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - `SyntaxError: Invalid or unexpected token`
   - `[codex-mod-loader] renderer mod failed (...)`
 - The patch/runtime layer must treat the multiline renderer wrapper as a hard contract and fail fast when the template drifts.
+
+## 2026-03-06: Default profiles are now platform-only
+
+- Default shared profiles (`codex-106x`, `codex-10711`, `generic`) must include only platform-critical steps:
+  - `core-preload`
+  - `webview-sunset-*`
+  - `windows-runtime-shim`
+- `webview-cwd-normalization` is no longer selected by default profiles.
+- Rule:
+  - bring it back only as an explicit version-targeted profile tweak when a real regression proves it is needed.

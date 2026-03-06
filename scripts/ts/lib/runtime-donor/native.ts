@@ -10,9 +10,10 @@ import {
   uniqueExistingDirs,
   writeSuccess,
   writeWarn,
-} from "./exec";
-import { setManifestStepState, StateManifest, writeStateManifest } from "./manifest";
-import { invokeNpm } from "./npm";
+} from "../exec";
+import { setManifestStepState, StateManifest, writeStateManifest } from "../manifest";
+import { invokeNpm } from "../npm";
+import { getWindowsRuntimeDonorAppDirs } from "./windows-apps";
 
 export interface NativeStageResult {
   electronExe: string;
@@ -25,7 +26,7 @@ function resolveValidationRuntime(
 ): { exe: string; mode: "electron" | "node" } | null {
   if (electronExe && fileExists(electronExe)) return { exe: electronExe, mode: "electron" };
   if (allowNodeFallback) {
-    const node = require("./exec").resolveCommand("node.exe") ?? require("./exec").resolveCommand("node");
+    const node = require("../exec").resolveCommand("node.exe") ?? require("../exec").resolveCommand("node");
     if (node) return { exe: node, mode: "node" };
   }
   return null;
@@ -170,6 +171,7 @@ function getRepositoryRoots(workDir: string): string[] {
 
 function getNativeDonorAppDirs(workDir: string): string[] {
   const candidates: string[] = [];
+  candidates.push(...getWindowsRuntimeDonorAppDirs());
   if (process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "Codex", "resources", "app"));
     candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "OpenAI Codex", "resources", "app"));

@@ -6,6 +6,7 @@
 
 ## Current Decisions
 
+- This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
 - This is a renderer DOM mod.
 - It targets visible sidebar lists with a native `Show more` / `Show less` row, not one exact `aria-label`.
 - It first clicks the native `Show more` once so rows beyond the bundled 10-item cap exist in the DOM.
@@ -13,6 +14,7 @@
 
 ## Why
 
+- Shared observer/text/visibility helpers keep the cap logic focused on list behavior instead of loader plumbing.
 - Changing `thread/list` request limits does not change the grouped sidebar cap.
 - In the bundled UI, rows after 10 do not exist in the DOM until native expansion happens.
 - Matching by visible sidebar structure is more stable than matching by one localized `aria-label`.

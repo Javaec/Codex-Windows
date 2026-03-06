@@ -36,9 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.invokeSingleExeBuild = invokeSingleExeBuild;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const exec_1 = require("./exec");
-const branding_1 = require("./branding");
-const extract_1 = require("./extract");
+const exec_1 = require("../exec");
+const branding_1 = require("../branding");
+const extract_1 = require("../source-bundle/extract");
 function resolveSfxModule(sevenZipExe) {
     const candidates = [];
     const exeDir = path.dirname(sevenZipExe);

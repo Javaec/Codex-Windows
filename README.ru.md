@@ -110,7 +110,6 @@ build.cmd -DmgPath .\Codex.dmg
 | `-SingleExe` | собрать self-extracting EXE |
 | `-DevProfile` | изолированный dev-профиль |
 | `-ProfileName <name>` | именованный профиль |
-| `-PersistRipgrepPath` | сохранить найденный путь к ripgrep |
 | `-StrictContract` | строгая проверка контракта среды |
 
 Переменные брендирования:

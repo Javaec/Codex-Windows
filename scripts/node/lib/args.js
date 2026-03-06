@@ -11,7 +11,6 @@ function parseArgs(argv) {
         buildSingleExe: false,
         devProfile: false,
         profileName: "default",
-        persistRipgrepPath: false,
         strictContract: false,
     };
     if (argv.length === 0) {
@@ -21,7 +20,7 @@ function parseArgs(argv) {
     let index = 0;
     const first = argv[0].toLowerCase();
     if (!first.startsWith("-")) {
-        if (first === "run" || first === "build") {
+        if (first === "run" || first === "build" || first === "verify") {
             mode = first;
             index = 1;
         }
@@ -86,9 +85,6 @@ function parseArgs(argv) {
             case "devprofile":
                 options.devProfile = true;
                 break;
-            case "persistripgreppath":
-                options.persistRipgrepPath = true;
-                break;
             case "strictcontract":
                 options.strictContract = true;
                 break;
@@ -105,10 +101,12 @@ function printUsage() {
     process.stdout.write("Usage:\n");
     process.stdout.write("  node scripts/node/run.js run [options]\n");
     process.stdout.write("  node scripts/node/run.js build [options]\n");
+    process.stdout.write("  node scripts/node/run.js verify [options]\n");
     process.stdout.write("\n");
     process.stdout.write("Examples:\n");
     process.stdout.write("  node scripts/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
     process.stdout.write("  node scripts/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
+    process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
     process.stdout.write("\n");
     process.stdout.write("Options:\n");
     process.stdout.write("  -DmgPath <path>\n");
@@ -117,7 +115,7 @@ function printUsage() {
     process.stdout.write("  -CodexCliPath <path>\n");
     process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
-    process.stdout.write("  -ProfileName <name>  -PersistRipgrepPath  -StrictContract\n");
+    process.stdout.write("  -ProfileName <name>  -StrictContract\n");
 }
 function normalizeProfileName(profileName) {
     const raw = (profileName || "").trim().toLowerCase();

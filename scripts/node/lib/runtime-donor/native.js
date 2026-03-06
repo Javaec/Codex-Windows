@@ -36,14 +36,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.invokeNativeStage = invokeNativeStage;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const exec_1 = require("./exec");
-const manifest_1 = require("./manifest");
-const npm_1 = require("./npm");
+const exec_1 = require("../exec");
+const manifest_1 = require("../manifest");
+const npm_1 = require("../npm");
+const windows_apps_1 = require("./windows-apps");
 function resolveValidationRuntime(electronExe, allowNodeFallback) {
     if (electronExe && (0, exec_1.fileExists)(electronExe))
         return { exe: electronExe, mode: "electron" };
     if (allowNodeFallback) {
-        const node = require("./exec").resolveCommand("node.exe") ?? require("./exec").resolveCommand("node");
+        const node = require("../exec").resolveCommand("node.exe") ?? require("../exec").resolveCommand("node");
         if (node)
             return { exe: node, mode: "node" };
     }
@@ -153,6 +154,7 @@ function getRepositoryRoots(workDir) {
 }
 function getNativeDonorAppDirs(workDir) {
     const candidates = [];
+    candidates.push(...(0, windows_apps_1.getWindowsRuntimeDonorAppDirs)());
     if (process.env.LOCALAPPDATA) {
         candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "Codex", "resources", "app"));
         candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "OpenAI Codex", "resources", "app"));

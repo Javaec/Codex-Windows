@@ -1,11 +1,10 @@
 {
   "schemaVersion": 2,
   "profileId": "codex-10711",
-  "description": "Codex 10711+ profile with strict sunset bypass, optional cwd patch, and mandatory runtime shim.",
+  "description": "Codex 10711+ profile with strict sunset bypass and mandatory runtime shim.",
   "mods": [
     "core-preload",
     "webview-sunset-strict",
-    "webview-cwd-normalization",
     "windows-runtime-shim"
   ]
 }

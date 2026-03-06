@@ -21,7 +21,7 @@
 ## 2026-03-03: Windows open-file path click fix
 
 - Fixed path normalization for Windows file open flow to prevent `\ The system cannot find device specified`.
-- Applied in repack patch pipeline (`scripts/ts/lib/launch.ts`, `scripts/node/lib/launch.js`) and directly to current packaged runtime bundle.
+- Applied in repack patch pipeline (`scripts/ts/lib/platform-patches/bundle-patches.ts`, `scripts/node/lib/platform-patches/bundle-patches.js`) and directly to current packaged runtime bundle.
 - Normalization now strips accidental drive-prefix slashes (`\C:\...`, `/C:/...`) and keeps UNC paths intact.
 - Shell open hooks now sanitize paths for `shell.openPath` and `shell.showItemInFolder`.
 
@@ -100,3 +100,69 @@
 - Removed synthetic `test-mod-conflict` fixture from daily/manual flows; preflight remains the only required patch-pack gate.
 - `shared/manual-sync/*` is now kept as contracts + current reports only; historical one-off JSON reports are treated as disposable artifacts.
 - Old repack DMGs, stale `dist/*`, stale `work/*`, and stale reverse/manual-sync run directories should be deleted aggressively instead of retained in-repo.
+
+## 2026-03-06: Repack determinism rules
+
+- Repack/verify must ignore inherited `CODEX_*` runtime variables from the parent shell.
+- Portable outputs must carry their own `build-metadata.json` so a broken artifact can be traced back to:
+  - DMG input
+  - patch profile
+  - bundled CLI source
+- Portable launch must explicitly point to bundled:
+  - `resources/codex.exe`
+  - `resources/mods`
+- Reason:
+  - the main regression class now is not missing patches, but hidden coupling to stale local builds and stale environment variables.
+
+## 2026-03-06: dist is canonical, temporary outputs live under work
+
+- `dist\\` should expose only canonical outputs and launchers.
+- If the canonical portable output directory is busy, fallback outputs must go under:
+  - `work\\portable-output\\*`
+- `dist\\Launch-Codex-latest.cmd` is the canonical launcher entrypoint for the newest default build.
+- Reason:
+  - temporary `-work` / `-next*` outputs inside `dist` created repeated launches of stale artifacts.
+
+## 2026-03-06: Repack code is now split into four responsibility lanes
+
+- `scripts/ts/lib/source-bundle/*`
+  - upstream bundle intake (`dmg`, `asar`, extraction)
+- `scripts/ts/lib/runtime-donor/*`
+  - Windows donor discovery and native/runtime reuse
+- `scripts/ts/lib/runtime-pack/*`
+  - portable artifact assembly and launcher generation
+- `scripts/ts/lib/platform-patches/*`
+  - platform-critical patch selection and execution
+- Goal:
+  - less cross-coupling
+  - fewer hidden fallback paths
+  - easier migration toward a Forge-like modding model
+
+## 2026-03-06: Official Windows Codex is a runtime donor, not the logic source of truth
+
+- Official Windows package under `C:\\Program Files\\WindowsApps\\OpenAI.Codex_*` is now a first-class donor source for Windows runtime artifacts.
+- It is especially relevant for:
+  - native modules
+  - bundled Windows companion tools
+  - future runtime-pack alignment
+- The freshest upstream app logic can still come from DMG snapshots; donor/runtime concerns are separate from source-bundle concerns.
+
+## 2026-03-06: Global CODEX_HOME state is a likely startup blocker; isolated-home is now a first-class diagnostic lane
+
+- Portable runtime lanes that share the real `C:\\Users\\lensm\\.codex` can stall at a gray-screen stage even when:
+  - CLI handshake succeeds
+  - `Handled 'ready' message` appears
+  - there are no `SyntaxError`, preload failures, or renderer mod failures
+- The new launcher lane:
+  - `Launch-Codex-isolated-home.cmd`
+  redirects `CODEX_HOME` into the portable artifact and disables runtime mods.
+- On short donor-first smoke runs this isolated lane showed materially healthier startup behavior than shared-home lanes:
+  - very fast `account/read` and `thread/list`
+  - `app/list` already appears in the first short window
+  - no early `git-origin-and-roots` spam
+  - no early `Failed to backfill app thread title`
+- Current strongest suspects inside the real `C:\\Users\\lensm\\.codex` are:
+  - `.codex-global-state.json` (contains stale workspace/worktree/thread UI state)
+  - `state_5.sqlite` and its WAL-backed live state
+- Practical rule:
+  - when debugging gray-screen startup, bisect `shared .codex` vs `isolated-home` before blaming mods or patch-pack.

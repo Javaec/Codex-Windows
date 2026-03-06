@@ -36,8 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runCodexPatchPipeline = runCodexPatchPipeline;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const exec_1 = require("./exec");
-const launch_1 = require("./launch");
+const exec_1 = require("../exec");
+const bundle_patches_1 = require("./bundle-patches");
 const patch_pack_1 = require("./patch-pack");
 function summarizeWebviewPatch(summary) {
     if (summary.patchedFiles > 0)
@@ -56,7 +56,7 @@ function runPatchStep(input, step) {
             if (!fs.existsSync(preloadPath)) {
                 throw new Error(`Preload bundle missing: ${preloadPath}`);
             }
-            const changed = (0, launch_1.patchPreload)(input.appDir);
+            const changed = (0, bundle_patches_1.patchPreload)(input.appDir);
             return {
                 id: step.id,
                 required: step.required,
@@ -66,7 +66,7 @@ function runPatchStep(input, step) {
             };
         }
         case "webview-sunset": {
-            const summary = (0, launch_1.patchWebviewAppSunsetGate)(input.appDir, { allowMissingPatchPoint: !step.required });
+            const summary = (0, bundle_patches_1.patchWebviewAppSunsetGate)(input.appDir, { allowMissingPatchPoint: !step.required });
             return {
                 id: step.id,
                 required: step.required,
@@ -76,7 +76,7 @@ function runPatchStep(input, step) {
             };
         }
         case "webview-cwd": {
-            const summary = (0, launch_1.patchWebviewCwdNormalization)(input.appDir, { allowMissingPatchPoint: !step.required });
+            const summary = (0, bundle_patches_1.patchWebviewCwdNormalization)(input.appDir, { allowMissingPatchPoint: !step.required });
             return {
                 id: step.id,
                 required: step.required,
@@ -86,7 +86,7 @@ function runPatchStep(input, step) {
             };
         }
         case "main-runtime-shim": {
-            (0, launch_1.patchMainForWindowsEnvironment)(input.appDir, input.buildNumber, input.buildFlavor);
+            (0, bundle_patches_1.patchMainForWindowsEnvironment)(input.appDir, input.buildNumber, input.buildFlavor);
             return {
                 id: step.id,
                 required: step.required,

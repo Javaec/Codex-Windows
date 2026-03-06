@@ -7,10 +7,17 @@
 ## Current Decisions
 
 - This mod is main-process only.
-- It rewrites `thread/*` IPC payloads to force `persistExtendedHistory=true`.
+- It now receives shared Mod API v1 context instead of a raw ad-hoc bootstrap object.
+- It rewrites thread detail IPC payloads to force `persistExtendedHistory=true`.
+- It must not touch:
+  - `thread/list`
+  - any `*/list`
+  - `thread/realtime/*`
 - It does not touch sidebar thread caps anymore.
 
 ## Why
 
+- Shared IPC wrapping should live in the loader API, not be cloned in every main mod.
 - `thread/list limit 10 -> 6` did not affect the visible grouped sidebar and only added dead logic.
-- History persistence is a stable transport-level concern and belongs in the main-process mod.
+- Forcing persistence on `thread/list` can dramatically slow initial load and keep the UI on the center spinner.
+- History persistence is a stable transport-level concern, but only for thread-detail reads, not list endpoints.

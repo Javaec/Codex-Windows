@@ -44,6 +44,11 @@ exports.assertEnvironmentContract = assertEnvironmentContract;
 exports.invokeElectronChildEnvironmentContract = invokeElectronChildEnvironmentContract;
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
+const windows_apps_1 = require("./runtime-donor/windows-apps");
+function isWindowsRuntimeDonorExecutable(filePath) {
+    const normalized = path.resolve(filePath).replace(/\//g, "\\").toLowerCase();
+    return normalized.includes("\\program files\\windowsapps\\openai.codex_");
+}
 function resolveCmdPath() {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
     for (const candidate of [
@@ -141,92 +146,30 @@ function ensureWindowsEnvironment() {
     if (pwsh)
         process.env.CODEX_PWSH_PATH = pwsh;
 }
-async function downloadFile(url, outputPath) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Download failed (${response.status}) for ${url}`);
-    }
-    const data = Buffer.from(await response.arrayBuffer());
-    await Promise.resolve().then(() => __importStar(require("node:fs/promises"))).then((fsp) => fsp.writeFile(outputPath, data));
-}
-function addUserPathEntry(entry) {
-    const pwsh = resolvePwshPath();
-    if (!pwsh)
-        return;
-    const escaped = entry.replace(/'/g, "''");
-    const script = `$entry='${escaped}';$cur=[Environment]::GetEnvironmentVariable('Path','User');if(-not $cur){$cur=''};$parts=$cur -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ };$exists=$false;foreach($p in $parts){if($p.ToLowerInvariant() -eq $entry.ToLowerInvariant()){$exists=$true;break}};if(-not $exists){$new=if($cur){$cur+';'+$entry}else{$entry};[Environment]::SetEnvironmentVariable('Path',$new,'User')}`;
-    (0, exec_1.runCommand)(pwsh, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-        allowNonZero: true,
-        capture: true,
-    });
-}
-function extractZipArchive(zipPath, destinationDir) {
-    const sevenZip = (0, exec_1.resolveCommand)("7z.exe") ?? (0, exec_1.resolveCommand)("7z");
-    if (sevenZip) {
-        const extracted = (0, exec_1.runCommand)(sevenZip, ["x", "-y", zipPath, `-o${destinationDir}`], {
-            capture: true,
-            allowNonZero: true,
-        });
-        if (extracted.status === 0)
-            return true;
-    }
-    const tar = (0, exec_1.resolveCommand)("tar.exe") ?? (0, exec_1.resolveCommand)("tar");
-    if (tar) {
-        const extracted = (0, exec_1.runCommand)(tar, ["-xf", zipPath, "-C", destinationDir], {
-            capture: true,
-            allowNonZero: true,
-        });
-        if (extracted.status === 0)
-            return true;
-    }
-    return false;
-}
-async function ensureRipgrepInPath(workDir, persistUserPath) {
+async function ensureRipgrepInPath(workDir) {
     const existing = (0, exec_1.resolveCommand)("rg.exe") ?? (0, exec_1.resolveCommand)("rg");
-    if (existing)
+    if (existing && !isWindowsRuntimeDonorExecutable(existing)) {
         return { installed: false, path: existing, source: "path" };
-    const winget = (0, exec_1.resolveCommand)("winget.exe") ?? (0, exec_1.resolveCommand)("winget");
-    if (winget) {
-        (0, exec_1.runCommand)(winget, [
-            "install",
-            "--id",
-            "BurntSushi.ripgrep",
-            "-e",
-            "--source",
-            "winget",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-            "--silent",
-        ], { allowNonZero: true, capture: true });
-        ensureWindowsEnvironment();
-        const afterWinget = (0, exec_1.resolveCommand)("rg.exe") ?? (0, exec_1.resolveCommand)("rg");
-        if (afterWinget)
-            return { installed: true, path: afterWinget, source: "winget" };
     }
-    const toolsDir = (0, exec_1.ensureDir)(path.join(workDir, "tools"));
-    const rgRoot = (0, exec_1.ensureDir)(path.join(toolsDir, "ripgrep"));
-    const version = "14.1.1";
-    const zipName = `ripgrep-${version}-x86_64-pc-windows-msvc.zip`;
-    const zipPath = path.join(rgRoot, zipName);
-    const extractDir = path.join(rgRoot, `ripgrep-${version}-x86_64-pc-windows-msvc`);
-    const rgExe = path.join(extractDir, "rg.exe");
-    if (!(0, exec_1.fileExists)(rgExe)) {
-        if (!(0, exec_1.fileExists)(zipPath)) {
-            const url = `https://github.com/BurntSushi/ripgrep/releases/download/${version}/${zipName}`;
-            await downloadFile(url, zipPath);
-        }
-        if (!extractZipArchive(zipPath, rgRoot)) {
-            return { installed: false, path: null, source: "unavailable" };
-        }
-    }
-    if ((0, exec_1.fileExists)(rgExe)) {
-        process.env.PATH = mergePathEntries([extractDir, ...(process.env.PATH || "").split(";")]).join(";");
+    const donorRipgrep = existing && isWindowsRuntimeDonorExecutable(existing) ? existing : (0, windows_apps_1.getWindowsRuntimeDonorRipgrepPath)();
+    if (donorRipgrep) {
+        const donorDir = path.dirname(donorRipgrep);
+        process.env.PATH = mergePathEntries([donorDir, ...(process.env.PATH || "").split(";")]).join(";");
         process.env.Path = process.env.PATH;
-        if (persistUserPath)
-            addUserPathEntry(extractDir);
+        return { installed: false, path: donorRipgrep, source: "windows-runtime-donor" };
+    }
+    const repoRoot = path.resolve(__dirname, "..", "..", "..");
+    const portableCandidates = [
+        path.join(workDir, "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
+        path.join(repoRoot, "work", "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
+    ];
+    const rgExe = portableCandidates.find((candidate) => (0, exec_1.fileExists)(candidate)) || "";
+    if ((0, exec_1.fileExists)(rgExe)) {
+        process.env.PATH = mergePathEntries([path.dirname(rgExe), ...(process.env.PATH || "").split(";")]).join(";");
+        process.env.Path = process.env.PATH;
         return { installed: true, path: rgExe, source: "portable" };
     }
-    return { installed: false, path: null, source: "unavailable" };
+    throw new Error("rg.exe not found. Allowed sources: PATH, Windows runtime donor, repo-local work/tools/ripgrep.");
 }
 function runCmdCheck(cmdPath, args) {
     return (0, exec_1.runCommand)(cmdPath, ["/d", "/c", ...args], {

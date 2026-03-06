@@ -23,16 +23,36 @@ Mod contract (v1):
 - `mods/<modId>/mod.json` defines metadata, compatibility, and entrypoints.
 - `entrypoints.renderer` is injected on `dom-ready` for each non-devtools webContents.
 - `entrypoints.main` is executed once in the main process before renderer injection.
-  - It must export a function (or `{ activate() }`) that receives `{ electron, buildHint, modId }`.
+  - It must export a function (or `{ activate() }`) that receives Mod API v1 context.
   - Use this for stable, version-tolerant behavior changes (IPC request rewrites, routing tweaks, etc).
+
+## 2026-03-06: Shared Mod API v1
+
+- Shared API now lives under:
+  - `api/renderer-api.js`
+  - `api/main-api.cjs`
+- Loader/bootstrap still lives in the runtime shim for now; this keeps one bootstrap patchpoint while moving feature logic out of per-mod copies.
+- Renderer mods should use the shared API instead of cloning:
+  - text normalization
+  - sidebar discovery
+  - DOM observers/throttling
+  - style/singleton DOM nodes
+  - bridge fetch wiring
+- Main mods should use shared helpers for generic IPC wrapping instead of reimplementing ipcMain scaffolding.
 
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.
 - Purpose:
-  - force `persistExtendedHistory=true` on `thread/*` calls so legacy chat history keeps loading after Codex CLI upgrades.
+  - force `persistExtendedHistory=true` on thread-detail calls so legacy chat history keeps loading after Codex CLI upgrades.
 - Implementation:
   - wraps `electron.ipcMain` listeners and rewrites matching request objects in-place (no renderer bundle patching).
+- It must not touch:
+  - `thread/list`
+  - any `*/list`
+  - `thread/realtime/*`
+- Reason:
+  - list endpoints become much slower and can hold the UI on the center spinner.
 
 ## 2026-03-05: Renderer injection format
 

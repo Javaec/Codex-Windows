@@ -1,9 +1,13 @@
 (function () {
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
-  const globalRecord = window;
-  if (globalRecord.__CODEX_WINDOWS_THREAD_LIST_CAP_V2__) return;
-  globalRecord.__CODEX_WINDOWS_THREAD_LIST_CAP_V2__ = true;
+  const api = window.__CODEX_MOD_API_V1__;
+  if (!api || api.version !== 1) {
+    throw new Error("webview-thread-list-cap: Codex Mod API v1 is required");
+  }
+
+  if (window.__CODEX_WINDOWS_THREAD_LIST_CAP_V3__) return;
+  window.__CODEX_WINDOWS_THREAD_LIST_CAP_V3__ = true;
 
   const THREAD_CAP = 6;
   const SHOW_MORE_TEXT = "show more";
@@ -17,18 +21,6 @@
   const APPLY_THROTTLE_MS = 120;
   const NATIVE_EXPAND_RETRY_MS = 600;
   const stateByLabel = new Map();
-
-  function normalizeText(value) {
-    return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
-  }
-
-  function isVisible(node) {
-    if (!(node instanceof HTMLElement)) return false;
-    const style = window.getComputedStyle(node);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    const rect = node.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
 
   function getState(label) {
     let state = stateByLabel.get(label);
@@ -47,7 +39,7 @@
   }
 
   function getRowText(node) {
-    return normalizeText(node.textContent || node.getAttribute("aria-label") || "");
+    return api.normalizeText(node.textContent || node.getAttribute("aria-label") || "").toLowerCase();
   }
 
   function isNativeToggleRow(node) {
@@ -57,19 +49,19 @@
 
   function getSidebarForNode(node) {
     const sidebar = node.closest(SIDEBAR_SELECTOR);
-    return sidebar instanceof HTMLElement && isVisible(sidebar) ? sidebar : null;
+    return sidebar instanceof HTMLElement && api.isVisible(sidebar) ? sidebar : null;
   }
 
   function isManagedList(node) {
     if (!(node instanceof HTMLElement)) return false;
-    if (!getSidebarForNode(node) || !isVisible(node)) return false;
+    if (!getSidebarForNode(node) || !api.isVisible(node)) return false;
     const rows = getDirectListItems(node);
     if (rows.length < 2) return false;
     return rows.some(isNativeToggleRow);
   }
 
   function getListKey(list) {
-    const ariaLabel = normalizeText(list.getAttribute("aria-label"));
+    const ariaLabel = api.normalizeText(list.getAttribute("aria-label")).toLowerCase();
     if (ariaLabel) return ariaLabel;
 
     const sidebar = getSidebarForNode(list);
@@ -78,12 +70,12 @@
       : list.closest("section,div")?.querySelector("h1,h2,h3,[role='heading']");
     const headingText =
       heading instanceof HTMLElement
-        ? normalizeText(heading.textContent || heading.getAttribute("aria-label") || "")
+        ? api.normalizeText(heading.textContent || heading.getAttribute("aria-label") || "").toLowerCase()
         : "";
     if (headingText) return headingText;
 
     const listIndex = Array.from(document.querySelectorAll(LIST_SELECTOR)).indexOf(list);
-    return "sidebar-list-" + String(listIndex);
+    return `sidebar-list-${listIndex}`;
   }
 
   function setRowVisible(node, visible) {
@@ -122,11 +114,11 @@
     }
 
     const button = toggle.querySelector("button");
-    if (button instanceof HTMLButtonElement) {
-      button.textContent = state.expanded ? "Show less" : "Show more";
-      button.setAttribute("aria-expanded", state.expanded ? "true" : "false");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error(`webview-thread-list-cap: missing toggle button for ${label}`);
     }
-
+    button.textContent = state.expanded ? "Show less" : "Show more";
+    button.setAttribute("aria-expanded", state.expanded ? "true" : "false");
     return toggle;
   }
 
@@ -155,7 +147,6 @@
     const nativeShowMoreRow = nativeToggleRows.find((row) => getRowText(row) === SHOW_MORE_TEXT);
 
     for (const row of nativeToggleRows) setRowVisible(row, false);
-
     if (nativeShowMoreRow && tryExpandNativeList(nativeShowMoreRow, state)) return;
 
     if (threadRows.length <= THREAD_CAP) {
@@ -170,8 +161,8 @@
     });
 
     const toggle = ensureToggleElement(state, label);
-    if (list.nextSibling !== toggle) {
-      list.parentNode && list.parentNode.insertBefore(toggle, list.nextSibling);
+    if (list.nextSibling !== toggle && list.parentNode) {
+      list.parentNode.insertBefore(toggle, list.nextSibling);
     }
     toggle.style.display = "";
   }
@@ -196,18 +187,7 @@
     cleanupUnusedState(activeLabels);
   }
 
-  let scanTimer = 0;
-  function scheduleScan() {
-    if (scanTimer) return;
-    scanTimer = window.setTimeout(() => {
-      scanTimer = 0;
-      scan();
-    }, APPLY_THROTTLE_MS);
-  }
-
+  const scheduleScan = api.createDebouncedRunner(APPLY_THROTTLE_MS, scan);
   scan();
-  const observer = new MutationObserver(() => {
-    scheduleScan();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  api.observeDom(scheduleScan);
 })();

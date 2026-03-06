@@ -1,4 +1,4 @@
-/* CODEX-MOD:app-server-tweaks@v2 */
+/* CODEX-MOD:app-server-tweaks@v3 */
 "use strict";
 
 function isPlainObject(value) {
@@ -15,6 +15,9 @@ function rewritePersistExtendedHistory(node) {
   if (!isPlainObject(node)) return false;
   const method = typeof node.method === "string" ? node.method : "";
   if (!method.startsWith("thread/")) return false;
+  if (method === "thread/list") return false;
+  if (method.endsWith("/list")) return false;
+  if (method.startsWith("thread/realtime/")) return false;
   if (!isPlainObject(node.params)) return false;
   if (node.params.persistExtendedHistory === true) return false;
   node.params.persistExtendedHistory = true;
@@ -57,9 +60,20 @@ function wrapListener(listener) {
 module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const electron = ctx.electron;
+  const helpers = ctx.helpers;
   if (!electron || typeof electron !== "object") {
     throw new Error("app-server-tweaks: missing electron handle");
   }
+  if (!helpers || typeof helpers !== "object") {
+    throw new Error("app-server-tweaks: missing API helpers");
+  }
+  if (typeof helpers.isPlainObject !== "function") {
+    throw new Error("app-server-tweaks: missing helpers.isPlainObject");
+  }
+  if (typeof helpers.wrapIpcListeners !== "function") {
+    throw new Error("app-server-tweaks: missing helpers.wrapIpcListeners");
+  }
+
   const ipcMain = electron.ipcMain;
   if (!ipcMain || typeof ipcMain !== "object") {
     throw new Error("app-server-tweaks: missing electron.ipcMain");
@@ -68,21 +82,5 @@ module.exports = function activate(context) {
   if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__) return;
   globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__ = true;
 
-  const originalOn = typeof ipcMain.on === "function" ? ipcMain.on.bind(ipcMain) : null;
-  const originalOnce = typeof ipcMain.once === "function" ? ipcMain.once.bind(ipcMain) : null;
-  const originalHandle = typeof ipcMain.handle === "function" ? ipcMain.handle.bind(ipcMain) : null;
-  const originalHandleOnce = typeof ipcMain.handleOnce === "function" ? ipcMain.handleOnce.bind(ipcMain) : null;
-
-  if (!originalOn || !originalHandle) {
-    throw new Error("app-server-tweaks: ipcMain.on/handle missing");
-  }
-
-  ipcMain.on = (channel, listener) => originalOn(channel, wrapListener(listener));
-  if (originalOnce) {
-    ipcMain.once = (channel, listener) => originalOnce(channel, wrapListener(listener));
-  }
-  ipcMain.handle = (channel, listener) => originalHandle(channel, wrapListener(listener));
-  if (originalHandleOnce) {
-    ipcMain.handleOnce = (channel, listener) => originalHandleOnce(channel, wrapListener(listener));
-  }
+  helpers.wrapIpcListeners(ipcMain, wrapListener);
 };

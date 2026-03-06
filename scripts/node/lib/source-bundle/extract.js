@@ -38,9 +38,9 @@ exports.resolve7z = resolve7z;
 exports.invokeExtractionStage = invokeExtractionStage;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const exec_1 = require("./exec");
-const asar_1 = require("./asar");
-const manifest_1 = require("./manifest");
+const exec_1 = require("../exec");
+const asar_1 = require("../asar");
+const manifest_1 = require("../manifest");
 function resolveDmgPath(explicit, repoRoot) {
     if (explicit) {
         const resolved = path.resolve(explicit);
@@ -69,23 +69,6 @@ function resolve7z(workDir) {
         const p2 = path.join(process.env["ProgramFiles(x86)"], "7-Zip", "7z.exe");
         if ((0, exec_1.fileExists)(p2))
             return p2;
-    }
-    const winget = (0, exec_1.resolveCommand)("winget.exe") ?? (0, exec_1.resolveCommand)("winget");
-    if (winget) {
-        (0, exec_1.runCommand)(winget, [
-            "install",
-            "--id",
-            "7zip.7zip",
-            "-e",
-            "--source",
-            "winget",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-            "--silent",
-        ], { allowNonZero: true, capture: true });
-        const afterInstall = (0, exec_1.resolveCommand)("7z.exe") ?? (0, exec_1.resolveCommand)("7z");
-        if (afterInstall)
-            return afterInstall;
     }
     const portable = path.join(workDir, "tools", "7zip", "7z.exe");
     if ((0, exec_1.fileExists)(portable))

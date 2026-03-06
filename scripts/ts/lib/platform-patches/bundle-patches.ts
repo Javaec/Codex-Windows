@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ensureDir, fileExists, runCommand, writeInfo } from "./exec";
+import { fileExists, writeInfo } from "../exec";
 
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
@@ -9,6 +9,7 @@ const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(
   __dirname,
+  "..",
   "..",
   "..",
   "..",
@@ -320,71 +321,4 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
   }
 
   fs.writeFileSync(mainJs, raw, "utf8");
-}
-
-export function ensureGitOnPath(): void {
-  const candidates: string[] = [];
-  if (process.env.ProgramFiles) {
-    candidates.push(path.join(process.env.ProgramFiles, "Git", "cmd", "git.exe"));
-    candidates.push(path.join(process.env.ProgramFiles, "Git", "bin", "git.exe"));
-  }
-  if (process.env["ProgramFiles(x86)"]) {
-    candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd", "git.exe"));
-    candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "bin", "git.exe"));
-  }
-  const gitExe = candidates.find((candidate) => fileExists(candidate));
-  if (!gitExe) return;
-  const gitDir = path.dirname(gitExe);
-  const current = (process.env.PATH || "").split(";").map((entry) => entry.trim().toLowerCase());
-  if (!current.includes(gitDir.toLowerCase())) {
-    process.env.PATH = `${gitDir};${process.env.PATH || ""}`;
-    process.env.Path = process.env.PATH;
-  }
-}
-
-export function startCodexDirectLaunch(
-  electronExe: string,
-  appDir: string,
-  userDataDir: string,
-  cacheDir: string,
-  codexCliPath: string,
-  buildNumber: string,
-  buildFlavor: string,
-  gitCapabilityCachePath?: string,
-): void {
-  if (!fileExists(electronExe)) throw new Error(`electron.exe not found: ${electronExe}`);
-  const rendererPath = path.join(appDir, "webview", "index.html");
-  const rendererUrl = `file:///${rendererPath.replace(/\\/g, "/")}`;
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  env.ELECTRON_RENDERER_URL = rendererUrl;
-  env.ELECTRON_FORCE_IS_PACKAGED = "1";
-  env.CODEX_BUILD_NUMBER = buildNumber;
-  env.CODEX_BUILD_FLAVOR = buildFlavor;
-  env.BUILD_FLAVOR = buildFlavor;
-  env.NODE_ENV = "production";
-  env.CODEX_CLI_PATH = codexCliPath;
-  env.PWD = appDir;
-  if (gitCapabilityCachePath) env.CODEX_GIT_CAPABILITY_CACHE = gitCapabilityCachePath;
-
-  if (!env.CODEX_MODS_DIR) {
-    const repoRoot = path.resolve(__dirname, "..", "..", "..");
-    const modsDir = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
-    if (!fileExists(modsDir)) {
-      throw new Error(`Codex mods directory missing: ${modsDir}`);
-    }
-    env.CODEX_MODS_DIR = modsDir;
-  }
-
-  ensureDir(userDataDir);
-  ensureDir(cacheDir);
-
-  const result = runCommand(
-    electronExe,
-    [appDir, "--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`],
-    { cwd: appDir, env, capture: false, allowNonZero: true },
-  );
-  if (result.status !== 0) {
-    throw new Error(`Codex process exited with code ${result.status}.`);
-  }
 }

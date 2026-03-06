@@ -40,14 +40,6 @@ exports.copyCodexIconToOutput = copyCodexIconToOutput;
 exports.prepareDirectLaunchExecutable = prepareDirectLaunchExecutable;
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
-async function downloadFile(url, outputPath) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Download failed (${response.status}) for ${url}`);
-    }
-    const data = Buffer.from(await response.arrayBuffer());
-    await Promise.resolve().then(() => __importStar(require("node:fs/promises"))).then((fsp) => fsp.writeFile(outputPath, data));
-}
 function normalizeVersion(value) {
     const input = (value || "").trim();
     if (/^\d+\.\d+\.\d+\.\d+$/.test(input))
@@ -75,13 +67,7 @@ async function ensureRcedit(workDir) {
     const bundled = resolveBundledRcedit(workDir);
     if ((0, exec_1.fileExists)(bundled))
         return bundled;
-    const arch = process.arch === "arm64" ? "arm64" : "x64";
-    const url = `https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-${arch}.exe`;
-    await downloadFile(url, bundled);
-    if (!(0, exec_1.fileExists)(bundled)) {
-        throw new Error(`rcedit download failed: ${bundled}`);
-    }
-    return bundled;
+    return "";
 }
 function resolveDefaultCodexIconPath() {
     if (process.env.CODEX_ICON_PATH && (0, exec_1.fileExists)(process.env.CODEX_ICON_PATH)) {
@@ -103,6 +89,10 @@ async function applyExecutableBranding(executablePath, options) {
     const iconPath = options.iconPath && (0, exec_1.fileExists)(options.iconPath) ? options.iconPath : "";
     const appVersion = normalizeVersion(options.appVersion);
     const rcedit = await ensureRcedit(options.workDir);
+    if (!rcedit) {
+        (0, exec_1.writeWarn)("rcedit not found; executable branding skipped.");
+        return false;
+    }
     const fileName = path.basename(executablePath);
     const args = [
         executablePath,

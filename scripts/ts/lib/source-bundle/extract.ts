@@ -12,14 +12,14 @@ import {
   writeInfo,
   writeSuccess,
   writeWarn,
-} from "./exec";
-import { extractAsarArchive } from "./asar";
+} from "../exec";
+import { extractAsarArchive } from "../asar";
 import {
   setManifestStepState,
   StateManifest,
   testManifestStepCurrent,
   writeStateManifest,
-} from "./manifest";
+} from "../manifest";
 
 export interface ExtractionStageResult {
   sevenZip: string;
@@ -55,27 +55,6 @@ export function resolve7z(workDir: string): string {
   if (process.env["ProgramFiles(x86)"]) {
     const p2 = path.join(process.env["ProgramFiles(x86)"], "7-Zip", "7z.exe");
     if (fileExists(p2)) return p2;
-  }
-
-  const winget = resolveCommand("winget.exe") ?? resolveCommand("winget");
-  if (winget) {
-    runCommand(
-      winget,
-      [
-        "install",
-        "--id",
-        "7zip.7zip",
-        "-e",
-        "--source",
-        "winget",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-        "--silent",
-      ],
-      { allowNonZero: true, capture: true },
-    );
-    const afterInstall = resolveCommand("7z.exe") ?? resolveCommand("7z");
-    if (afterInstall) return afterInstall;
   }
 
   const portable = path.join(workDir, "tools", "7zip", "7z.exe");

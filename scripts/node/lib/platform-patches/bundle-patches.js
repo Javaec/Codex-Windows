@@ -37,16 +37,14 @@ exports.patchPreload = patchPreload;
 exports.patchWebviewCwdNormalization = patchWebviewCwdNormalization;
 exports.patchWebviewAppSunsetGate = patchWebviewAppSunsetGate;
 exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
-exports.ensureGitOnPath = ensureGitOnPath;
-exports.startCodexDirectLaunch = startCodexDirectLaunch;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const exec_1 = require("./exec");
+const exec_1 = require("../exec");
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
-const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
+const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
 let mainShimTemplateCache = "";
 const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
 const GOOD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\n${mod.script}\n`;";
@@ -274,56 +272,4 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
             : `${loaderStatement}${raw}`;
     }
     fs.writeFileSync(mainJs, raw, "utf8");
-}
-function ensureGitOnPath() {
-    const candidates = [];
-    if (process.env.ProgramFiles) {
-        candidates.push(path.join(process.env.ProgramFiles, "Git", "cmd", "git.exe"));
-        candidates.push(path.join(process.env.ProgramFiles, "Git", "bin", "git.exe"));
-    }
-    if (process.env["ProgramFiles(x86)"]) {
-        candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd", "git.exe"));
-        candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "bin", "git.exe"));
-    }
-    const gitExe = candidates.find((candidate) => (0, exec_1.fileExists)(candidate));
-    if (!gitExe)
-        return;
-    const gitDir = path.dirname(gitExe);
-    const current = (process.env.PATH || "").split(";").map((entry) => entry.trim().toLowerCase());
-    if (!current.includes(gitDir.toLowerCase())) {
-        process.env.PATH = `${gitDir};${process.env.PATH || ""}`;
-        process.env.Path = process.env.PATH;
-    }
-}
-function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, codexCliPath, buildNumber, buildFlavor, gitCapabilityCachePath) {
-    if (!(0, exec_1.fileExists)(electronExe))
-        throw new Error(`electron.exe not found: ${electronExe}`);
-    const rendererPath = path.join(appDir, "webview", "index.html");
-    const rendererUrl = `file:///${rendererPath.replace(/\\/g, "/")}`;
-    const env = { ...process.env };
-    delete env.ELECTRON_RUN_AS_NODE;
-    env.ELECTRON_RENDERER_URL = rendererUrl;
-    env.ELECTRON_FORCE_IS_PACKAGED = "1";
-    env.CODEX_BUILD_NUMBER = buildNumber;
-    env.CODEX_BUILD_FLAVOR = buildFlavor;
-    env.BUILD_FLAVOR = buildFlavor;
-    env.NODE_ENV = "production";
-    env.CODEX_CLI_PATH = codexCliPath;
-    env.PWD = appDir;
-    if (gitCapabilityCachePath)
-        env.CODEX_GIT_CAPABILITY_CACHE = gitCapabilityCachePath;
-    if (!env.CODEX_MODS_DIR) {
-        const repoRoot = path.resolve(__dirname, "..", "..", "..");
-        const modsDir = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
-        if (!(0, exec_1.fileExists)(modsDir)) {
-            throw new Error(`Codex mods directory missing: ${modsDir}`);
-        }
-        env.CODEX_MODS_DIR = modsDir;
-    }
-    (0, exec_1.ensureDir)(userDataDir);
-    (0, exec_1.ensureDir)(cacheDir);
-    const result = (0, exec_1.runCommand)(electronExe, [appDir, "--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: appDir, env, capture: false, allowNonZero: true });
-    if (result.status !== 0) {
-        throw new Error(`Codex process exited with code ${result.status}.`);
-    }
 }

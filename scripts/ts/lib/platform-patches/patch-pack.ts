@@ -159,7 +159,7 @@ export interface ResolvePatchProfileInput {
 }
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PATCH_PACK_ROOT = path.join(REPO_ROOT, "shared", "patch-pack");
 const PROFILES_DIR = path.join(PATCH_PACK_ROOT, "profiles");
 const MODS_DIR = path.join(PATCH_PACK_ROOT, "mods");
