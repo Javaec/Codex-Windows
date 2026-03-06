@@ -12,10 +12,6 @@
   const THREAD_CAP = 6;
   const SHOW_MORE_TEXT = "show more";
   const SHOW_LESS_TEXT = "show less";
-  const SIDEBAR_SELECTOR =
-    "aside,nav,[role='navigation'],[class*='sidebar'],[class*='Sidebar'],[data-testid*='sidebar']";
-  const LIST_SELECTOR = "[role='list'],ul,ol";
-  const LIST_ITEM_SELECTOR = ":scope > [role='listitem'], :scope > li";
   const TOGGLE_ATTR = "data-codex-windows-thread-cap-toggle";
   const TOGGLE_LABEL_ATTR = "data-codex-windows-thread-cap-label";
   const APPLY_THROTTLE_MS = 120;
@@ -34,48 +30,8 @@
     return state;
   }
 
-  function getDirectListItems(list) {
-    return Array.from(list.querySelectorAll(LIST_ITEM_SELECTOR)).filter((node) => node instanceof HTMLElement);
-  }
-
   function getRowText(node) {
     return api.normalizeText(node.textContent || node.getAttribute("aria-label") || "").toLowerCase();
-  }
-
-  function isNativeToggleRow(node) {
-    const text = getRowText(node);
-    return text === SHOW_MORE_TEXT || text === SHOW_LESS_TEXT;
-  }
-
-  function getSidebarForNode(node) {
-    const sidebar = node.closest(SIDEBAR_SELECTOR);
-    return sidebar instanceof HTMLElement && api.isVisible(sidebar) ? sidebar : null;
-  }
-
-  function isManagedList(node) {
-    if (!(node instanceof HTMLElement)) return false;
-    if (!getSidebarForNode(node) || !api.isVisible(node)) return false;
-    const rows = getDirectListItems(node);
-    if (rows.length < 2) return false;
-    return rows.some(isNativeToggleRow);
-  }
-
-  function getListKey(list) {
-    const ariaLabel = api.normalizeText(list.getAttribute("aria-label")).toLowerCase();
-    if (ariaLabel) return ariaLabel;
-
-    const sidebar = getSidebarForNode(list);
-    const heading = sidebar
-      ? sidebar.querySelector("h1,h2,h3,[role='heading']")
-      : list.closest("section,div")?.querySelector("h1,h2,h3,[role='heading']");
-    const headingText =
-      heading instanceof HTMLElement
-        ? api.normalizeText(heading.textContent || heading.getAttribute("aria-label") || "").toLowerCase()
-        : "";
-    if (headingText) return headingText;
-
-    const listIndex = Array.from(document.querySelectorAll(LIST_SELECTOR)).indexOf(list);
-    return `sidebar-list-${listIndex}`;
   }
 
   function setRowVisible(node, visible) {
@@ -138,13 +94,13 @@
     return true;
   }
 
-  function applyCapToList(list) {
-    const label = getListKey(list);
+  function applyCapToGroup(group) {
+    const list = group.list;
+    const label = String(group.label || "");
     const state = getState(label);
-    const rows = getDirectListItems(list);
-    const nativeToggleRows = rows.filter(isNativeToggleRow);
-    const threadRows = rows.filter((row) => !isNativeToggleRow(row));
-    const nativeShowMoreRow = nativeToggleRows.find((row) => getRowText(row) === SHOW_MORE_TEXT);
+    const nativeToggleRows = group.toggleRows;
+    const threadRows = group.threadRows;
+    const nativeShowMoreRow = group.nativeShowMoreRow;
 
     for (const row of nativeToggleRows) setRowVisible(row, false);
     if (nativeShowMoreRow && tryExpandNativeList(nativeShowMoreRow, state)) return;
@@ -177,12 +133,11 @@
 
   function scan() {
     const activeLabels = new Set();
-    const lists = document.querySelectorAll(LIST_SELECTOR);
-    for (const list of lists) {
-      if (!isManagedList(list)) continue;
-      const label = getListKey(list);
+    const groups = api.getProjectLists();
+    for (const group of groups) {
+      const label = String(group.label || "");
       activeLabels.add(label);
-      applyCapToList(list);
+      applyCapToGroup(group);
     }
     cleanupUnusedState(activeLabels);
   }

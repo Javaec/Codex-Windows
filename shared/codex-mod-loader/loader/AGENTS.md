@@ -33,3 +33,19 @@
 - Rule:
   - add a capability only when it represents a stable platform hook
   - do not add capabilities for one-off DOM quirks.
+- Recent additions:
+  - renderer: `sidebar-groups`, `project-list`
+  - main: typed Codex request/response hooks build on the existing app-server request/response capability lane
+
+## 2026-03-06: Typed hooks first, renderer heuristics second
+
+- Prefer typed hooks such as:
+  - `onBeforeCodexRequest`
+  - `onAfterCodexResponse`
+  - `onRendererReady`
+  - `onRouteChange`
+- Prefer shared renderer group/list helpers such as:
+  - `getSidebarGroups`
+  - `getProjectLists`
+- Rule:
+  - if a mod can be expressed through a typed hook or shared capability, do not let the mod walk raw IPC/DOM structures itself.

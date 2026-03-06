@@ -12,6 +12,7 @@
   - `before-app-server-request`
 - It rewrites thread detail IPC payloads to force `persistExtendedHistory=true`.
 - Tree walking now belongs to the API hook `onBeforeAppServerRequest`, not to this mod.
+- The mod now uses the typed hook `onBeforeCodexRequest`, so it receives `method` and `params` directly instead of generic tree nodes.
 - It must not touch:
   - `thread/list`
   - any `*/list`

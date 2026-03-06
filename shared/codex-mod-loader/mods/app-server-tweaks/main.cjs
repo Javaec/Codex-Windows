@@ -38,15 +38,20 @@ module.exports = function activate(context) {
     throw new Error("app-server-tweaks: missing helpers.isPlainObject");
   }
   if (typeof helpers.onBeforeAppServerRequest !== "function") {
-    throw new Error("app-server-tweaks: missing helpers.onBeforeAppServerRequest");
+    throw new Error("app-server-tweaks: missing helpers.onBeforeCodexRequest");
   }
 
   if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__) return;
   globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__ = true;
 
-  helpers.onBeforeAppServerRequest(
-    electron,
-    rewritePersistExtendedHistory,
-    { maxDepth: 6, maxKeys: 60 },
-  );
+  helpers.onBeforeCodexRequest(electron, ({ method, params }) => {
+    if (!method.startsWith("thread/")) return false;
+    if (method === "thread/list") return false;
+    if (method.endsWith("/list")) return false;
+    if (method.startsWith("thread/realtime/")) return false;
+    if (!params || typeof params !== "object") return false;
+    if (params.persistExtendedHistory === true) return false;
+    params.persistExtendedHistory = true;
+    return true;
+  }, { maxDepth: 6, maxKeys: 60 });
 };

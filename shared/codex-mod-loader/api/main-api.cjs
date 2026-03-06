@@ -60,6 +60,46 @@ function walkJsonTree(node, visit, depth, maxDepth, maxKeys) {
   return changed;
 }
 
+function looksLikeCodexMethod(value) {
+  return typeof value === "string" && value.includes("/") && value.length >= 3;
+}
+
+function looksLikeCodexRequestEnvelope(node) {
+  if (!isPlainObject(node)) return false;
+  if (!looksLikeCodexMethod(node.method)) return false;
+  if ("params" in node && node.params !== undefined && !isPlainObject(node.params)) return false;
+  return true;
+}
+
+function looksLikeCodexResponseEnvelope(node) {
+  if (!isPlainObject(node)) return false;
+  if (!looksLikeCodexMethod(node.method)) return false;
+  if ("result" in node || "errorCode" in node || "responseType" in node || "durationMs" in node) return true;
+  return false;
+}
+
+function visitCodexEnvelopes(root, predicate, visit, maxDepth, maxKeys) {
+  const seen = new WeakSet();
+  walkJsonTree(
+    root,
+    (node) => {
+      if (!isPlainObject(node)) return false;
+      if (seen.has(node)) return false;
+      if (!predicate(node)) return false;
+      seen.add(node);
+      return visit({
+        envelope: node,
+        method: String(node.method || ""),
+        params: isPlainObject(node.params) ? node.params : null,
+        requestId: typeof node.requestId === "string" ? node.requestId : "",
+      });
+    },
+    0,
+    maxDepth,
+    maxKeys,
+  );
+}
+
 function onBeforeAppServerRequest(electron, visit, options) {
   if (!electron || typeof electron !== "object") {
     throw new Error("codex-mod-api: electron is required");
@@ -103,6 +143,61 @@ function onAfterAppServerResponse(electron, visit, options) {
       const result = listener.call(this, event, ...args);
       const visitResult = (value) => {
         walkJsonTree(value, visit, 0, maxDepth, maxKeys);
+        return value;
+      };
+      if (result && typeof result.then === "function") {
+        result.then(visitResult, () => {});
+        return result;
+      }
+      visitResult(result);
+      return result;
+    };
+  });
+}
+
+function onBeforeCodexRequest(electron, visit, options) {
+  if (!electron || typeof electron !== "object") {
+    throw new Error("codex-mod-api: electron is required");
+  }
+  if (typeof visit !== "function") {
+    throw new Error("codex-mod-api: onBeforeCodexRequest requires a visitor");
+  }
+
+  const nextOptions = options && typeof options === "object" ? options : {};
+  const maxDepth = Number.isFinite(nextOptions.maxDepth) ? Number(nextOptions.maxDepth) : 6;
+  const maxKeys = Number.isFinite(nextOptions.maxKeys) ? Number(nextOptions.maxKeys) : 60;
+  const ipcMain = electron.ipcMain;
+
+  wrapIpcListeners(ipcMain, (listener) => {
+    if (typeof listener !== "function") return listener;
+    return function wrappedListener(event, ...args) {
+      for (const arg of args) {
+        visitCodexEnvelopes(arg, looksLikeCodexRequestEnvelope, visit, maxDepth, maxKeys);
+      }
+      return listener.call(this, event, ...args);
+    };
+  });
+}
+
+function onAfterCodexResponse(electron, visit, options) {
+  if (!electron || typeof electron !== "object") {
+    throw new Error("codex-mod-api: electron is required");
+  }
+  if (typeof visit !== "function") {
+    throw new Error("codex-mod-api: onAfterCodexResponse requires a visitor");
+  }
+
+  const nextOptions = options && typeof options === "object" ? options : {};
+  const maxDepth = Number.isFinite(nextOptions.maxDepth) ? Number(nextOptions.maxDepth) : 6;
+  const maxKeys = Number.isFinite(nextOptions.maxKeys) ? Number(nextOptions.maxKeys) : 60;
+  const ipcMain = electron.ipcMain;
+
+  wrapIpcListeners(ipcMain, (listener) => {
+    if (typeof listener !== "function") return listener;
+    return function wrappedListener(event, ...args) {
+      const result = listener.call(this, event, ...args);
+      const visitResult = (value) => {
+        visitCodexEnvelopes(value, looksLikeCodexResponseEnvelope, visit, maxDepth, maxKeys);
         return value;
       };
       if (result && typeof result.then === "function") {
@@ -175,6 +270,8 @@ function createMainModApi(context) {
       onWebContentsReady,
       onBeforeAppServerRequest,
       onAfterAppServerResponse,
+      onBeforeCodexRequest,
+      onAfterCodexResponse,
     },
   };
 }

@@ -20,6 +20,8 @@
   - `findSidebarAnchor`
   - `mountSidebarPanel`
   - `getSidebarRoot`
+  - `getSidebarGroups`
+  - `getProjectLists`
   - `injectSidebarPanel`
   - `onRendererReady`
   - `onRouteChange`

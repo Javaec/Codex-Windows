@@ -13,6 +13,8 @@
   const settingsPanelListeners = new Set();
   let rendererReadyFired = false;
   let currentRouteUrl = String(window.location.href || "");
+  const LIST_SELECTOR = "[role='list'],ul,ol";
+  const LIST_ITEM_SELECTOR = ":scope > [role='listitem'], :scope > li";
 
   function isSettingsCandidate(node) {
     const text = normalizeText(node.textContent).toLowerCase();
@@ -219,6 +221,58 @@
     return null;
   }
 
+  function getDirectListItems(list) {
+    return Array.from(list.querySelectorAll(LIST_ITEM_SELECTOR)).filter((node) => node instanceof HTMLElement);
+  }
+
+  function getSidebarGroupLabel(list, sidebar) {
+    const ariaLabel = normalizeText(list.getAttribute("aria-label"));
+    if (ariaLabel) return ariaLabel;
+
+    const heading = sidebar
+      ? sidebar.querySelector("h1,h2,h3,[role='heading']")
+      : list.closest("section,div")?.querySelector("h1,h2,h3,[role='heading']");
+    const headingText =
+      heading instanceof HTMLElement ? normalizeText(heading.textContent || heading.getAttribute("aria-label") || "") : "";
+    if (headingText) return headingText;
+
+    const listIndex = Array.from(document.querySelectorAll(LIST_SELECTOR)).indexOf(list);
+    return `sidebar-list-${listIndex}`;
+  }
+
+  function getSidebarGroups() {
+    const sidebar = findSidebarRoot();
+    if (!(sidebar instanceof HTMLElement)) return [];
+
+    const groups = [];
+    const lists = sidebar.querySelectorAll(LIST_SELECTOR);
+    for (const list of lists) {
+      if (!(list instanceof HTMLElement)) continue;
+      if (!isVisible(list)) continue;
+      const rows = getDirectListItems(list);
+      if (rows.length < 2) continue;
+      const toggleRows = rows.filter((row) => {
+        const text = normalizeText(row.textContent || row.getAttribute("aria-label") || "").toLowerCase();
+        return text === "show more" || text === "show less";
+      });
+      const threadRows = rows.filter((row) => !toggleRows.includes(row));
+      groups.push({
+        sidebar,
+        list,
+        label: getSidebarGroupLabel(list, sidebar),
+        rows,
+        toggleRows,
+        threadRows,
+        nativeShowMoreRow: toggleRows.find((row) => normalizeText(row.textContent || row.getAttribute("aria-label") || "").toLowerCase() === "show more") || null,
+      });
+    }
+    return groups;
+  }
+
+  function getProjectLists() {
+    return getSidebarGroups().filter((group) => group.toggleRows.length > 0);
+  }
+
   function mountSidebarPanel(options) {
     const nextOptions = options && typeof options === "object" ? options : {};
     const panelId = typeof nextOptions.panelId === "string" ? nextOptions.panelId.trim() : "";
@@ -357,6 +411,8 @@
     bridgeFetchJson,
     findSidebarRoot,
     getSidebarRoot,
+    getSidebarGroups,
+    getProjectLists,
     findSidebarAnchor,
     mountSidebarPanel,
     injectSidebarPanel,
