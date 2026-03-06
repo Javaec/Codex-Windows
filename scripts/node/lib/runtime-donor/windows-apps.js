@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getWindowsRuntimeDonorAppDirs = getWindowsRuntimeDonorAppDirs;
 exports.getWindowsRuntimeDonorCliPath = getWindowsRuntimeDonorCliPath;
 exports.getWindowsRuntimeDonorRipgrepPath = getWindowsRuntimeDonorRipgrepPath;
+exports.getWindowsRuntimeDonorBetterSqlite3Path = getWindowsRuntimeDonorBetterSqlite3Path;
 exports.getWindowsRuntimeDonorToolPaths = getWindowsRuntimeDonorToolPaths;
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
@@ -104,6 +105,14 @@ function getWindowsRuntimeDonorCliPath() {
 }
 function getWindowsRuntimeDonorRipgrepPath() {
     return findFirstExistingTool("rg.exe");
+}
+function getWindowsRuntimeDonorBetterSqlite3Path() {
+    for (const runtimePackage of loadWindowsCodexPackages()) {
+        const candidate = path.join(runtimePackage.appAsarUnpackedDir, "node_modules", "better-sqlite3");
+        if ((0, exec_1.fileExists)(candidate))
+            return candidate;
+    }
+    return "";
 }
 function getWindowsRuntimeDonorToolPaths() {
     return (0, exec_1.uniqueExistingDirs)([

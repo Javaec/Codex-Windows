@@ -1,10 +1,11 @@
-export type Mode = "run" | "build" | "verify" | "smoke";
+export type Mode = "run" | "build" | "verify" | "smoke" | "audit";
 
 export interface PipelineOptions {
   dmgPath?: string;
   workDir?: string;
   distDir?: string;
   codexCliPath?: string;
+  codexHomePath?: string;
   patchProfile?: string;
   reuse: boolean;
   noLaunch: boolean;
@@ -43,7 +44,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let index = 0;
   const first = argv[0].toLowerCase();
   if (!first.startsWith("-")) {
-    if (first === "run" || first === "build" || first === "verify" || first === "smoke") {
+    if (first === "run" || first === "build" || first === "verify" || first === "smoke" || first === "audit") {
       mode = first;
       index = 1;
     } else if (first === "help") {
@@ -86,6 +87,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "codexclipath":
         options.codexCliPath = readValue();
+        break;
+      case "codexhomepath":
+        options.codexHomePath = readValue();
         break;
       case "patchprofile":
         options.patchProfile = readValue();
@@ -138,18 +142,21 @@ export function printUsage(): void {
   process.stdout.write("  node scripts/node/run.js build [options]\n");
   process.stdout.write("  node scripts/node/run.js verify [options]\n");
   process.stdout.write("  node scripts/node/run.js smoke [options]\n");
+  process.stdout.write("  node scripts/node/run.js audit [options]\n");
   process.stdout.write("\n");
   process.stdout.write("Examples:\n");
   process.stdout.write("  node scripts/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
   process.stdout.write("  node scripts/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
   process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
   process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
+  process.stdout.write("  node scripts/node/run.js audit -CodexHomePath C:\\Users\\<user>\\.codex\n");
   process.stdout.write("\n");
   process.stdout.write("Options:\n");
   process.stdout.write("  -DmgPath <path>\n");
   process.stdout.write("  -WorkDir <path>\n");
   process.stdout.write("  -DistDir <path>\n");
   process.stdout.write("  -CodexCliPath <path>\n");
+  process.stdout.write("  -CodexHomePath <path>\n");
   process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
   process.stdout.write("  -ProfileName <name>  -StrictContract\n");

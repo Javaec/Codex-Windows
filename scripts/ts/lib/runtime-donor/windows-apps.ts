@@ -82,6 +82,14 @@ export function getWindowsRuntimeDonorRipgrepPath(): string {
   return findFirstExistingTool("rg.exe");
 }
 
+export function getWindowsRuntimeDonorBetterSqlite3Path(): string {
+  for (const runtimePackage of loadWindowsCodexPackages()) {
+    const candidate = path.join(runtimePackage.appAsarUnpackedDir, "node_modules", "better-sqlite3");
+    if (fileExists(candidate)) return candidate;
+  }
+  return "";
+}
+
 export function getWindowsRuntimeDonorToolPaths(): string[] {
   return uniqueExistingDirs([
     findFirstExistingTool("codex-command-runner.exe"),
