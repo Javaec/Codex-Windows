@@ -188,6 +188,7 @@
   }
 
   const scheduleScan = api.createDebouncedRunner(APPLY_THROTTLE_MS, scan);
-  scan();
+  api.onRendererReady(scan);
+  api.onRouteChange(scheduleScan);
   api.observeDom(scheduleScan);
 })();

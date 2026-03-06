@@ -38,6 +38,7 @@ Mod contract (v1):
   - DOM observers/throttling
   - style/singleton DOM nodes
   - bridge fetch wiring
+- Route readiness and sidebar panel mounting now belong in the API too.
 - Main mods should use shared helpers for generic IPC wrapping instead of reimplementing ipcMain scaffolding.
 
 ## 2026-03-06: Loader path is now explicit runtime contract

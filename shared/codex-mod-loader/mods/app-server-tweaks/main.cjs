@@ -24,39 +24,6 @@ function rewritePersistExtendedHistory(node) {
   return true;
 }
 
-function rewriteNode(node, depth) {
-  if (depth > 6) return false;
-  if (!node) return false;
-
-  if (Array.isArray(node)) {
-    let changed = false;
-    for (const item of node) {
-      if (rewriteNode(item, depth + 1)) changed = true;
-    }
-    return changed;
-  }
-
-  if (!isPlainObject(node)) return false;
-
-  let changed = false;
-  if (rewritePersistExtendedHistory(node)) changed = true;
-
-  const keys = Object.keys(node);
-  if (keys.length > 60) return changed;
-  for (const key of keys) {
-    if (rewriteNode(node[key], depth + 1)) changed = true;
-  }
-  return changed;
-}
-
-function wrapListener(listener) {
-  if (typeof listener !== "function") return listener;
-  return function wrappedListener(event, ...args) {
-    for (const arg of args) rewriteNode(arg, 0);
-    return listener.call(this, event, ...args);
-  };
-}
-
 module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const electron = ctx.electron;
@@ -70,17 +37,16 @@ module.exports = function activate(context) {
   if (typeof helpers.isPlainObject !== "function") {
     throw new Error("app-server-tweaks: missing helpers.isPlainObject");
   }
-  if (typeof helpers.wrapIpcListeners !== "function") {
-    throw new Error("app-server-tweaks: missing helpers.wrapIpcListeners");
-  }
-
-  const ipcMain = electron.ipcMain;
-  if (!ipcMain || typeof ipcMain !== "object") {
-    throw new Error("app-server-tweaks: missing electron.ipcMain");
+  if (typeof helpers.onBeforeAppServerRequest !== "function") {
+    throw new Error("app-server-tweaks: missing helpers.onBeforeAppServerRequest");
   }
 
   if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__) return;
   globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__ = true;
 
-  helpers.wrapIpcListeners(ipcMain, wrapListener);
+  helpers.onBeforeAppServerRequest(
+    electron,
+    rewritePersistExtendedHistory,
+    { maxDepth: 6, maxKeys: 60 },
+  );
 };

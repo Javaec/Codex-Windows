@@ -8,6 +8,10 @@
 
   let bridgeFetchSequence = 0;
   const pendingBridgeFetches = new Map();
+  const rendererReadyListeners = new Set();
+  const routeChangeListeners = new Set();
+  let rendererReadyFired = false;
+  let currentRouteUrl = String(window.location.href || "");
 
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -201,6 +205,92 @@
     return null;
   }
 
+  function mountSidebarPanel(options) {
+    const nextOptions = options && typeof options === "object" ? options : {};
+    const panelId = typeof nextOptions.panelId === "string" ? nextOptions.panelId.trim() : "";
+    if (!panelId) throw new Error("codex-mod-api: mountSidebarPanel requires panelId");
+    if (typeof nextOptions.createNode !== "function") {
+      throw new Error(`codex-mod-api: mountSidebarPanel(${panelId}) requires createNode()`);
+    }
+
+    const panel = ensureSingletonNode(panelId, nextOptions.createNode);
+    const floatingClassName =
+      typeof nextOptions.floatingClassName === "string" ? nextOptions.floatingClassName.trim() : "";
+    const anchorMatcher = typeof nextOptions.anchorMatcher === "function" ? nextOptions.anchorMatcher : null;
+    const sidebar = findSidebarRoot();
+
+    if (!(sidebar instanceof HTMLElement)) {
+      if (!panel.isConnected) document.body.appendChild(panel);
+      if (floatingClassName) panel.classList.add(floatingClassName);
+      return { panel, mode: "floating" };
+    }
+
+    if (floatingClassName) panel.classList.remove(floatingClassName);
+    const anchor = anchorMatcher ? findSidebarAnchor(anchorMatcher) : null;
+    if (anchor && anchor.parentNode) {
+      if (anchor.previousSibling !== panel) {
+        anchor.parentNode.insertBefore(panel, anchor);
+      }
+      return { panel, mode: "anchor" };
+    }
+
+    if (sidebar.firstChild !== panel) {
+      sidebar.insertBefore(panel, sidebar.firstChild);
+    }
+    return { panel, mode: "sidebar" };
+  }
+
+  function fireRendererReady() {
+    if (rendererReadyFired) return;
+    rendererReadyFired = true;
+    const payload = { url: currentRouteUrl };
+    for (const listener of rendererReadyListeners) listener(payload);
+  }
+
+  function onRendererReady(listener) {
+    if (typeof listener !== "function") {
+      throw new Error("codex-mod-api: onRendererReady requires a function");
+    }
+    rendererReadyListeners.add(listener);
+    if (rendererReadyFired) {
+      queueMicrotask(() => {
+        if (rendererReadyListeners.has(listener)) listener({ url: currentRouteUrl });
+      });
+    }
+    return () => rendererReadyListeners.delete(listener);
+  }
+
+  function emitRouteChange() {
+    const nextUrl = String(window.location.href || "");
+    if (nextUrl === currentRouteUrl) return;
+    currentRouteUrl = nextUrl;
+    const payload = { url: currentRouteUrl };
+    for (const listener of routeChangeListeners) listener(payload);
+  }
+
+  const scheduleRouteChange = createDebouncedRunner(20, emitRouteChange);
+
+  function patchHistoryMethod(methodName) {
+    const original = history[methodName];
+    if (typeof original !== "function") return;
+    history[methodName] = function patchedHistoryMethod(...args) {
+      const result = original.apply(this, args);
+      scheduleRouteChange();
+      return result;
+    };
+  }
+
+  function onRouteChange(listener) {
+    if (typeof listener !== "function") {
+      throw new Error("codex-mod-api: onRouteChange requires a function");
+    }
+    routeChangeListeners.add(listener);
+    queueMicrotask(() => {
+      if (routeChangeListeners.has(listener)) listener({ url: currentRouteUrl });
+    });
+    return () => routeChangeListeners.delete(listener);
+  }
+
   window.__CODEX_MOD_API_V1__ = {
     version: 1,
     normalizeText,
@@ -214,5 +304,19 @@
     bridgeFetchJson,
     findSidebarRoot,
     findSidebarAnchor,
+    mountSidebarPanel,
+    onRendererReady,
+    onRouteChange,
   };
+
+  patchHistoryMethod("pushState");
+  patchHistoryMethod("replaceState");
+  window.addEventListener("popstate", scheduleRouteChange, true);
+  window.addEventListener("hashchange", scheduleRouteChange, true);
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fireRendererReady, { once: true });
+  } else {
+    queueMicrotask(fireRendererReady);
+  }
 })();

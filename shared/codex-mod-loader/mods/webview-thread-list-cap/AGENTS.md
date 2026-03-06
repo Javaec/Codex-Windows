@@ -8,6 +8,7 @@
 
 - This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
 - This is a renderer DOM mod.
+- It now follows shared renderer lifecycle hooks (`onRendererReady`, `onRouteChange`) instead of ad-hoc one-off startup wiring.
 - It targets visible sidebar lists with a native `Show more` / `Show less` row, not one exact `aria-label`.
 - It first clicks the native `Show more` once so rows beyond the bundled 10-item cap exist in the DOM.
 - After native expansion, it hides rows after 6 and renders its own compact `Show more` / `Show less` toggle.

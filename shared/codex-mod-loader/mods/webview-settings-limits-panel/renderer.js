@@ -217,28 +217,12 @@
 
   function injectPanel() {
     ensureStyle();
-    const panel = ensurePanelNode();
-    const sidebar = api.findSidebarRoot();
-    if (!(sidebar instanceof HTMLElement)) {
-      if (!panel.isConnected) document.body.appendChild(panel);
-      panel.classList.add("codex-windows-limit-panel--floating");
-      renderPanel();
-      return;
-    }
-
-    panel.classList.remove("codex-windows-limit-panel--floating");
-    const settingsAnchor = api.findSidebarAnchor(isSettingsCandidate);
-    if (settingsAnchor && settingsAnchor.parentNode) {
-      if (settingsAnchor.previousSibling !== panel) {
-        settingsAnchor.parentNode.insertBefore(panel, settingsAnchor);
-      }
-      renderPanel();
-      return;
-    }
-
-    if (sidebar.firstChild !== panel) {
-      sidebar.insertBefore(panel, sidebar.firstChild);
-    }
+    api.mountSidebarPanel({
+      panelId: PANEL_ID,
+      createNode: ensurePanelNode,
+      anchorMatcher: isSettingsCandidate,
+      floatingClassName: "codex-windows-limit-panel--floating",
+    });
     renderPanel();
   }
 
@@ -265,8 +249,17 @@
   const scheduleInject = api.createDebouncedRunner(120, injectPanel);
 
   loadSnapshot();
-  injectPanel();
-  renderPanel();
+  api.onRendererReady(() => {
+    injectPanel();
+    renderPanel();
+  });
+  api.onRouteChange(() => {
+    api.scheduleBurst(REQUEST_BURST_DELAYS_MS, () => {
+      injectPanel();
+      renderPanel();
+      refreshUsageSnapshot();
+    });
+  });
   api.observeDom(scheduleInject);
   window.setInterval(() => {
     injectPanel();

@@ -38,6 +38,52 @@ function wrapIpcListeners(ipcMain, wrapListener) {
   }
 }
 
+function walkJsonTree(node, visit, depth, maxDepth, maxKeys) {
+  if (depth > maxDepth || !node) return false;
+
+  if (Array.isArray(node)) {
+    let changed = false;
+    for (const item of node) {
+      if (walkJsonTree(item, visit, depth + 1, maxDepth, maxKeys)) changed = true;
+    }
+    return changed;
+  }
+
+  if (!isPlainObject(node)) return false;
+
+  let changed = visit(node) === true;
+  const keys = Object.keys(node);
+  if (keys.length > maxKeys) return changed;
+  for (const key of keys) {
+    if (walkJsonTree(node[key], visit, depth + 1, maxDepth, maxKeys)) changed = true;
+  }
+  return changed;
+}
+
+function onBeforeAppServerRequest(electron, visit, options) {
+  if (!electron || typeof electron !== "object") {
+    throw new Error("codex-mod-api: electron is required");
+  }
+  if (typeof visit !== "function") {
+    throw new Error("codex-mod-api: onBeforeAppServerRequest requires a visitor");
+  }
+
+  const nextOptions = options && typeof options === "object" ? options : {};
+  const maxDepth = Number.isFinite(nextOptions.maxDepth) ? Number(nextOptions.maxDepth) : 6;
+  const maxKeys = Number.isFinite(nextOptions.maxKeys) ? Number(nextOptions.maxKeys) : 60;
+  const ipcMain = electron.ipcMain;
+
+  wrapIpcListeners(ipcMain, (listener) => {
+    if (typeof listener !== "function") return listener;
+    return function wrappedListener(event, ...args) {
+      for (const arg of args) {
+        walkJsonTree(arg, visit, 0, maxDepth, maxKeys);
+      }
+      return listener.call(this, event, ...args);
+    };
+  });
+}
+
 function createMainModApi(context) {
   const nextContext = context && typeof context === "object" ? context : {};
   return {
@@ -48,6 +94,8 @@ function createMainModApi(context) {
     helpers: {
       isPlainObject,
       wrapIpcListeners,
+      walkJsonTree,
+      onBeforeAppServerRequest,
     },
   };
 }

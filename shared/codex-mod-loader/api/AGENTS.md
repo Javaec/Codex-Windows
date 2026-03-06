@@ -18,10 +18,15 @@
   - `bridgeFetchJson`
   - `findSidebarRoot`
   - `findSidebarAnchor`
+  - `mountSidebarPanel`
+  - `onRendererReady`
+  - `onRouteChange`
 
 - `api/main-api.cjs` is the shared main-process contract.
 - Current v1 helper surface is intentionally small:
   - `isPlainObject`
   - `wrapIpcListeners`
+  - `walkJsonTree`
+  - `onBeforeAppServerRequest`
 - Rule:
   - add helpers only when at least two mods need them or when the helper clearly removes bootstrap duplication.
