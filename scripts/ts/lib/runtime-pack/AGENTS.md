@@ -5,6 +5,7 @@
 - This folder owns direct launch helpers too; launching unpacked app/runtime is packaging/runtime behavior, not patch behavior.
 - `direct-launch.ts` owns actual process start logic for unpacked app and portable app.
 - `runtime-compare.ts` owns lane compare scripts; `launchers.ts` should only emit launcher files.
+- `smoke.ts` owns reusable portable smoke execution; runner smoke mode should call it instead of embedding ad-hoc node scripts.
 - `codex-resources.ts` owns bundling of CLI/runtime companion files.
 - `resources/mod-api` is part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_API_DIR` at it.
 - `resources/mod-loader` is also part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_LOADER_DIR` at it.
@@ -29,4 +30,22 @@
   - `Compare-Runtime-Lanes.ps1`
   - `Compare-Runtime-Lanes.cmd`
   which summarize lane differences into `runtime-logs/lane-summary.txt`.
+- `smoke.ts` must evaluate launchability from `lane-summary.json` with hard criteria:
+  - `cli_initialized`
+  - `ready_message`
+  - `dom_ready`
+  - `did_finish_load`
+  - `ready_to_show`
+  - `window_show`
+  - `thread_list`
+  - `app_list`
+  and fail on:
+  - `syntax_error`
+  - `renderer_mod_failed`
+  - `preload_error`
+  - `update_required`
+  - `did_fail_load`
+  - `render_process_gone`
+- Shared-home smoke failures caused by real `C:\\Users\\lensm\\.codex` contention (for example `state db locked`) are valid failures and must not be “fixed” by cleanup logic inside the smoke harness.
+- `isolated-home` exists specifically to separate platform/mod issues from user-state contention without mutating the real home.
 - `dist` is canonical; temporary fallback outputs belong under `work/portable-output`.

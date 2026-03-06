@@ -22,13 +22,21 @@ import { resolveAndProbeCodexCli } from "./cli-resolution";
 import { REPO_ROOT, resolvePreferredCodexCliPath, sanitizeNpmBuildEnvironment, sanitizeRunnerEnvironment } from "./context";
 import { writeBuildMetadata } from "./metadata";
 
+export interface PipelineRunResult {
+  exitCode: number;
+  portableOutputDir: string;
+  launcherPath: string;
+  buildMetadataPath: string;
+  cliTracePath: string;
+}
+
 function reportWorkspaceSanitizer(result: ReturnType<typeof sanitizeWorkspaceRegistry>): void {
   if (result.updatedFiles > 0 || result.removedEntries > 0) {
     writeSuccess(`Workspace sanitizer: updatedFiles=${result.updatedFiles}, removedEntries=${result.removedEntries}`);
   }
 }
 
-export async function runPipeline(options: PipelineOptions): Promise<number> {
+export async function runPipelineDetailed(options: PipelineOptions): Promise<PipelineRunResult> {
   sanitizeRunnerEnvironment();
   sanitizeNpmBuildEnvironment();
   ensureWindowsEnvironment();
@@ -197,9 +205,23 @@ export async function runPipeline(options: PipelineOptions): Promise<number> {
         writeHeader("Launching portable build");
         status = startPortableDirectLaunch(portable.outputDir, effectiveProfile);
       }
-      if (status !== 0) return status;
+      if (status !== 0) {
+        return {
+          exitCode: status,
+          portableOutputDir: portable.outputDir,
+          launcherPath: portable.launcherPath,
+          buildMetadataPath,
+          cliTracePath,
+        };
+      }
     }
-    return 0;
+    return {
+      exitCode: 0,
+      portableOutputDir: portable.outputDir,
+      launcherPath: portable.launcherPath,
+      buildMetadataPath,
+      cliTracePath,
+    };
   }
 
   if (!options.noLaunch) {
@@ -240,5 +262,16 @@ export async function runPipeline(options: PipelineOptions): Promise<number> {
     }
   }
 
-  return 0;
+  return {
+    exitCode: 0,
+    portableOutputDir: "",
+    launcherPath: "",
+    buildMetadataPath: "",
+    cliTracePath,
+  };
+}
+
+export async function runPipeline(options: PipelineOptions): Promise<number> {
+  const result = await runPipelineDetailed(options);
+  return result.exitCode;
 }

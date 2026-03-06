@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const args_1 = require("./lib/args");
 const exec_1 = require("./lib/exec");
 const pipeline_1 = require("./lib/runner/pipeline");
+const smoke_1 = require("./lib/runner/smoke");
 const verify_1 = require("./lib/runner/verify");
 async function main() {
     const parsed = (0, args_1.parseArgs)(process.argv.slice(2));
@@ -12,6 +13,9 @@ async function main() {
     }
     if (parsed.mode === "verify") {
         return (0, verify_1.runVerify)(parsed.options);
+    }
+    if (parsed.mode === "smoke") {
+        return (0, smoke_1.runSmoke)(parsed.options);
     }
     return (0, pipeline_1.runPipeline)(parsed.options);
 }

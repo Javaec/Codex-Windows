@@ -1,4 +1,4 @@
-export type Mode = "run" | "build" | "verify";
+export type Mode = "run" | "build" | "verify" | "smoke";
 
 export interface PipelineOptions {
   dmgPath?: string;
@@ -13,6 +13,8 @@ export interface PipelineOptions {
   devProfile: boolean;
   profileName: string;
   strictContract: boolean;
+  smokeSeconds: number;
+  smokeLanes?: string;
 }
 
 export interface ParsedArgs {
@@ -30,6 +32,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     devProfile: false,
     profileName: "default",
     strictContract: false,
+    smokeSeconds: 25,
   };
 
   if (argv.length === 0) {
@@ -40,7 +43,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let index = 0;
   const first = argv[0].toLowerCase();
   if (!first.startsWith("-")) {
-    if (first === "run" || first === "build" || first === "verify") {
+    if (first === "run" || first === "build" || first === "verify" || first === "smoke") {
       mode = first;
       index = 1;
     } else if (first === "help") {
@@ -108,6 +111,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case "strictcontract":
         options.strictContract = true;
         break;
+      case "smokeseconds":
+        options.smokeSeconds = Number.parseInt(readValue(), 10);
+        if (!Number.isFinite(options.smokeSeconds) || options.smokeSeconds <= 0) {
+          throw new Error(`Invalid smoke seconds: ${options.smokeSeconds}`);
+        }
+        break;
+      case "smokelanes":
+        options.smokeLanes = readValue();
+        break;
       default:
         throw new Error(`Unknown option: ${token}`);
     }
@@ -125,11 +137,13 @@ export function printUsage(): void {
   process.stdout.write("  node scripts/node/run.js run [options]\n");
   process.stdout.write("  node scripts/node/run.js build [options]\n");
   process.stdout.write("  node scripts/node/run.js verify [options]\n");
+  process.stdout.write("  node scripts/node/run.js smoke [options]\n");
   process.stdout.write("\n");
   process.stdout.write("Examples:\n");
   process.stdout.write("  node scripts/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
   process.stdout.write("  node scripts/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
   process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
+  process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
   process.stdout.write("\n");
   process.stdout.write("Options:\n");
   process.stdout.write("  -DmgPath <path>\n");
@@ -139,6 +153,7 @@ export function printUsage(): void {
   process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
   process.stdout.write("  -ProfileName <name>  -StrictContract\n");
+  process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>\n");
 }
 
 export function normalizeProfileName(profileName: string): string {

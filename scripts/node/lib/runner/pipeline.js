@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.runPipelineDetailed = runPipelineDetailed;
 exports.runPipeline = runPipeline;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
@@ -56,7 +57,7 @@ function reportWorkspaceSanitizer(result) {
         (0, exec_1.writeSuccess)(`Workspace sanitizer: updatedFiles=${result.updatedFiles}, removedEntries=${result.removedEntries}`);
     }
 }
-async function runPipeline(options) {
+async function runPipelineDetailed(options) {
     (0, context_1.sanitizeRunnerEnvironment)();
     (0, context_1.sanitizeNpmBuildEnvironment)();
     (0, env_1.ensureWindowsEnvironment)();
@@ -168,10 +169,23 @@ async function runPipeline(options) {
                 (0, exec_1.writeHeader)("Launching portable build");
                 status = (0, portable_1.startPortableDirectLaunch)(portable.outputDir, effectiveProfile);
             }
-            if (status !== 0)
-                return status;
+            if (status !== 0) {
+                return {
+                    exitCode: status,
+                    portableOutputDir: portable.outputDir,
+                    launcherPath: portable.launcherPath,
+                    buildMetadataPath,
+                    cliTracePath,
+                };
+            }
         }
-        return 0;
+        return {
+            exitCode: 0,
+            portableOutputDir: portable.outputDir,
+            launcherPath: portable.launcherPath,
+            buildMetadataPath,
+            cliTracePath,
+        };
     }
     if (!options.noLaunch) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
@@ -190,5 +204,15 @@ async function runPipeline(options) {
             (0, exec_1.writeSuccess)(`CLI trace recorded: ${cliTracePath}`);
         }
     }
-    return 0;
+    return {
+        exitCode: 0,
+        portableOutputDir: "",
+        launcherPath: "",
+        buildMetadataPath: "",
+        cliTracePath,
+    };
+}
+async function runPipeline(options) {
+    const result = await runPipelineDetailed(options);
+    return result.exitCode;
 }

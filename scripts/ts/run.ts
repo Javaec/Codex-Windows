@@ -1,6 +1,7 @@
 import { parseArgs, printUsage } from "./lib/args";
 import { writeError } from "./lib/exec";
 import { runPipeline } from "./lib/runner/pipeline";
+import { runSmoke } from "./lib/runner/smoke";
 import { runVerify } from "./lib/runner/verify";
 
 async function main(): Promise<number> {
@@ -11,6 +12,9 @@ async function main(): Promise<number> {
   }
   if (parsed.mode === "verify") {
     return runVerify(parsed.options);
+  }
+  if (parsed.mode === "smoke") {
+    return runSmoke(parsed.options);
   }
   return runPipeline(parsed.options);
 }
