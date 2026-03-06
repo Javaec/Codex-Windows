@@ -83,3 +83,11 @@ Single source of truth for patch profiles across repacker, generator, and manual
 
 - Optional patch skips for unsupported bundle signatures must log as info, not warnings.
 - Repack output should reserve warning lines for actionable failures only.
+
+## 2026-03-06: Main shim renderer injection must be validated, not assumed
+
+- A stale `codex-windows-main-shim.cjs` with escaped renderer newlines (`\\n`) is enough to black-screen the app even when patching, preload, and CLI startup all look healthy.
+- This regression shows up as:
+  - `SyntaxError: Invalid or unexpected token`
+  - `[codex-mod-loader] renderer mod failed (...)`
+- The patch/runtime layer must treat the multiline renderer wrapper as a hard contract and fail fast when the template drifts.

@@ -56,3 +56,14 @@
   - `7z` exit codes when required payload files are already present,
   - native cache misses followed by donor/seed recovery.
 - Keep warnings only for real blockers or for validations that still fail at the end of the stage.
+
+## 2026-03-06: Main shim must fail fast on escaped renderer wrapper
+
+- `shared/patch-pack/runtime/codex-windows-main-shim.template.cjs` is the source of truth for renderer mod injection.
+- The renderer wrapper must contain real line breaks:
+  - good: ``const wrapped = `/* CODEX-MOD:${mod.id} */\n${mod.script}\n`;`` as actual multiline source
+  - bad: ``const wrapped = `/* CODEX-MOD:${mod.id} */\\n${mod.script}\\n`;``
+- The bad form causes every renderer mod to fail with:
+  - `SyntaxError: Invalid or unexpected token`
+  - black screen / missing UI content
+- `scripts/ts/lib/launch.ts` must validate this contract before writing `codex-windows-main-shim.cjs`.

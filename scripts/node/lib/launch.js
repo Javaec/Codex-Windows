@@ -48,6 +48,8 @@ const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
 let mainShimTemplateCache = "";
+const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
+const GOOD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\n${mod.script}\n`;";
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -60,6 +62,12 @@ function resolveMainShimTemplate() {
     const template = fs.readFileSync(MAIN_SHIM_TEMPLATE_PATH, "utf8").replace(/^\uFEFF/, "");
     if (template.trim().length < 32) {
         throw new Error(`main shim template is empty: ${MAIN_SHIM_TEMPLATE_PATH}`);
+    }
+    if (template.includes(BAD_RENDERER_MOD_WRAP_SNIPPET)) {
+        throw new Error(`main shim template contains escaped renderer newlines and will break mod injection: ${MAIN_SHIM_TEMPLATE_PATH}`);
+    }
+    if (!template.includes(GOOD_RENDERER_MOD_WRAP_SNIPPET)) {
+        throw new Error(`main shim template is missing the renderer mod wrapper contract: ${MAIN_SHIM_TEMPLATE_PATH}`);
     }
     mainShimTemplateCache = template;
     return mainShimTemplateCache;
