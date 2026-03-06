@@ -20,7 +20,11 @@ const MAIN_SHIM_TEMPLATE_PATH = path.resolve(
 );
 let mainShimTemplateCache = "";
 const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
-const GOOD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\n${mod.script}\n`;";
+const GOOD_LOADER_BOOTSTRAP_SNIPPETS = [
+  'const activateRuntimeMods = loadRuntimeModLoader();',
+  'activateRuntimeMods({ electron, buildHint, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });',
+  'const loaderPath = path.join(modLoaderRootPath, "main-loader.cjs");',
+];
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -40,8 +44,9 @@ function resolveMainShimTemplate(): string {
       `main shim template contains escaped renderer newlines and will break mod injection: ${MAIN_SHIM_TEMPLATE_PATH}`,
     );
   }
-  if (!template.includes(GOOD_RENDERER_MOD_WRAP_SNIPPET)) {
-    throw new Error(`main shim template is missing the renderer mod wrapper contract: ${MAIN_SHIM_TEMPLATE_PATH}`);
+  for (const requiredSnippet of GOOD_LOADER_BOOTSTRAP_SNIPPETS) {
+    if (template.includes(requiredSnippet)) continue;
+    throw new Error(`main shim template is missing the mod loader bootstrap contract: ${MAIN_SHIM_TEMPLATE_PATH}`);
   }
   mainShimTemplateCache = template;
   return mainShimTemplateCache;

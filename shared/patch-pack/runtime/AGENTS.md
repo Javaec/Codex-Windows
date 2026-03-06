@@ -47,9 +47,11 @@ Single source of truth for the injected Electron main shim used by repack and di
 - The shim must load:
   - `resources/mod-api/renderer-api.js`
   - `resources/mod-api/main-api.cjs`
+  - `resources/mod-loader/main-loader.cjs`
   before feature mods execute.
 - Renderer mods no longer own their own copies of sidebar lookup, observer/throttle helpers, or bridge fetch plumbing.
 - Main mods now receive shared Mod API context rather than raw ad-hoc bootstrap objects.
+- Runtime mod discovery/selection/injection now lives in `main-loader.cjs`, not in the shim itself.
 - Reason:
   - reduce duplicated fragile logic
   - move toward `platform bootstrap + loader API + external mods`

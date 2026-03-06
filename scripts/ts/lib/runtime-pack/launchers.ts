@@ -51,6 +51,11 @@ if not exist "%BASE%resources\\mod-api" (
   exit /b 1
 )
 set "CODEX_MOD_API_DIR=%BASE%resources\\mod-api"
+if not exist "%BASE%resources\\mod-loader" (
+  echo [ERROR] Portable mod loader missing: "%BASE%resources\\mod-loader"
+  exit /b 1
+)
+set "CODEX_MOD_LOADER_DIR=%BASE%resources\\mod-loader"
 set "CODEX_WINDOWS_PROFILE=${profile}"
 set "CODEX_GIT_CAPABILITY_CACHE=%BASE%resources\\git-capability-cache.json"
 set "ELECTRON_FORCE_IS_PACKAGED=1"
@@ -78,6 +83,7 @@ set "CODEX_RUNTIME_ENV_LOG=%BASE%runtime-logs\\${laneName}\\launch.env.txt"
   echo cli=%BASE%resources\\codex.exe
   echo mods=%BASE%resources\\mods
   echo modApi=%BASE%resources\\mod-api
+  echo modLoader=%BASE%resources\\mod-loader
   echo runtimeMods=%CODEX_ENABLE_RUNTIME_MODS%
   echo runtimeModsDisabled=%CODEX_MODS_DISABLED%
   echo runtimeModsOnly=%CODEX_MODS_ONLY%

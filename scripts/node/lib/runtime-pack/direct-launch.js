@@ -92,6 +92,14 @@ function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, code
         }
         env.CODEX_MOD_API_DIR = modApiDir;
     }
+    if (!env.CODEX_MOD_LOADER_DIR) {
+        const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+        const modLoaderDir = path.join(repoRoot, "shared", "codex-mod-loader", "loader");
+        if (!(0, exec_1.fileExists)(modLoaderDir)) {
+            throw new Error(`Codex mod loader directory missing: ${modLoaderDir}`);
+        }
+        env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+    }
     (0, exec_1.ensureDir)(userDataDir);
     (0, exec_1.ensureDir)(cacheDir);
     const result = (0, exec_1.runCommand)(electronExe, [appDir, "--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: appDir, env, capture: false, allowNonZero: true });
@@ -161,9 +169,13 @@ function startPortableDirectLaunch(outputDir, profileName) {
     const modApiDir = path.join(outputDir, "resources", "mod-api");
     if (!(0, exec_1.fileExists)(modApiDir))
         throw new Error(`Portable mod API is missing: ${modApiDir}`);
+    const modLoaderDir = path.join(outputDir, "resources", "mod-loader");
+    if (!(0, exec_1.fileExists)(modLoaderDir))
+        throw new Error(`Portable mod loader is missing: ${modLoaderDir}`);
     env.CODEX_CLI_PATH = codexCliPath;
     env.CODEX_MODS_DIR = modsDir;
     env.CODEX_MOD_API_DIR = modApiDir;
+    env.CODEX_MOD_LOADER_DIR = modLoaderDir;
     const cliProbe = (0, exec_1.runCommand)(codexCliPath, ["--version"], { capture: true, allowNonZero: true });
     if (cliProbe.status !== 0) {
         throw new Error(`Portable Codex CLI failed preflight (exit=${cliProbe.status}): ${(cliProbe.stdout || cliProbe.stderr || "").trim()}`);

@@ -40,6 +40,15 @@ Mod contract (v1):
   - bridge fetch wiring
 - Main mods should use shared helpers for generic IPC wrapping instead of reimplementing ipcMain scaffolding.
 
+## 2026-03-06: Loader path is now explicit runtime contract
+
+- Portable and unpacked runs now point at:
+  - `CODEX_MOD_LOADER_DIR`
+- Default packaged location:
+  - `resources/mod-loader`
+- Reason:
+  - keep bootstrap code out of patch-pack and make the loader a first-class subsystem beside `api/*` and `mods/*`.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

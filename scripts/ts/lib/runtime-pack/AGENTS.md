@@ -7,6 +7,7 @@
 - `runtime-compare.ts` owns lane compare scripts; `launchers.ts` should only emit launcher files.
 - `codex-resources.ts` owns bundling of CLI/runtime companion files.
 - `resources/mod-api` is part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_API_DIR` at it.
+- `resources/mod-loader` is also part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_LOADER_DIR` at it.
 - `codex-resources.ts` must copy only the small runtime allowlist (`codex.exe`, companion executables, `rg.exe`, `notification.wav`), not entire donor `resources` folders.
 - `launchers.ts` owns launcher generation only.
 - Portable outputs must be self-contained: bundled `resources/codex.exe`, bundled `resources/mods`, isolated `userdata/cache`.

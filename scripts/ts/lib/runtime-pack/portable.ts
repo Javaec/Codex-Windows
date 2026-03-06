@@ -23,6 +23,7 @@ export interface PortableBuildResult {
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const CODEX_MODS_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods");
 const CODEX_MOD_API_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "api");
+const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader");
 
 function isBusyDirectoryError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -124,10 +125,15 @@ export async function invokePortableBuild(
   if (!fileExists(CODEX_MOD_API_SRC_DIR)) {
     throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
   }
+  if (!fileExists(CODEX_MOD_LOADER_SRC_DIR)) {
+    throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
+  }
   writeInfo("Bundling Codex mods...");
   copyDirectory(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
   writeInfo("Bundling Codex mod API...");
   copyDirectory(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
+  writeInfo("Bundling Codex mod loader...");
+  copyDirectory(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
 
   removePath(path.join(resourcesDir, "default_app.asar"));
   patchMainForWindowsEnvironment(appDstDir, buildNumber, buildFlavor);

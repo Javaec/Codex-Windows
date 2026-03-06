@@ -63,6 +63,14 @@ export function startCodexDirectLaunch(
     }
     env.CODEX_MOD_API_DIR = modApiDir;
   }
+  if (!env.CODEX_MOD_LOADER_DIR) {
+    const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+    const modLoaderDir = path.join(repoRoot, "shared", "codex-mod-loader", "loader");
+    if (!fileExists(modLoaderDir)) {
+      throw new Error(`Codex mod loader directory missing: ${modLoaderDir}`);
+    }
+    env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+  }
 
   ensureDir(userDataDir);
   ensureDir(cacheDir);
@@ -133,9 +141,12 @@ export function startPortableDirectLaunch(outputDir: string, profileName: string
   if (!fileExists(modsDir)) throw new Error(`Portable modpack is missing: ${modsDir}`);
   const modApiDir = path.join(outputDir, "resources", "mod-api");
   if (!fileExists(modApiDir)) throw new Error(`Portable mod API is missing: ${modApiDir}`);
+  const modLoaderDir = path.join(outputDir, "resources", "mod-loader");
+  if (!fileExists(modLoaderDir)) throw new Error(`Portable mod loader is missing: ${modLoaderDir}`);
   env.CODEX_CLI_PATH = codexCliPath;
   env.CODEX_MODS_DIR = modsDir;
   env.CODEX_MOD_API_DIR = modApiDir;
+  env.CODEX_MOD_LOADER_DIR = modLoaderDir;
 
   const cliProbe = runCommand(codexCliPath, ["--version"], { capture: true, allowNonZero: true });
   if (cliProbe.status !== 0) {

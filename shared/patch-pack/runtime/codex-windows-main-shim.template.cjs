@@ -194,59 +194,34 @@
       return Number.isFinite(parsed) ? parsed : 0;
     }
 
-    function resolveModsRootPath() {
+    function resolveRuntimeSubdir(leafDir, envKey) {
       const resourcesPath = normalizePathString(process.resourcesPath || "");
       if (resourcesPath) {
-        const bundled = path.join(resourcesPath, "mods");
+        const bundled = path.join(resourcesPath, leafDir);
         if (fs.existsSync(bundled)) return bundled;
       }
 
-      const configured = normalizePathString(process.env.CODEX_MODS_DIR || "");
+      const configured = normalizePathString(process.env[envKey] || "");
       if (configured) return path.resolve(configured);
 
-      // Fallback for unpacked execution (rare): shim lives under `resources/app/.vite/build`.
-      return path.resolve(resourcesRoot, "..", "mods");
+      return path.resolve(resourcesRoot, "..", leafDir);
     }
 
-    function resolveModApiRootPath() {
-      const resourcesPath = normalizePathString(process.resourcesPath || "");
-      if (resourcesPath) {
-        const bundled = path.join(resourcesPath, "mod-api");
-        if (fs.existsSync(bundled)) return bundled;
+    function loadRuntimeModLoader() {
+      const modLoaderRootPath = resolveRuntimeSubdir("mod-loader", "CODEX_MOD_LOADER_DIR");
+      const loaderPath = path.join(modLoaderRootPath, "main-loader.cjs");
+      if (!fs.existsSync(loaderPath)) {
+        throw new Error(`codex-mod-loader: runtime loader missing: ${loaderPath}`);
       }
-
-      const configured = normalizePathString(process.env.CODEX_MOD_API_DIR || "");
-      if (configured) return path.resolve(configured);
-
-      return path.resolve(resourcesRoot, "..", "mod-api");
-    }
-
-    function loadRendererApiScript(modApiRoot) {
-      const rendererApiPath = path.join(modApiRoot, "renderer-api.js");
-      if (!fs.existsSync(rendererApiPath)) {
-        throw new Error(`codex-mod-loader: renderer API missing: ${rendererApiPath}`);
-      }
-      const script = fs.readFileSync(rendererApiPath, "utf8").replace(/^\uFEFF/, "");
-      if (script.trim().length < 32) {
-        throw new Error(`codex-mod-loader: renderer API is empty: ${rendererApiPath}`);
-      }
-      return script;
-    }
-
-    function loadCreateMainModApi(modApiRoot) {
-      const mainApiPath = path.join(modApiRoot, "main-api.cjs");
-      if (!fs.existsSync(mainApiPath)) {
-        throw new Error(`codex-mod-loader: main API missing: ${mainApiPath}`);
-      }
-      const exported = require(mainApiPath);
-      const createMainModApi =
+      const exported = require(loaderPath);
+      const activateRuntimeMods =
         typeof exported === "function"
           ? exported
-          : (exported && typeof exported.createMainModApi === "function" ? exported.createMainModApi : null);
-      if (typeof createMainModApi !== "function") {
-        throw new Error(`codex-mod-loader: main API must export createMainModApi(): ${mainApiPath}`);
+          : (exported && typeof exported.activateRuntimeMods === "function" ? exported.activateRuntimeMods : null);
+      if (typeof activateRuntimeMods !== "function") {
+        throw new Error(`codex-mod-loader: runtime loader must export activateRuntimeMods(): ${loaderPath}`);
       }
-      return createMainModApi;
+      return activateRuntimeMods;
     }
 
     function logRuntimeContract(codexHomeDir, modsRootPath) {
@@ -268,192 +243,6 @@
         const message = error && error.message ? error.message : String(error || "");
         console.warn(`[codex-windows-runtime] runtime contract logging failed: ${message}`);
       }
-    }
-
-    function parseModSelectionList(rawValue) {
-      if (typeof rawValue !== "string") return [];
-      return rawValue
-        .split(",")
-        .map((value) => normalizePathString(value))
-        .filter((value) => value.length > 0);
-    }
-
-    function loadRuntimeMods(modsRoot, buildHint) {
-      if (!modsRoot || !fs.existsSync(modsRoot)) return [];
-      if (normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") !== "1") return [];
-      if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
-
-      const enabledOnlyIds = new Set(parseModSelectionList(process.env.CODEX_MODS_ONLY || ""));
-      const disabledIds = new Set(parseModSelectionList(process.env.CODEX_MODS_EXCLUDE || ""));
-
-      const mods = [];
-      const entries = fs.readdirSync(modsRoot, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry || !entry.isDirectory()) continue;
-        const modDir = path.join(modsRoot, entry.name);
-        const manifestPath = path.join(modDir, "mod.json");
-        if (!fs.existsSync(manifestPath)) continue;
-
-        const rawManifest = fs.readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, "");
-        let manifest;
-        try {
-          manifest = JSON.parse(rawManifest);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`codex-mod-loader: failed to parse ${manifestPath}: ${message}`);
-        }
-
-        const id = normalizePathString(manifest && manifest.id ? manifest.id : "");
-        if (!id) throw new Error(`codex-mod-loader: missing id in ${manifestPath}`);
-        if (id !== entry.name) {
-          throw new Error(`codex-mod-loader: id mismatch for ${manifestPath} (${id} != ${entry.name})`);
-        }
-        if (enabledOnlyIds.size > 0 && !enabledOnlyIds.has(id)) continue;
-        if (disabledIds.has(id)) continue;
-
-        if (manifest && manifest.enabled === false) continue;
-
-        const priority = Number(manifest && manifest.priority !== undefined ? manifest.priority : 0);
-        if (!Number.isFinite(priority)) {
-          throw new Error(`codex-mod-loader: invalid priority for ${id} (${manifest && manifest.priority})`);
-        }
-
-        const compat = manifest && manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
-        const minBuild = Number(compat.minBuild !== undefined ? compat.minBuild : 0);
-        const maxBuild = Number(compat.maxBuild !== undefined ? compat.maxBuild : 0);
-        if (!Number.isFinite(minBuild) || minBuild < 0) throw new Error(`codex-mod-loader: invalid minBuild for ${id}`);
-        if (!Number.isFinite(maxBuild) || maxBuild < 0) throw new Error(`codex-mod-loader: invalid maxBuild for ${id}`);
-        if (maxBuild > 0 && minBuild > 0 && maxBuild < minBuild) {
-          throw new Error(`codex-mod-loader: invalid build range for ${id} (maxBuild < minBuild)`);
-        }
-        if (buildHint > 0 && minBuild > 0 && buildHint < minBuild) continue;
-        if (buildHint > 0 && maxBuild > 0 && buildHint > maxBuild) continue;
-
-        const entrypoints = manifest && manifest.entrypoints && typeof manifest.entrypoints === "object" ? manifest.entrypoints : {};
-        const rendererEntry = normalizePathString(entrypoints.renderer || "");
-        const mainEntry = normalizePathString(entrypoints.main || "");
-        if (!rendererEntry && !mainEntry) {
-          throw new Error(`codex-mod-loader: mod has no entrypoints: ${id}`);
-        }
-
-        let rendererScript = "";
-        if (rendererEntry) {
-          const rendererEntryPath = path.join(modDir, rendererEntry);
-          if (!fs.existsSync(rendererEntryPath)) {
-            throw new Error(`codex-mod-loader: missing renderer entry for ${id}: ${rendererEntryPath}`);
-          }
-          const script = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
-          if (script.trim().length < 16) {
-            throw new Error(`codex-mod-loader: renderer entry is empty for ${id}: ${rendererEntryPath}`);
-          }
-          rendererScript = script;
-        }
-
-        let mainEntryPath = "";
-        if (mainEntry) {
-          const candidate = path.join(modDir, mainEntry);
-          if (!fs.existsSync(candidate)) {
-            throw new Error(`codex-mod-loader: missing main entry for ${id}: ${candidate}`);
-          }
-          mainEntryPath = candidate;
-        }
-
-        const conflicts = Array.isArray(manifest && manifest.conflicts) ? manifest.conflicts : [];
-        const normalizedConflicts = conflicts
-          .map((value) => normalizePathString(value))
-          .filter((value) => value.length > 0);
-
-        mods.push({ id, priority, rendererScript, mainEntryPath, conflicts: normalizedConflicts });
-      }
-
-      mods.sort((left, right) => {
-        if (left.priority !== right.priority) return left.priority - right.priority;
-        return String(left.id).localeCompare(String(right.id));
-      });
-
-      const selected = new Set();
-      for (const mod of mods) {
-        if (selected.has(mod.id)) throw new Error(`codex-mod-loader: duplicate mod id selected: ${mod.id}`);
-        selected.add(mod.id);
-      }
-
-      for (const mod of mods) {
-        for (const conflictId of mod.conflicts) {
-          if (!selected.has(conflictId)) continue;
-          throw new Error(`codex-mod-loader: conflicting mods selected: ${mod.id} x ${conflictId}`);
-        }
-      }
-
-      return mods;
-    }
-
-    function applyMainMods(electron, loadedMods, buildHint, createMainModApi) {
-      if (!electron || !loadedMods || loadedMods.length === 0) return;
-      if (globalThis.__CODEX_MOD_LOADER_MAIN_V1__) return;
-      globalThis.__CODEX_MOD_LOADER_MAIN_V1__ = true;
-
-      for (const mod of loadedMods) {
-        if (!mod.mainEntryPath) continue;
-        const exported = require(mod.mainEntryPath);
-        const apply =
-          typeof exported === "function"
-            ? exported
-            : (exported && typeof exported.activate === "function" ? exported.activate : null);
-        if (typeof apply !== "function") {
-          throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate})`);
-        }
-        apply(createMainModApi({ electron, buildHint, modId: mod.id }));
-      }
-    }
-
-    function installRendererMods(electron, rendererApiScript, rendererMods) {
-      if (!electron || !rendererMods || rendererMods.length === 0) return;
-      if (globalThis.__CODEX_MOD_LOADER_RENDERER_V1__) return;
-      globalThis.__CODEX_MOD_LOADER_RENDERER_V1__ = true;
-
-      const injectedByWebContents = new WeakMap();
-      const getInjected = (contents) => {
-        let injected = injectedByWebContents.get(contents);
-        if (!injected) {
-          injected = new Set();
-          injectedByWebContents.set(contents, injected);
-        }
-        return injected;
-      };
-
-      electron.app.on("web-contents-created", (_event, contents) => {
-        if (!contents || typeof contents.executeJavaScript !== "function") return;
-        const inject = async () => {
-          const currentUrl = typeof contents.getURL === "function" ? String(contents.getURL() || "") : "";
-          if (currentUrl.startsWith("devtools://")) return;
-
-          const injected = getInjected(contents);
-          if (!injected.has("__renderer_api_v1__")) {
-            await contents.executeJavaScript(`/* CODEX-MOD-API:renderer */\n${rendererApiScript}\n`, true);
-            injected.add("__renderer_api_v1__");
-          }
-          for (const mod of rendererMods) {
-            if (injected.has(mod.id)) continue;
-            const wrapped = `/* CODEX-MOD:${mod.id} */
-${mod.script}
-`;
-            await contents.executeJavaScript(wrapped, true);
-            injected.add(mod.id);
-          }
-        };
-
-        contents.on("dom-ready", () => {
-          Promise.resolve()
-            .then(inject)
-            .catch((error) => {
-              if (error && error.message && String(error.message).includes("CODEX-MOD:")) {
-                console.error("[codex-mod-loader] inject failed", error);
-                return;
-              }
-              console.error("[codex-mod-loader] inject failed", error);
-            });
-        });
-      });
     }
 
     // Minimal environment contract.
@@ -482,8 +271,7 @@ ${mod.script}
 
     // Apply SQLite normalization early (before UI loads threads).
     const codexHomeDir = resolveCodexHomeDir();
-    const modsRootPath = resolveModsRootPath();
-    const modApiRootPath = resolveModApiRootPath();
+    const modsRootPath = resolveRuntimeSubdir("mods", "CODEX_MODS_DIR");
     if (!IS_MINIMAL_PLATFORM) {
       migrateThreadCwdPrefixInSqlite(codexHomeDir);
     }
@@ -507,12 +295,8 @@ ${mod.script}
       }
 
       const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
-      const loadedMods = IS_MINIMAL_PLATFORM ? [] : loadRuntimeMods(modsRootPath, buildHint);
-      const createMainModApi = loadCreateMainModApi(modApiRootPath);
-      applyMainMods(electron, loadedMods, buildHint, createMainModApi);
-      const rendererApiScript = loadRendererApiScript(modApiRootPath);
-      const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
-      installRendererMods(electron, rendererApiScript, rendererMods);
+      const activateRuntimeMods = loadRuntimeModLoader();
+      activateRuntimeMods({ electron, buildHint, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });
     } catch (error) {
       console.error("[codex-windows-main-shim] electron patch failed", error);
     }

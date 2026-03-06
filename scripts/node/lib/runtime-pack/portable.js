@@ -47,6 +47,7 @@ const launchers_1 = require("./launchers");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const CODEX_MODS_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods");
 const CODEX_MOD_API_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "api");
+const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader");
 function isBusyDirectoryError(error) {
     if (!error || typeof error !== "object")
         return false;
@@ -132,10 +133,15 @@ async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buil
     if (!(0, exec_1.fileExists)(CODEX_MOD_API_SRC_DIR)) {
         throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
     }
+    if (!(0, exec_1.fileExists)(CODEX_MOD_LOADER_SRC_DIR)) {
+        throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
+    }
     (0, exec_1.writeInfo)("Bundling Codex mods...");
     (0, exec_1.copyDirectory)(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
     (0, exec_1.writeInfo)("Bundling Codex mod API...");
     (0, exec_1.copyDirectory)(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
+    (0, exec_1.writeInfo)("Bundling Codex mod loader...");
+    (0, exec_1.copyDirectory)(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
     (0, exec_1.removePath)(path.join(resourcesDir, "default_app.asar"));
     (0, bundle_patches_1.patchMainForWindowsEnvironment)(appDstDir, buildNumber, buildFlavor);
     if (!bundledCliPath || !(0, exec_1.fileExists)(bundledCliPath)) {

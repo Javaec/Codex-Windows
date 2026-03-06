@@ -44,6 +44,7 @@ const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
     "app",
     "mods",
     "mod-api",
+    "mod-loader",
     "path",
     "codex.exe",
     "codex-command-runner.exe",
