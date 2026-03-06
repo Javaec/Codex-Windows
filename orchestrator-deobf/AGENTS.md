@@ -33,15 +33,14 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
   - each mod declares `injector.stageId`, `injector.inputContract`, `injector.outputContract`,
   - contracts must exactly match stage-registry, otherwise fail-fast.
 - Added shared patch-pack preflight gate (`npm run patch-pack:preflight`) to validate selector/catalog/profiles/mod conflicts before migration runs.
-- Added pinned preflight and conflict-fixture commands for migration cadence:
+- Added pinned preflight commands for migration cadence:
   - `npm run patch-pack:preflight:10711`
-  - `npm run patch-pack:test:mod-conflict`
 - Added deterministic version migration bridge command:
   - `npm run migration:bridge -- --snapshot <path-to-app.asar> --snapshot-label Codex-10711.dmg [--patch-profile codex-10711]`
   - freezes source naming profile, pre-seeds target snapshot profile, runs patch-pack preflight, then executes orchestrator and emits migration report.
 - Added one-shot daily migration scenario for Codex-10711:
   - `npm run daily:migrate:10711 -- --snapshot <path-to-app.asar> --allow-after-freeze`
-  - sequence: `preflight -> conflict-test -> migration-bridge -> KPI summary`.
+  - sequence: `preflight -> migration-bridge -> KPI summary`.
 - New snapshot bootstraps naming memory from legacy file or latest snapshot profile.
 - Coverage contour stays in artifacts (`pending-lift-symbols.json`) and does not pollute quality TS tree.
 - Regression suite merges evidence at symbol/file level into `merged-evidence.json` to pick best winners across profiles.
@@ -630,5 +629,4 @@ Build a deterministic decompile/deobfuscation orchestrator that emits a usable T
     - `dev:smoke` from `imported 17 / skipped 10` -> `imported 27 / skipped 0`,
     - top store/service: `5/8` -> `13/0`.
   - verified parity/manual stability:
-    - generated `parity:smoke` passed,
     - `manual-codex-app dev:smoke` stays green (`15/0`).

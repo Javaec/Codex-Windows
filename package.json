@@ -7,7 +7,7 @@
     "runner": "node scripts/node/run.js",
     "patch-pack:preflight": "node ./shared/patch-pack/preflight.mjs",
     "patch-pack:preflight:10711": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-10711.dmg --app-version 26.303.1606 --build-number 806",
-    "patch-pack:test:mod-conflict": "node ./shared/patch-pack/test-mod-conflict.mjs",
+    "patch-pack:preflight:11012": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863",
     "orchestrator:migration:bridge": "node ./orchestrator-deobf/dist/migration/codex-version-bridge.js",
     "orchestrator:migration:enforce-size-budget": "node ./orchestrator-deobf/dist/migration/enforce-generated-size-budget.js",
     "orchestrator:daily:migrate:10711": "node ./orchestrator-deobf/dist/migration/daily-migrate-10711.js",

@@ -54,6 +54,27 @@ const SKIP_DIRS = new Set([
     "crashpad",
     "sentry",
 ]);
+function resolveSanitizerRoots(userDataDir) {
+    const roots = new Set();
+    function pushRoot(candidate) {
+        if (!candidate)
+            return;
+        const normalized = path.resolve(candidate);
+        if (!(0, exec_1.fileExists)(normalized))
+            return;
+        roots.add(normalized);
+    }
+    const appData = process.env.APPDATA || "";
+    const homeDir = process.env.CODEX_HOME || process.env.USERPROFILE || process.env.HOME || "";
+    pushRoot(userDataDir);
+    if (appData)
+        pushRoot(path.join(appData, "Codex"));
+    if (homeDir) {
+        const codexHome = process.env.CODEX_HOME ? homeDir : path.join(homeDir, ".codex");
+        pushRoot(codexHome);
+    }
+    return Array.from(roots);
+}
 function isPathLike(raw) {
     const value = raw.trim();
     if (!value)
@@ -215,7 +236,8 @@ function sanitizeJsonFile(filePath) {
 function sanitizeWorkspaceRegistry(userDataDir, diagnosticsDir) {
     const reportDir = (0, exec_1.ensureDir)(diagnosticsDir);
     const reportPath = path.join(reportDir, "workspace-sanitizer-report.json");
-    if (!(0, exec_1.fileExists)(userDataDir)) {
+    const rootDirs = resolveSanitizerRoots(userDataDir);
+    if (rootDirs.length === 0) {
         const emptyResult = {
             scannedFiles: 0,
             updatedFiles: 0,
@@ -225,7 +247,16 @@ function sanitizeWorkspaceRegistry(userDataDir, diagnosticsDir) {
         fs.writeFileSync(reportPath, `${JSON.stringify({ ...emptyResult, atUtc: new Date().toISOString() }, null, 2)}\n`, "utf8");
         return emptyResult;
     }
-    const candidateFiles = collectCandidateFiles(userDataDir);
+    const candidateFiles = new Set();
+    for (const rootDir of rootDirs) {
+        for (const candidateFile of collectCandidateFiles(rootDir)) {
+            candidateFiles.add(candidateFile);
+        }
+        const codexGlobalStatePath = path.join(rootDir, ".codex-global-state.json");
+        if ((0, exec_1.fileExists)(codexGlobalStatePath)) {
+            candidateFiles.add(codexGlobalStatePath);
+        }
+    }
     let scannedFiles = 0;
     let updatedFiles = 0;
     let removedEntries = 0;
@@ -249,6 +280,7 @@ function sanitizeWorkspaceRegistry(userDataDir, diagnosticsDir) {
     const report = {
         atUtc: new Date().toISOString(),
         userDataDir: path.resolve(userDataDir),
+        rootDirs,
         ...result,
     };
     fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");

@@ -105,13 +105,3 @@ npm run regression:cycles -- --snapshot "C:\Codex-Windows\work\electron\Codex In
 Cycle runner applies stop-rule: when quality gain is below threshold and high-confidence symbols do not grow for N consecutive cycles.
 After each cycle, `merged-evidence.json` is consumed as naming-memory promotion input (`top-N per cycle`).
 Use `--promotion-budget-per-cycle <n>` to control promotion throughput (default `100`).
-
-## Auto Calibration
-
-```powershell
-npm run build
-npm run regression:calibrate -- --snapshot "C:\Codex-Windows\work\electron\Codex Installer\Codex.app\Contents\Resources\app.asar"
-```
-
-Calibration iterates tool weight candidates only on regression suite and writes the best result to `config/tool-weights.json`.
-Use `--max-candidates <n>` to limit calibration runtime.

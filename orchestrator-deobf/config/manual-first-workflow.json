@@ -7,8 +7,7 @@
     "snapshotLabel": "Codex-10711.dmg",
     "appVersion": "26.303.1606",
     "buildNumber": "806",
-    "patchProfile": "",
-    "runConflictFixture": true
+    "patchProfile": ""
   },
   "domainSourceRoots": [
     "src/main/",

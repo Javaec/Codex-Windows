@@ -9,6 +9,7 @@ import {
   resolveCommand,
   runCommand,
   writeHeader,
+  writeInfo,
   writeSuccess,
   writeWarn,
 } from "./exec";
@@ -101,7 +102,7 @@ export function invokeExtractionStage(
   const canReuse = reuse && fileExists(appPackage) && (extractCurrent || allowFallbackReuse);
   if (canReuse) {
     if (extractCurrent) writeSuccess("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
-    else writeWarn("Extraction reuse fallback applied from legacy manifest state.");
+    else writeInfo("Extraction reuse fallback applied from legacy manifest state.");
     return { sevenZip, extractedDir, electronDir, appDir, performed: false };
   }
 
@@ -124,7 +125,7 @@ export function invokeExtractionStage(
     );
   }
   if (dmgExtract.status !== 0) {
-    writeWarn(`7z returned exit=${dmgExtract.status} while extracting DMG; continuing because required files are present.`);
+    writeInfo(`7z returned exit=${dmgExtract.status} while extracting DMG; required files are present, continuing.`);
   }
 
   if (fileExists(hfs)) {
@@ -154,7 +155,7 @@ export function invokeExtractionStage(
       );
     }
     if (hfsExtract.status !== 0) {
-      writeWarn(`7z returned exit=${hfsExtract.status} on HFS extraction; continuing.`);
+      writeInfo(`7z returned exit=${hfsExtract.status} on HFS extraction; app.asar was extracted, continuing.`);
     }
   } else {
     if (!fileExists(directApp)) throw new Error("app.asar not found.");

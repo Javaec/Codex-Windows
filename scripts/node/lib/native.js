@@ -49,14 +49,16 @@ function resolveValidationRuntime(electronExe, allowNodeFallback) {
     }
     return null;
 }
-function runValidationScript(electronExe, workingDir, script, label, allowNodeFallback = false) {
+function runValidationScript(electronExe, workingDir, script, label, allowNodeFallback = false, failureSeverity = "warn") {
+    const logFailure = failureSeverity === "warn" ? exec_1.writeWarn : exec_1.writeInfo;
+    const formatFailure = (message) => failureSeverity === "warn" ? message : message.replace(" failed ", " did not validate ");
     const runtime = resolveValidationRuntime(electronExe, allowNodeFallback);
     if (!runtime) {
-        (0, exec_1.writeWarn)(`${label}: runtime not available for validation.`);
+        logFailure(`${label}: runtime not available for validation.`);
         return false;
     }
     if (!(0, exec_1.fileExists)(workingDir)) {
-        (0, exec_1.writeWarn)(`${label}: working dir not found at ${workingDir}`);
+        logFailure(`${label}: working dir not found at ${workingDir}`);
         return false;
     }
     const env = { ...process.env };
@@ -69,16 +71,16 @@ function runValidationScript(electronExe, workingDir, script, label, allowNodeFa
         capture: true,
     });
     if (result.status !== 0) {
-        (0, exec_1.writeWarn)(`${label} failed (exit code ${result.status}).`);
+        logFailure(formatFailure(`${label} failed (exit code ${result.status}).`));
         return false;
     }
     return true;
 }
-function testElectronRequire(electronExe, workingDir, requireTarget, label) {
+function testElectronRequire(electronExe, workingDir, requireTarget, label, failureSeverity = "warn") {
     const script = `try{require('${requireTarget}');process.exit(0)}catch(e){console.error(e&&e.stack?e.stack:e);process.exit(1)}`;
-    return runValidationScript(electronExe, workingDir, script, label);
+    return runValidationScript(electronExe, workingDir, script, label, false, failureSeverity);
 }
-function testBetterSqlite3Usable(electronExe, workingDir, label) {
+function testBetterSqlite3Usable(electronExe, workingDir, label, failureSeverity = "warn") {
     const script = String.raw `
 try {
   const Database = require('./node_modules/better-sqlite3');
@@ -91,7 +93,7 @@ try {
   process.exit(1);
 }
 `;
-    return runValidationScript(electronExe, workingDir, script, label);
+    return runValidationScript(electronExe, workingDir, script, label, false, failureSeverity);
 }
 function copyNativeFile(sourcePath, destinationPath, label) {
     try {
@@ -126,6 +128,29 @@ function copyNativeArtifactsFromAppLayout(sourceAppDir, appDir, nativeDir, arch)
     }
     return true;
 }
+function isRepoRootCandidate(dir) {
+    return ((0, exec_1.fileExists)(path.join(dir, "package.json")) &&
+        (0, exec_1.fileExists)(path.join(dir, "scripts")) &&
+        (0, exec_1.fileExists)(path.join(dir, "shared")));
+}
+function getRepositoryRoots(workDir) {
+    const candidates = [];
+    const addCandidate = (dir) => {
+        if (isRepoRootCandidate(dir))
+            candidates.push(dir);
+    };
+    addCandidate(process.cwd());
+    addCandidate(path.resolve(__dirname, "..", "..", ".."));
+    let currentDir = workDir;
+    while (true) {
+        addCandidate(currentDir);
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir)
+            break;
+        currentDir = parentDir;
+    }
+    return (0, exec_1.uniqueExistingDirs)(candidates);
+}
 function getNativeDonorAppDirs(workDir) {
     const candidates = [];
     if (process.env.LOCALAPPDATA) {
@@ -133,9 +158,10 @@ function getNativeDonorAppDirs(workDir) {
         candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "OpenAI Codex", "resources", "app"));
         candidates.push(path.join(process.env.LOCALAPPDATA, "Programs", "codex", "resources", "app"));
     }
-    const repoRoot = path.dirname(workDir);
-    const distRoot = path.join(repoRoot, "dist");
-    if ((0, exec_1.fileExists)(distRoot)) {
+    for (const repoRoot of getRepositoryRoots(workDir)) {
+        const distRoot = path.join(repoRoot, "dist");
+        if (!(0, exec_1.fileExists)(distRoot))
+            continue;
         for (const entry of fs.readdirSync(distRoot, { withFileTypes: true })) {
             if (!entry.isDirectory())
                 continue;
@@ -145,11 +171,12 @@ function getNativeDonorAppDirs(workDir) {
     return (0, exec_1.uniqueExistingDirs)(candidates);
 }
 function getNativeSeedAppDirs(workDir, arch) {
-    const repoRoot = path.dirname(workDir);
-    return (0, exec_1.uniqueExistingDirs)([
-        path.join(repoRoot, "scripts", "native-seeds", arch, "app"),
-        path.join(repoRoot, "native-seeds", arch, "app"),
-    ]);
+    const candidates = [];
+    for (const repoRoot of getRepositoryRoots(workDir)) {
+        candidates.push(path.join(repoRoot, "scripts", "native-seeds", arch, "app"));
+        candidates.push(path.join(repoRoot, "native-seeds", arch, "app"));
+    }
+    return (0, exec_1.uniqueExistingDirs)(candidates);
 }
 function ensureElectronRuntime(nativeDir, electronVersion, sourceAppDirs) {
     const electronExe = path.join(nativeDir, "node_modules", "electron", "dist", "electron.exe");
@@ -183,9 +210,9 @@ function tryRecoverNativeFromCandidateDirs(candidateDirs, candidateKind, appDir,
         const copied = copyNativeArtifactsFromAppLayout(candidate, appDir, nativeDir, arch);
         if (!copied)
             continue;
-        (0, exec_1.writeWarn)(`Trying native ${candidateKind} artifacts from: ${candidate}`);
-        const betterOk = testBetterSqlite3Usable(electronExe, appDir, `App better-sqlite3 ${candidateKind} validation`);
-        const ptyOk = testElectronRequire(electronExe, appDir, "./node_modules/node-pty", `App node-pty ${candidateKind} validation`);
+        (0, exec_1.writeInfo)(`Trying native ${candidateKind} artifacts from: ${candidate}`);
+        const betterOk = testBetterSqlite3Usable(electronExe, appDir, `App better-sqlite3 ${candidateKind} validation`, "info");
+        const ptyOk = testElectronRequire(electronExe, appDir, "./node_modules/node-pty", `App node-pty ${candidateKind} validation`, "info");
         if (betterOk && ptyOk) {
             (0, exec_1.writeSuccess)(`Recovered native modules from ${candidateKind} artifacts.`);
             return true;
@@ -205,8 +232,8 @@ function invokeNativeStage(appDir, nativeDir, electronVersion, betterVersion, pt
     const appArtifactsPresent = (0, exec_1.fileExists)(bsApp) && ((0, exec_1.fileExists)(ptyAppPre) || (0, exec_1.fileExists)(ptyAppRel));
     let appReady = false;
     if (appArtifactsPresent) {
-        const appBetterOk = testBetterSqlite3Usable(electronExe, appDir, "App better-sqlite3 usability test (cache)");
-        const appPtyOk = testElectronRequire(electronExe, appDir, "./node_modules/node-pty", "App node-pty smoke test (cache)");
+        const appBetterOk = testBetterSqlite3Usable(electronExe, appDir, "App better-sqlite3 usability test (cache)", "info");
+        const appPtyOk = testElectronRequire(electronExe, appDir, "./node_modules/node-pty", "App node-pty smoke test (cache)", "info");
         if (appBetterOk && appPtyOk) {
             (0, exec_1.writeSuccess)("Native cache hit: reusing validated app binaries.");
             appReady = true;

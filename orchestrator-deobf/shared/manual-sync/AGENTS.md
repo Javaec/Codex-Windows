@@ -8,6 +8,9 @@ Store stable manual-to-generator synchronization contracts.
 - `module-path-overrides.json`: authoritative per-symbol module placement overrides.
 - `module-surface-overrides.json`: authoritative module export surface + owner-layer mapping.
 - `last-export-report.json`: latest export diagnostics from manual project.
+- `last-roundtrip-report.json`: latest roundtrip diagnostics from manual project.
+- `manual-batch-last-report.json`: latest batch-cycle report.
+- `manual-batch-state.json`: current batch-cycle state.
 - `contract-changelog.md`: append-only history of auto updates (`actor/when/why`).
 
 ## Rules
@@ -31,6 +34,7 @@ Store stable manual-to-generator synchronization contracts.
 - `stale-cleanup` is mandatory in export: stale overrides are deleted if they no longer match current snapshot.
 - Recovery by fingerprint is allowed only for unique high-confidence matches.
 - After stop-rule freeze (`manual-first`), reverse sync is allowed only through `shared/manual-sync/*`.
+- This directory keeps only contracts plus current `last-*` / `manual-batch-*` files; historical one-off reports must live outside `shared/manual-sync/*`.
 
 ## 2026-03-03 Run Notes
 - Full cycle order used: `manual-sync:batch` -> top-10 hot selection -> top-5 quarantine/refactor -> `manual-sync:export` -> `manual-sync:roundtrip` -> `manual-sync:hot-rescue`.

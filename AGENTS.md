@@ -83,16 +83,6 @@
   - `select count(*) from threads where typeof(rollout_path)='text' and substr(hex(rollout_path),1,8)='5C5C3F5C';` => `0`
   - `select name from sqlite_master where type='trigger' and name like 'codex_windows_threads_%_normalize_%';` => triggers exist.
 
-## 2026-03-04: Source build launch parity smoke (manual + generated)
-
-- Added shared source parity checker in `shared/patch-pack/source-parity-smoke.mjs`.
-- Parity checker now uses resilient matching:
-  - open-file path normalization can be validated either from dedicated helper file or from inlined `__normalizeOpenFilePath` declarations.
-  - transport bridge check is strict when explicit bridge file exists; otherwise warning-only for generated snapshots that have no stable bridge layer.
-  - `thread/list` marker in repacked `.vite/build/*.js` is warning-only (obfuscation-dependent), not hard-fail.
-  - missing `runtime/patch-pack-profile.json` is warning-only for generated snapshots.
-- Goal: keep `parity:smoke` actionable and avoid false red on generated/manual variants with different layout.
-
 ## 2026-03-05: Webview Mod Crash Fix (Frozen electronBridge)
 
 - Symptom: black screen / no content with renderer console error:
@@ -103,3 +93,10 @@
   - Feature UI tweaks (limits panel, disable logout, etc) are now runtime mods under `shared/codex-mod-loader/mods/*` and are injected with `webContents.executeJavaScript`.
   - App-server behavior tweaks are main-process mods (no webview bundle patching):
     - `mods/app-server-tweaks` rewrites `thread/*` IPC request payloads to enforce `persistExtendedHistory=true` and change the default collapsed `thread/list` limit (10 -> 6).
+
+## 2026-03-06: Cleanup bias toward smaller runtime and smaller pipeline
+
+- Removed dead `shared/patch-pack/source-parity-smoke.mjs`; parity checks now live only where they are executed, not as an unowned side tool.
+- Removed synthetic `test-mod-conflict` fixture from daily/manual flows; preflight remains the only required patch-pack gate.
+- `shared/manual-sync/*` is now kept as contracts + current reports only; historical one-off JSON reports are treated as disposable artifacts.
+- Old repack DMGs, stale `dist/*`, stale `work/*`, and stale reverse/manual-sync run directories should be deleted aggressively instead of retained in-repo.

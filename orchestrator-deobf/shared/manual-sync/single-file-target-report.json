@@ -1,9 +1,0 @@
-{
-  "targets": [
-    {
-      "rank": 1,
-      "exists": true,
-      "manualFilePath": "src/services/store/store-state-g002-quality-02.ts"
-    }
-  ]
-}

@@ -48,6 +48,9 @@ const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
 let mainShimTemplateCache = "";
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 function resolveMainShimTemplate() {
     if (mainShimTemplateCache.length > 0)
         return mainShimTemplateCache;
@@ -98,17 +101,41 @@ function patchPreload(appDir) {
     if (!(0, exec_1.fileExists)(preload))
         return false;
     let raw = fs.readFileSync(preload, "utf8");
-    const processExpose = 'const P={env:process.env,platform:process.platform,versions:process.versions,arch:process.arch,cwd:()=>process.env.PWD,argv:process.argv,pid:process.pid};n.contextBridge.exposeInMainWorld("process",P);';
-    if (!raw.includes(processExpose)) {
-        const pattern = /n\.contextBridge\.exposeInMainWorld\("codexWindowType",[A-Za-z0-9_$]+\);n\.contextBridge\.exposeInMainWorld\("electronBridge",[A-Za-z0-9_$]+\);/;
-        const match = raw.match(pattern);
-        if (!match)
-            throw new Error("preload patch point not found.");
-        raw = raw.replace(match[0], `${processExpose}${match[0]}`);
-        fs.writeFileSync(preload, raw, "utf8");
-        return true;
+    if (/\.contextBridge\.exposeInMainWorld\((["'`])process\1,/.test(raw))
+        return false;
+    const exposePatterns = [
+        /([A-Za-z0-9_$]+)\.contextBridge\.exposeInMainWorld\((["'`])codexWindowType\2,[A-Za-z0-9_$]+\)/,
+        /([A-Za-z0-9_$]+)\.contextBridge\.exposeInMainWorld\((["'`])electronBridge\2,[A-Za-z0-9_$]+\)/,
+        /([A-Za-z0-9_$]+)\.contextBridge\.exposeInMainWorld\((["'`])[A-Za-z0-9_$:-]+\2,[A-Za-z0-9_$]+\)/,
+    ];
+    const anchorMatch = exposePatterns
+        .map((pattern) => raw.match(pattern))
+        .find((value) => Boolean(value));
+    if (!anchorMatch)
+        throw new Error("preload patch point not found.");
+    const electronAlias = anchorMatch[1];
+    const processExpose = `const __codexWindowsProcessBridge={env:process.env,platform:process.platform,versions:process.versions,arch:process.arch,cwd:()=>process.env.PWD,argv:process.argv,pid:process.pid};${electronAlias}.contextBridge.exposeInMainWorld("process",__codexWindowsProcessBridge);`;
+    const anchorValue = anchorMatch[0];
+    const anchorIndex = typeof anchorMatch.index === "number" ? anchorMatch.index : raw.indexOf(anchorValue);
+    if (anchorIndex < 0)
+        throw new Error("preload patch anchor index not found.");
+    let replacementStart = anchorIndex;
+    while (replacementStart > 0 && /\s/.test(raw[replacementStart - 1])) {
+        replacementStart -= 1;
     }
-    return false;
+    let replacementPrefix = "";
+    if (replacementStart > 0 && raw[replacementStart - 1] === ",") {
+        replacementStart -= 1;
+        replacementPrefix = ";";
+    }
+    raw =
+        raw.slice(0, replacementStart) +
+            replacementPrefix +
+            processExpose +
+            anchorValue +
+            raw.slice(anchorIndex + anchorValue.length);
+    fs.writeFileSync(preload, raw, "utf8");
+    return true;
 }
 function patchWebviewCwdNormalization(appDir, options = {}) {
     const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
@@ -126,15 +153,15 @@ function patchWebviewCwdNormalization(appDir, options = {}) {
     }, allowMissingPatchPoint);
     const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
     if (!matched && allowMissingPatchPoint) {
-        (0, exec_1.writeWarn)("webview cwd normalization patch skipped: patch point not found for current bundle signature.");
+        (0, exec_1.writeInfo)("webview cwd normalization patch not required for current bundle signature.");
     }
     return summary;
 }
 function patchWebviewAppSunsetGate(appDir, options = {}) {
     const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
     const legacyPatchNeedles = ["const s=Xs(i);if(r){", "const s=Cs(i);if(r){", "const s=ys(i);if(r){"];
-    const markerNeedles = ['id:"appSunset.title"', 'defaultMessage:"Update required"'];
-    const gatePattern = /const\s+([A-Za-z0-9_$]+)\s*=\s*([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\);\s*if\(([A-Za-z0-9_$]+)\)\{/g;
+    const markerNeedles = ["appSunset.title", "Update required"];
+    const gatePattern = /(const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*[^;]+;\s*if\(([A-Za-z0-9_$]+)\)\{/g;
     const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for app sunset patch.", "webview app sunset patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_APP_SUNSET_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
@@ -163,16 +190,8 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
             return { alreadyPatched: false, patched: false, content: raw };
         }
         const sunsetComponentName = sunsetComponentMatch[1];
-        const usageNeedles = [
-            `h.jsx(${sunsetComponentName},`,
-            `h.jsxs(${sunsetComponentName},`,
-            `f.jsx(${sunsetComponentName},`,
-            `f.jsxs(${sunsetComponentName},`,
-        ];
-        const usageIndex = usageNeedles
-            .map((needle) => raw.indexOf(needle, markerIndex))
-            .find((index) => index >= 0);
-        if (usageIndex === undefined) {
+        const usageIndex = raw.indexOf(`${sunsetComponentName},`, markerIndex);
+        if (usageIndex < 0) {
             return { alreadyPatched: false, patched: false, content: raw };
         }
         const searchStart = Math.max(0, usageIndex - 1600);
@@ -182,17 +201,19 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
         let match;
         while ((match = gatePattern.exec(searchWindow)) !== null) {
             const full = match[0];
-            const gateVar = match[1];
-            const guardVar = match[4];
+            const declarationKind = match[1];
+            const gateVar = match[2];
+            const guardVar = match[3];
             const branchWindow = searchWindow.slice(match.index, Math.min(searchWindow.length, match.index + 640));
             if (!branchWindow.includes(`else if(${gateVar}){`))
                 continue;
-            const componentRenderedInBranch = usageNeedles.some((needle) => branchWindow.includes(needle));
+            const componentRenderedInBranch = new RegExp(`\\b${escapeRegExp(sunsetComponentName)}\\b,`).test(branchWindow);
             if (!componentRenderedInBranch)
                 continue;
             selectedPatch = {
                 start: searchStart + match.index,
                 end: searchStart + match.index + full.length,
+                declarationKind,
                 gateVar,
                 guardVar,
             };
@@ -200,7 +221,7 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
         if (!selectedPatch) {
             return { alreadyPatched: false, patched: false, content: raw };
         }
-        const replacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}const ${selectedPatch.gateVar}=!1;if(${selectedPatch.guardVar}){`;
+        const replacement = `${WEBVIEW_APP_SUNSET_PATCH_TAG}${selectedPatch.declarationKind} ${selectedPatch.gateVar}=!1;if(${selectedPatch.guardVar}){`;
         return {
             alreadyPatched: false,
             patched: true,
@@ -209,7 +230,7 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
     }, allowMissingPatchPoint);
     const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
     if (!matched && allowMissingPatchPoint) {
-        (0, exec_1.writeWarn)("webview app sunset patch skipped: patch point not found for current bundle signature.");
+        (0, exec_1.writeInfo)("webview app sunset patch not required for current bundle signature.");
     }
     return summary;
 }
@@ -234,16 +255,15 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
     raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V\d+ \*\/[\s\S]*?\}\)\(\);\s*/g, "");
     raw = raw.replace(/\(function codeXWindowsEnvironmentShim\(\)\s*\{[\s\S]*?\}\)\(\);\s*/g, "");
     raw = raw.replace(/\/\* CODEX-WINDOWS-MAIN-SHIM-LOADER-V\d+ \*\/require\([^)]+\);\s*/g, "");
-    const runtimeStart = raw.match(/(["'])use strict\1;\s*[\s\S]*/);
-    if (!runtimeStart) {
-        throw new Error(`Unable to locate runtime entry in ${mainJs}. Expected '"use strict";' prefix.`);
-    }
-    raw = runtimeStart[0];
-    if (!/require\(["']electron["']\)/.test(raw)) {
+    if (!/require\((["'`])electron\1\)/.test(raw)) {
         throw new Error(`Unable to locate electron bootstrap require in ${mainJs}.`);
     }
     if (!raw.includes(MAIN_SHIM_LOADER_TAG)) {
-        raw = raw.replace(/(["'])use strict\1;/, `$&${MAIN_SHIM_LOADER_TAG}require(\"./${MAIN_SHIM_OUTPUT_NAME}\");`);
+        const loaderStatement = `${MAIN_SHIM_LOADER_TAG}require("./${MAIN_SHIM_OUTPUT_NAME}");`;
+        const strictPrefix = raw.match(/^(["'`])use strict\1;/);
+        raw = strictPrefix
+            ? raw.replace(/^(["'`])use strict\1;/, `$&${loaderStatement}`)
+            : `${loaderStatement}${raw}`;
     }
     fs.writeFileSync(mainJs, raw, "utf8");
 }

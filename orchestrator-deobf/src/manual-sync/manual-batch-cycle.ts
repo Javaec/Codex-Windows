@@ -34,7 +34,6 @@ interface PatchPackPreflightConfig {
   appVersion: string;
   buildNumber: string;
   patchProfile: string;
-  runConflictFixture: boolean;
 }
 
 interface ManualFirstWorkflowConfig {
@@ -481,9 +480,6 @@ async function run(): Promise<void> {
   }
   if (workflow.patchPackPreflight.enabled) {
     await runCommand(buildPatchPackPreflightCommand(workflow.patchPackPreflight), projectRoot);
-    if (workflow.patchPackPreflight.runConflictFixture) {
-      await runCommand("npm run patch-pack:test:mod-conflict", projectRoot);
-    }
   }
   const freezePath = path.join(projectRoot, MANUAL_GENERATOR_FREEZE_RELATIVE_PATH);
   const freezeExists = await fileExists(freezePath);

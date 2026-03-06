@@ -39,6 +39,62 @@
       return value;
     }
 
+    function sanitizeExistingPathList(values) {
+      if (!Array.isArray(values)) return { nextValues: values, removedCount: 0, changed: false };
+
+      const nextValues = [];
+      const seen = new Set();
+      let removedCount = 0;
+      for (const rawValue of values) {
+        if (typeof rawValue !== "string") {
+          removedCount += 1;
+          continue;
+        }
+        const normalizedPath = normalizeWindowsOpenPath(rawValue);
+        if (!normalizedPath || !fs.existsSync(normalizedPath)) {
+          removedCount += 1;
+          continue;
+        }
+        const key = normalizedPath.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        nextValues.push(normalizedPath);
+      }
+
+      const changed = removedCount > 0 || JSON.stringify(nextValues) !== JSON.stringify(values);
+      return { nextValues, removedCount, changed };
+    }
+
+    function sanitizeExistingPathMap(values) {
+      if (!values || typeof values !== "object" || Array.isArray(values)) {
+        return { nextValues: values, removedCount: 0, changed: false };
+      }
+
+      const nextValues = {};
+      const seen = new Set();
+      let removedCount = 0;
+      let changed = false;
+
+      for (const [rawKey, rawValue] of Object.entries(values)) {
+        const normalizedKey = normalizeWindowsOpenPath(rawKey);
+        if (!normalizedKey || !fs.existsSync(normalizedKey)) {
+          removedCount += 1;
+          changed = true;
+          continue;
+        }
+        const key = normalizedKey.toLowerCase();
+        if (seen.has(key)) {
+          changed = true;
+          continue;
+        }
+        seen.add(key);
+        if (normalizedKey !== rawKey) changed = true;
+        nextValues[normalizedKey] = rawValue;
+      }
+
+      return { nextValues, removedCount, changed };
+    }
+
     function resolveCodexHomeDir() {
       const configured = normalizePathString(process.env.CODEX_HOME || "");
       if (configured) return path.resolve(configured);
@@ -64,6 +120,46 @@
       }
       out.sort((a, b) => String(a).localeCompare(String(b)));
       return out;
+    }
+
+    function loadKnownThreadIds(codexHomeDir) {
+      const databasePaths = listStateDatabasePaths(codexHomeDir);
+      if (databasePaths.length === 0) return null;
+
+      let DatabaseCtor;
+      try {
+        DatabaseCtor = require("better-sqlite3");
+      } catch {
+        return null;
+      }
+      if (typeof DatabaseCtor !== "function") return null;
+
+      const knownThreadIds = new Set();
+      for (const databasePath of databasePaths) {
+        let db;
+        try {
+          db = new DatabaseCtor(databasePath, { fileMustExist: true, readonly: true });
+          const hasThreadsTable = db
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads' LIMIT 1")
+            .get();
+          if (!hasThreadsTable) continue;
+          const rows = db.prepare("SELECT id FROM threads").all();
+          for (const row of rows) {
+            const id = row && typeof row.id === "string" ? row.id : "";
+            if (id) knownThreadIds.add(id);
+          }
+        } catch {
+          // ignore unreadable databases
+        } finally {
+          try {
+            if (db && typeof db.close === "function") db.close();
+          } catch {
+            // ignore close errors
+          }
+        }
+      }
+
+      return knownThreadIds;
     }
 
     function normalizeThreadPathPrefix(rawValue) {
@@ -188,9 +284,177 @@
       return report;
     }
 
+    function sanitizeCodexGlobalState(codexHomeDir) {
+      const globalStatePath = codexHomeDir ? path.join(codexHomeDir, ".codex-global-state.json") : "";
+      if (!globalStatePath || !fs.existsSync(globalStatePath)) {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+
+      let rawState = "";
+      try {
+        rawState = fs.readFileSync(globalStatePath, "utf8").replace(/^\uFEFF/, "");
+      } catch {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+      if (!rawState.trim()) {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+
+      let parsedState;
+      try {
+        parsedState = JSON.parse(rawState);
+      } catch {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+      if (!parsedState || typeof parsedState !== "object" || Array.isArray(parsedState)) {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+
+      let changed = false;
+      let workspaceRootsRemoved = 0;
+      let threadTitlesRemoved = 0;
+
+      for (const key of ["electron-saved-workspace-roots", "active-workspace-roots"]) {
+        const result = sanitizeExistingPathList(parsedState[key]);
+        if (!result.changed) continue;
+        parsedState[key] = result.nextValues;
+        workspaceRootsRemoved += result.removedCount;
+        changed = true;
+      }
+
+      const workspaceLabels = sanitizeExistingPathMap(parsedState["electron-workspace-root-labels"]);
+      if (workspaceLabels.changed) {
+        parsedState["electron-workspace-root-labels"] = workspaceLabels.nextValues;
+        workspaceRootsRemoved += workspaceLabels.removedCount;
+        changed = true;
+      }
+
+      const openInTarget = parsedState["open-in-target-preferences"];
+      if (openInTarget && typeof openInTarget === "object" && !Array.isArray(openInTarget)) {
+        const perPathResult = sanitizeExistingPathMap(openInTarget.perPath);
+        if (perPathResult.changed) {
+          openInTarget.perPath = perPathResult.nextValues;
+          workspaceRootsRemoved += perPathResult.removedCount;
+          changed = true;
+        }
+      }
+
+      const knownThreadIds = loadKnownThreadIds(codexHomeDir);
+      const threadTitlesRoot = parsedState["thread-titles"];
+      if (threadTitlesRoot && typeof threadTitlesRoot === "object" && !Array.isArray(threadTitlesRoot)) {
+        const currentTitles = threadTitlesRoot.titles && typeof threadTitlesRoot.titles === "object" && !Array.isArray(threadTitlesRoot.titles)
+          ? threadTitlesRoot.titles
+          : {};
+        const currentOrder = Array.isArray(threadTitlesRoot.order) ? threadTitlesRoot.order : Object.keys(currentTitles);
+        const nextTitles = {};
+        const nextOrder = [];
+        const seen = new Set();
+
+        for (const rawId of currentOrder) {
+          if (typeof rawId !== "string" || !rawId) continue;
+          if (seen.has(rawId)) continue;
+          if (knownThreadIds && !knownThreadIds.has(rawId)) {
+            threadTitlesRemoved += 1;
+            changed = true;
+            continue;
+          }
+          const title = typeof currentTitles[rawId] === "string" ? currentTitles[rawId].trim() : "";
+          if (!title) {
+            threadTitlesRemoved += 1;
+            changed = true;
+            continue;
+          }
+          seen.add(rawId);
+          nextTitles[rawId] = title;
+          nextOrder.push(rawId);
+          if (nextOrder.length >= 80) break;
+        }
+
+        if (nextOrder.length === 0) {
+          if (parsedState["thread-titles"]) {
+            delete parsedState["thread-titles"];
+            changed = true;
+          }
+        } else {
+          if (
+            JSON.stringify(nextOrder) !== JSON.stringify(currentOrder) ||
+            JSON.stringify(nextTitles) !== JSON.stringify(currentTitles)
+          ) {
+            parsedState["thread-titles"] = { titles: nextTitles, order: nextOrder };
+            changed = true;
+          }
+        }
+      }
+
+      if (!changed) {
+        return { changed: false, workspaceRootsRemoved: 0, threadTitlesRemoved: 0 };
+      }
+
+      fs.writeFileSync(globalStatePath, `${JSON.stringify(parsedState, null, 2)}\n`, "utf8");
+      return { changed: true, workspaceRootsRemoved, threadTitlesRemoved };
+    }
+
     function parseBuildNumberHint(value) {
       const parsed = Number.parseInt(String(value || ""), 10);
       return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function shouldSuppressConsoleMessage(messageText) {
+      const text = String(messageText || "");
+      if (!text) return false;
+      if (text.includes("[wsl] error retrieving eligible distro")) return true;
+      if (text.includes("[git-origin-and-roots] Failed to resolve origin for workspace errorMessage=\"ENOENT: path does not exist:")) return true;
+      if (text.includes("[electron-fetch-handler] [git-origins] failed to list worktrees for dir=")) return true;
+      if (text.includes("Failed to backfill app thread title errorMessage=\"thread not found:")) return true;
+      if (text.includes("[git] git.command.complete") && text.includes("remote.upstream.url") && text.includes("exitCode=1")) return true;
+      return false;
+    }
+
+    function installNoiseGuards() {
+      if (globalThis.__CODEX_WINDOWS_NOISE_GUARDS_V1__) return;
+      globalThis.__CODEX_WINDOWS_NOISE_GUARDS_V1__ = true;
+
+      function patchConsoleMethod(methodName) {
+        const original = console && typeof console[methodName] === "function" ? console[methodName].bind(console) : null;
+        if (!original) return;
+        console[methodName] = (...args) => {
+          let text = "";
+          try {
+            text = args
+              .map((value) => {
+                if (typeof value === "string") return value;
+                if (value && typeof value.stack === "string") return value.stack;
+                if (value && typeof value.message === "string") return value.message;
+                return String(value);
+              })
+              .join(" ");
+          } catch {
+            text = "";
+          }
+          if (shouldSuppressConsoleMessage(text)) return;
+          return original(...args);
+        };
+      }
+
+      patchConsoleMethod("warn");
+      patchConsoleMethod("error");
+      patchConsoleMethod("log");
+
+      const originalEmitWarning = typeof process.emitWarning === "function" ? process.emitWarning.bind(process) : null;
+      if (originalEmitWarning) {
+        process.emitWarning = (warning, ...args) => {
+          const text = typeof warning === "string"
+            ? warning
+            : String(warning && warning.message ? warning.message : warning || "");
+          const firstArg = args.length > 0 ? args[0] : "";
+          const code = typeof firstArg === "string"
+            ? firstArg
+            : String(firstArg && firstArg.code ? firstArg.code : (warning && warning.code ? warning.code : ""));
+          if (code === "DEP0169") return;
+          if (text.includes("url.parse() behavior is not standardized")) return;
+          return originalEmitWarning(warning, ...args);
+        };
+      }
     }
 
     function resolveModsRootPath() {
@@ -351,7 +615,9 @@
           for (const mod of rendererMods) {
             if (injected.has(mod.id)) continue;
             injected.add(mod.id);
-            const wrapped = `/* CODEX-MOD:${mod.id} */\\n${mod.script}\\n`;
+            const wrapped = `/* CODEX-MOD:${mod.id} */
+${mod.script}
+`;
             Promise.resolve(contents.executeJavaScript(wrapped, true)).catch((error) => {
               console.error(`[codex-mod-loader] renderer mod failed (${mod.id})`, error);
             });
@@ -393,7 +659,10 @@
     }
 
     // Apply SQLite normalization early (before UI loads threads).
-    migrateThreadCwdPrefixInSqlite(resolveCodexHomeDir());
+    const codexHomeDir = resolveCodexHomeDir();
+    installNoiseGuards();
+    migrateThreadCwdPrefixInSqlite(codexHomeDir);
+    sanitizeCodexGlobalState(codexHomeDir);
 
     // Fix Windows path opening.
     try {

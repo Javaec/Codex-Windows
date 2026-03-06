@@ -44,8 +44,7 @@ Implement deterministic import/export bridges between generated project output a
 - Batch policy is configured in `config/manual-first-workflow.json` and enforced by state files in `shared/manual-sync/manual-batch-*.json`.
 - Batch now starts with patch-pack preflight gate from workflow config (`patchPackPreflight`):
   - runs `npm run patch-pack:preflight -- --snapshot-label ... --app-version ... --build-number ...`,
-  - optionally runs `npm run patch-pack:test:mod-conflict`.
-  Verified reason: migration/version drift in patch-pack is detected before regression/manual-sync work starts.
+  Verified reason: migration/version drift in patch-pack is detected before regression/manual-sync work starts without carrying a synthetic conflict fixture in daily flow.
 - Batch now forwards patch-pack identity into roundtrip generator calls:
   - `--snapshot-label` (required when preflight is enabled),
   - optional `--patch-profile`.

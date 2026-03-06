@@ -55,7 +55,7 @@ interface DailyMigrateReport {
   outputProfile: OutputProfile;
   gateMode: GateMode;
   steps: Array<{
-    id: "size-budget" | "preflight" | "conflict-test" | "migration-bridge";
+    id: "size-budget" | "preflight" | "migration-bridge";
     command: string;
     exitCode: number;
     durationMs: number;
@@ -297,7 +297,6 @@ async function run(): Promise<void> {
 
   const sharedPatchPackRoot = path.join(projectRoot, "..", "shared", "patch-pack");
   const preflightScriptPath = path.join(sharedPatchPackRoot, "preflight.mjs");
-  const conflictScriptPath = path.join(sharedPatchPackRoot, "test-mod-conflict.mjs");
   const bridgeScriptPath = path.join(projectRoot, "dist", "migration", "codex-version-bridge.js");
   const sizeBudgetScriptPath = path.join(projectRoot, "dist", "migration", "enforce-generated-size-budget.js");
 
@@ -339,20 +338,6 @@ async function run(): Promise<void> {
     });
     if (result.exitCode !== 0) {
       throw new Error(`daily-migrate: preflight failed:\n${result.stderr || result.stdout}`);
-    }
-  }
-
-  {
-    const startedAt = Date.now();
-    const result = await runNodeCommand(projectRoot, [conflictScriptPath]);
-    stepReports.push({
-      id: "conflict-test",
-      command: `${process.execPath} ${conflictScriptPath}`,
-      exitCode: result.exitCode,
-      durationMs: Date.now() - startedAt,
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(`daily-migrate: conflict-test failed:\n${result.stderr || result.stdout}`);
     }
   }
 

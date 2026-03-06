@@ -161,6 +161,17 @@ function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
   const parsedBuild = Number.parseInt(String(buildNumber || ""), 10);
   if (Number.isFinite(parsedBuild) && parsedBuild > best) best = parsedBuild;
 
+  const normalizedAppVersion = String(appVersion || "").trim();
+  const explicitAppVersionHints = [
+    { regex: /^26\.305\.950$/, buildHint: 11012 },
+    { regex: /^26\.303\.1606$/, buildHint: 10711 },
+  ];
+  for (const hint of explicitAppVersionHints) {
+    if (hint.regex.test(normalizedAppVersion) && hint.buildHint > best) {
+      best = hint.buildHint;
+    }
+  }
+
   const combined = `${String(appVersion || "")} ${String(snapshotLabel || "")}`;
   const codexMatch = combined.toLowerCase().match(/codex[-_]?(\d{3,6})/);
   if (codexMatch && codexMatch[1]) {

@@ -1,4 +1,4 @@
-/* CODEX-MOD:app-server-tweaks@v1 */
+/* CODEX-MOD:app-server-tweaks@v2 */
 "use strict";
 
 function isPlainObject(value) {
@@ -9,15 +9,6 @@ function isPlainObject(value) {
   } catch {
     return false;
   }
-}
-
-function rewriteThreadListLimit(node) {
-  if (!isPlainObject(node)) return false;
-  if (node.method !== "thread/list") return false;
-  if (!isPlainObject(node.params)) return false;
-  if (node.params.limit !== 10) return false;
-  node.params.limit = 6;
-  return true;
 }
 
 function rewritePersistExtendedHistory(node) {
@@ -45,7 +36,6 @@ function rewriteNode(node, depth) {
   if (!isPlainObject(node)) return false;
 
   let changed = false;
-  if (rewriteThreadListLimit(node)) changed = true;
   if (rewritePersistExtendedHistory(node)) changed = true;
 
   const keys = Object.keys(node);
@@ -75,8 +65,8 @@ module.exports = function activate(context) {
     throw new Error("app-server-tweaks: missing electron.ipcMain");
   }
 
-  if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V1__) return;
-  globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V1__ = true;
+  if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__) return;
+  globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__ = true;
 
   const originalOn = typeof ipcMain.on === "function" ? ipcMain.on.bind(ipcMain) : null;
   const originalOnce = typeof ipcMain.once === "function" ? ipcMain.once.bind(ipcMain) : null;
@@ -96,4 +86,3 @@ module.exports = function activate(context) {
     ipcMain.handleOnce = (channel, listener) => originalHandleOnce(channel, wrapListener(listener));
   }
 };
-

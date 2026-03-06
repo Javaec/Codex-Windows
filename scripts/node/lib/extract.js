@@ -104,7 +104,7 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
         if (extractCurrent)
             (0, exec_1.writeSuccess)("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
         else
-            (0, exec_1.writeWarn)("Extraction reuse fallback applied from legacy manifest state.");
+            (0, exec_1.writeInfo)("Extraction reuse fallback applied from legacy manifest state.");
         return { sevenZip, extractedDir, electronDir, appDir, performed: false };
     }
     (0, exec_1.writeHeader)("Extracting DMG");
@@ -123,7 +123,7 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
         throw new Error(`DMG extraction did not produce expected payload (4.hfs/app.asar). 7z exit=${dmgExtract.status}\n${dmgExtract.stderr || dmgExtract.stdout}`);
     }
     if (dmgExtract.status !== 0) {
-        (0, exec_1.writeWarn)(`7z returned exit=${dmgExtract.status} while extracting DMG; continuing because required files are present.`);
+        (0, exec_1.writeInfo)(`7z returned exit=${dmgExtract.status} while extracting DMG; required files are present, continuing.`);
     }
     if ((0, exec_1.fileExists)(hfs)) {
         const hfsExtract = (0, exec_1.runCommand)(sevenZip, [
@@ -139,7 +139,7 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
             throw new Error(`Failed to extract app.asar from HFS (7z exit=${hfsExtract.status}).\n${hfsExtract.stderr || hfsExtract.stdout}`);
         }
         if (hfsExtract.status !== 0) {
-            (0, exec_1.writeWarn)(`7z returned exit=${hfsExtract.status} on HFS extraction; continuing.`);
+            (0, exec_1.writeInfo)(`7z returned exit=${hfsExtract.status} on HFS extraction; app.asar was extracted, continuing.`);
         }
     }
     else {

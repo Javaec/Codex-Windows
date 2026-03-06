@@ -51,8 +51,6 @@ Scripts are the single operational entrypoint for packaging, patching, and diagn
   - Added shared fail-fast preflight command: `npm run patch-pack:preflight`.
   - Added snapshot-pinned preflight command for daily migration checks:
     - `npm run patch-pack:preflight:10711`
-  - Added conflict fixture assertion:
-    - `npm run patch-pack:test:mod-conflict`
   - Why: one patch source-of-truth for repacker/generator/manual, easier upgrade between Codex versions.
 - 2026-03-04: Webview patch APIs now return structured summaries.
   - `patchWebviewAppSunsetGate` and `patchWebviewCwdNormalization` now support strict/optional mode via `allowMissingPatchPoint`.

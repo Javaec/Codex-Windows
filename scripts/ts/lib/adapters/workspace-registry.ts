@@ -33,6 +33,29 @@ const SKIP_DIRS = new Set<string>([
   "sentry",
 ]);
 
+function resolveSanitizerRoots(userDataDir: string): string[] {
+  const roots = new Set<string>();
+
+  function pushRoot(candidate: string | undefined): void {
+    if (!candidate) return;
+    const normalized = path.resolve(candidate);
+    if (!fileExists(normalized)) return;
+    roots.add(normalized);
+  }
+
+  const appData = process.env.APPDATA || "";
+  const homeDir = process.env.CODEX_HOME || process.env.USERPROFILE || process.env.HOME || "";
+
+  pushRoot(userDataDir);
+  if (appData) pushRoot(path.join(appData, "Codex"));
+  if (homeDir) {
+    const codexHome = process.env.CODEX_HOME ? homeDir : path.join(homeDir, ".codex");
+    pushRoot(codexHome);
+  }
+
+  return Array.from(roots);
+}
+
 function isPathLike(raw: string): boolean {
   const value = raw.trim();
   if (!value) return false;
@@ -205,7 +228,8 @@ export function sanitizeWorkspaceRegistry(userDataDir: string, diagnosticsDir: s
   const reportDir = ensureDir(diagnosticsDir);
   const reportPath = path.join(reportDir, "workspace-sanitizer-report.json");
 
-  if (!fileExists(userDataDir)) {
+  const rootDirs = resolveSanitizerRoots(userDataDir);
+  if (rootDirs.length === 0) {
     const emptyResult: WorkspaceSanitizerResult = {
       scannedFiles: 0,
       updatedFiles: 0,
@@ -216,7 +240,18 @@ export function sanitizeWorkspaceRegistry(userDataDir: string, diagnosticsDir: s
     return emptyResult;
   }
 
-  const candidateFiles = collectCandidateFiles(userDataDir);
+  const candidateFiles = new Set<string>();
+  for (const rootDir of rootDirs) {
+    for (const candidateFile of collectCandidateFiles(rootDir)) {
+      candidateFiles.add(candidateFile);
+    }
+
+    const codexGlobalStatePath = path.join(rootDir, ".codex-global-state.json");
+    if (fileExists(codexGlobalStatePath)) {
+      candidateFiles.add(codexGlobalStatePath);
+    }
+  }
+
   let scannedFiles = 0;
   let updatedFiles = 0;
   let removedEntries = 0;
@@ -241,9 +276,9 @@ export function sanitizeWorkspaceRegistry(userDataDir: string, diagnosticsDir: s
   const report = {
     atUtc: new Date().toISOString(),
     userDataDir: path.resolve(userDataDir),
+    rootDirs,
     ...result,
   };
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return result;
 }
-

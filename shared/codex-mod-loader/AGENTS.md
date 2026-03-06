@@ -30,7 +30,41 @@ Mod contract (v1):
 
 - Added `mods/app-server-tweaks` as a main-process mod.
 - Purpose:
-  - change the default collapsed thread list cap (`thread/list` limit 10 -> 6) while preserving "Show more/Show less",
   - force `persistExtendedHistory=true` on `thread/*` calls so legacy chat history keeps loading after Codex CLI upgrades.
 - Implementation:
   - wraps `electron.ipcMain` listeners and rewrites matching request objects in-place (no renderer bundle patching).
+
+## 2026-03-05: Renderer injection format
+
+- `webContents.executeJavaScript()` must receive real source code with real newlines.
+- Do not build injected scripts with literal `\\n` outside string literals.
+- Failure signature:
+  - renderer console: `SyntaxError: Invalid or unexpected token`
+  - main log: `renderer mod failed (...)`
+
+## 2026-03-05: Limits panel contract
+
+- `mods/webview-settings-limits-panel` must poll `/wham/usage` over the Electron fetch bridge.
+- The sidebar panel must show remaining quota, matching Settings (`x% left`), not raw `used_percent`.
+- Do not parse Settings DOM text; generic text scraping drifts and mirrors unrelated values.
+- Prefer the general root limit entry (`limitName == null`) and select only the closest 5h/weekly windows.
+
+## 2026-03-05: Grouped sidebar thread cap
+
+- `mods/webview-thread-list-cap` keeps grouped project lists at 6 rows before expansion.
+- It must first trigger the native React `Show more`, because rows after the bundled 10-item cap do not exist in the DOM until then.
+- It now matches visible sidebar lists by structure (`native toggle row inside sidebar`) instead of one exact `aria-label`.
+- After native expansion, the mod hides rows after 6 and renders its own compact toggle.
+
+## 2026-03-06: Sidebar-first UI anchoring
+
+- Renderer mods that inject persistent UI must anchor to the best visible sidebar container first, not to one brittle text node.
+- Specific buttons like `Settings` may still be used as preferred insertion anchors inside that sidebar, but they are no longer the root selector.
+
+## 2026-03-05: Renderer noise guard
+
+- `mods/webview-runtime-noise-guard` suppresses known startup log spam in renderer:
+  - `No promise for request ID`
+  - repeated `[desktop-notifications] service starting`
+- Rule:
+  - do not hide transport failures, syntax errors, or business-logic exceptions.
