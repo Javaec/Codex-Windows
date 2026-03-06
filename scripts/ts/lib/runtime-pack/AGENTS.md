@@ -23,6 +23,8 @@
   - `stdout-latest.log`
   - `chromium.log`
   - `launch.env.txt`
+- `isolated-home` is allowed to clean only its own stale `vendor_imports/skills/.git/index.lock` when `CODEX_WINDOWS_SMOKE_MODE=1`.
+- This cleanup must never target the real user `C:\\Users\\lensm\\.codex`; it exists only to keep smoke diagnostics from stalling on stale artifact-local locks.
 - Portable outputs also include:
   - `Compare-Runtime-Lanes.ps1`
   - `Compare-Runtime-Lanes.cmd`

@@ -89,6 +89,7 @@ set "CODEX_RUNTIME_LANE=${laneName}"
 ${extraEnvLines}
 
 if defined CODEX_HOME if not exist "%CODEX_HOME%" mkdir "%CODEX_HOME%" >nul 2>nul
+if /I "%CODEX_WINDOWS_SMOKE_MODE%"=="1" if defined CODEX_HOME if exist "%CODEX_HOME%\\vendor_imports\\skills\\.git\\index.lock" del /f /q "%CODEX_HOME%\\vendor_imports\\skills\\.git\\index.lock" >nul 2>nul
 if not exist "%BASE%${userDataFolder}" mkdir "%BASE%${userDataFolder}" >nul 2>nul
 if not exist "%BASE%${cacheFolder}" mkdir "%BASE%${cacheFolder}" >nul 2>nul
 if not exist "%BASE%runtime-logs" mkdir "%BASE%runtime-logs" >nul 2>nul
@@ -145,6 +146,7 @@ function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cache
                 CODEX_ENABLE_RUNTIME_MODS: "0",
                 CODEX_MODS_DISABLED: "1",
                 CODEX_HOME: "%BASE%codex-home-isolated",
+                CODEX_WINDOWS_SMOKE_MODE: "1",
             },
             laneName: "isolated-home",
             userDataSuffix: "-isolated-home",

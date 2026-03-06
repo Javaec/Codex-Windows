@@ -224,6 +224,70 @@
       return activateRuntimeMods;
     }
 
+    function installStartupInstrumentation(electron) {
+      if (!electron || typeof electron !== "object" || !electron.app) return;
+      if (globalThis.__CODEX_WINDOWS_STARTUP_INSTRUMENTATION_V1__) return;
+      globalThis.__CODEX_WINDOWS_STARTUP_INSTRUMENTATION_V1__ = true;
+
+      const instrumentedWebContents = new WeakSet();
+
+      function getUrl(contents) {
+        if (!contents || typeof contents.getURL !== "function") return "";
+        try {
+          return normalizePathString(contents.getURL() || "");
+        } catch {
+          return "";
+        }
+      }
+
+      function instrumentWebContents(contents, browserWindowId) {
+        if (!contents || typeof contents.on !== "function" || instrumentedWebContents.has(contents)) return;
+        instrumentedWebContents.add(contents);
+        const webContentsId = typeof contents.id === "number" ? contents.id : 0;
+        console.log(`[codex-windows-startup] webcontents-created browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId}`);
+        contents.on("dom-ready", () => {
+          console.log(`[codex-windows-startup] renderer.dom-ready browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} url=${getUrl(contents)}`);
+        });
+        contents.on("did-finish-load", () => {
+          console.log(`[codex-windows-startup] webcontents.did-finish-load browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} url=${getUrl(contents)}`);
+        });
+        contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+          console.error(
+            `[codex-windows-startup] webcontents.did-fail-load browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} errorCode=${errorCode} isMainFrame=${isMainFrame ? "1" : "0"} validatedURL=${normalizePathString(validatedURL || "")} error=${normalizePathString(errorDescription || "")}`,
+          );
+        });
+        contents.on("render-process-gone", (_event, details) => {
+          const reason = details && typeof details.reason === "string" ? details.reason : "";
+          const exitCode = details && typeof details.exitCode === "number" ? details.exitCode : 0;
+          console.error(
+            `[codex-windows-startup] webcontents.render-process-gone browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} reason=${reason} exitCode=${exitCode}`,
+          );
+        });
+      }
+
+      electron.app.on("browser-window-created", (_event, browserWindow) => {
+        if (!browserWindow || typeof browserWindow.on !== "function") return;
+        const browserWindowId = typeof browserWindow.id === "number" ? browserWindow.id : 0;
+        console.log(`[codex-windows-startup] browser-window-created browserWindowId=${browserWindowId}`);
+        browserWindow.once("ready-to-show", () => {
+          console.log(`[codex-windows-startup] browser-window.ready-to-show browserWindowId=${browserWindowId}`);
+        });
+        browserWindow.once("show", () => {
+          console.log(`[codex-windows-startup] browser-window.show browserWindowId=${browserWindowId}`);
+        });
+        browserWindow.on("unresponsive", () => {
+          console.error(`[codex-windows-startup] browser-window.unresponsive browserWindowId=${browserWindowId}`);
+        });
+        if (browserWindow.webContents) {
+          instrumentWebContents(browserWindow.webContents, browserWindowId);
+        }
+      });
+
+      electron.app.on("web-contents-created", (_event, contents) => {
+        instrumentWebContents(contents, 0);
+      });
+    }
+
     function logRuntimeContract(codexHomeDir, modsRootPath) {
       if (globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__) return;
       globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__ = true;
@@ -280,6 +344,7 @@
     // Fix Windows path opening.
     try {
       const electron = require("electron");
+      installStartupInstrumentation(electron);
       if (!IS_MINIMAL_PLATFORM && electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
         globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__ = true;
         const originalOpenPath = typeof electron.shell.openPath === "function" ? electron.shell.openPath.bind(electron.shell) : null;

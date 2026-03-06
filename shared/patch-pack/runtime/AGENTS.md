@@ -33,6 +33,19 @@ Single source of truth for the injected Electron main shim used by repack and di
 - Reason:
   - when the wrong Codex build is running, the first requirement is to identify the effective runtime contract without guesswork.
 
+## 2026-03-06: Startup instrumentation is part of diagnosis, not feature behavior
+
+- The shim now logs startup events:
+  - `browser-window-created`
+  - `renderer.dom-ready`
+  - `webcontents.did-finish-load`
+  - `browser-window.ready-to-show`
+  - `browser-window.show`
+  - `webcontents.did-fail-load`
+  - `webcontents.render-process-gone`
+- Reason:
+  - gray-screen debugging needs direct startup markers, not inference from app-server traffic alone.
+
 ## 2026-03-06: Mod loader must support hard A/B isolation
 
 - The main shim must support:
