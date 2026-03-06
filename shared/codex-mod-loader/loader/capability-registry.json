@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "renderer": [
+    "renderer-ready",
+    "route-change",
+    "sidebar-root",
+    "sidebar-panel",
+    "settings-panel",
+    "bridge-fetch",
+    "dom-observer",
+    "schedule-refresh"
+  ],
+  "main": [
+    "app-start",
+    "window-created",
+    "webcontents-ready",
+    "before-app-server-request",
+    "after-app-server-response"
+  ]
+}

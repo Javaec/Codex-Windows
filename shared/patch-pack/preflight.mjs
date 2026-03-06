@@ -73,7 +73,23 @@ function readJson(filePath, label) {
   }
 }
 
-function validateRuntimeModpack(modpackRoot) {
+function readCapabilityRegistry(loaderRoot) {
+  const registryPath = path.join(loaderRoot, "capability-registry.json");
+  const registry = readJson(registryPath, "mod capability registry");
+  if (!registry || typeof registry !== "object") {
+    throw new Error(`patch-pack preflight: capability registry must be an object: ${registryPath}`);
+  }
+  if (Number(registry.schemaVersion) !== 1) {
+    throw new Error(`patch-pack preflight: capability registry schemaVersion must be 1: ${registryPath}`);
+  }
+  return {
+    path: registryPath,
+    renderer: new Set(Array.isArray(registry.renderer) ? registry.renderer.map((value) => String(value || "").trim()).filter(Boolean) : []),
+    main: new Set(Array.isArray(registry.main) ? registry.main.map((value) => String(value || "").trim()).filter(Boolean) : []),
+  };
+}
+
+function validateRuntimeModpack(modpackRoot, capabilityRegistry) {
   if (!fs.existsSync(modpackRoot)) {
     throw new Error(`patch-pack preflight: missing runtime modpack: ${modpackRoot}`);
   }
@@ -122,6 +138,10 @@ function validateRuntimeModpack(modpackRoot) {
     if (!hasRenderer && !hasMain) {
       throw new Error(`patch-pack preflight: runtime mod ${id} has no entrypoints`);
     }
+    const requiresCapabilities = manifest.requiresCapabilities;
+    if (!requiresCapabilities || typeof requiresCapabilities !== "object" || Array.isArray(requiresCapabilities)) {
+      throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities object`);
+    }
 
     if (entrypoints.renderer) {
       const rendererEntry = String(entrypoints.renderer || "").trim();
@@ -132,6 +152,17 @@ function validateRuntimeModpack(modpackRoot) {
       }
       const size = fs.statSync(rendererPath).size;
       if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} renderer entry is empty`);
+      const rendererCapabilities = requiresCapabilities.renderer;
+      if (!Array.isArray(rendererCapabilities) || rendererCapabilities.length === 0) {
+        throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities.renderer`);
+      }
+      for (const capability of rendererCapabilities) {
+        const name = String(capability || "").trim();
+        if (!name) throw new Error(`patch-pack preflight: runtime mod ${id} has empty renderer capability`);
+        if (!capabilityRegistry.renderer.has(name)) {
+          throw new Error(`patch-pack preflight: runtime mod ${id} has unknown renderer capability: ${name}`);
+        }
+      }
       rendererModCount += 1;
     }
 
@@ -144,6 +175,17 @@ function validateRuntimeModpack(modpackRoot) {
       }
       const size = fs.statSync(mainPath).size;
       if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} main entry is empty`);
+      const mainCapabilities = requiresCapabilities.main;
+      if (!Array.isArray(mainCapabilities) || mainCapabilities.length === 0) {
+        throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities.main`);
+      }
+      for (const capability of mainCapabilities) {
+        const name = String(capability || "").trim();
+        if (!name) throw new Error(`patch-pack preflight: runtime mod ${id} has empty main capability`);
+        if (!capabilityRegistry.main.has(name)) {
+          throw new Error(`patch-pack preflight: runtime mod ${id} has unknown main capability: ${name}`);
+        }
+      }
       mainModCount += 1;
     }
   }
@@ -577,6 +619,7 @@ function main() {
   const profilesDir = path.join(patchPackRoot, "profiles");
   const modsDir = path.join(patchPackRoot, "mods");
   const runtimeModpackRoot = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
+  const runtimeLoaderRoot = path.join(repoRoot, "shared", "codex-mod-loader", "loader");
 
   const selector = readJson(selectorPath, "selector");
   validateSelector(selector);
@@ -650,7 +693,8 @@ function main() {
     }
   }
 
-  const runtimeModpack = validateRuntimeModpack(runtimeModpackRoot);
+  const capabilityRegistry = readCapabilityRegistry(runtimeLoaderRoot);
+  const runtimeModpack = validateRuntimeModpack(runtimeModpackRoot, capabilityRegistry);
 
   const summary = {
     version: 2,

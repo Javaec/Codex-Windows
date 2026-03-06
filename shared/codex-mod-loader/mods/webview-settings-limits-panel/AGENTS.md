@@ -7,6 +7,15 @@
 ## Current Decisions
 
 - This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
+- Declared renderer capabilities:
+  - `renderer-ready`
+  - `route-change`
+  - `sidebar-root`
+  - `sidebar-panel`
+  - `settings-panel`
+  - `bridge-fetch`
+  - `dom-observer`
+  - `schedule-refresh`
 - One source of truth: live `/wham/usage` responses over the Electron fetch bridge.
 - The panel shows remaining percentage, matching Settings (`x% left`), not raw `used_percent`.
 - Do not parse Settings page text at all; text scraping caused drift and mirrored values.
@@ -24,3 +33,7 @@
 - Root `/wham/usage` data survives route changes and updates without needing Settings to be open.
 - The root limit entry is not the same as `rate_limit_name`; treating it as a model-specific row produced wrong or missing sidebar values.
 - Sidebar-first anchoring survives DOM churn better than searching the whole page for one exact Settings node.
+- Shared hooks now own panel placement and refresh cadence:
+  - `injectSidebarPanel`
+  - `observeSettingsPanel`
+  - `scheduleRefresh`

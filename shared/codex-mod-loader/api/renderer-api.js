@@ -10,8 +10,18 @@
   const pendingBridgeFetches = new Map();
   const rendererReadyListeners = new Set();
   const routeChangeListeners = new Set();
+  const settingsPanelListeners = new Set();
   let rendererReadyFired = false;
   let currentRouteUrl = String(window.location.href || "");
+
+  function isSettingsCandidate(node) {
+    const text = normalizeText(node.textContent).toLowerCase();
+    if (text === "settings") return true;
+    const aria = normalizeText(node.getAttribute("aria-label")).toLowerCase();
+    if (aria === "settings") return true;
+    const href = normalizeText(node.getAttribute("href")).toLowerCase();
+    return href.includes("settings");
+  }
 
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -193,6 +203,10 @@
     return bestNode;
   }
 
+  function getSidebarRoot() {
+    return findSidebarRoot();
+  }
+
   function findSidebarAnchor(match) {
     const sidebar = findSidebarRoot();
     if (!sidebar) return null;
@@ -240,6 +254,10 @@
     return { panel, mode: "sidebar" };
   }
 
+  function injectSidebarPanel(options) {
+    return mountSidebarPanel(options);
+  }
+
   function fireRendererReady() {
     if (rendererReadyFired) return;
     rendererReadyFired = true;
@@ -270,6 +288,17 @@
 
   const scheduleRouteChange = createDebouncedRunner(20, emitRouteChange);
 
+  function emitSettingsPanel() {
+    const payload = {
+      url: currentRouteUrl,
+      sidebar: findSidebarRoot(),
+      anchor: findSidebarAnchor(isSettingsCandidate),
+    };
+    for (const listener of settingsPanelListeners) listener(payload);
+  }
+
+  const scheduleSettingsPanel = createDebouncedRunner(20, emitSettingsPanel);
+
   function patchHistoryMethod(methodName) {
     const original = history[methodName];
     if (typeof original !== "function") return;
@@ -291,6 +320,30 @@
     return () => routeChangeListeners.delete(listener);
   }
 
+  function observeSettingsPanel(listener) {
+    if (typeof listener !== "function") {
+      throw new Error("codex-mod-api: observeSettingsPanel requires a function");
+    }
+    settingsPanelListeners.add(listener);
+    queueMicrotask(() => {
+      if (settingsPanelListeners.has(listener)) listener({ url: currentRouteUrl, sidebar: findSidebarRoot(), anchor: findSidebarAnchor(isSettingsCandidate) });
+    });
+    return () => settingsPanelListeners.delete(listener);
+  }
+
+  function scheduleRefresh(intervalMs, callback, options) {
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+      throw new Error("codex-mod-api: scheduleRefresh requires a positive interval");
+    }
+    if (typeof callback !== "function") {
+      throw new Error("codex-mod-api: scheduleRefresh requires a callback");
+    }
+    const nextOptions = options && typeof options === "object" ? options : {};
+    if (nextOptions.leading !== false) callback();
+    const timerId = window.setInterval(callback, intervalMs);
+    return () => window.clearInterval(timerId);
+  }
+
   window.__CODEX_MOD_API_V1__ = {
     version: 1,
     normalizeText,
@@ -303,20 +356,27 @@
     resolveHostId,
     bridgeFetchJson,
     findSidebarRoot,
+    getSidebarRoot,
     findSidebarAnchor,
     mountSidebarPanel,
+    injectSidebarPanel,
     onRendererReady,
     onRouteChange,
+    observeSettingsPanel,
+    scheduleRefresh,
   };
 
   patchHistoryMethod("pushState");
   patchHistoryMethod("replaceState");
   window.addEventListener("popstate", scheduleRouteChange, true);
   window.addEventListener("hashchange", scheduleRouteChange, true);
+  observeDom(scheduleSettingsPanel);
+  onRouteChange(scheduleSettingsPanel);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", fireRendererReady, { once: true });
   } else {
     queueMicrotask(fireRendererReady);
   }
+  queueMicrotask(scheduleSettingsPanel);
 })();

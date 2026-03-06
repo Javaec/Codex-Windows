@@ -50,6 +50,17 @@ Mod contract (v1):
 - Reason:
   - keep bootstrap code out of patch-pack and make the loader a first-class subsystem beside `api/*` and `mods/*`.
 
+## 2026-03-06: Runtime mods must declare capabilities
+
+- `mod.json` now must declare `requiresCapabilities` per lane:
+  - `requiresCapabilities.renderer`
+  - `requiresCapabilities.main`
+- Loader and preflight both validate capability names against the shared registry:
+  - `loader/capability-registry.json`
+- Reason:
+  - move from “random scripts in mods/” to a real mod platform contract
+  - make dependencies explicit before a mod is loaded.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

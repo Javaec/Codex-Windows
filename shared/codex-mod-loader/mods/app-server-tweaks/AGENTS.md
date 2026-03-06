@@ -8,6 +8,8 @@
 
 - This mod is main-process only.
 - It now receives shared Mod API v1 context instead of a raw ad-hoc bootstrap object.
+- Declared main capabilities:
+  - `before-app-server-request`
 - It rewrites thread detail IPC payloads to force `persistExtendedHistory=true`.
 - Tree walking now belongs to the API hook `onBeforeAppServerRequest`, not to this mod.
 - It must not touch:

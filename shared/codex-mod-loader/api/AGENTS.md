@@ -19,14 +19,22 @@
   - `findSidebarRoot`
   - `findSidebarAnchor`
   - `mountSidebarPanel`
+  - `getSidebarRoot`
+  - `injectSidebarPanel`
   - `onRendererReady`
   - `onRouteChange`
+  - `observeSettingsPanel`
+  - `scheduleRefresh`
 
 - `api/main-api.cjs` is the shared main-process contract.
 - Current v1 helper surface is intentionally small:
   - `isPlainObject`
   - `wrapIpcListeners`
   - `walkJsonTree`
+  - `onAppStart`
+  - `onWindowCreated`
+  - `onWebContentsReady`
   - `onBeforeAppServerRequest`
+  - `onAfterAppServerResponse`
 - Rule:
   - add helpers only when at least two mods need them or when the helper clearly removes bootstrap duplication.

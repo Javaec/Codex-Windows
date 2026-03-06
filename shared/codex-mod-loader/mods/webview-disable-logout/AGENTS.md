@@ -7,6 +7,9 @@
 ## Current Decisions
 
 - This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
+- Declared renderer capabilities:
+  - `renderer-ready`
+  - `dom-observer`
 - It is intentionally DOM-only.
 - It scans clickable nodes and disables only exact `Log out` / `Logout` labels.
 

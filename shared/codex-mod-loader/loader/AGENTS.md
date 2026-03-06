@@ -24,3 +24,12 @@
   - applies platform fixes
   - loads `main-loader.cjs`
 - This keeps `patch-pack` platform-only and turns the mod loader into a real external subsystem.
+
+## 2026-03-06: Capability registry is part of the loader contract
+
+- Shared capability names now live in:
+  - `loader/capability-registry.json`
+- Both runtime loader and patch-pack preflight validate against this file.
+- Rule:
+  - add a capability only when it represents a stable platform hook
+  - do not add capabilities for one-off DOM quirks.

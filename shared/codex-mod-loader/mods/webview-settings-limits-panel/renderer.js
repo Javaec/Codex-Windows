@@ -217,7 +217,7 @@
 
   function injectPanel() {
     ensureStyle();
-    api.mountSidebarPanel({
+    api.injectSidebarPanel({
       panelId: PANEL_ID,
       createNode: ensurePanelNode,
       anchorMatcher: isSettingsCandidate,
@@ -260,12 +260,16 @@
       refreshUsageSnapshot();
     });
   });
+  api.observeSettingsPanel(() => {
+    injectPanel();
+    renderPanel();
+  });
   api.observeDom(scheduleInject);
-  window.setInterval(() => {
+  api.scheduleRefresh(POLL_INTERVAL_MS, () => {
     injectPanel();
     renderPanel();
     refreshUsageSnapshot();
-  }, POLL_INTERVAL_MS);
+  }, { leading: false });
   document.addEventListener(
     "click",
     (event) => {

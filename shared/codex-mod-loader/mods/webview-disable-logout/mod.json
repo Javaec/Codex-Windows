@@ -9,9 +9,14 @@
     "minBuild": 0,
     "maxBuild": 0
   },
+  "requiresCapabilities": {
+    "renderer": [
+      "renderer-ready",
+      "dom-observer"
+    ]
+  },
   "entrypoints": {
     "renderer": "renderer.js"
   },
   "conflicts": []
 }
-

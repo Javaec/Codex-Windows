@@ -9,9 +9,20 @@
     "minBuild": 0,
     "maxBuild": 0
   },
+  "requiresCapabilities": {
+    "renderer": [
+      "renderer-ready",
+      "route-change",
+      "sidebar-root",
+      "sidebar-panel",
+      "settings-panel",
+      "bridge-fetch",
+      "dom-observer",
+      "schedule-refresh"
+    ]
+  },
   "entrypoints": {
     "renderer": "renderer.js"
   },
   "conflicts": []
 }
-

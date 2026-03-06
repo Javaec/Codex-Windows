@@ -29,6 +29,59 @@ function resolveRuntimeDirectory(leafDir, envKey, resourcesRoot) {
   return path.resolve(resourcesRoot, "..", leafDir);
 }
 
+function loadCapabilityRegistry(loaderRoot) {
+  const registryPath = path.join(loaderRoot, "capability-registry.json");
+  if (!fs.existsSync(registryPath)) {
+    throw new Error(`codex-mod-loader: capability registry missing: ${registryPath}`);
+  }
+  const rawRegistry = fs.readFileSync(registryPath, "utf8").replace(/^\uFEFF/, "");
+  const registry = JSON.parse(rawRegistry);
+  if (!registry || typeof registry !== "object") {
+    throw new Error(`codex-mod-loader: capability registry must be an object: ${registryPath}`);
+  }
+  if (Number(registry.schemaVersion) !== 1) {
+    throw new Error(`codex-mod-loader: capability registry schemaVersion must be 1: ${registryPath}`);
+  }
+  const renderer = new Set(Array.isArray(registry.renderer) ? registry.renderer.map((value) => normalizePathString(value)).filter(Boolean) : []);
+  const main = new Set(Array.isArray(registry.main) ? registry.main.map((value) => normalizePathString(value)).filter(Boolean) : []);
+  return { renderer, main, path: registryPath };
+}
+
+function normalizeRequiredCapabilities(manifest, id, capabilityRegistry) {
+  const rawValue = manifest && manifest.requiresCapabilities;
+  if (rawValue === undefined) {
+    return { renderer: [], main: [] };
+  }
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error(`codex-mod-loader: requiresCapabilities must be an object for ${id}`);
+  }
+
+  const normalized = { renderer: [], main: [] };
+  for (const lane of ["renderer", "main"]) {
+    const rawList = rawValue[lane];
+    if (rawList === undefined) continue;
+    if (!Array.isArray(rawList)) {
+      throw new Error(`codex-mod-loader: requiresCapabilities.${lane} must be an array for ${id}`);
+    }
+    const seen = new Set();
+    for (const item of rawList) {
+      const capability = normalizePathString(item);
+      if (!capability) {
+        throw new Error(`codex-mod-loader: empty ${lane} capability for ${id}`);
+      }
+      if (!capabilityRegistry[lane].has(capability)) {
+        throw new Error(`codex-mod-loader: unknown ${lane} capability for ${id}: ${capability}`);
+      }
+      if (seen.has(capability)) {
+        throw new Error(`codex-mod-loader: duplicated ${lane} capability for ${id}: ${capability}`);
+      }
+      seen.add(capability);
+      normalized[lane].push(capability);
+    }
+  }
+  return normalized;
+}
+
 function loadRendererApiScript(modApiRoot) {
   const rendererApiPath = path.join(modApiRoot, "renderer-api.js");
   if (!fs.existsSync(rendererApiPath)) {
@@ -57,7 +110,7 @@ function loadCreateMainModApi(modApiRoot) {
   return createMainModApi;
 }
 
-function loadRuntimeMods(modsRoot, buildHint) {
+function loadRuntimeMods(modsRoot, buildHint, capabilityRegistry) {
   if (!modsRoot || !fs.existsSync(modsRoot)) return [];
   if (normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") !== "1") return [];
   if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
@@ -113,6 +166,13 @@ function loadRuntimeMods(modsRoot, buildHint) {
     if (!rendererEntry && !mainEntry) {
       throw new Error(`codex-mod-loader: mod has no entrypoints: ${id}`);
     }
+    const requiredCapabilities = normalizeRequiredCapabilities(manifest, id, capabilityRegistry);
+    if (rendererEntry && requiredCapabilities.renderer.length === 0) {
+      throw new Error(`codex-mod-loader: renderer mod ${id} must declare requiresCapabilities.renderer`);
+    }
+    if (mainEntry && requiredCapabilities.main.length === 0) {
+      throw new Error(`codex-mod-loader: main mod ${id} must declare requiresCapabilities.main`);
+    }
 
     let rendererScript = "";
     if (rendererEntry) {
@@ -136,7 +196,7 @@ function loadRuntimeMods(modsRoot, buildHint) {
 
     const conflicts = Array.isArray(manifest && manifest.conflicts) ? manifest.conflicts : [];
     const normalizedConflicts = conflicts.map((value) => normalizePathString(value)).filter((value) => value.length > 0);
-    mods.push({ id, priority, rendererScript, mainEntryPath, conflicts: normalizedConflicts });
+    mods.push({ id, priority, rendererScript, mainEntryPath, conflicts: normalizedConflicts, requiredCapabilities });
   }
 
   mods.sort((left, right) => {
@@ -175,7 +235,7 @@ function applyMainMods(electron, loadedMods, buildHint, createMainModApi) {
     if (typeof apply !== "function") {
       throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate})`);
     }
-    apply(createMainModApi({ electron, buildHint, modId: mod.id }));
+    apply(createMainModApi({ electron, buildHint, modId: mod.id, capabilities: mod.requiredCapabilities.main }));
   }
 }
 
@@ -238,19 +298,21 @@ function activateRuntimeMods(context) {
     throw new Error("codex-mod-loader: missing resourcesRoot");
   }
 
+  const modLoaderRootPath = resolveRuntimeDirectory("mod-loader", "CODEX_MOD_LOADER_DIR", resourcesRoot);
+  const capabilityRegistry = loadCapabilityRegistry(modLoaderRootPath);
   const modsRootPath = resolveRuntimeDirectory("mods", "CODEX_MODS_DIR", resourcesRoot);
   const modApiRootPath = resolveRuntimeDirectory("mod-api", "CODEX_MOD_API_DIR", resourcesRoot);
   if (minimalPlatform) {
-    return { modsRootPath, modApiRootPath, loadedModCount: 0 };
+    return { modsRootPath, modApiRootPath, modLoaderRootPath, loadedModCount: 0 };
   }
 
   const createMainModApi = loadCreateMainModApi(modApiRootPath);
   const rendererApiScript = loadRendererApiScript(modApiRootPath);
-  const loadedMods = loadRuntimeMods(modsRootPath, buildHint);
+  const loadedMods = loadRuntimeMods(modsRootPath, buildHint, capabilityRegistry);
   applyMainMods(electron, loadedMods, buildHint, createMainModApi);
   const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
   installRendererMods(electron, rendererApiScript, rendererMods);
-  return { modsRootPath, modApiRootPath, loadedModCount: loadedMods.length };
+  return { modsRootPath, modApiRootPath, modLoaderRootPath, loadedModCount: loadedMods.length };
 }
 
 module.exports = {

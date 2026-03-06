@@ -7,6 +7,11 @@
 ## Current Decisions
 
 - This mod now depends on `shared/codex-mod-loader/api/renderer-api.js`.
+- Declared renderer capabilities:
+  - `renderer-ready`
+  - `route-change`
+  - `sidebar-root`
+  - `dom-observer`
 - This is a renderer DOM mod.
 - It now follows shared renderer lifecycle hooks (`onRendererReady`, `onRouteChange`) instead of ad-hoc one-off startup wiring.
 - It targets visible sidebar lists with a native `Show more` / `Show less` row, not one exact `aria-label`.
