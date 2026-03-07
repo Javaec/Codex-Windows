@@ -2,39 +2,11 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { copyDirectory, copyFileSafe, ensureDir, fileExists, removePath, writeError, writeHeader, writeSuccess, writeWarn } from "../exec";
+import { RuntimeLaneSummary, summarizeRuntimeLanes } from "./runtime-compare";
 
 export type SmokeLaneName = "no-mods" | "minimal" | "with-mods" | "isolated-home";
 
-export type SmokeLaneSummary = {
-  lane: string;
-  stdout_bytes: number;
-  chromium_bytes: number;
-  cli_initialized: number;
-  ready_message: number;
-  statsig_ready: number;
-  auth_unset: number;
-  dom_ready: number;
-  did_finish_load: number;
-  window_show: number;
-  ready_to_show: number;
-  did_fail_load: number;
-  render_process_gone: number;
-  syntax_error: number;
-  renderer_mod_failed: number;
-  preload_error: number;
-  update_required: number;
-  account_read: number;
-  thread_list: number;
-  app_list: number;
-  skills_list: number;
-  usability_sidebar_present: number;
-  usability_settings_present: number;
-  usability_project_list_present: number;
-  usability_surface_ready: number;
-  usability_blocking_spinner: number;
-  git_origin_failed: number;
-  thread_backfill_failed: number;
-};
+export type SmokeLaneSummary = RuntimeLaneSummary;
 
 export type PortableSmokeResult = {
   success: boolean;
@@ -225,37 +197,6 @@ async function runSmokeLane(outputDir: string, lane: SmokeLaneName, holdSeconds:
   await sleep(3000);
 }
 
-function refreshLaneSummary(outputDir: string): void {
-  const compareLauncherPath = path.join(outputDir, "Compare-Runtime-Lanes.cmd");
-  if (!fileExists(compareLauncherPath)) {
-    throw new Error(`Runtime compare launcher missing: ${compareLauncherPath}`);
-  }
-  const result = spawnSync("cmd.exe", ["/c", compareLauncherPath], {
-    cwd: outputDir,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  if (result.status !== 0) {
-    throw new Error(`Compare-Runtime-Lanes failed with exit=${result.status}`);
-  }
-}
-
-function readLaneSummary(outputDir: string): SmokeLaneSummary[] {
-  const summaryJsonPath = path.join(outputDir, "runtime-logs", "lane-summary.json");
-  if (!fileExists(summaryJsonPath)) {
-    throw new Error(`Runtime lane summary missing: ${summaryJsonPath}`);
-  }
-  const rawValue = fs.readFileSync(summaryJsonPath, "utf8").trim();
-  const parsed = JSON.parse(rawValue);
-  if (Array.isArray(parsed)) {
-    return parsed as SmokeLaneSummary[];
-  }
-  if (parsed && typeof parsed === "object") {
-    return [parsed as SmokeLaneSummary];
-  }
-  throw new Error(`Runtime lane summary must be an object or array: ${summaryJsonPath}`);
-}
-
 function evaluateLaneSummary(summary: SmokeLaneSummary, options: PortableSmokeOptions): string[] {
   const failures: string[] = [];
   const seededAuthenticatedSmoke = Boolean(options.userDataSeedPath && options.codexHomeSeedPath);
@@ -310,8 +251,7 @@ export async function runPortableSmoke(options: PortableSmokeOptions): Promise<P
     await runSmokeLane(outputDir, lane, options.smokeSeconds, options);
   }
 
-  refreshLaneSummary(outputDir);
-  const summaries = readLaneSummary(outputDir);
+  const summaries = summarizeRuntimeLanes(outputDir);
   const failures: string[] = [];
   for (const lane of lanes) {
     const summary = summaries.find((item) => item.lane === lane);

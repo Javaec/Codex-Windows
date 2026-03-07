@@ -19,6 +19,13 @@ interface CliOptions {
   overwriteTargetProfile: boolean;
 }
 
+interface SnapshotIdentity {
+  appVersion: string;
+  buildNumber: string;
+  source: string;
+  sourcePath: string;
+}
+
 interface CommandResult {
   exitCode: number;
   stdout: string;
@@ -51,6 +58,8 @@ interface DailyMigrateReport {
   snapshotLabel: string;
   appVersion: string;
   buildNumber: string;
+  versionIdentitySource: string;
+  versionIdentityPath: string;
   patchProfile: string;
   outputProfile: OutputProfile;
   gateMode: GateMode;
@@ -82,9 +91,9 @@ function printUsage(): void {
     "  node dist/migration/daily-migrate-10711.js --snapshot <path-to-app.asar> [options]",
     "",
     "Options:",
-    "  --snapshot-label <label>   default: Codex-10711.dmg",
-    "  --app-version <value>      default: 26.303.1606",
-    "  --build-number <value>     default: 806",
+    "  --snapshot-label <label>   default: basename(snapshot path)",
+    "  --app-version <value>      optional: explicit internal app version",
+    "  --build-number <value>     optional: explicit internal build number",
     "  --patch-profile <id>       default: codex-10711",
     "  --profile <value>          default: regression-latest",
     "  --gate-mode <value>        default: light",
@@ -121,9 +130,9 @@ function parseGateMode(value: string): GateMode {
 
 function parseCli(argv: readonly string[]): CliOptions {
   let snapshotAsarPath = "";
-  let snapshotLabel = "Codex-10711.dmg";
-  let appVersion = "26.303.1606";
-  let buildNumber = "806";
+  let snapshotLabel = "";
+  let appVersion = "";
+  let buildNumber = "";
   let patchProfile = "codex-10711";
   let outputProfile: OutputProfile = "regression-latest";
   let gateMode: GateMode = "light";
@@ -244,6 +253,69 @@ function parseCli(argv: readonly string[]): CliOptions {
   };
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  return await fs
+    .stat(filePath)
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function readSnapshotIdentity(snapshotAsarPath: string): Promise<SnapshotIdentity | null> {
+  const seen = new Set<string>();
+  let currentDirectory = path.dirname(snapshotAsarPath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidatePaths = [
+      path.join(currentDirectory, "package.json"),
+      path.join(currentDirectory, "app", "package.json"),
+    ];
+    for (const candidatePath of candidatePaths) {
+      const resolvedCandidatePath = path.resolve(candidatePath);
+      const key = resolvedCandidatePath.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!(await fileExists(resolvedCandidatePath))) continue;
+      const parsed = await readJsonFile<{
+        version?: string;
+        codexBuildNumber?: string;
+      }>(resolvedCandidatePath);
+      const appVersion = String(parsed.version || "").trim();
+      const buildNumber = String(parsed.codexBuildNumber || "").trim();
+      if (appVersion.length < 1 && buildNumber.length < 1) continue;
+      return {
+        appVersion,
+        buildNumber,
+        source: "package-json",
+        sourcePath: resolvedCandidatePath,
+      };
+    }
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) break;
+    currentDirectory = parentDirectory;
+  }
+  return null;
+}
+
+async function resolveSnapshotIdentity(cli: CliOptions): Promise<SnapshotIdentity> {
+  if (cli.appVersion.length > 0 || cli.buildNumber.length > 0) {
+    return {
+      appVersion: cli.appVersion,
+      buildNumber: cli.buildNumber,
+      source: "cli",
+      sourcePath: "",
+    };
+  }
+  const metadata = await readSnapshotIdentity(cli.snapshotAsarPath);
+  if (metadata) {
+    return metadata;
+  }
+  return {
+    appVersion: "",
+    buildNumber: "",
+    source: "unresolved",
+    sourcePath: "",
+  };
+}
+
 async function runNodeCommand(cwd: string, args: string[]): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
     const startedAt = Date.now();
@@ -294,6 +366,8 @@ function utcStamp(): string {
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2));
+  const snapshotLabel = cli.snapshotLabel.length > 0 ? cli.snapshotLabel : path.basename(cli.snapshotAsarPath);
+  const resolvedIdentity = await resolveSnapshotIdentity(cli);
 
   const sharedPatchPackRoot = path.join(projectRoot, "..", "shared", "patch-pack");
   const preflightScriptPath = path.join(sharedPatchPackRoot, "preflight.mjs");
@@ -319,14 +393,16 @@ async function run(): Promise<void> {
   const preflightArgs = [
     preflightScriptPath,
     "--snapshot-label",
-    cli.snapshotLabel,
-    "--app-version",
-    cli.appVersion,
-    "--build-number",
-    cli.buildNumber,
+    snapshotLabel,
     "--patch-profile",
     cli.patchProfile,
   ];
+  if (resolvedIdentity.appVersion.length > 0) {
+    preflightArgs.push("--app-version", resolvedIdentity.appVersion);
+  }
+  if (resolvedIdentity.buildNumber.length > 0) {
+    preflightArgs.push("--build-number", resolvedIdentity.buildNumber);
+  }
   {
     const startedAt = Date.now();
     const result = await runNodeCommand(projectRoot, preflightArgs);
@@ -346,13 +422,9 @@ async function run(): Promise<void> {
     "--snapshot",
     cli.snapshotAsarPath,
     "--snapshot-label",
-    cli.snapshotLabel,
+    snapshotLabel,
     "--patch-profile",
     cli.patchProfile,
-    "--app-version",
-    cli.appVersion,
-    "--build-number",
-    cli.buildNumber,
     "--profile",
     cli.outputProfile,
     "--gate-mode",
@@ -362,6 +434,12 @@ async function run(): Promise<void> {
     "--promotion-budget",
     String(cli.promotionBudget),
   ];
+  if (resolvedIdentity.appVersion.length > 0) {
+    bridgeArgs.push("--app-version", resolvedIdentity.appVersion);
+  }
+  if (resolvedIdentity.buildNumber.length > 0) {
+    bridgeArgs.push("--build-number", resolvedIdentity.buildNumber);
+  }
   if (cli.allowAfterFreeze) {
     bridgeArgs.push("--allow-after-freeze");
   }
@@ -398,9 +476,11 @@ async function run(): Promise<void> {
     version: 1,
     generatedAtIso: new Date().toISOString(),
     snapshotAsarPath: cli.snapshotAsarPath,
-    snapshotLabel: cli.snapshotLabel,
-    appVersion: cli.appVersion,
-    buildNumber: cli.buildNumber,
+    snapshotLabel,
+    appVersion: resolvedIdentity.appVersion,
+    buildNumber: resolvedIdentity.buildNumber,
+    versionIdentitySource: resolvedIdentity.source,
+    versionIdentityPath: resolvedIdentity.sourcePath,
     patchProfile: cli.patchProfile,
     outputProfile: cli.outputProfile,
     gateMode: cli.gateMode,

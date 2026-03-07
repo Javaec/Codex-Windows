@@ -60,6 +60,40 @@ function buildStageReport(stage, smokeResult, runtimeLogsDir) {
         summaryJsonPath: path.join(runtimeLogsDir, "lane-summary.json"),
     };
 }
+function resolveAuthenticatedSmokeSeeds(options) {
+    const explicitUserDataPath = options.smokeUserDataSeedPath ? path.resolve(options.smokeUserDataSeedPath) : "";
+    const explicitCodexHomePath = options.smokeCodexHomeSeedPath ? path.resolve(options.smokeCodexHomeSeedPath) : "";
+    let autoDetected = false;
+    let userDataPath = explicitUserDataPath;
+    if (!userDataPath) {
+        const candidates = [
+            path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "userdata-no-mods"),
+            path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "userdata"),
+        ];
+        userDataPath = candidates.find((candidate) => (0, exec_1.fileExists)(candidate)) || "";
+        autoDetected = true;
+    }
+    let codexHomePath = explicitCodexHomePath;
+    if (!codexHomePath) {
+        const userProfile = process.env.USERPROFILE || process.env.HOME || "";
+        if (userProfile) {
+            const candidate = path.join(userProfile, ".codex");
+            if ((0, exec_1.fileExists)(candidate)) {
+                codexHomePath = candidate;
+                autoDetected = true;
+            }
+        }
+    }
+    if (!userDataPath || !codexHomePath) {
+        throw new Error("Smoke auth stage requires seeded userData and CODEX_HOME. " +
+            "Provide -SmokeUserDataSeed/-SmokeCodexHomeSeed or keep canonical dist/user state available for auto-detect.");
+    }
+    return {
+        userDataPath,
+        codexHomePath,
+        autoDetected,
+    };
+}
 async function runSmoke(options) {
     (0, exec_1.writeHeader)("Smoke build");
     const smokeWorkDir = path.resolve(options.workDir || path.join(context_1.REPO_ROOT, "work", "runner-smoke"));
@@ -86,17 +120,16 @@ async function runSmoke(options) {
     });
     let launchabilityLogsDir = path.join(pipelineResult.portableOutputDir, "runtime-logs");
     let authenticatedStage = null;
+    let authenticatedSeeds = null;
     if (options.smokeAuthStage) {
-        if (!options.smokeUserDataSeedPath || !options.smokeCodexHomeSeedPath) {
-            throw new Error("Smoke auth stage requires both -SmokeUserDataSeed and -SmokeCodexHomeSeed");
-        }
+        authenticatedSeeds = resolveAuthenticatedSmokeSeeds(options);
         launchabilityLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "launchability");
         const authResult = await (0, smoke_1.runPortableSmoke)({
             outputDir: pipelineResult.portableOutputDir,
             smokeSeconds: options.smokeSeconds,
             rawLanes: options.smokeAuthLanes || "with-mods",
-            userDataSeedPath: options.smokeUserDataSeedPath,
-            codexHomeSeedPath: options.smokeCodexHomeSeedPath,
+            userDataSeedPath: authenticatedSeeds.userDataPath,
+            codexHomeSeedPath: authenticatedSeeds.codexHomePath,
         });
         const authenticatedLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "authenticated");
         authenticatedStage = buildStageReport("authenticated", authResult, authenticatedLogsDir);
@@ -107,6 +140,13 @@ async function runSmoke(options) {
         generatedAtIso: new Date().toISOString(),
         outputDir: pipelineResult.portableOutputDir,
         smokeSeconds: options.smokeSeconds,
+        authenticatedSeeds: authenticatedSeeds
+            ? {
+                userDataPath: authenticatedSeeds.userDataPath,
+                codexHomePath: authenticatedSeeds.codexHomePath,
+                autoDetected: authenticatedSeeds.autoDetected,
+            }
+            : null,
         launchability: launchabilityStage,
         authenticated: authenticatedStage,
         success: launchabilityStage.success && (authenticatedStage ? authenticatedStage.success : true),

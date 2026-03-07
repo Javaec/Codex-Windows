@@ -38,6 +38,9 @@
   - `Compare-Runtime-Lanes.ps1`
   - `Compare-Runtime-Lanes.cmd`
   which summarize lane differences into `runtime-logs/lane-summary.txt`.
+- `smoke.ts` must not depend on the external compare launcher for pass/fail.
+  - runner smoke now builds `lane-summary.json` directly in Node via `runtime-compare.ts`
+  - `Compare-Runtime-Lanes.*` remain operator tools only.
 - `smoke.ts` must evaluate launchability from `lane-summary.json` with hard criteria:
   - `cli_initialized`
   - `ready_message`

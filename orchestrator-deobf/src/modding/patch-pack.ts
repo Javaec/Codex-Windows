@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { readJsonFile } from "../utils/fs-json";
 
@@ -65,6 +66,11 @@ export interface ResolvedPatchProfile {
   patchPackRootPath: string;
   snapshotLabel: string;
   buildHint: number;
+}
+
+interface SnapshotIdentity {
+  appVersion: string;
+  buildNumber: string;
 }
 
 interface SelectorRule {
@@ -161,14 +167,29 @@ function parseBuildHint(buildNumber: string, appVersion: string, snapshotLabel: 
   const direct = Number.parseInt(buildNumber, 10);
   if (Number.isFinite(direct) && direct > best) best = direct;
 
-  const combined = `${appVersion} ${snapshotLabel}`;
-  const matchCodex = combined.toLowerCase().match(/codex[-_]?(\d{3,6})/);
+  const normalizedAppVersion = appVersion.trim();
+  const explicitAppVersionHints: Array<{ regex: RegExp; buildHint: number }> = [
+    { regex: /^26\.305\.950$/, buildHint: 11012 },
+    { regex: /^26\.303\.1606$/, buildHint: 10711 },
+  ];
+  for (const hint of explicitAppVersionHints) {
+    if (hint.regex.test(normalizedAppVersion) && hint.buildHint > best) {
+      best = hint.buildHint;
+    }
+  }
+
+  if (best > 0) {
+    return best;
+  }
+
+  const fallbackSnapshotLabel = snapshotLabel.trim();
+  const matchCodex = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
   if (matchCodex && matchCodex[1]) {
     const parsed = Number.parseInt(matchCodex[1], 10);
     if (Number.isFinite(parsed) && parsed > best) best = parsed;
   }
 
-  const numericTokens = combined.match(/\d{4,6}/g);
+  const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
   if (numericTokens) {
     for (const token of numericTokens) {
       const parsed = Number.parseInt(token, 10);
@@ -191,6 +212,54 @@ function parseBuildLimit(value: unknown, label: string): number {
     throw new Error(`patch-pack: invalid ${label}`);
   }
   return numeric;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  return await fs
+    .stat(filePath)
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function readSnapshotIdentity(snapshotPath: string, explicitAppVersion: string, explicitBuildNumber: string): Promise<SnapshotIdentity> {
+  if (explicitAppVersion.trim().length > 0 || explicitBuildNumber.trim().length > 0) {
+    return {
+      appVersion: explicitAppVersion.trim(),
+      buildNumber: explicitBuildNumber.trim(),
+    };
+  }
+
+  const seen = new Set<string>();
+  let currentDirectory = path.dirname(snapshotPath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidatePaths = [
+      path.join(currentDirectory, "package.json"),
+      path.join(currentDirectory, "app", "package.json"),
+    ];
+    for (const candidatePath of candidatePaths) {
+      const resolvedCandidatePath = path.resolve(candidatePath);
+      const key = resolvedCandidatePath.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!(await fileExists(resolvedCandidatePath))) continue;
+      const parsed = await readJsonFile<{
+        version?: string;
+        codexBuildNumber?: string;
+      }>(resolvedCandidatePath);
+      const appVersion = String(parsed.version || "").trim();
+      const buildNumber = String(parsed.codexBuildNumber || "").trim();
+      if (appVersion.length < 1 && buildNumber.length < 1) continue;
+      return { appVersion, buildNumber };
+    }
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) break;
+    currentDirectory = parentDirectory;
+  }
+
+  return {
+    appVersion: "",
+    buildNumber: "",
+  };
 }
 
 function resolvePatchPackRootPath(projectRoot: string): string {
@@ -412,23 +481,28 @@ function matchesCompatibility(mod: PatchModPlan, snapshotLabel: string, appVersi
 }
 
 function ruleMatches(rule: SelectorRule, snapshotLabel: string, appVersion: string, buildHint: number): boolean {
+  const hasInternalRule =
+    (rule.appVersionRegex && rule.appVersionRegex.length > 0) ||
+    (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild)) ||
+    (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild));
+
+  if (hasInternalRule) {
+    if (rule.appVersionRegex && rule.appVersionRegex.length > 0) {
+      const regex = new RegExp(rule.appVersionRegex, "i");
+      if (!regex.test(appVersion)) return false;
+    }
+    if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint < rule.minBuild) {
+      return false;
+    }
+    if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && (buildHint <= 0 || buildHint > rule.maxBuild)) {
+      return false;
+    }
+    return true;
+  }
+
   if (rule.snapshotRegex && rule.snapshotRegex.length > 0) {
     const regex = new RegExp(rule.snapshotRegex, "i");
-    if (regex.test(snapshotLabel)) {
-      return true;
-    }
-  }
-  if (rule.appVersionRegex && rule.appVersionRegex.length > 0) {
-    const regex = new RegExp(rule.appVersionRegex, "i");
-    if (regex.test(appVersion)) {
-      return true;
-    }
-  }
-  if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint >= rule.minBuild) {
-    return true;
-  }
-  if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && buildHint <= rule.maxBuild && buildHint > 0) {
-    return true;
+    return regex.test(snapshotLabel);
   }
   return false;
 }
@@ -521,13 +595,14 @@ export async function resolvePatchProfile(input: ResolvePatchProfileInput): Prom
   const snapshotLabel = input.snapshotLabel.length > 0
     ? input.snapshotLabel
     : path.basename(input.snapshotPath);
+  const snapshotIdentity = await readSnapshotIdentity(input.snapshotPath, input.appVersion, input.buildNumber);
   const patchPackRootPath = resolvePatchPackRootPath(input.projectRoot);
   const selectorModel = await readSelector(patchPackRootPath);
   const catalog = await readCatalog(patchPackRootPath);
   const stageRegistry = await readStageRegistry(patchPackRootPath);
-  const buildHint = parseBuildHint(input.buildNumber, input.appVersion, snapshotLabel);
+  const buildHint = parseBuildHint(snapshotIdentity.buildNumber, snapshotIdentity.appVersion, snapshotLabel);
   const forcedProfileId = input.forcedProfileId.trim().toLowerCase();
-  const hasStrongSnapshotContext = buildHint > 0 || input.appVersion.trim().length > 0 || !/app\.asar$/iu.test(snapshotLabel);
+  const hasStrongSnapshotContext = buildHint > 0 || snapshotIdentity.appVersion.trim().length > 0 || !/app\.asar$/iu.test(snapshotLabel);
   const effectiveForcedProfileId = forcedProfileId.length > 0
     ? forcedProfileId
     : (hasStrongSnapshotContext ? "" : "generic");
@@ -536,7 +611,7 @@ export async function resolvePatchProfile(input: ResolvePatchProfileInput): Prom
     effectiveForcedProfileId,
     selectorModel.model,
     snapshotLabel,
-    input.appVersion,
+    snapshotIdentity.appVersion,
     buildHint,
   );
 
@@ -555,9 +630,9 @@ export async function resolvePatchProfile(input: ResolvePatchProfileInput): Prom
     uniqueModIds.add(modId);
 
     const mod = await readModFile(patchPackRootPath, modId, catalog, stageRegistry);
-    if (!matchesCompatibility(mod, snapshotLabel, input.appVersion, buildHint)) {
+    if (!matchesCompatibility(mod, snapshotLabel, snapshotIdentity.appVersion, buildHint)) {
       throw new Error(
-        `patch-pack: mod ${mod.id} is incompatible with snapshot=${snapshotLabel} buildHint=${buildHint} appVersion=${input.appVersion}`,
+        `patch-pack: mod ${mod.id} is incompatible with snapshot=${snapshotLabel} buildHint=${buildHint} appVersion=${snapshotIdentity.appVersion}`,
       );
     }
     loadedMods.push(mod);

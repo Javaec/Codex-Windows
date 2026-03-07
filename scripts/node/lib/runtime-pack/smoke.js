@@ -38,6 +38,7 @@ const node_child_process_1 = require("node:child_process");
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
+const runtime_compare_1 = require("./runtime-compare");
 const DEFAULT_SMOKE_LANES = ["no-mods", "minimal", "with-mods", "isolated-home"];
 const CODEX_HOME_SEED_FILES = [
     ".codex-global-state.json",
@@ -196,35 +197,6 @@ async function runSmokeLane(outputDir, lane, holdSeconds, options) {
     });
     await sleep(3000);
 }
-function refreshLaneSummary(outputDir) {
-    const compareLauncherPath = path.join(outputDir, "Compare-Runtime-Lanes.cmd");
-    if (!(0, exec_1.fileExists)(compareLauncherPath)) {
-        throw new Error(`Runtime compare launcher missing: ${compareLauncherPath}`);
-    }
-    const result = (0, node_child_process_1.spawnSync)("cmd.exe", ["/c", compareLauncherPath], {
-        cwd: outputDir,
-        stdio: "ignore",
-        windowsHide: true,
-    });
-    if (result.status !== 0) {
-        throw new Error(`Compare-Runtime-Lanes failed with exit=${result.status}`);
-    }
-}
-function readLaneSummary(outputDir) {
-    const summaryJsonPath = path.join(outputDir, "runtime-logs", "lane-summary.json");
-    if (!(0, exec_1.fileExists)(summaryJsonPath)) {
-        throw new Error(`Runtime lane summary missing: ${summaryJsonPath}`);
-    }
-    const rawValue = fs.readFileSync(summaryJsonPath, "utf8").trim();
-    const parsed = JSON.parse(rawValue);
-    if (Array.isArray(parsed)) {
-        return parsed;
-    }
-    if (parsed && typeof parsed === "object") {
-        return [parsed];
-    }
-    throw new Error(`Runtime lane summary must be an object or array: ${summaryJsonPath}`);
-}
 function evaluateLaneSummary(summary, options) {
     const failures = [];
     const seededAuthenticatedSmoke = Boolean(options.userDataSeedPath && options.codexHomeSeedPath);
@@ -292,8 +264,7 @@ async function runPortableSmoke(options) {
     for (const lane of lanes) {
         await runSmokeLane(outputDir, lane, options.smokeSeconds, options);
     }
-    refreshLaneSummary(outputDir);
-    const summaries = readLaneSummary(outputDir);
+    const summaries = (0, runtime_compare_1.summarizeRuntimeLanes)(outputDir);
     const failures = [];
     for (const lane of lanes) {
         const summary = summaries.find((item) => item.lane === lane);

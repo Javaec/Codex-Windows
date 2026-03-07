@@ -34,3 +34,7 @@ Keep Codex snapshot upgrades deterministic with minimal naming-memory loss.
   - snapshot label only as fallback
 - Rule:
   - do not keep old hardcoded version defaults in migration paths.
+- `daily-migrate-10711.ts` must follow the same rule and record:
+  - `versionIdentitySource`
+  - `versionIdentityPath`
+  in its report output.
