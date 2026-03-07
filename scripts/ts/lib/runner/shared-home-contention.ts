@@ -26,6 +26,13 @@ type RuntimeLaneContention = {
   windowShow: number;
 };
 
+type ExecutableGroup = {
+  executablePath: string;
+  processCount: number;
+  processIds: number[];
+  names: string[];
+};
+
 type SharedHomeContentionReport = {
   generatedAtIso: string;
   codexHomePath: string;
@@ -38,12 +45,50 @@ type SharedHomeContentionReport = {
   };
   globalState: ReturnType<typeof readGlobalStateSummary>;
   processes: ReturnType<typeof readCodexProcesses>;
+  executableGroups: ExecutableGroup[];
   lanes: RuntimeLaneContention[];
   contentionHints: string[];
 };
 
 function countMatches(text: string, pattern: RegExp): number {
   return (text.match(pattern) || []).length;
+}
+
+function parseExecutablePath(commandLine: string): string {
+  const text = String(commandLine || "").trim();
+  if (!text) return "";
+  if (text.startsWith('"')) {
+    const closingQuote = text.indexOf('"', 1);
+    return closingQuote > 1 ? text.slice(1, closingQuote) : "";
+  }
+  const firstToken = text.split(/\s+/, 1)[0];
+  return firstToken || "";
+}
+
+function buildExecutableGroups(processes: ReturnType<typeof readCodexProcesses>): ExecutableGroup[] {
+  const groups = new Map<string, { executablePath: string; processIds: number[]; names: Set<string> }>();
+  for (const process of processes) {
+    const executablePath = parseExecutablePath(process.commandLine).trim();
+    const fileName = path.basename(executablePath || process.name);
+    if (!/^codex(?:\.exe)?$/i.test(fileName)) continue;
+    const key = executablePath.toLowerCase();
+    const existing = groups.get(key) || {
+      executablePath,
+      processIds: [],
+      names: new Set<string>(),
+    };
+    existing.processIds.push(process.processId);
+    if (process.name) existing.names.add(process.name);
+    groups.set(key, existing);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({
+      executablePath: group.executablePath,
+      processCount: group.processIds.length,
+      processIds: [...group.processIds].sort((left, right) => left - right),
+      names: [...group.names].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => right.processCount - left.processCount || left.executablePath.localeCompare(right.executablePath));
 }
 
 function readLaneContention(runtimeLogsDir: string): RuntimeLaneContention[] {
@@ -92,6 +137,9 @@ function buildContentionHints(report: Omit<SharedHomeContentionReport, "generate
   if (codexProcesses.length > 1) {
     hints.push(`multiple codex-related processes detected (${codexProcesses.length})`);
   }
+  for (const group of report.executableGroups) {
+    hints.push(`process path ${group.executablePath} (${group.processCount})`);
+  }
   for (const lane of report.lanes) {
     if (lane.stateDbLocked > 0 || lane.sqliteBusy > 0) {
       hints.push(`${lane.lane}: sqlite lock markers detected`);
@@ -120,6 +168,7 @@ export async function runSharedHomeContentionReport(options: PipelineOptions): P
 
   writeHeader("Shared-home contention report");
 
+  const processes = readCodexProcesses();
   const reportBase = {
     codexHomePath,
     runtimeLogsDir,
@@ -130,7 +179,8 @@ export async function runSharedHomeContentionReport(options: PipelineOptions): P
       stateShm: readFileAudit(path.join(codexHomePath, "state_5.sqlite-shm")),
     },
     globalState: readGlobalStateSummary(codexHomePath),
-    processes: readCodexProcesses(),
+    processes,
+    executableGroups: buildExecutableGroups(processes),
     lanes: readLaneContention(runtimeLogsDir),
   };
 
@@ -147,6 +197,7 @@ export async function runSharedHomeContentionReport(options: PipelineOptions): P
   writeSuccess(`Codex home: ${report.codexHomePath}`);
   writeSuccess(`Runtime logs: ${report.runtimeLogsDir}`);
   writeSuccess(`Processes: ${report.processes.length}`);
+  writeSuccess(`Executable groups: ${report.executableGroups.length}`);
   writeSuccess(`Lane rows: ${report.lanes.length}`);
   for (const hint of report.contentionHints) {
     writeSuccess(`Hint: ${hint}`);

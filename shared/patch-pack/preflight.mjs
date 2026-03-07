@@ -214,14 +214,18 @@ function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
     }
   }
 
-  const combined = `${String(appVersion || "")} ${String(snapshotLabel || "")}`;
-  const codexMatch = combined.toLowerCase().match(/codex[-_]?(\d{3,6})/);
+  if (best > 0) {
+    return best;
+  }
+
+  const fallbackSnapshotLabel = String(snapshotLabel || "");
+  const codexMatch = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
   if (codexMatch && codexMatch[1]) {
     const parsed = Number.parseInt(codexMatch[1], 10);
     if (Number.isFinite(parsed) && parsed > best) best = parsed;
   }
 
-  const numericTokens = combined.match(/\d{4,6}/g);
+  const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
   if (numericTokens) {
     for (const token of numericTokens) {
       const parsed = Number.parseInt(token, 10);
@@ -529,14 +533,23 @@ function buildStageExecutions(stageRegistry, mods) {
 }
 
 function matchesRule(rule, snapshotLabel, appVersion, buildHint) {
+  const hasInternalRule =
+    (typeof rule.appVersionRegex === "string" && rule.appVersionRegex.length > 0) ||
+    (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild)) ||
+    (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild));
+
+  if (hasInternalRule) {
+    if (typeof rule.appVersionRegex === "string" && rule.appVersionRegex.length > 0) {
+      if (!new RegExp(rule.appVersionRegex, "i").test(appVersion)) return false;
+    }
+    if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint < rule.minBuild) return false;
+    if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && (buildHint <= 0 || buildHint > rule.maxBuild)) return false;
+    return true;
+  }
+
   if (typeof rule.snapshotRegex === "string" && rule.snapshotRegex.length > 0) {
-    if (new RegExp(rule.snapshotRegex, "i").test(snapshotLabel)) return true;
+    return new RegExp(rule.snapshotRegex, "i").test(snapshotLabel);
   }
-  if (typeof rule.appVersionRegex === "string" && rule.appVersionRegex.length > 0) {
-    if (new RegExp(rule.appVersionRegex, "i").test(appVersion)) return true;
-  }
-  if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint >= rule.minBuild) return true;
-  if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && buildHint > 0 && buildHint <= rule.maxBuild) return true;
   return false;
 }
 

@@ -166,3 +166,14 @@
   - `state_5.sqlite` and its WAL-backed live state
 - Practical rule:
   - when debugging gray-screen startup, bisect `shared .codex` vs `isolated-home` before blaming mods or patch-pack.
+
+## 2026-03-07: Daily smoke must separate launchability from authenticated usability
+
+- `smoke:runner` is the plain launchability lane.
+- `smoke:runner:auth` is the authenticated usability lane:
+  - seeded `userData`
+  - seeded `CODEX_HOME`
+  - no mutation of the original user files
+- `smoke:runner:daily` should run both.
+- Reason:
+  - startup regressions and auth/UI-surface regressions are different classes and must not be conflated.

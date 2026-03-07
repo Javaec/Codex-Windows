@@ -4,14 +4,21 @@
   "rules": [
     {
       "profileId": "codex-10711",
-      "snapshotRegex": "codex[-_]?11012",
       "appVersionRegex": "^26\\.305\\.950$",
       "minBuild": 11012
     },
     {
       "profileId": "codex-10711",
-      "snapshotRegex": "codex[-_]?10711",
+      "appVersionRegex": "^26\\.303\\.1606$",
       "minBuild": 10711
+    },
+    {
+      "profileId": "codex-10711",
+      "snapshotRegex": "codex[-_]?11012"
+    },
+    {
+      "profileId": "codex-10711",
+      "snapshotRegex": "codex[-_]?10711"
     },
     {
       "profileId": "codex-106x",

@@ -101,3 +101,15 @@ Single source of truth for patch profiles across repacker, generator, and manual
 - `webview-cwd-normalization` is no longer selected by default profiles.
 - Rule:
   - bring it back only as an explicit version-targeted profile tweak when a real regression proves it is needed.
+
+## 2026-03-07: Internal version metadata is now primary for profile selection
+
+- Patch profile selection must prefer internal package metadata:
+  - `appVersion`
+  - `buildNumber`
+- `snapshotLabel` is now fallback-only for older or poor inputs.
+- Reason:
+  - repack/version logic must not depend on the DMG filename remaining `Codex-11012.dmg`.
+- Practical rule:
+  - if selector rule has `appVersionRegex` and/or `minBuild`/`maxBuild`, those internal checks decide the match;
+  - `snapshotRegex` is used only when no internal rule data is present.

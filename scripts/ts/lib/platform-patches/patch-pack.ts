@@ -208,14 +208,18 @@ function parseBuildHint(buildNumber: string, appVersion: string, snapshotLabel: 
     }
   }
 
-  const combined = `${appVersion} ${snapshotLabel}`;
-  const codexMatch = combined.toLowerCase().match(/codex[-_]?(\d{3,6})/);
+  if (best > 0) {
+    return best;
+  }
+
+  const fallbackSnapshotLabel = snapshotLabel.trim();
+  const codexMatch = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
   if (codexMatch && codexMatch[1]) {
     const parsed = Number.parseInt(codexMatch[1], 10);
     if (Number.isFinite(parsed) && parsed > best) best = parsed;
   }
 
-  const numericTokens = combined.match(/\d{4,6}/g);
+  const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
   if (numericTokens) {
     for (const token of numericTokens) {
       const parsed = Number.parseInt(token, 10);
@@ -472,19 +476,28 @@ function matchesCompatibility(mod: PatchModPlan, snapshotLabel: string, appVersi
 }
 
 function matchesRule(rule: PatchSelectorRule, snapshotLabel: string, appVersion: string, buildHint: number): boolean {
+  const hasInternalRule =
+    (rule.appVersionRegex && rule.appVersionRegex.length > 0) ||
+    (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild)) ||
+    (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild));
+
+  if (hasInternalRule) {
+    if (rule.appVersionRegex && rule.appVersionRegex.length > 0) {
+      const matcher = new RegExp(rule.appVersionRegex, "i");
+      if (!matcher.test(appVersion)) return false;
+    }
+    if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint < rule.minBuild) {
+      return false;
+    }
+    if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && (buildHint <= 0 || buildHint > rule.maxBuild)) {
+      return false;
+    }
+    return true;
+  }
+
   if (rule.snapshotRegex && rule.snapshotRegex.length > 0) {
     const matcher = new RegExp(rule.snapshotRegex, "i");
-    if (matcher.test(snapshotLabel)) return true;
-  }
-  if (rule.appVersionRegex && rule.appVersionRegex.length > 0) {
-    const matcher = new RegExp(rule.appVersionRegex, "i");
-    if (matcher.test(appVersion)) return true;
-  }
-  if (typeof rule.minBuild === "number" && Number.isFinite(rule.minBuild) && buildHint >= rule.minBuild) {
-    return true;
-  }
-  if (typeof rule.maxBuild === "number" && Number.isFinite(rule.maxBuild) && buildHint <= rule.maxBuild && buildHint > 0) {
-    return true;
+    return matcher.test(snapshotLabel);
   }
   return false;
 }
