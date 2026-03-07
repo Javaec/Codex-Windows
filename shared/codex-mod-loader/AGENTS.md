@@ -93,6 +93,26 @@ Mod contract (v1):
   - `loader/capability-registry.json`
   - `shared/version-identity/known-builds.json`
 
+## 2026-03-07: Runtime loader now shares compatibility resolution
+
+- `loader/main-loader.cjs` now consumes:
+  - `compatibility.cjs`
+- Portable repacks must bundle:
+  - `resources/compatibility.cjs`
+  - `resources/version-identity/*`
+- Rule:
+  - do not add a second runtime-only compatibility resolver beside `compatibility.cjs`.
+
+## 2026-03-07: compatibility.cjs now owns strict modpack validation
+
+- Shared manifest normalization now validates:
+  - entrypoint file existence
+  - non-empty entrypoint source
+  - strict numeric priority
+  - transitive dependency closure before load-order resolution
+- Reason:
+  - preflight, matrix, and runtime loader must fail on the same invalid modpack shape instead of drifting into separate validators.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

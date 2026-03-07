@@ -39,6 +39,8 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const bundle_patches_1 = require("./bundle-patches");
 const patch_pack_1 = require("./patch-pack");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs"));
 function summarizeWebviewPatch(summary) {
     if (summary.patchedFiles > 0)
         return "patched";
@@ -108,6 +110,13 @@ function runCodexPatchPipeline(input) {
         appVersion: input.appVersion,
         forcedProfileId: input.forcedProfileId || "",
     });
+    const runtimeModCompatibility = resolveRuntimeModCompatibility({
+        modsRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods"),
+        loaderRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader"),
+        snapshotLabel,
+        appVersion: input.appVersion,
+        buildNumber: input.buildNumber,
+    });
     const report = {
         profileId: resolvedProfile.profile.profileId,
         profileDescription: resolvedProfile.profile.description,
@@ -130,6 +139,15 @@ function runCodexPatchPipeline(input) {
         stages: [],
         createdAtIso: new Date().toISOString(),
         steps: [],
+        runtimeModCompatibility: {
+            buildHint: runtimeModCompatibility.build.buildHint,
+            matchedBuildId: runtimeModCompatibility.build.matchedBuild ? runtimeModCompatibility.build.matchedBuild.id : "",
+            selectedModIds: runtimeModCompatibility.selectedModIds,
+            loadOrder: runtimeModCompatibility.loadOrder,
+            recommendedDisabledMods: runtimeModCompatibility.recommendedDisabledMods,
+            incompatibleMods: runtimeModCompatibility.incompatibleMods,
+            softIncompatibilities: runtimeModCompatibility.softIncompatibilities,
+        },
         reportPath: path.join(input.diagnosticsDir, "patch-pipeline-report.json"),
     };
     (0, exec_1.writeHeader)(`Applying patch pipeline (${report.profileId})`);

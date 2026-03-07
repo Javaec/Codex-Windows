@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const require = createRequire(import.meta.url);
 const { parseBuildHint } = require("../version-identity/index.cjs");
+const { loadModCatalog, resolveRuntimeModCompatibility } = require("../codex-mod-loader/compatibility.cjs");
 
 function parseArgs(argv) {
   let snapshotLabel = "";
@@ -93,120 +94,14 @@ function readCapabilityRegistry(loaderRoot) {
 }
 
 function validateRuntimeModpack(modpackRoot, capabilityRegistry) {
-  if (!fs.existsSync(modpackRoot)) {
-    throw new Error(`patch-pack preflight: missing runtime modpack: ${modpackRoot}`);
-  }
-
-  const entries = fs
-    .readdirSync(modpackRoot, { withFileTypes: true })
-    .filter((entry) => entry && entry.isDirectory())
-    .map((entry) => String(entry.name || "").trim())
-    .filter((name) => name.length > 0)
-    .sort((a, b) => a.localeCompare(b));
-
-  if (entries.length === 0) {
+  const catalog = loadModCatalog({ modsRoot: modpackRoot, loaderRoot: capabilityRegistry.path ? path.dirname(capabilityRegistry.path) : capabilityRegistry });
+  if (catalog.mods.length < 1) {
     throw new Error(`patch-pack preflight: runtime modpack is empty: ${modpackRoot}`);
   }
-
-  const seen = new Set();
-  let rendererModCount = 0;
-  let mainModCount = 0;
-  for (const dirName of entries) {
-    const modDir = path.join(modpackRoot, dirName);
-    const manifestPath = path.join(modDir, "mod.json");
-    const manifest = readJson(manifestPath, `runtime mod ${dirName}`);
-    if (!manifest || typeof manifest !== "object") {
-      throw new Error(`patch-pack preflight: runtime mod ${dirName} manifest must be an object`);
-    }
-    if (Number(manifest.schemaVersion) !== 1) {
-      throw new Error(`patch-pack preflight: runtime mod ${dirName} schemaVersion must be 1`);
-    }
-    const id = String(manifest.id || "").trim();
-    if (!id) throw new Error(`patch-pack preflight: runtime mod ${dirName} is missing id`);
-    if (id !== dirName) {
-      throw new Error(`patch-pack preflight: runtime mod id mismatch (${id} != ${dirName})`);
-    }
-    if (seen.has(id)) throw new Error(`patch-pack preflight: runtime mod duplicated id: ${id}`);
-    seen.add(id);
-
-    if (manifest.enabled === false) continue;
-
-    const entrypoints = manifest.entrypoints;
-    if (!entrypoints || typeof entrypoints !== "object") {
-      throw new Error(`patch-pack preflight: runtime mod ${id} is missing entrypoints`);
-    }
-
-    const hasRenderer = Boolean(entrypoints.renderer);
-    const hasMain = Boolean(entrypoints.main);
-    if (!hasRenderer && !hasMain) {
-      throw new Error(`patch-pack preflight: runtime mod ${id} has no entrypoints`);
-    }
-    const requiresCapabilities = manifest.requiresCapabilities;
-    if (!requiresCapabilities || typeof requiresCapabilities !== "object" || Array.isArray(requiresCapabilities)) {
-      throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities object`);
-    }
-
-    if (entrypoints.renderer) {
-      const rendererEntry = String(entrypoints.renderer || "").trim();
-      if (!rendererEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty renderer entry`);
-      const rendererPath = path.join(modDir, rendererEntry);
-      if (!fs.existsSync(rendererPath)) {
-        throw new Error(`patch-pack preflight: runtime mod ${id} missing renderer entry: ${rendererPath}`);
-      }
-      const size = fs.statSync(rendererPath).size;
-      if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} renderer entry is empty`);
-      const rendererCapabilities = requiresCapabilities.renderer;
-      if (!Array.isArray(rendererCapabilities) || rendererCapabilities.length === 0) {
-        throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities.renderer`);
-      }
-      for (const capability of rendererCapabilities) {
-        const name = String(capability || "").trim();
-        if (!name) throw new Error(`patch-pack preflight: runtime mod ${id} has empty renderer capability`);
-        if (!capabilityRegistry.renderer.has(name)) {
-          throw new Error(`patch-pack preflight: runtime mod ${id} has unknown renderer capability: ${name}`);
-        }
-      }
-      rendererModCount += 1;
-    }
-
-    const compatibility = manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
-    if (typeof compatibility.appVersionRegex === "string" && compatibility.appVersionRegex.trim().length > 0) {
-      try {
-        new RegExp(compatibility.appVersionRegex, "i");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`patch-pack preflight: runtime mod ${id} has invalid compatibility.appVersionRegex: ${message}`);
-      }
-    }
-
-    if (entrypoints.main) {
-      const mainEntry = String(entrypoints.main || "").trim();
-      if (!mainEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty main entry`);
-      const mainPath = path.join(modDir, mainEntry);
-      if (!fs.existsSync(mainPath)) {
-        throw new Error(`patch-pack preflight: runtime mod ${id} missing main entry: ${mainPath}`);
-      }
-      const size = fs.statSync(mainPath).size;
-      if (size < 16) throw new Error(`patch-pack preflight: runtime mod ${id} main entry is empty`);
-      const mainCapabilities = requiresCapabilities.main;
-      if (!Array.isArray(mainCapabilities) || mainCapabilities.length === 0) {
-        throw new Error(`patch-pack preflight: runtime mod ${id} must declare requiresCapabilities.main`);
-      }
-      for (const capability of mainCapabilities) {
-        const name = String(capability || "").trim();
-        if (!name) throw new Error(`patch-pack preflight: runtime mod ${id} has empty main capability`);
-        if (!capabilityRegistry.main.has(name)) {
-          throw new Error(`patch-pack preflight: runtime mod ${id} has unknown main capability: ${name}`);
-        }
-      }
-      mainModCount += 1;
-    }
-  }
-
   return {
-    modCount: entries.length,
-    rendererModCount,
-    mainModCount,
+    modCount: catalog.mods.length,
+    rendererModCount: catalog.mods.filter((mod) => mod.entrypoints.renderer.length > 0).length,
+    mainModCount: catalog.mods.filter((mod) => mod.entrypoints.main.length > 0).length,
     root: modpackRoot,
   };
 }
@@ -684,12 +579,28 @@ function main() {
 
   const capabilityRegistry = readCapabilityRegistry(runtimeLoaderRoot);
   const runtimeModpack = validateRuntimeModpack(runtimeModpackRoot, capabilityRegistry);
+  const runtimeModCompatibility = resolveRuntimeModCompatibility({
+    modsRoot: runtimeModpackRoot,
+    loaderRoot: runtimeLoaderRoot,
+    snapshotLabel: args.snapshotLabel,
+    appVersion: args.appVersion,
+    buildNumber: args.buildNumber,
+  });
 
   const summary = {
     version: 2,
     generatedAtIso: new Date().toISOString(),
     patchPackRoot,
     runtimeModpack,
+    runtimeModCompatibility: {
+      buildHint: runtimeModCompatibility.build.buildHint,
+      matchedBuildId: runtimeModCompatibility.build.matchedBuild ? runtimeModCompatibility.build.matchedBuild.id : "",
+      selectedModIds: runtimeModCompatibility.selectedModIds,
+      loadOrder: runtimeModCompatibility.loadOrder,
+      recommendedDisabledMods: runtimeModCompatibility.recommendedDisabledMods,
+      incompatibleMods: runtimeModCompatibility.incompatibleMods,
+      softIncompatibilities: runtimeModCompatibility.softIncompatibilities,
+    },
     selectorPath,
     catalogPath,
     stageRegistryPath,

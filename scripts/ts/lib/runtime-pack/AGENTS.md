@@ -17,6 +17,10 @@
 - `codex-resources.ts` owns bundling of CLI/runtime companion files.
 - `resources/mod-api` is part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_API_DIR` at it.
 - `resources/mod-loader` is also part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_LOADER_DIR` at it.
+- Portable runtime contract now also includes:
+  - `resources/compatibility.cjs`
+  - `resources/version-identity/*`
+  because runtime mod resolution uses shared version/build compatibility logic.
 - `codex-resources.ts` must copy only the small runtime allowlist (`codex.exe`, companion executables, `rg.exe`, `notification.wav`), not entire donor `resources` folders.
 - `launchers.ts` owns launcher generation only.
 - Portable outputs must be self-contained: bundled `resources/codex.exe`, bundled `resources/mods`, isolated `userdata/cache`.

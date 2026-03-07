@@ -10,6 +10,8 @@ const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
   "mods",
   "mod-api",
   "mod-loader",
+  "compatibility.cjs",
+  "version-identity",
   "path",
   "codex.exe",
   "codex-command-runner.exe",

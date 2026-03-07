@@ -18,5 +18,9 @@
   "entrypoints": {
     "renderer": "renderer.js"
   },
-  "conflicts": []
+  "conflicts": [],
+  "dependencies": [],
+  "softIncompatibilities": [],
+  "loadAfter": [],
+  "loadBefore": []
 }

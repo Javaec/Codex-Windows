@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-07T10:19:02.318Z",
+  "generatedAtIso": "2026-03-07T11:08:59.501Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -62,6 +62,10 @@
         ]
       },
       "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -105,6 +109,10 @@
         "main": []
       },
       "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -154,6 +162,10 @@
         "main": []
       },
       "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -201,6 +213,10 @@
         "main": []
       },
       "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -236,7 +252,15 @@
         "webview-settings-limits-panel",
         "webview-thread-list-cap"
       ],
-      "incompatibleMods": []
+      "incompatibleMods": [],
+      "loadOrder": [
+        "app-server-tweaks",
+        "webview-settings-limits-panel",
+        "webview-disable-logout",
+        "webview-thread-list-cap"
+      ],
+      "softIncompatibilities": [],
+      "recommendedDisabledMods": []
     },
     {
       "id": "codex-11012",
@@ -250,7 +274,15 @@
         "webview-settings-limits-panel",
         "webview-thread-list-cap"
       ],
-      "incompatibleMods": []
+      "incompatibleMods": [],
+      "loadOrder": [
+        "app-server-tweaks",
+        "webview-settings-limits-panel",
+        "webview-disable-logout",
+        "webview-thread-list-cap"
+      ],
+      "softIncompatibilities": [],
+      "recommendedDisabledMods": []
     }
   ]
 }

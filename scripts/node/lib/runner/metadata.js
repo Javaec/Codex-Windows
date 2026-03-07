@@ -36,7 +36,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.writeBuildMetadata = writeBuildMetadata;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs"));
 function writeBuildMetadata(outputDir, metadata) {
+    const runtimeModCompatibility = resolveRuntimeModCompatibility({
+        modsRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods"),
+        loaderRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader"),
+        snapshotLabel: metadata.dmgPath,
+        appVersion: metadata.appVersion,
+        buildNumber: metadata.buildNumber,
+    });
     const targetPath = path.join(outputDir, "build-metadata.json");
     const payload = {
         builtAtIso: new Date().toISOString(),
@@ -50,6 +59,15 @@ function writeBuildMetadata(outputDir, metadata) {
         patchReportPath: metadata.patchReportPath,
         codexCliPath: metadata.cliPath,
         codexCliSource: metadata.cliSource,
+        runtimeModCompatibility: {
+            buildHint: runtimeModCompatibility.build.buildHint,
+            matchedBuildId: runtimeModCompatibility.build.matchedBuild ? runtimeModCompatibility.build.matchedBuild.id : "",
+            selectedModIds: runtimeModCompatibility.selectedModIds,
+            loadOrder: runtimeModCompatibility.loadOrder,
+            recommendedDisabledMods: runtimeModCompatibility.recommendedDisabledMods,
+            incompatibleMods: runtimeModCompatibility.incompatibleMods,
+            softIncompatibilities: runtimeModCompatibility.softIncompatibilities,
+        },
     };
     fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     return targetPath;

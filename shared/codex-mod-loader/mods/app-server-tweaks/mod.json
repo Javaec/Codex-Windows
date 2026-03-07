@@ -17,5 +17,9 @@
   "entrypoints": {
     "main": "main.cjs"
   },
-  "conflicts": []
+  "conflicts": [],
+  "dependencies": [],
+  "softIncompatibilities": [],
+  "loadAfter": [],
+  "loadBefore": []
 }

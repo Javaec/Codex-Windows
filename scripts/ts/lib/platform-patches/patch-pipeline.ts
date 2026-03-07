@@ -14,6 +14,24 @@ import {
   resolvePatchProfile,
 } from "./patch-pack";
 
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs")) as {
+  resolveRuntimeModCompatibility: (input: {
+    modsRoot: string;
+    loaderRoot: string;
+    snapshotLabel: string;
+    appVersion: string;
+    buildNumber: string;
+  }) => {
+    build: { buildHint: number; matchedBuild: { id: string } | null };
+    selectedModIds: string[];
+    loadOrder: string[];
+    recommendedDisabledMods: Array<{ id: string; reason: string }>;
+    incompatibleMods: Array<{ id: string; reason: string }>;
+    softIncompatibilities: Array<{ left: string; right: string }>;
+  };
+};
+
 type PatchStepStatus = "patched" | "already" | "skipped";
 type PatchStageStatus = "pass-through" | "executed";
 
@@ -59,6 +77,15 @@ export type PatchPipelineReport = {
   stages: PatchStageReport[];
   createdAtIso: string;
   steps: PatchStepReport[];
+  runtimeModCompatibility: {
+    buildHint: number;
+    matchedBuildId: string;
+    selectedModIds: string[];
+    loadOrder: string[];
+    recommendedDisabledMods: Array<{ id: string; reason: string }>;
+    incompatibleMods: Array<{ id: string; reason: string }>;
+    softIncompatibilities: Array<{ left: string; right: string }>;
+  };
   reportPath: string;
 };
 
@@ -142,6 +169,13 @@ export function runCodexPatchPipeline(input: PatchPipelineInput): PatchPipelineR
     appVersion: input.appVersion,
     forcedProfileId: input.forcedProfileId || "",
   });
+  const runtimeModCompatibility = resolveRuntimeModCompatibility({
+    modsRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods"),
+    loaderRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader"),
+    snapshotLabel,
+    appVersion: input.appVersion,
+    buildNumber: input.buildNumber,
+  });
 
   const report: PatchPipelineReport = {
     profileId: resolvedProfile.profile.profileId,
@@ -165,6 +199,15 @@ export function runCodexPatchPipeline(input: PatchPipelineInput): PatchPipelineR
     stages: [],
     createdAtIso: new Date().toISOString(),
     steps: [],
+    runtimeModCompatibility: {
+      buildHint: runtimeModCompatibility.build.buildHint,
+      matchedBuildId: runtimeModCompatibility.build.matchedBuild ? runtimeModCompatibility.build.matchedBuild.id : "",
+      selectedModIds: runtimeModCompatibility.selectedModIds,
+      loadOrder: runtimeModCompatibility.loadOrder,
+      recommendedDisabledMods: runtimeModCompatibility.recommendedDisabledMods,
+      incompatibleMods: runtimeModCompatibility.incompatibleMods,
+      softIncompatibilities: runtimeModCompatibility.softIncompatibilities,
+    },
     reportPath: path.join(input.diagnosticsDir, "patch-pipeline-report.json"),
   };
 

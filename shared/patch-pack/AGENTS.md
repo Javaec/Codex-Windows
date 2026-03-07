@@ -122,3 +122,13 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - `appVersion -> buildHint`
   - matrix target builds
   - future compatibility reporting
+
+## 2026-03-07: Preflight now surfaces runtime mod compatibility for the current build
+
+- `preflight.mjs` should report not only selected patch profile, but also:
+  - current compatible runtime mods
+  - resolved load order
+  - incompatible mods
+  - soft incompatibilities
+  - recommended disabled mods
+- Runtime modpack integrity should come from shared `codex-mod-loader/compatibility.cjs`, not a second hand-rolled manifest validator inside preflight.

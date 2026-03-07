@@ -26,5 +26,12 @@
   - `dist/Codex-win32-x64/userdata-no-mods` (or `userdata`)
   - `%USERPROFILE%\\.codex`
   and record the resolved seed paths in the combined smoke report.
+- `metadata.ts` now includes current-build runtime mod compatibility in `build-metadata.json`:
+  - matched build id
+  - selected mod ids
+  - load order
+  - incompatible mods
+  - soft incompatibilities
+  - recommended disabled mods
 - `shared-home-audit.ts` may surface an explicit SQLite adapter error if host-compatible native bindings are unavailable. That is an audit finding, not a reason to mutate `.codex`.
 - Keep business logic in domain folders (`source-bundle`, `runtime-donor`, `runtime-pack`, `platform-patches`) and keep this folder thin.

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const { readKnownBuilds } = require("../version-identity/index.cjs");
+const { loadModCatalog, resolveRuntimeModCompatibility } = require("./compatibility.cjs");
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const MOD_ROOT = path.resolve(MODULE_DIR, "mods");
@@ -37,34 +38,32 @@ function matchesManifestCompatibility(manifest, build) {
 function main() {
   const capabilityRegistry = readJson(path.join(LOADER_ROOT, "capability-registry.json"), "capability registry");
   const knownBuilds = readKnownBuilds();
-  const modEntries = fs
-    .readdirSync(MOD_ROOT, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
-
-  const mods = modEntries.map((modId) => {
-    const manifest = readJson(path.join(MOD_ROOT, modId, "mod.json"), `mod ${modId}`);
-    const compatibility = manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
+  const catalog = loadModCatalog({ modsRoot: MOD_ROOT, loaderRoot: LOADER_ROOT });
+  const mods = catalog.mods.map((mod) => {
+    const compatibility = mod.compatibility || {};
     return {
-      id: modId,
-      name: String(manifest.name || ""),
-      description: String(manifest.description || ""),
-      enabled: manifest.enabled !== false,
-      priority: Number(manifest.priority || 0),
-      entrypoints: Object.keys(manifest.entrypoints || {}).sort(),
+      id: mod.id,
+      name: mod.name,
+      description: mod.description,
+      enabled: mod.enabled,
+      priority: mod.priority,
+      entrypoints: Object.keys(mod.entrypoints).filter((key) => mod.entrypoints[key]).sort(),
       compatibility: {
         appVersionRegex: String(compatibility.appVersionRegex || ""),
         minBuild: Number(compatibility.minBuild || 0),
         maxBuild: Number(compatibility.maxBuild || 0),
       },
       capabilities: {
-        renderer: Array.isArray(manifest.requiresCapabilities?.renderer) ? [...manifest.requiresCapabilities.renderer].sort() : [],
-        main: Array.isArray(manifest.requiresCapabilities?.main) ? [...manifest.requiresCapabilities.main].sort() : [],
+        renderer: [...mod.capabilities.renderer].sort(),
+        main: [...mod.capabilities.main].sort(),
       },
-      conflicts: Array.isArray(manifest.conflicts) ? [...manifest.conflicts].sort() : [],
+      conflicts: [...mod.conflicts].sort(),
+      dependencies: [...mod.dependencies].sort(),
+      softIncompatibilities: [...mod.softIncompatibilities].sort(),
+      loadAfter: [...mod.loadAfter].sort(),
+      loadBefore: [...mod.loadBefore].sort(),
       knownBuilds: knownBuilds.map((build) => {
-        const verdict = matchesManifestCompatibility(manifest, build);
+        const verdict = matchesManifestCompatibility({ compatibility: mod.compatibility }, build);
         return {
           id: build.id,
           appVersion: build.appVersion,
@@ -87,15 +86,27 @@ function main() {
     },
     knownBuilds,
     mods,
-    builds: knownBuilds.map((build) => ({
-      id: build.id,
-      appVersion: build.appVersion,
-      buildNumber: build.buildNumber,
-      buildHint: build.buildHint,
-      patchProfileId: build.patchProfileId,
-      compatibleMods: mods.filter((mod) => mod.knownBuilds.some((item) => item.id === build.id && item.compatible)).map((mod) => mod.id),
-      incompatibleMods: mods.filter((mod) => mod.knownBuilds.some((item) => item.id === build.id && !item.compatible)).map((mod) => mod.id),
-    })),
+    builds: knownBuilds.map((build) => {
+      const runtimeCompatibility = resolveRuntimeModCompatibility({
+        modsRoot: MOD_ROOT,
+        loaderRoot: LOADER_ROOT,
+        snapshotLabel: build.id,
+        appVersion: build.appVersion,
+        buildNumber: build.buildNumber,
+      });
+      return {
+        id: build.id,
+        appVersion: build.appVersion,
+        buildNumber: build.buildNumber,
+        buildHint: build.buildHint,
+        patchProfileId: build.patchProfileId,
+        compatibleMods: runtimeCompatibility.selectedModIds,
+        incompatibleMods: runtimeCompatibility.incompatibleMods,
+        loadOrder: runtimeCompatibility.loadOrder,
+        softIncompatibilities: runtimeCompatibility.softIncompatibilities,
+        recommendedDisabledMods: runtimeCompatibility.recommendedDisabledMods,
+      };
+    }),
   };
 
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(matrix, null, 2)}\n`, "utf8");
