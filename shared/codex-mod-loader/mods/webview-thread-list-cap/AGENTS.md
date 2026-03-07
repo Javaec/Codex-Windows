@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Keep grouped sidebar thread lists compact: 6 rows per project before manual expansion.
+- Keep grouped sidebar thread lists compact: 4 rows per project before manual expansion.
 
 ## Current Decisions
 
@@ -19,7 +19,10 @@
 - Group/list discovery now belongs to the shared renderer API instead of this mod.
 - It targets visible sidebar lists with a native `Show more` / `Show less` row, not one exact `aria-label`.
 - It first clicks the native `Show more` once so rows beyond the bundled 10-item cap exist in the DOM.
-- After native expansion, it hides rows after 6 and renders its own compact `Show more` / `Show less` toggle.
+- After native expansion, it hides rows after 4 and renders its own compact `Show more` / `Show less` toggle.
+- It also applies full-row background highlighting:
+  - amber for the current/in-progress thread
+  - green for completed threads when a completion marker is present
 
 ## Why
 

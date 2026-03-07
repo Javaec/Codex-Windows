@@ -6,17 +6,53 @@
     throw new Error("webview-thread-list-cap: Codex Mod API v1 is required");
   }
 
-  if (window.__CODEX_WINDOWS_THREAD_LIST_CAP_V3__) return;
-  window.__CODEX_WINDOWS_THREAD_LIST_CAP_V3__ = true;
+  if (window.__CODEX_WINDOWS_THREAD_LIST_CAP_V4__) return;
+  window.__CODEX_WINDOWS_THREAD_LIST_CAP_V4__ = true;
 
-  const THREAD_CAP = 6;
+  const THREAD_CAP = 4;
   const SHOW_MORE_TEXT = "show more";
   const SHOW_LESS_TEXT = "show less";
   const TOGGLE_ATTR = "data-codex-windows-thread-cap-toggle";
   const TOGGLE_LABEL_ATTR = "data-codex-windows-thread-cap-label";
+  const THREAD_ROW_ATTR = "data-codex-windows-thread-row";
+  const THREAD_CURRENT_ATTR = "data-codex-windows-thread-current";
+  const THREAD_COMPLETED_ATTR = "data-codex-windows-thread-completed";
   const APPLY_THROTTLE_MS = 120;
   const NATIVE_EXPAND_RETRY_MS = 600;
+  const STATUS_SCAN_SELECTOR =
+    "a,button,[role='button'],[aria-label],[title],[data-state],[data-status],[data-testid],[data-icon],svg,span,div";
+  const PROGRESS_SELECTOR =
+    "[role='progressbar'],[aria-busy='true'],[class*='spinner'],[class*='Spinner'],[class*='loading'],[class*='Loading'],[data-state='loading']";
+  const ACTIVE_SELECTOR =
+    "[aria-current],[aria-selected='true'],[data-selected='true'],[data-active='true'],[data-state='active'],[data-state='open']";
+  const ACTIVE_SIGNAL_TOKENS = ["active", "current", "selected", "running", "streaming", "working", "open"];
+  const COMPLETED_SIGNAL_TOKENS = ["completed", "complete", "done", "finished", "resolved", "success", "checkmark", "check-circle", "circle-check"];
   const stateByLabel = new Map();
+
+  api.ensureStyle(
+    "codex-windows-thread-list-cap-v4",
+    `
+      [${THREAD_ROW_ATTR}="1"] {
+        border-radius: 12px;
+        overflow: clip;
+        transition: background-color 140ms ease, box-shadow 140ms ease;
+      }
+      [${THREAD_ROW_ATTR}="1"] > :first-child {
+        border-radius: inherit;
+        transition: background-color 140ms ease, box-shadow 140ms ease;
+      }
+      [${THREAD_CURRENT_ATTR}="1"],
+      [${THREAD_CURRENT_ATTR}="1"] > :first-child {
+        background: rgba(245, 158, 11, 0.18) !important;
+        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.42);
+      }
+      [${THREAD_COMPLETED_ATTR}="1"],
+      [${THREAD_COMPLETED_ATTR}="1"] > :first-child {
+        background: rgba(34, 197, 94, 0.14) !important;
+        box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.34);
+      }
+    `,
+  );
 
   function getState(label) {
     let state = stateByLabel.get(label);
@@ -30,12 +66,75 @@
     return state;
   }
 
-  function getRowText(node) {
-    return api.normalizeText(node.textContent || node.getAttribute("aria-label") || "").toLowerCase();
-  }
-
   function setRowVisible(node, visible) {
     node.style.display = visible ? "" : "none";
+  }
+
+  function resetRowDecoration(row) {
+    row.setAttribute(THREAD_ROW_ATTR, "1");
+    row.removeAttribute(THREAD_CURRENT_ATTR);
+    row.removeAttribute(THREAD_COMPLETED_ATTR);
+  }
+
+  function collectRowSignals(row) {
+    const signals = [];
+    const nodes = [row, ...row.querySelectorAll(STATUS_SCAN_SELECTOR)];
+    for (const node of nodes.slice(0, 40)) {
+      if (!(node instanceof HTMLElement) && !(node instanceof SVGElement)) continue;
+      for (const attrName of ["aria-label", "title", "data-state", "data-status", "data-testid", "data-icon", "class"]) {
+        const rawValue = typeof node.getAttribute === "function" ? node.getAttribute(attrName) : "";
+        const value = api.normalizeText(rawValue || "").toLowerCase();
+        if (value) signals.push(value);
+      }
+      if (node instanceof HTMLElement && node.childElementCount === 0) {
+        const text = api.normalizeText(node.textContent || "").toLowerCase();
+        if (text && text.length <= 24) signals.push(text);
+      }
+    }
+    return signals;
+  }
+
+  function hasSignal(signals, tokens) {
+    return signals.some((signal) => tokens.some((token) => signal.includes(token)));
+  }
+
+  function rowMatchesCurrentLocation(row) {
+    const links = row.querySelectorAll("a[href]");
+    const currentPath = `${window.location.pathname || ""}${window.location.search || ""}`;
+    for (const link of links) {
+      if (!(link instanceof HTMLAnchorElement)) continue;
+      let targetUrl = null;
+      try {
+        targetUrl = new URL(link.href, window.location.href);
+      } catch {
+        targetUrl = null;
+      }
+      if (!targetUrl) continue;
+      const targetPath = `${targetUrl.pathname || ""}${targetUrl.search || ""}`;
+      if (targetPath && targetPath === currentPath) return true;
+    }
+    return false;
+  }
+
+  function classifyThreadRow(row) {
+    resetRowDecoration(row);
+    const signals = collectRowSignals(row);
+    const hasProgressMarker =
+      row.matches(PROGRESS_SELECTOR) ||
+      Boolean(row.querySelector(PROGRESS_SELECTOR)) ||
+      hasSignal(signals, ["progress", "loading", "spinner", "running", "streaming"]);
+    const isCurrent =
+      row.matches(ACTIVE_SELECTOR) ||
+      Boolean(row.querySelector(ACTIVE_SELECTOR)) ||
+      rowMatchesCurrentLocation(row) ||
+      hasProgressMarker ||
+      hasSignal(signals, ACTIVE_SIGNAL_TOKENS);
+    const isCompleted = !isCurrent && hasSignal(signals, COMPLETED_SIGNAL_TOKENS);
+    if (isCurrent) {
+      row.setAttribute(THREAD_CURRENT_ATTR, "1");
+    } else if (isCompleted) {
+      row.setAttribute(THREAD_COMPLETED_ATTR, "1");
+    }
   }
 
   function ensureToggleElement(state, label) {
@@ -102,6 +201,7 @@
     const threadRows = group.threadRows;
     const nativeShowMoreRow = group.nativeShowMoreRow;
 
+    for (const row of threadRows) classifyThreadRow(row);
     for (const row of nativeToggleRows) setRowVisible(row, false);
     if (nativeShowMoreRow && tryExpandNativeList(nativeShowMoreRow, state)) return;
 

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "webview-thread-list-cap",
   "name": "Thread list cap",
-  "description": "Show 6 threads per project before expanding.",
+  "description": "Show 4 threads per project before expanding, with active/completed row highlighting.",
   "enabled": true,
   "priority": 210,
   "compatibility": {
