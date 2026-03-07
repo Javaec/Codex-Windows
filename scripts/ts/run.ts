@@ -1,6 +1,7 @@
 import { parseArgs, printUsage } from "./lib/args";
 import { writeError } from "./lib/exec";
 import { runSharedHomeAudit } from "./lib/runner/shared-home-audit";
+import { runSharedHomeContentionReport } from "./lib/runner/shared-home-contention";
 import { runPipeline } from "./lib/runner/pipeline";
 import { runSmoke } from "./lib/runner/smoke";
 import { runVerify } from "./lib/runner/verify";
@@ -19,6 +20,9 @@ async function main(): Promise<number> {
   }
   if (parsed.mode === "audit") {
     return runSharedHomeAudit(parsed.options);
+  }
+  if (parsed.mode === "contention") {
+    return runSharedHomeContentionReport(parsed.options);
   }
   return runPipeline(parsed.options);
 }

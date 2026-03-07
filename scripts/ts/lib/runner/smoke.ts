@@ -26,10 +26,12 @@ export async function runSmoke(options: PipelineOptions): Promise<number> {
   }
 
   writeSuccess(`Smoke portable output: ${pipelineResult.portableOutputDir}`);
-  const smokeResult = await runPortableSmoke(
-    pipelineResult.portableOutputDir,
-    options.smokeSeconds,
-    options.smokeLanes,
-  );
+  const smokeResult = await runPortableSmoke({
+    outputDir: pipelineResult.portableOutputDir,
+    smokeSeconds: options.smokeSeconds,
+    rawLanes: options.smokeLanes,
+    userDataSeedPath: options.smokeUserDataSeedPath,
+    codexHomeSeedPath: options.smokeCodexHomeSeedPath,
+  });
   return smokeResult.success ? 0 : 1;
 }

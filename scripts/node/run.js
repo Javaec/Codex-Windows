@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const args_1 = require("./lib/args");
 const exec_1 = require("./lib/exec");
 const shared_home_audit_1 = require("./lib/runner/shared-home-audit");
+const shared_home_contention_1 = require("./lib/runner/shared-home-contention");
 const pipeline_1 = require("./lib/runner/pipeline");
 const smoke_1 = require("./lib/runner/smoke");
 const verify_1 = require("./lib/runner/verify");
@@ -20,6 +21,9 @@ async function main() {
     }
     if (parsed.mode === "audit") {
         return (0, shared_home_audit_1.runSharedHomeAudit)(parsed.options);
+    }
+    if (parsed.mode === "contention") {
+        return (0, shared_home_contention_1.runSharedHomeContentionReport)(parsed.options);
     }
     return (0, pipeline_1.runPipeline)(parsed.options);
 }

@@ -21,7 +21,7 @@ function parseArgs(argv) {
     let index = 0;
     const first = argv[0].toLowerCase();
     if (!first.startsWith("-")) {
-        if (first === "run" || first === "build" || first === "verify" || first === "smoke" || first === "audit") {
+        if (first === "run" || first === "build" || first === "verify" || first === "smoke" || first === "audit" || first === "contention") {
             mode = first;
             index = 1;
         }
@@ -101,6 +101,15 @@ function parseArgs(argv) {
             case "smokelanes":
                 options.smokeLanes = readValue();
                 break;
+            case "smokeuserdataseed":
+                options.smokeUserDataSeedPath = readValue();
+                break;
+            case "smokecodexhomeseed":
+                options.smokeCodexHomeSeedPath = readValue();
+                break;
+            case "runtimelogsdir":
+                options.runtimeLogsDir = readValue();
+                break;
             default:
                 throw new Error(`Unknown option: ${token}`);
         }
@@ -117,6 +126,7 @@ function printUsage() {
     process.stdout.write("  node scripts/node/run.js verify [options]\n");
     process.stdout.write("  node scripts/node/run.js smoke [options]\n");
     process.stdout.write("  node scripts/node/run.js audit [options]\n");
+    process.stdout.write("  node scripts/node/run.js contention [options]\n");
     process.stdout.write("\n");
     process.stdout.write("Examples:\n");
     process.stdout.write("  node scripts/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
@@ -124,6 +134,7 @@ function printUsage() {
     process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
     process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
     process.stdout.write("  node scripts/node/run.js audit -CodexHomePath C:\\Users\\<user>\\.codex\n");
+    process.stdout.write("  node scripts/node/run.js contention -CodexHomePath C:\\Users\\<user>\\.codex -RuntimeLogsDir .\\dist\\Codex-win32-x64\\runtime-logs\n");
     process.stdout.write("\n");
     process.stdout.write("Options:\n");
     process.stdout.write("  -DmgPath <path>\n");
@@ -131,10 +142,12 @@ function printUsage() {
     process.stdout.write("  -DistDir <path>\n");
     process.stdout.write("  -CodexCliPath <path>\n");
     process.stdout.write("  -CodexHomePath <path>\n");
+    process.stdout.write("  -RuntimeLogsDir <path>\n");
     process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <name>  -StrictContract\n");
     process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>\n");
+    process.stdout.write("  -SmokeUserDataSeed <path>  -SmokeCodexHomeSeed <path>\n");
 }
 function normalizeProfileName(profileName) {
     const raw = (profileName || "").trim().toLowerCase();

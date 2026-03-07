@@ -6,6 +6,14 @@
 - `direct-launch.ts` owns actual process start logic for unpacked app and portable app.
 - `runtime-compare.ts` owns lane compare scripts; `launchers.ts` should only emit launcher files.
 - `smoke.ts` owns reusable portable smoke execution; runner smoke mode should call it instead of embedding ad-hoc node scripts.
+- `smoke.ts` also owns seeded smoke snapshots:
+  - `-SmokeUserDataSeed`
+  - `-SmokeCodexHomeSeed`
+  and must materialize them only inside artifact-local lane directories.
+- `CODEX_HOME` seeds must use a curated snapshot policy, not a blind full copy of the live home:
+  - copy auth/config/UI-relevant files and directories
+  - never copy live `state_5.sqlite-wal` or `state_5.sqlite-shm`
+  - prefer the newest `state_5.sqlite.bak*` as the seed `state_5.sqlite` when available
 - `codex-resources.ts` owns bundling of CLI/runtime companion files.
 - `resources/mod-api` is part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_API_DIR` at it.
 - `resources/mod-loader` is also part of the portable runtime contract; launchers and direct-launch must always point `CODEX_MOD_LOADER_DIR` at it.
@@ -60,5 +68,8 @@
   - `render_process_gone`
   - `usability_blocking_spinner`
 - Shared-home smoke failures caused by real `C:\\Users\\lensm\\.codex` contention (for example `state db locked`) are valid failures and must not be “fixed” by cleanup logic inside the smoke harness.
+- If both smoke seeds are provided, smoke must switch from plain launchability to authenticated usability for non-isolated lanes:
+  - `authMethod=unset` becomes a failure
+  - populated sidebar/settings surface becomes mandatory
 - `isolated-home` exists specifically to separate platform/mod issues from user-state contention without mutating the real home.
 - `dist` is canonical; temporary fallback outputs belong under `work/portable-output`.

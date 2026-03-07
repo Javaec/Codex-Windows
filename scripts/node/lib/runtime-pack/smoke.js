@@ -39,6 +39,29 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const DEFAULT_SMOKE_LANES = ["no-mods", "minimal", "with-mods", "isolated-home"];
+const CODEX_HOME_SEED_FILES = [
+    ".codex-global-state.json",
+    ".personality_migration",
+    "auth.json",
+    "cap_sid",
+    "config.toml",
+    "history.jsonl",
+    "models_cache.json",
+    "session_index.jsonl",
+    "version.json",
+];
+const CODEX_HOME_SEED_DIRS = [
+    ".sandbox",
+    ".sandbox-bin",
+    ".sandbox-secrets",
+    "automations",
+    "memories",
+    "prompts",
+    "rules",
+    "skills",
+    "sqlite",
+    "vendor_imports",
+];
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -72,22 +95,86 @@ function parseSmokeLanes(rawValue) {
     }
     return Array.from(new Set(lanes));
 }
-function cleanupLaneState(outputDir, lane) {
-    const suffix = lane === "isolated-home"
+function getLaneSuffix(lane) {
+    return lane === "isolated-home"
         ? "-isolated-home"
         : lane === "with-mods"
             ? "-with-mods"
             : lane === "no-mods"
                 ? "-no-mods"
                 : "-minimal";
+}
+function resolveLaneUserDataDir(outputDir, lane) {
+    return path.join(outputDir, `userdata${getLaneSuffix(lane)}`);
+}
+function resolveLaneCacheDir(outputDir, lane) {
+    return path.join(outputDir, `cache${getLaneSuffix(lane)}`);
+}
+function resolveSeededCodexHomeDir(outputDir, lane) {
+    return path.join(outputDir, `codex-home-seeded${getLaneSuffix(lane)}`);
+}
+function cleanupLaneState(outputDir, lane, codexHomeSeedPath) {
+    const suffix = getLaneSuffix(lane);
     (0, exec_1.removePath)(path.join(outputDir, `userdata${suffix}`));
     (0, exec_1.removePath)(path.join(outputDir, `cache${suffix}`));
     if (lane === "isolated-home") {
         (0, exec_1.removePath)(path.join(outputDir, "codex-home-isolated"));
     }
+    if (codexHomeSeedPath && lane !== "isolated-home") {
+        (0, exec_1.removePath)(resolveSeededCodexHomeDir(outputDir, lane));
+    }
 }
-async function runSmokeLane(outputDir, lane, holdSeconds) {
-    cleanupLaneState(outputDir, lane);
+function copySeedSnapshot(sourceDir, targetDir, label) {
+    if (!sourceDir)
+        return;
+    const resolvedSource = path.resolve(sourceDir);
+    if (!(0, exec_1.fileExists)(resolvedSource)) {
+        throw new Error(`Smoke ${label} seed missing: ${resolvedSource}`);
+    }
+    (0, exec_1.removePath)(targetDir);
+    (0, exec_1.copyDirectory)(resolvedSource, targetDir);
+}
+function copyCodexHomeSeedSnapshot(sourceDir, targetDir) {
+    if (!sourceDir)
+        return;
+    const resolvedSource = path.resolve(sourceDir);
+    if (!(0, exec_1.fileExists)(resolvedSource)) {
+        throw new Error(`Smoke CODEX_HOME seed missing: ${resolvedSource}`);
+    }
+    (0, exec_1.removePath)(targetDir);
+    (0, exec_1.ensureDir)(targetDir);
+    for (const fileName of CODEX_HOME_SEED_FILES) {
+        const sourcePath = path.join(resolvedSource, fileName);
+        if (!(0, exec_1.fileExists)(sourcePath))
+            continue;
+        (0, exec_1.copyFileSafe)(sourcePath, path.join(targetDir, fileName));
+    }
+    for (const dirName of CODEX_HOME_SEED_DIRS) {
+        const sourcePath = path.join(resolvedSource, dirName);
+        if (!(0, exec_1.fileExists)(sourcePath))
+            continue;
+        (0, exec_1.copyDirectory)(sourcePath, path.join(targetDir, dirName));
+    }
+    const backupCandidates = fs
+        .readdirSync(resolvedSource, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^state_5\.sqlite\.bak/i.test(entry.name))
+        .map((entry) => path.join(resolvedSource, entry.name))
+        .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+    if (backupCandidates.length > 0) {
+        (0, exec_1.copyFileSafe)(backupCandidates[0], path.join(targetDir, "state_5.sqlite"));
+    }
+}
+async function runSmokeLane(outputDir, lane, holdSeconds, options) {
+    cleanupLaneState(outputDir, lane, options.codexHomeSeedPath);
+    const laneUserDataDir = resolveLaneUserDataDir(outputDir, lane);
+    const laneCacheDir = resolveLaneCacheDir(outputDir, lane);
+    copySeedSnapshot(options.userDataSeedPath, laneUserDataDir, "userData");
+    const seededCodexHomeDir = options.codexHomeSeedPath && lane !== "isolated-home"
+        ? resolveSeededCodexHomeDir(outputDir, lane)
+        : "";
+    if (seededCodexHomeDir) {
+        copyCodexHomeSeedSnapshot(options.codexHomeSeedPath, seededCodexHomeDir);
+    }
     const launcherPath = resolveLaneLauncherPath(outputDir, lane);
     (0, exec_1.writeHeader)(`Smoke lane: ${lane}`);
     const child = (0, node_child_process_1.spawn)("cmd.exe", ["/c", launcherPath], {
@@ -98,6 +185,7 @@ async function runSmokeLane(outputDir, lane, holdSeconds) {
         env: {
             ...process.env,
             CODEX_WINDOWS_USABILITY_SMOKE: "1",
+            ...(seededCodexHomeDir ? { CODEX_HOME: seededCodexHomeDir } : {}),
         },
     });
     await sleep(holdSeconds * 1000);
@@ -129,14 +217,19 @@ function readLaneSummary(outputDir) {
     }
     const rawValue = fs.readFileSync(summaryJsonPath, "utf8").trim();
     const parsed = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-        throw new Error(`Runtime lane summary must be an array: ${summaryJsonPath}`);
+    if (Array.isArray(parsed)) {
+        return parsed;
     }
-    return parsed;
+    if (parsed && typeof parsed === "object") {
+        return [parsed];
+    }
+    throw new Error(`Runtime lane summary must be an object or array: ${summaryJsonPath}`);
 }
-function evaluateLaneSummary(summary) {
+function evaluateLaneSummary(summary, options) {
     const failures = [];
-    const requireAuthenticatedSurface = summary.lane !== "isolated-home" && summary.auth_unset < 1;
+    const seededAuthenticatedSmoke = Boolean(options.userDataSeedPath && options.codexHomeSeedPath);
+    const requireAuthenticatedSurface = summary.lane !== "isolated-home" &&
+        (seededAuthenticatedSmoke || summary.auth_unset < 1);
     if (summary.cli_initialized < 1)
         failures.push("cli_initialized=0");
     if (summary.ready_message < 1)
@@ -149,6 +242,8 @@ function evaluateLaneSummary(summary) {
         failures.push("ready_to_show=0");
     if (summary.window_show < 1)
         failures.push("window_show=0");
+    if (seededAuthenticatedSmoke && summary.lane !== "isolated-home" && summary.auth_unset > 0)
+        failures.push(`auth_unset=${summary.auth_unset}`);
     if (requireAuthenticatedSurface && summary.thread_list < 1)
         failures.push("thread_list=0");
     if (requireAuthenticatedSurface && summary.app_list < 1)
@@ -187,14 +282,15 @@ function writeSmokeResult(result) {
         (0, exec_1.writeError)(`[smoke] FAIL ${failure}`);
     }
 }
-async function runPortableSmoke(outputDir, smokeSeconds, rawLanes) {
+async function runPortableSmoke(options) {
+    const outputDir = options.outputDir;
     if (!(0, exec_1.fileExists)(outputDir)) {
         throw new Error(`Portable output missing for smoke: ${outputDir}`);
     }
-    const lanes = parseSmokeLanes(rawLanes);
+    const lanes = parseSmokeLanes(options.rawLanes);
     (0, exec_1.removePath)(path.join(outputDir, "runtime-logs"));
     for (const lane of lanes) {
-        await runSmokeLane(outputDir, lane, smokeSeconds);
+        await runSmokeLane(outputDir, lane, options.smokeSeconds, options);
     }
     refreshLaneSummary(outputDir);
     const summaries = readLaneSummary(outputDir);
@@ -205,7 +301,7 @@ async function runPortableSmoke(outputDir, smokeSeconds, rawLanes) {
             failures.push(`${lane}: missing summary row`);
             continue;
         }
-        for (const failure of evaluateLaneSummary(summary)) {
+        for (const failure of evaluateLaneSummary(summary, options)) {
             failures.push(`${lane}: ${failure}`);
         }
     }

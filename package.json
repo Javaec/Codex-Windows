@@ -8,6 +8,7 @@
     "verify:runner": "node scripts/node/run.js verify",
     "smoke:runner": "node scripts/node/run.js smoke",
     "audit:runner": "node scripts/node/run.js audit",
+    "contention:runner": "node scripts/node/run.js contention",
     "patch-pack:preflight": "node ./shared/patch-pack/preflight.mjs",
     "patch-pack:preflight:10711": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-10711.dmg --app-version 26.303.1606 --build-number 806",
     "patch-pack:preflight:11012": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863",

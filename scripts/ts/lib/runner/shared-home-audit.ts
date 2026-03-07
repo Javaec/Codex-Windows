@@ -8,14 +8,14 @@ import { copyDirectory, removePath, resolveCommand, writeHeader, writeSuccess } 
 import { getWindowsRuntimeDonorBetterSqlite3Path } from "../runtime-donor/windows-apps";
 import { REPO_ROOT, sanitizeRunnerEnvironment } from "./context";
 
-type FileAudit = {
+export type FileAudit = {
   path: string;
   exists: boolean;
   sizeBytes: number;
   modifiedAtIso: string;
 };
 
-type ProcessAudit = {
+export type ProcessAudit = {
   processId: number;
   name: string;
   commandLine: string;
@@ -53,7 +53,7 @@ type SharedHomeAuditReport = {
   contentionHints: string[];
 };
 
-function resolveCodexHomePath(explicit: string | undefined): string {
+export function resolveCodexHomePath(explicit: string | undefined): string {
   if (explicit && explicit.trim()) return path.resolve(explicit);
   const userProfile = process.env.USERPROFILE || process.env.HOME || "";
   if (!userProfile) {
@@ -62,7 +62,7 @@ function resolveCodexHomePath(explicit: string | undefined): string {
   return path.join(userProfile, ".codex");
 }
 
-function readFileAudit(filePath: string): FileAudit {
+export function readFileAudit(filePath: string): FileAudit {
   if (!fs.existsSync(filePath)) {
     return {
       path: filePath,
@@ -80,7 +80,7 @@ function readFileAudit(filePath: string): FileAudit {
   };
 }
 
-function readGlobalStateSummary(codexHomePath: string): SharedHomeAuditReport["globalState"] {
+export function readGlobalStateSummary(codexHomePath: string): SharedHomeAuditReport["globalState"] {
   const globalStatePath = path.join(codexHomePath, ".codex-global-state.json");
   if (!fs.existsSync(globalStatePath)) {
     return {
@@ -99,7 +99,7 @@ function readGlobalStateSummary(codexHomePath: string): SharedHomeAuditReport["g
   };
 }
 
-function runPowerShellJson(command: string): unknown {
+export function runPowerShellJson(command: string): unknown {
   const shellPath =
     resolveCommand("pwsh.exe") ||
     resolveCommand("pwsh") ||
@@ -129,7 +129,7 @@ function runPowerShellJson(command: string): unknown {
   }
 }
 
-function readCodexProcesses(): ProcessAudit[] {
+export function readCodexProcesses(): ProcessAudit[] {
   const script = [
     "$ErrorActionPreference = 'Stop'",
     "$items = Get-CimInstance Win32_Process | Where-Object {",

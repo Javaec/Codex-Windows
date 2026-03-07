@@ -58,6 +58,12 @@ async function runSmoke(options) {
         throw new Error("Smoke mode requires a portable output directory");
     }
     (0, exec_1.writeSuccess)(`Smoke portable output: ${pipelineResult.portableOutputDir}`);
-    const smokeResult = await (0, smoke_1.runPortableSmoke)(pipelineResult.portableOutputDir, options.smokeSeconds, options.smokeLanes);
+    const smokeResult = await (0, smoke_1.runPortableSmoke)({
+        outputDir: pipelineResult.portableOutputDir,
+        smokeSeconds: options.smokeSeconds,
+        rawLanes: options.smokeLanes,
+        userDataSeedPath: options.smokeUserDataSeedPath,
+        codexHomeSeedPath: options.smokeCodexHomeSeedPath,
+    });
     return smokeResult.success ? 0 : 1;
 }
