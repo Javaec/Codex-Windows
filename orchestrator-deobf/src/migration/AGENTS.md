@@ -28,3 +28,9 @@ Keep Codex snapshot upgrades deterministic with minimal naming-memory loss.
   - baseline archives are written as compressed `.json.gz`,
   - legacy uncompressed baseline `.json` files are deleted automatically,
   - migration run fails fast if size budget is still exceeded.
+- `codex-version-bridge.ts` must prefer internal snapshot identity over filename heuristics:
+  - explicit CLI `--app-version` / `--build-number` first
+  - then nearby `package.json` metadata next to the snapshot input
+  - snapshot label only as fallback
+- Rule:
+  - do not keep old hardcoded version defaults in migration paths.

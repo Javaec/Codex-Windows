@@ -174,6 +174,6 @@
   - seeded `userData`
   - seeded `CODEX_HOME`
   - no mutation of the original user files
-- `smoke:runner:daily` should run both.
+- `smoke:runner:daily` now runs both through one runner invocation and writes one combined `smoke-report.json`.
 - Reason:
   - startup regressions and auth/UI-surface regressions are different classes and must not be conflated.

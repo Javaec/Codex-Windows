@@ -34,11 +34,32 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runSmoke = runSmoke;
+const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const smoke_1 = require("../runtime-pack/smoke");
 const context_1 = require("./context");
 const pipeline_1 = require("./pipeline");
+function moveRuntimeLogs(outputDir, stageLabel) {
+    const sourceDir = path.join(outputDir, "runtime-logs");
+    const targetDir = path.join(outputDir, `runtime-logs-${stageLabel}`);
+    (0, exec_1.removePath)(targetDir);
+    if (fs.existsSync(sourceDir)) {
+        fs.renameSync(sourceDir, targetDir);
+    }
+    return targetDir;
+}
+function buildStageReport(stage, smokeResult, runtimeLogsDir) {
+    return {
+        stage,
+        success: smokeResult.success,
+        failures: [...smokeResult.failures],
+        laneCount: smokeResult.lanes.length,
+        runtimeLogsDir,
+        summaryPath: path.join(runtimeLogsDir, "lane-summary.txt"),
+        summaryJsonPath: path.join(runtimeLogsDir, "lane-summary.json"),
+    };
+}
 async function runSmoke(options) {
     (0, exec_1.writeHeader)("Smoke build");
     const smokeWorkDir = path.resolve(options.workDir || path.join(context_1.REPO_ROOT, "work", "runner-smoke"));
@@ -58,12 +79,40 @@ async function runSmoke(options) {
         throw new Error("Smoke mode requires a portable output directory");
     }
     (0, exec_1.writeSuccess)(`Smoke portable output: ${pipelineResult.portableOutputDir}`);
-    const smokeResult = await (0, smoke_1.runPortableSmoke)({
+    const launchabilityResult = await (0, smoke_1.runPortableSmoke)({
         outputDir: pipelineResult.portableOutputDir,
         smokeSeconds: options.smokeSeconds,
         rawLanes: options.smokeLanes,
-        userDataSeedPath: options.smokeUserDataSeedPath,
-        codexHomeSeedPath: options.smokeCodexHomeSeedPath,
     });
-    return smokeResult.success ? 0 : 1;
+    let launchabilityLogsDir = path.join(pipelineResult.portableOutputDir, "runtime-logs");
+    let authenticatedStage = null;
+    if (options.smokeAuthStage) {
+        if (!options.smokeUserDataSeedPath || !options.smokeCodexHomeSeedPath) {
+            throw new Error("Smoke auth stage requires both -SmokeUserDataSeed and -SmokeCodexHomeSeed");
+        }
+        launchabilityLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "launchability");
+        const authResult = await (0, smoke_1.runPortableSmoke)({
+            outputDir: pipelineResult.portableOutputDir,
+            smokeSeconds: options.smokeSeconds,
+            rawLanes: options.smokeAuthLanes || "with-mods",
+            userDataSeedPath: options.smokeUserDataSeedPath,
+            codexHomeSeedPath: options.smokeCodexHomeSeedPath,
+        });
+        const authenticatedLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "authenticated");
+        authenticatedStage = buildStageReport("authenticated", authResult, authenticatedLogsDir);
+    }
+    const launchabilityStage = buildStageReport("launchability", launchabilityResult, launchabilityLogsDir);
+    const report = {
+        version: 1,
+        generatedAtIso: new Date().toISOString(),
+        outputDir: pipelineResult.portableOutputDir,
+        smokeSeconds: options.smokeSeconds,
+        launchability: launchabilityStage,
+        authenticated: authenticatedStage,
+        success: launchabilityStage.success && (authenticatedStage ? authenticatedStage.success : true),
+    };
+    const reportPath = path.join(pipelineResult.portableOutputDir, "smoke-report.json");
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    (0, exec_1.writeSuccess)(`Smoke report: ${reportPath}`);
+    return report.success ? 0 : 1;
 }

@@ -16,6 +16,8 @@ export interface PipelineOptions {
   strictContract: boolean;
   smokeSeconds: number;
   smokeLanes?: string;
+  smokeAuthStage: boolean;
+  smokeAuthLanes?: string;
   smokeUserDataSeedPath?: string;
   smokeCodexHomeSeedPath?: string;
   runtimeLogsDir?: string;
@@ -37,6 +39,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     profileName: "default",
     strictContract: false,
     smokeSeconds: 25,
+    smokeAuthStage: false,
   };
 
   if (argv.length === 0) {
@@ -127,6 +130,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case "smokelanes":
         options.smokeLanes = readValue();
         break;
+      case "smokeauthstage":
+        options.smokeAuthStage = true;
+        break;
+      case "smokeauthlanes":
+        options.smokeAuthLanes = readValue();
+        break;
       case "smokeuserdataseed":
         options.smokeUserDataSeedPath = readValue();
         break;
@@ -162,6 +171,7 @@ export function printUsage(): void {
   process.stdout.write("  node scripts/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
   process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
   process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
+  process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeAuthStage -SmokeUserDataSeed .\\dist\\Codex-win32-x64\\userdata-no-mods -SmokeCodexHomeSeed %USERPROFILE%\\.codex\n");
   process.stdout.write("  node scripts/node/run.js audit -CodexHomePath C:\\Users\\<user>\\.codex\n");
   process.stdout.write("  node scripts/node/run.js contention -CodexHomePath C:\\Users\\<user>\\.codex -RuntimeLogsDir .\\dist\\Codex-win32-x64\\runtime-logs\n");
   process.stdout.write("\n");
@@ -175,7 +185,8 @@ export function printUsage(): void {
   process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
   process.stdout.write("  -ProfileName <name>  -StrictContract\n");
-  process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>\n");
+  process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
+  process.stdout.write("  -SmokeAuthLanes <comma-separated>\n");
   process.stdout.write("  -SmokeUserDataSeed <path>  -SmokeCodexHomeSeed <path>\n");
 }
 

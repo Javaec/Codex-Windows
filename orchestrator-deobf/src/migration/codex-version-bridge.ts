@@ -44,11 +44,21 @@ interface NamingMemorySnapshotStats {
   genericNameCount: number;
 }
 
+interface SnapshotPackageMetadata {
+  packageJsonPath: string;
+  appVersion: string;
+  buildNumber: string;
+}
+
 interface VersionBridgeReport {
   version: number;
   generatedAtIso: string;
   snapshotAsarPath: string;
   snapshotLabel: string;
+  appVersion: string;
+  buildNumber: string;
+  versionIdentitySource: string;
+  versionIdentityPath: string;
   snapshotSha256: string;
   snapshotKey: string;
   sourceProfilePath: string;
@@ -94,8 +104,8 @@ function printUsage(): void {
     "Options:",
     "  --snapshot-label <label>     default: basename(snapshot path)",
     "  --patch-profile <id>         optional: force patch profile",
-    "  --app-version <v>            default: 26.303.1606",
-    "  --build-number <n>           default: 806",
+    "  --app-version <v>            optional: prefer explicit internal app version",
+    "  --build-number <n>           optional: prefer explicit internal build number",
     "  --from-profile <path|key>    optional: source naming profile file or snapshot key",
     "  --overwrite-target-profile   default: false",
     "  --profile <latest|regression-latest> default: regression-latest",
@@ -142,8 +152,8 @@ function parseCli(argv: readonly string[]): CliOptions {
   let snapshotAsarPath = "";
   let snapshotLabel = "";
   let patchProfile = "";
-  let appVersion = "26.303.1606";
-  let buildNumber = "806";
+  let appVersion = "";
+  let buildNumber = "";
   let fromProfile = "";
   let overwriteTargetProfile = false;
   let outputProfile: OutputProfile = "regression-latest";
@@ -310,6 +320,72 @@ async function fileExists(filePath: string): Promise<boolean> {
     .catch(() => false);
 }
 
+async function readSnapshotPackageMetadata(snapshotAsarPath: string): Promise<SnapshotPackageMetadata | null> {
+  const seen = new Set<string>();
+  let currentDirectory = path.dirname(snapshotAsarPath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidatePaths = [
+      path.join(currentDirectory, "package.json"),
+      path.join(currentDirectory, "app", "package.json"),
+    ];
+    for (const candidatePath of candidatePaths) {
+      const resolvedCandidatePath = path.resolve(candidatePath);
+      const key = resolvedCandidatePath.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!(await fileExists(resolvedCandidatePath))) continue;
+      const parsed = await readJsonFile<{
+        version?: string;
+        codexBuildNumber?: string;
+      }>(resolvedCandidatePath);
+      const appVersion = String(parsed.version || "").trim();
+      const buildNumber = String(parsed.codexBuildNumber || "").trim();
+      if (appVersion.length < 1 && buildNumber.length < 1) continue;
+      return {
+        packageJsonPath: resolvedCandidatePath,
+        appVersion,
+        buildNumber,
+      };
+    }
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) break;
+    currentDirectory = parentDirectory;
+  }
+  return null;
+}
+
+async function resolveSnapshotIdentity(cli: CliOptions): Promise<{
+  appVersion: string;
+  buildNumber: string;
+  source: string;
+  sourcePath: string;
+}> {
+  const hasCliIdentity = cli.appVersion.length > 0 || cli.buildNumber.length > 0;
+  const metadata = hasCliIdentity ? null : await readSnapshotPackageMetadata(cli.snapshotAsarPath);
+  if (cli.appVersion.length > 0 || cli.buildNumber.length > 0) {
+    return {
+      appVersion: cli.appVersion,
+      buildNumber: cli.buildNumber,
+      source: "cli",
+      sourcePath: "",
+    };
+  }
+  if (metadata) {
+    return {
+      appVersion: metadata.appVersion,
+      buildNumber: metadata.buildNumber,
+      source: "package-json",
+      sourcePath: metadata.packageJsonPath,
+    };
+  }
+  return {
+    appVersion: "",
+    buildNumber: "",
+    source: "unresolved",
+    sourcePath: "",
+  };
+}
+
 async function runNodeCommand(cwd: string, args: string[], mirrorOutput: boolean): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -451,6 +527,7 @@ async function writeCompressedBaselineCopy(sourceProfilePath: string, baselineDi
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2));
+  const resolvedIdentity = await resolveSnapshotIdentity(cli);
   const snapshotDigest = await hashFileSha256(cli.snapshotAsarPath);
   const snapshotKey = snapshotDigest.sha256.slice(0, 12);
   const snapshotLabel = cli.snapshotLabel.length > 0 ? cli.snapshotLabel : path.basename(cli.snapshotAsarPath);
@@ -514,11 +591,13 @@ async function run(): Promise<void> {
     preflightScriptPath,
     "--snapshot-label",
     snapshotLabel,
-    "--app-version",
-    cli.appVersion,
-    "--build-number",
-    cli.buildNumber,
   ];
+  if (resolvedIdentity.appVersion.length > 0) {
+    preflightArgs.push("--app-version", resolvedIdentity.appVersion);
+  }
+  if (resolvedIdentity.buildNumber.length > 0) {
+    preflightArgs.push("--build-number", resolvedIdentity.buildNumber);
+  }
   if (cli.patchProfile.length > 0) {
     preflightArgs.push("--patch-profile", cli.patchProfile);
   }
@@ -604,6 +683,10 @@ async function run(): Promise<void> {
     generatedAtIso: new Date().toISOString(),
     snapshotAsarPath: cli.snapshotAsarPath,
     snapshotLabel,
+    appVersion: resolvedIdentity.appVersion,
+    buildNumber: resolvedIdentity.buildNumber,
+    versionIdentitySource: resolvedIdentity.source,
+    versionIdentityPath: resolvedIdentity.sourcePath,
     snapshotSha256: snapshotDigest.sha256,
     snapshotKey,
     sourceProfilePath,

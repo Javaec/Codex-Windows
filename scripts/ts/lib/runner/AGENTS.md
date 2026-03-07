@@ -18,5 +18,9 @@
 - Daily smoke now has two distinct responsibilities:
   - plain launchability smoke
   - authenticated smoke with seeded `userData` + seeded `CODEX_HOME`
+- `smoke.ts` now owns the combined daily flow too:
+  - first stage: launchability
+  - second stage: authenticated (only when `-SmokeAuthStage` is set)
+  - combined report: `smoke-report.json`
 - `shared-home-audit.ts` may surface an explicit SQLite adapter error if host-compatible native bindings are unavailable. That is an audit finding, not a reason to mutate `.codex`.
 - Keep business logic in domain folders (`source-bundle`, `runtime-donor`, `runtime-pack`, `platform-patches`) and keep this folder thin.
