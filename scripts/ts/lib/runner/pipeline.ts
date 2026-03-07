@@ -19,6 +19,7 @@ import { invokeSingleExeBuild } from "../runtime-pack/sfx";
 import { invokeNativeStage } from "../runtime-donor/native";
 import { resolveDmgPath, invokeExtractionStage } from "../source-bundle/extract";
 import { resolveAndProbeCodexCli } from "./cli-resolution";
+import { cleanupRunnerArtifacts } from "./artifact-cleanup";
 import { REPO_ROOT, resolvePreferredCodexCliPath, sanitizeNpmBuildEnvironment, sanitizeRunnerEnvironment } from "./context";
 import { writeBuildMetadata } from "./metadata";
 
@@ -47,6 +48,7 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
   const distDir = path.resolve(options.distDir || path.join(REPO_ROOT, "dist"));
   fs.mkdirSync(workDir, { recursive: true });
   fs.mkdirSync(distDir, { recursive: true });
+  cleanupRunnerArtifacts(REPO_ROOT, workDir, distDir);
 
   const ripgrep = await ensureRipgrepInPath(workDir);
   writeSuccess(`Using rg: ${ripgrep.path} (source=${ripgrep.source})`);

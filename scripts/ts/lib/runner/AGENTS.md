@@ -33,5 +33,12 @@
   - incompatible mods
   - soft incompatibilities
   - recommended disabled mods
+- `artifact-cleanup.ts` now owns repo-local stale artifact pruning for:
+  - `C:\\Codex-Windows\\work\\*`
+  - `C:\\Codex-Windows\\dist\\*`
+- Policy:
+  - keep canonical roots and latest launchers
+  - prune non-canonical temp artifacts older than 12 hours
+  - never touch the active work/dist subtree for the current run
 - `shared-home-audit.ts` may surface an explicit SQLite adapter error if host-compatible native bindings are unavailable. That is an audit finding, not a reason to mutate `.codex`.
 - Keep business logic in domain folders (`source-bundle`, `runtime-donor`, `runtime-pack`, `platform-patches`) and keep this folder thin.

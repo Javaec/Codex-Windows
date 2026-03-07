@@ -80,3 +80,4 @@
   - populated sidebar/settings surface becomes mandatory
 - `isolated-home` exists specifically to separate platform/mod issues from user-state contention without mutating the real home.
 - `dist` is canonical; temporary fallback outputs belong under `work/portable-output`.
+- Launcher refresh should prune stale `Launch-Codex-only-*.cmd` files that no longer correspond to the current bundled modpack.

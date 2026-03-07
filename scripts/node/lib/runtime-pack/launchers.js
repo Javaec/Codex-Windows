@@ -165,6 +165,26 @@ function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cache
             });
         }
     }
+    const expectedVariantLaunchers = new Set([
+        "Launch-Codex.cmd",
+        ...variants.map((variant) => variant.fileName),
+    ]);
+    for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+        if (!entry.isFile())
+            continue;
+        if (!entry.name.startsWith("Launch-Codex-only-"))
+            continue;
+        if (expectedVariantLaunchers.has(entry.name))
+            continue;
+        const staleLauncherPath = path.join(outputDir, entry.name);
+        try {
+            (0, exec_1.removePath)(staleLauncherPath);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            (0, exec_1.writeWarn)(`Stale launcher could not be removed: ${staleLauncherPath} (${message})`);
+        }
+    }
     for (const variant of variants) {
         fs.writeFileSync(path.join(outputDir, variant.fileName), buildPortableLauncherScript(profile, `${userDataFolder}${variant.userDataSuffix}`, `${cacheFolder}${variant.userDataSuffix}`, variant.laneName, variant.env), "ascii");
     }

@@ -50,6 +50,7 @@ const sfx_1 = require("../runtime-pack/sfx");
 const native_1 = require("../runtime-donor/native");
 const extract_1 = require("../source-bundle/extract");
 const cli_resolution_1 = require("./cli-resolution");
+const artifact_cleanup_1 = require("./artifact-cleanup");
 const context_1 = require("./context");
 const metadata_1 = require("./metadata");
 function reportWorkspaceSanitizer(result) {
@@ -67,6 +68,7 @@ async function runPipelineDetailed(options) {
     const distDir = path.resolve(options.distDir || path.join(context_1.REPO_ROOT, "dist"));
     fs.mkdirSync(workDir, { recursive: true });
     fs.mkdirSync(distDir, { recursive: true });
+    (0, artifact_cleanup_1.cleanupRunnerArtifacts)(context_1.REPO_ROOT, workDir, distDir);
     const ripgrep = await (0, env_1.ensureRipgrepInPath)(workDir);
     (0, exec_1.writeSuccess)(`Using rg: ${ripgrep.path} (source=${ripgrep.source})`);
     const effectiveProfile = options.devProfile && options.profileName === "default" ? "dev" : options.profileName;
