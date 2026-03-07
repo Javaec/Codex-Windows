@@ -2838,7 +2838,7 @@ function buildGeneratedPackageJson(): string {
     '    "dev:smoke": "npm run -s build && node ./runtime/normalize-runtime-imports.mjs && node ./runtime/smoke-runner.mjs",',
     '    "desktop:smoke": "node ./runtime/desktop-repack-host.mjs --smoke",',
     '    "desktop:host": "node ./runtime/desktop-repack-host.mjs",',
-    '    "desktop:shell:smoke": "npm run -s build:web && node ./runtime/desktop-smoke.mjs"'
+    '    "desktop:shell:smoke": "npm run -s build:web && node ./runtime/desktop-smoke.mjs"',
     "  },",
     '  "devDependencies": {',
     '    "vite": "^7.1.7",',
@@ -13604,7 +13604,7 @@ function buildGeneratedDesktopRepackHostRunner(): string {
     "  process.exitCode = 1;",
     "});",
     "",
-  ].join(\"\\n\");
+  ].join("\\n");
 }
 
 function buildFileQualityReport(qualityEntries: ModuleQualityEntry[], rerenderedModuleCount: number): string {

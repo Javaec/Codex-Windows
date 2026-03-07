@@ -24,3 +24,12 @@ Keep the generated project runnable as a standalone source build (not only repac
 - Do not add fallback-heavy runtime behavior in emitter for this path.
 - Keep desktop smoke scripts minimal and reproducible.
 - Repack-host mode is the default smoke path to avoid false-green shell checks.
+
+## 2026-03-07: template-emitter compile blockers must stay obvious
+
+- `template-emitter.ts` recently failed the whole orchestrator build because of:
+  - a missing comma in a generated string array
+  - a malformed escaped `.join("\\n")` tail in TS source
+- Rule:
+  - do not hide emitter syntax breakage behind ad-hoc transpile steps
+  - keep template array literals syntactically simple enough that `tsc` catches mistakes immediately.
