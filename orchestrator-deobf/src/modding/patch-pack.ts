@@ -73,6 +73,23 @@ interface SnapshotIdentity {
   buildNumber: string;
 }
 
+function loadSharedVersionIdentity(projectRoot: string): {
+  parseBuildHint: (buildNumber: string, appVersion: string, snapshotLabel: string) => number;
+  resolveSnapshotVersionIdentity: (input: {
+    snapshotPath: string;
+    snapshotLabel?: string;
+    appVersion?: string;
+    buildNumber?: string;
+  }) => SnapshotIdentity & {
+    snapshotLabel: string;
+    buildHint: number;
+    source: string;
+    sourcePath: string;
+  };
+} {
+  return require(path.join(projectRoot, "..", "shared", "version-identity", "index.cjs"));
+}
+
 interface SelectorRule {
   profileId: string;
   snapshotRegex?: string;
@@ -162,44 +179,6 @@ function ensureStepId(value: string): PatchStepId {
   throw new Error(`patch-pack: unsupported step id ${value}`);
 }
 
-function parseBuildHint(buildNumber: string, appVersion: string, snapshotLabel: string): number {
-  let best = 0;
-  const direct = Number.parseInt(buildNumber, 10);
-  if (Number.isFinite(direct) && direct > best) best = direct;
-
-  const normalizedAppVersion = appVersion.trim();
-  const explicitAppVersionHints: Array<{ regex: RegExp; buildHint: number }> = [
-    { regex: /^26\.305\.950$/, buildHint: 11012 },
-    { regex: /^26\.303\.1606$/, buildHint: 10711 },
-  ];
-  for (const hint of explicitAppVersionHints) {
-    if (hint.regex.test(normalizedAppVersion) && hint.buildHint > best) {
-      best = hint.buildHint;
-    }
-  }
-
-  if (best > 0) {
-    return best;
-  }
-
-  const fallbackSnapshotLabel = snapshotLabel.trim();
-  const matchCodex = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
-  if (matchCodex && matchCodex[1]) {
-    const parsed = Number.parseInt(matchCodex[1], 10);
-    if (Number.isFinite(parsed) && parsed > best) best = parsed;
-  }
-
-  const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
-  if (numericTokens) {
-    for (const token of numericTokens) {
-      const parsed = Number.parseInt(token, 10);
-      if (Number.isFinite(parsed) && parsed > best) best = parsed;
-    }
-  }
-
-  return best;
-}
-
 function parseBuildLimit(value: unknown, label: string): number {
   if (value === undefined || value === null || value === "") {
     return 0;
@@ -212,54 +191,6 @@ function parseBuildLimit(value: unknown, label: string): number {
     throw new Error(`patch-pack: invalid ${label}`);
   }
   return numeric;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  return await fs
-    .stat(filePath)
-    .then(() => true)
-    .catch(() => false);
-}
-
-async function readSnapshotIdentity(snapshotPath: string, explicitAppVersion: string, explicitBuildNumber: string): Promise<SnapshotIdentity> {
-  if (explicitAppVersion.trim().length > 0 || explicitBuildNumber.trim().length > 0) {
-    return {
-      appVersion: explicitAppVersion.trim(),
-      buildNumber: explicitBuildNumber.trim(),
-    };
-  }
-
-  const seen = new Set<string>();
-  let currentDirectory = path.dirname(snapshotPath);
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidatePaths = [
-      path.join(currentDirectory, "package.json"),
-      path.join(currentDirectory, "app", "package.json"),
-    ];
-    for (const candidatePath of candidatePaths) {
-      const resolvedCandidatePath = path.resolve(candidatePath);
-      const key = resolvedCandidatePath.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!(await fileExists(resolvedCandidatePath))) continue;
-      const parsed = await readJsonFile<{
-        version?: string;
-        codexBuildNumber?: string;
-      }>(resolvedCandidatePath);
-      const appVersion = String(parsed.version || "").trim();
-      const buildNumber = String(parsed.codexBuildNumber || "").trim();
-      if (appVersion.length < 1 && buildNumber.length < 1) continue;
-      return { appVersion, buildNumber };
-    }
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
-    currentDirectory = parentDirectory;
-  }
-
-  return {
-    appVersion: "",
-    buildNumber: "",
-  };
 }
 
 function resolvePatchPackRootPath(projectRoot: string): string {
@@ -595,12 +526,18 @@ export async function resolvePatchProfile(input: ResolvePatchProfileInput): Prom
   const snapshotLabel = input.snapshotLabel.length > 0
     ? input.snapshotLabel
     : path.basename(input.snapshotPath);
-  const snapshotIdentity = await readSnapshotIdentity(input.snapshotPath, input.appVersion, input.buildNumber);
+  const sharedVersionIdentity = loadSharedVersionIdentity(input.projectRoot);
+  const snapshotIdentity = sharedVersionIdentity.resolveSnapshotVersionIdentity({
+    snapshotPath: input.snapshotPath,
+    snapshotLabel,
+    appVersion: input.appVersion,
+    buildNumber: input.buildNumber,
+  });
   const patchPackRootPath = resolvePatchPackRootPath(input.projectRoot);
   const selectorModel = await readSelector(patchPackRootPath);
   const catalog = await readCatalog(patchPackRootPath);
   const stageRegistry = await readStageRegistry(patchPackRootPath);
-  const buildHint = parseBuildHint(snapshotIdentity.buildNumber, snapshotIdentity.appVersion, snapshotLabel);
+  const buildHint = snapshotIdentity.buildHint;
   const forcedProfileId = input.forcedProfileId.trim().toLowerCase();
   const hasStrongSnapshotContext = buildHint > 0 || snapshotIdentity.appVersion.trim().length > 0 || !/app\.asar$/iu.test(snapshotLabel);
   const effectiveForcedProfileId = forcedProfileId.length > 0

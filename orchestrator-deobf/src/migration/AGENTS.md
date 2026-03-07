@@ -38,3 +38,5 @@ Keep Codex snapshot upgrades deterministic with minimal naming-memory loss.
   - `versionIdentitySource`
   - `versionIdentityPath`
   in its report output.
+- Both migration entrypoints should load shared identity logic from:
+  - `C:\\Codex-Windows\\shared\\version-identity\\index.cjs`

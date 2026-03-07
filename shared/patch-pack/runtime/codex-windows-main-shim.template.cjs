@@ -48,6 +48,24 @@
       return path.join(profileDir, ".codex");
     }
 
+    function resolveAppVersion() {
+      const candidatePaths = [
+        path.join(__dirname, "..", "..", "package.json"),
+        path.join(resourcesRoot, "app", "package.json"),
+      ];
+      for (const candidatePath of candidatePaths) {
+        try {
+          if (!fs.existsSync(candidatePath)) continue;
+          const parsed = JSON.parse(fs.readFileSync(candidatePath, "utf8"));
+          const version = normalizePathString(parsed && parsed.version ? parsed.version : "");
+          if (version) return version;
+        } catch {
+          // ignore
+        }
+      }
+      return "";
+    }
+
     function listStateDatabasePaths(codexHomeDir) {
       if (!codexHomeDir || !fs.existsSync(codexHomeDir)) return [];
       let entries = [];
@@ -288,7 +306,7 @@
       });
     }
 
-    function logRuntimeContract(codexHomeDir, modsRootPath) {
+    function logRuntimeContract(codexHomeDir, modsRootPath, appVersion) {
       if (globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__) return;
       globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__ = true;
       try {
@@ -301,7 +319,7 @@
         const cliPath = normalizePathString(process.env.CODEX_CLI_PATH || "");
         const resourcesPath = normalizePathString(process.resourcesPath || "");
         console.log(
-          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} mods=${modsRootPath} resources=${resourcesPath} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
+          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} mods=${modsRootPath} resources=${resourcesPath} appVersion=${appVersion} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
         );
       } catch (error) {
         const message = error && error.message ? error.message : String(error || "");
@@ -336,10 +354,11 @@
     // Apply SQLite normalization early (before UI loads threads).
     const codexHomeDir = resolveCodexHomeDir();
     const modsRootPath = resolveRuntimeSubdir("mods", "CODEX_MODS_DIR");
+    const appVersion = resolveAppVersion();
     if (!IS_MINIMAL_PLATFORM) {
       migrateThreadCwdPrefixInSqlite(codexHomeDir);
     }
-    logRuntimeContract(codexHomeDir, modsRootPath);
+    logRuntimeContract(codexHomeDir, modsRootPath, appVersion);
 
     // Fix Windows path opening.
     try {
@@ -361,7 +380,7 @@
 
       const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
       const activateRuntimeMods = loadRuntimeModLoader();
-      activateRuntimeMods({ electron, buildHint, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });
+      activateRuntimeMods({ electron, buildHint, appVersion, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });
     } catch (error) {
       console.error("[codex-windows-main-shim] electron patch failed", error);
     }

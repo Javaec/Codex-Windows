@@ -44,12 +44,6 @@ interface NamingMemorySnapshotStats {
   genericNameCount: number;
 }
 
-interface SnapshotPackageMetadata {
-  packageJsonPath: string;
-  appVersion: string;
-  buildNumber: string;
-}
-
 interface VersionBridgeReport {
   version: number;
   generatedAtIso: string;
@@ -95,6 +89,24 @@ interface VersionBridgeReport {
 }
 
 const gzipAsync = promisify(zlib.gzip);
+
+function loadSharedVersionIdentity(projectRoot: string): {
+  resolveSnapshotVersionIdentity: (input: {
+    snapshotPath: string;
+    snapshotLabel?: string;
+    appVersion?: string;
+    buildNumber?: string;
+  }) => {
+    snapshotLabel: string;
+    appVersion: string;
+    buildNumber: string;
+    buildHint: number;
+    source: string;
+    sourcePath: string;
+  };
+} {
+  return require(path.join(projectRoot, "..", "shared", "version-identity", "index.cjs"));
+}
 
 function printUsage(): void {
   const usage = [
@@ -320,72 +332,6 @@ async function fileExists(filePath: string): Promise<boolean> {
     .catch(() => false);
 }
 
-async function readSnapshotPackageMetadata(snapshotAsarPath: string): Promise<SnapshotPackageMetadata | null> {
-  const seen = new Set<string>();
-  let currentDirectory = path.dirname(snapshotAsarPath);
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidatePaths = [
-      path.join(currentDirectory, "package.json"),
-      path.join(currentDirectory, "app", "package.json"),
-    ];
-    for (const candidatePath of candidatePaths) {
-      const resolvedCandidatePath = path.resolve(candidatePath);
-      const key = resolvedCandidatePath.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!(await fileExists(resolvedCandidatePath))) continue;
-      const parsed = await readJsonFile<{
-        version?: string;
-        codexBuildNumber?: string;
-      }>(resolvedCandidatePath);
-      const appVersion = String(parsed.version || "").trim();
-      const buildNumber = String(parsed.codexBuildNumber || "").trim();
-      if (appVersion.length < 1 && buildNumber.length < 1) continue;
-      return {
-        packageJsonPath: resolvedCandidatePath,
-        appVersion,
-        buildNumber,
-      };
-    }
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
-    currentDirectory = parentDirectory;
-  }
-  return null;
-}
-
-async function resolveSnapshotIdentity(cli: CliOptions): Promise<{
-  appVersion: string;
-  buildNumber: string;
-  source: string;
-  sourcePath: string;
-}> {
-  const hasCliIdentity = cli.appVersion.length > 0 || cli.buildNumber.length > 0;
-  const metadata = hasCliIdentity ? null : await readSnapshotPackageMetadata(cli.snapshotAsarPath);
-  if (cli.appVersion.length > 0 || cli.buildNumber.length > 0) {
-    return {
-      appVersion: cli.appVersion,
-      buildNumber: cli.buildNumber,
-      source: "cli",
-      sourcePath: "",
-    };
-  }
-  if (metadata) {
-    return {
-      appVersion: metadata.appVersion,
-      buildNumber: metadata.buildNumber,
-      source: "package-json",
-      sourcePath: metadata.packageJsonPath,
-    };
-  }
-  return {
-    appVersion: "",
-    buildNumber: "",
-    source: "unresolved",
-    sourcePath: "",
-  };
-}
-
 async function runNodeCommand(cwd: string, args: string[], mirrorOutput: boolean): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -527,7 +473,13 @@ async function writeCompressedBaselineCopy(sourceProfilePath: string, baselineDi
 async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2));
-  const resolvedIdentity = await resolveSnapshotIdentity(cli);
+  const sharedVersionIdentity = loadSharedVersionIdentity(projectRoot);
+  const resolvedIdentity = sharedVersionIdentity.resolveSnapshotVersionIdentity({
+    snapshotPath: cli.snapshotAsarPath,
+    snapshotLabel: cli.snapshotLabel,
+    appVersion: cli.appVersion,
+    buildNumber: cli.buildNumber,
+  });
   const snapshotDigest = await hashFileSha256(cli.snapshotAsarPath);
   const snapshotKey = snapshotDigest.sha256.slice(0, 12);
   const snapshotLabel = cli.snapshotLabel.length > 0 ? cli.snapshotLabel : path.basename(cli.snapshotAsarPath);

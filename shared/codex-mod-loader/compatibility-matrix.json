@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "generatedAtIso": "2026-03-07T10:19:02.318Z",
+  "capabilityRegistry": {
+    "renderer": [
+      "renderer-ready",
+      "route-change",
+      "sidebar-root",
+      "sidebar-groups",
+      "sidebar-panel",
+      "project-list",
+      "settings-panel",
+      "bridge-fetch",
+      "dom-observer",
+      "schedule-refresh"
+    ],
+    "main": [
+      "app-start",
+      "window-created",
+      "webcontents-ready",
+      "before-app-server-request",
+      "after-app-server-response"
+    ]
+  },
+  "knownBuilds": [
+    {
+      "id": "codex-10711",
+      "appVersion": "26.303.1606",
+      "buildNumber": "806",
+      "buildHint": 10711,
+      "patchProfileId": "codex-10711",
+      "snapshotRegex": "codex[-_]?10711"
+    },
+    {
+      "id": "codex-11012",
+      "appVersion": "26.305.950",
+      "buildNumber": "863",
+      "buildHint": 11012,
+      "patchProfileId": "codex-10711",
+      "snapshotRegex": "codex[-_]?11012"
+    }
+  ],
+  "mods": [
+    {
+      "id": "app-server-tweaks",
+      "name": "App-server tweaks",
+      "description": "Runtime request rewrites for stability/UX (thread/list limit + persistExtendedHistory).",
+      "enabled": true,
+      "priority": 80,
+      "entrypoints": [
+        "main"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [],
+        "main": [
+          "before-app-server-request"
+        ]
+      },
+      "conflicts": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "webview-disable-logout",
+      "name": "Disable logout",
+      "description": "Disable Log out controls in the renderer to prevent accidental sign-outs.",
+      "enabled": true,
+      "priority": 210,
+      "entrypoints": [
+        "renderer"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [
+          "dom-observer",
+          "renderer-ready"
+        ],
+        "main": []
+      },
+      "conflicts": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "webview-settings-limits-panel",
+      "name": "Usage limits panel",
+      "description": "Show 5h/weekly usage summary in the sidebar.",
+      "enabled": true,
+      "priority": 200,
+      "entrypoints": [
+        "renderer"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [
+          "bridge-fetch",
+          "dom-observer",
+          "renderer-ready",
+          "route-change",
+          "schedule-refresh",
+          "settings-panel",
+          "sidebar-panel",
+          "sidebar-root"
+        ],
+        "main": []
+      },
+      "conflicts": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "webview-thread-list-cap",
+      "name": "Thread list cap",
+      "description": "Show 6 threads per project before expanding.",
+      "enabled": true,
+      "priority": 210,
+      "entrypoints": [
+        "renderer"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [
+          "dom-observer",
+          "project-list",
+          "renderer-ready",
+          "route-change",
+          "sidebar-groups",
+          "sidebar-root"
+        ],
+        "main": []
+      },
+      "conflicts": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "id": "codex-10711",
+      "appVersion": "26.303.1606",
+      "buildNumber": "806",
+      "buildHint": 10711,
+      "patchProfileId": "codex-10711",
+      "compatibleMods": [
+        "app-server-tweaks",
+        "webview-disable-logout",
+        "webview-settings-limits-panel",
+        "webview-thread-list-cap"
+      ],
+      "incompatibleMods": []
+    },
+    {
+      "id": "codex-11012",
+      "appVersion": "26.305.950",
+      "buildNumber": "863",
+      "buildHint": 11012,
+      "patchProfileId": "codex-10711",
+      "compatibleMods": [
+        "app-server-tweaks",
+        "webview-disable-logout",
+        "webview-settings-limits-panel",
+        "webview-thread-list-cap"
+      ],
+      "incompatibleMods": []
+    }
+  ]
+}

@@ -26,6 +26,20 @@ interface SnapshotIdentity {
   sourcePath: string;
 }
 
+function loadSharedVersionIdentity(projectRoot: string): {
+  resolveSnapshotVersionIdentity: (input: {
+    snapshotPath: string;
+    snapshotLabel?: string;
+    appVersion?: string;
+    buildNumber?: string;
+  }) => SnapshotIdentity & {
+    snapshotLabel: string;
+    buildHint: number;
+  };
+} {
+  return require(path.join(projectRoot, "..", "shared", "version-identity", "index.cjs"));
+}
+
 interface CommandResult {
   exitCode: number;
   stdout: string;
@@ -253,69 +267,6 @@ function parseCli(argv: readonly string[]): CliOptions {
   };
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  return await fs
-    .stat(filePath)
-    .then(() => true)
-    .catch(() => false);
-}
-
-async function readSnapshotIdentity(snapshotAsarPath: string): Promise<SnapshotIdentity | null> {
-  const seen = new Set<string>();
-  let currentDirectory = path.dirname(snapshotAsarPath);
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidatePaths = [
-      path.join(currentDirectory, "package.json"),
-      path.join(currentDirectory, "app", "package.json"),
-    ];
-    for (const candidatePath of candidatePaths) {
-      const resolvedCandidatePath = path.resolve(candidatePath);
-      const key = resolvedCandidatePath.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!(await fileExists(resolvedCandidatePath))) continue;
-      const parsed = await readJsonFile<{
-        version?: string;
-        codexBuildNumber?: string;
-      }>(resolvedCandidatePath);
-      const appVersion = String(parsed.version || "").trim();
-      const buildNumber = String(parsed.codexBuildNumber || "").trim();
-      if (appVersion.length < 1 && buildNumber.length < 1) continue;
-      return {
-        appVersion,
-        buildNumber,
-        source: "package-json",
-        sourcePath: resolvedCandidatePath,
-      };
-    }
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
-    currentDirectory = parentDirectory;
-  }
-  return null;
-}
-
-async function resolveSnapshotIdentity(cli: CliOptions): Promise<SnapshotIdentity> {
-  if (cli.appVersion.length > 0 || cli.buildNumber.length > 0) {
-    return {
-      appVersion: cli.appVersion,
-      buildNumber: cli.buildNumber,
-      source: "cli",
-      sourcePath: "",
-    };
-  }
-  const metadata = await readSnapshotIdentity(cli.snapshotAsarPath);
-  if (metadata) {
-    return metadata;
-  }
-  return {
-    appVersion: "",
-    buildNumber: "",
-    source: "unresolved",
-    sourcePath: "",
-  };
-}
-
 async function runNodeCommand(cwd: string, args: string[]): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
     const startedAt = Date.now();
@@ -367,7 +318,13 @@ async function run(): Promise<void> {
   const projectRoot = path.resolve(__dirname, "..", "..");
   const cli = parseCli(process.argv.slice(2));
   const snapshotLabel = cli.snapshotLabel.length > 0 ? cli.snapshotLabel : path.basename(cli.snapshotAsarPath);
-  const resolvedIdentity = await resolveSnapshotIdentity(cli);
+  const sharedVersionIdentity = loadSharedVersionIdentity(projectRoot);
+  const resolvedIdentity = sharedVersionIdentity.resolveSnapshotVersionIdentity({
+    snapshotPath: cli.snapshotAsarPath,
+    snapshotLabel,
+    appVersion: cli.appVersion,
+    buildNumber: cli.buildNumber,
+  });
 
   const sharedPatchPackRoot = path.join(projectRoot, "..", "shared", "patch-pack");
   const preflightScriptPath = path.join(sharedPatchPackRoot, "preflight.mjs");

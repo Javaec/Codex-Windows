@@ -61,6 +61,38 @@ Mod contract (v1):
   - move from “random scripts in mods/” to a real mod platform contract
   - make dependencies explicit before a mod is loaded.
 
+## 2026-03-07: Compatibility matrix is now a first-class modding artifact
+
+- `build-compatibility-matrix.mjs` generates:
+  - `compatibility-matrix.json`
+- The matrix is built from:
+  - `mods/*/mod.json`
+  - `loader/capability-registry.json`
+  - `shared/version-identity/known-builds.json`
+- Purpose:
+  - make mod support explicit by `appVersion`, `buildHint`, and required capabilities
+  - move toward a Forge-like compatibility contract instead of ad-hoc tribal knowledge.
+
+## 2026-03-07: Runtime mod compatibility may now include appVersionRegex
+
+- `mod.json.compatibility` may include:
+  - `appVersionRegex`
+  - `minBuild`
+  - `maxBuild`
+- Loader and preflight must both validate this field.
+- Runtime loader should skip incompatible mods when the resolved app version does not match.
+
+## 2026-03-07: Compatibility matrix is generated from manifests + known builds
+
+- Generate with:
+  - `npm run mods:compatibility-matrix`
+- Output:
+  - `shared/codex-mod-loader/compatibility-matrix.json`
+- Inputs:
+  - `mods/*/mod.json`
+  - `loader/capability-registry.json`
+  - `shared/version-identity/known-builds.json`
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

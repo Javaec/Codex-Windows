@@ -113,3 +113,12 @@ Single source of truth for patch profiles across repacker, generator, and manual
 - Practical rule:
   - if selector rule has `appVersionRegex` and/or `minBuild`/`maxBuild`, those internal checks decide the match;
   - `snapshotRegex` is used only when no internal rule data is present.
+
+## 2026-03-07: Version hint mapping is now shared physically
+
+- `parseBuildHint` must come from:
+  - `C:\\Codex-Windows\\shared\\version-identity\\index.cjs`
+- `known-builds.json` is the shared source for:
+  - `appVersion -> buildHint`
+  - matrix target builds
+  - future compatibility reporting

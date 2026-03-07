@@ -22,7 +22,8 @@ let mainShimTemplateCache = "";
 const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
 const GOOD_LOADER_BOOTSTRAP_SNIPPETS = [
   'const activateRuntimeMods = loadRuntimeModLoader();',
-  'activateRuntimeMods({ electron, buildHint, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });',
+  'activateRuntimeMods({ electron, buildHint,',
+  'minimalPlatform: IS_MINIMAL_PLATFORM',
   'const loaderPath = path.join(modLoaderRootPath, "main-loader.cjs");',
 ];
 

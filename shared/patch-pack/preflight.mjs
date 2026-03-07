@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
+const require = createRequire(import.meta.url);
+const { parseBuildHint } = require("../version-identity/index.cjs");
 
 function parseArgs(argv) {
   let snapshotLabel = "";
@@ -166,6 +169,16 @@ function validateRuntimeModpack(modpackRoot, capabilityRegistry) {
       rendererModCount += 1;
     }
 
+    const compatibility = manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
+    if (typeof compatibility.appVersionRegex === "string" && compatibility.appVersionRegex.trim().length > 0) {
+      try {
+        new RegExp(compatibility.appVersionRegex, "i");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`patch-pack preflight: runtime mod ${id} has invalid compatibility.appVersionRegex: ${message}`);
+      }
+    }
+
     if (entrypoints.main) {
       const mainEntry = String(entrypoints.main || "").trim();
       if (!mainEntry) throw new Error(`patch-pack preflight: runtime mod ${id} has empty main entry`);
@@ -196,43 +209,6 @@ function validateRuntimeModpack(modpackRoot, capabilityRegistry) {
     mainModCount,
     root: modpackRoot,
   };
-}
-
-function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
-  let best = 0;
-  const parsedBuild = Number.parseInt(String(buildNumber || ""), 10);
-  if (Number.isFinite(parsedBuild) && parsedBuild > best) best = parsedBuild;
-
-  const normalizedAppVersion = String(appVersion || "").trim();
-  const explicitAppVersionHints = [
-    { regex: /^26\.305\.950$/, buildHint: 11012 },
-    { regex: /^26\.303\.1606$/, buildHint: 10711 },
-  ];
-  for (const hint of explicitAppVersionHints) {
-    if (hint.regex.test(normalizedAppVersion) && hint.buildHint > best) {
-      best = hint.buildHint;
-    }
-  }
-
-  if (best > 0) {
-    return best;
-  }
-
-  const fallbackSnapshotLabel = String(snapshotLabel || "");
-  const codexMatch = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
-  if (codexMatch && codexMatch[1]) {
-    const parsed = Number.parseInt(codexMatch[1], 10);
-    if (Number.isFinite(parsed) && parsed > best) best = parsed;
-  }
-
-  const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
-  if (numericTokens) {
-    for (const token of numericTokens) {
-      const parsed = Number.parseInt(token, 10);
-      if (Number.isFinite(parsed) && parsed > best) best = parsed;
-    }
-  }
-  return best;
 }
 
 function parseBuildLimit(rawValue, label) {

@@ -9,6 +9,7 @@
     "smoke:runner": "node scripts/node/run.js smoke",
     "smoke:runner:auth": "node scripts/node/run.js smoke -SmokeAuthStage -SmokeAuthLanes with-mods",
     "smoke:runner:daily": "node scripts/node/run.js smoke -SmokeAuthStage",
+    "mods:compatibility-matrix": "node ./shared/codex-mod-loader/build-compatibility-matrix.mjs",
     "audit:runner": "node scripts/node/run.js audit",
     "contention:runner": "node scripts/node/run.js contention",
     "patch-pack:preflight": "node ./shared/patch-pack/preflight.mjs",

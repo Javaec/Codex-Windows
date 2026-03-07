@@ -40,6 +40,7 @@ const path = __importStar(require("node:path"));
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PATCH_PACK_ROOT = path.join(REPO_ROOT, "shared", "patch-pack");
+const VERSION_IDENTITY = require(path.join(REPO_ROOT, "shared", "version-identity", "index.cjs"));
 const PROFILES_DIR = path.join(PATCH_PACK_ROOT, "profiles");
 const MODS_DIR = path.join(PATCH_PACK_ROOT, "mods");
 const SELECTOR_PATH = path.join(PATCH_PACK_ROOT, "profile-selector.json");
@@ -66,41 +67,6 @@ function ensureStepId(value) {
         return value;
     }
     throw new Error(`patch-pack: unsupported patch step id: ${value}`);
-}
-function parseBuildHint(buildNumber, appVersion, snapshotLabel) {
-    let best = 0;
-    const fromBuild = Number.parseInt(buildNumber, 10);
-    if (Number.isFinite(fromBuild) && fromBuild > best)
-        best = fromBuild;
-    const normalizedAppVersion = appVersion.trim();
-    const explicitAppVersionHints = [
-        { regex: /^26\.305\.950$/, buildHint: 11012 },
-        { regex: /^26\.303\.1606$/, buildHint: 10711 },
-    ];
-    for (const hint of explicitAppVersionHints) {
-        if (hint.regex.test(normalizedAppVersion) && hint.buildHint > best) {
-            best = hint.buildHint;
-        }
-    }
-    if (best > 0) {
-        return best;
-    }
-    const fallbackSnapshotLabel = snapshotLabel.trim();
-    const codexMatch = fallbackSnapshotLabel.toLowerCase().match(/codex[-_]?(\d{3,6})/);
-    if (codexMatch && codexMatch[1]) {
-        const parsed = Number.parseInt(codexMatch[1], 10);
-        if (Number.isFinite(parsed) && parsed > best)
-            best = parsed;
-    }
-    const numericTokens = fallbackSnapshotLabel.match(/\d{4,6}/g);
-    if (numericTokens) {
-        for (const token of numericTokens) {
-            const parsed = Number.parseInt(token, 10);
-            if (Number.isFinite(parsed) && parsed > best)
-                best = parsed;
-        }
-    }
-    return best;
 }
 function parseBuildLimit(value, label) {
     if (value === undefined || value === null || value === "") {
@@ -440,7 +406,7 @@ function resolvePatchProfile(input) {
     const catalog = parsePatchCatalog();
     const stageRegistry = parseStageRegistry();
     const snapshotLabel = input.snapshotLabel.length > 0 ? input.snapshotLabel : "";
-    const buildHint = parseBuildHint(input.buildNumber, input.appVersion, snapshotLabel);
+    const buildHint = VERSION_IDENTITY.parseBuildHint(input.buildNumber, input.appVersion, snapshotLabel);
     const selected = resolveProfileId(input, selector, buildHint);
     const profileFile = parsePatchProfileFile(selected.profileId);
     const uniqueModIds = new Set();

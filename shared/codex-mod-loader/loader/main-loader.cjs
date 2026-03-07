@@ -123,7 +123,7 @@ function loadCreateMainModApi(modApiRoot) {
   return createMainModApi;
 }
 
-function loadRuntimeMods(modsRoot, buildHint, capabilityRegistry) {
+function loadRuntimeMods(modsRoot, buildHint, appVersion, capabilityRegistry) {
   if (!modsRoot || !fs.existsSync(modsRoot)) return [];
   if (normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") !== "1") return [];
   if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
@@ -165,10 +165,21 @@ function loadRuntimeMods(modsRoot, buildHint, capabilityRegistry) {
     const compat = manifest && manifest.compatibility && typeof manifest.compatibility === "object" ? manifest.compatibility : {};
     const minBuild = Number(compat.minBuild !== undefined ? compat.minBuild : 0);
     const maxBuild = Number(compat.maxBuild !== undefined ? compat.maxBuild : 0);
+    const appVersionRegex = normalizePathString(compat.appVersionRegex || "");
     if (!Number.isFinite(minBuild) || minBuild < 0) throw new Error(`codex-mod-loader: invalid minBuild for ${id}`);
     if (!Number.isFinite(maxBuild) || maxBuild < 0) throw new Error(`codex-mod-loader: invalid maxBuild for ${id}`);
     if (maxBuild > 0 && minBuild > 0 && maxBuild < minBuild) {
       throw new Error(`codex-mod-loader: invalid build range for ${id} (maxBuild < minBuild)`);
+    }
+    if (appVersionRegex) {
+      let matcher = null;
+      try {
+        matcher = new RegExp(appVersionRegex, "i");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`codex-mod-loader: invalid appVersionRegex for ${id}: ${message}`);
+      }
+      if (appVersion && !matcher.test(appVersion)) continue;
     }
     if (buildHint > 0 && minBuild > 0 && buildHint < minBuild) continue;
     if (buildHint > 0 && maxBuild > 0 && buildHint > maxBuild) continue;
@@ -308,6 +319,7 @@ function activateRuntimeMods(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const electron = ctx.electron;
   const buildHint = typeof ctx.buildHint === "number" ? ctx.buildHint : 0;
+  const appVersion = normalizePathString(ctx.appVersion || "");
   const resourcesRoot = normalizePathString(ctx.resourcesRoot || "");
   const minimalPlatform = ctx.minimalPlatform === true;
 
@@ -330,7 +342,7 @@ function activateRuntimeMods(context) {
   }
 
   const createMainModApi = loadCreateMainModApi(modApiRootPath);
-  const loadedMods = loadRuntimeMods(modsRootPath, buildHint, capabilityRegistry);
+  const loadedMods = loadRuntimeMods(modsRootPath, buildHint, appVersion, capabilityRegistry);
   applyMainMods(electron, loadedMods, buildHint, createMainModApi);
   const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
   installRendererMods(electron, rendererApiScript, rendererMods, usabilityProbeScript);

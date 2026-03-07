@@ -22,3 +22,5 @@ Keep patch-pack resolution deterministic and mod-injector oriented.
   - only then snapshot-label fallback
 - Rule:
   - do not treat `Codex-11012.dmg` style filenames as the primary version source in orchestrator paths.
+- The physical source for this identity logic now lives outside orchestrator code:
+  - `C:\\Codex-Windows\\shared\\version-identity\\index.cjs`
