@@ -98,6 +98,22 @@
     return text.length > 0 ? text : "";
   }
 
+  function getRowTitleKeys(row) {
+    const keys = new Set();
+    const primary = getRowTitleKey(row);
+    if (primary) keys.add(primary);
+    const nodes = row.querySelectorAll("a,button,span,div,[aria-label],[title]");
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (node.childElementCount > 2) continue;
+      const text = normalizeTitleKey(node.textContent || node.getAttribute("aria-label") || node.getAttribute("title") || "");
+      if (!text || text === "show more" || text === "show less") continue;
+      if (text.length < 3) continue;
+      keys.add(text);
+    }
+    return [...keys];
+  }
+
   function getThreadStateEntry(row) {
     const threadActivityState = getThreadActivityState();
     const threadId = getRowThreadId(row);
@@ -105,13 +121,13 @@
       return threadActivityState[threadId];
     }
 
-    const rowTitleKey = getRowTitleKey(row);
-    if (!rowTitleKey) return null;
+    const rowTitleKeys = getRowTitleKeys(row);
+    if (rowTitleKeys.length < 1) return null;
     for (const entry of Object.values(threadActivityState)) {
       if (!entry || typeof entry !== "object") continue;
       const titleKey = normalizeTitleKey(entry.titleKey || "");
       if (!titleKey) continue;
-      if (rowTitleKey === titleKey || rowTitleKey.includes(titleKey) || titleKey.includes(rowTitleKey)) {
+      if (rowTitleKeys.some((rowTitleKey) => rowTitleKey === titleKey || rowTitleKey.includes(titleKey) || titleKey.includes(rowTitleKey))) {
         return entry;
       }
     }
