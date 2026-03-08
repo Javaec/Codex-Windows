@@ -128,6 +128,18 @@ Mod contract (v1):
 - Reason:
   - keep the main shim platform-only while still reducing repeated `git-origin-and-roots` churn from dead roots in `.codex-global-state.json`.
 
+## 2026-03-08: Auth runtime is now a first-class modding contract
+
+- Auth/session observability now lives in:
+  - `mods/auth-runtime-contract`
+- It owns:
+  - `auth.json` watching
+  - structured logs for `getAuthStatus`
+  - structured logs for `account/updated`
+  - auth/session target-contract artifacts
+- Reason:
+  - hot auth swap needs explicit runtime surfaces and drift tracking, not folklore around one file and one crash.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

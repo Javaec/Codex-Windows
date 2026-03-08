@@ -59,6 +59,12 @@
 - Reason:
   - Electron can keep the same `webContents` wrapper while the renderer process and JS context are recreated.
 
+## 2026-03-08: Auth/session transport logging should prefer the process boundary
+
+- For auth/session observability, prefer instrumentation at the `codex.exe` stdio boundary over brittle bundle monkeypatches.
+- Reason:
+  - requests like `getAuthStatus` and notifications like `account/updated` are stable protocol surfaces even when internal class names drift.
+
 ## 2026-03-06: Usability probe is loader-owned smoke instrumentation
 
 - `loader/usability-probe.js` is not a feature mod.

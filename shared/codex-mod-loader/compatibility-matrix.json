@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-08T08:03:34.049Z",
+  "generatedAtIso": "2026-03-08T08:21:28.961Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -66,6 +66,55 @@
       "softIncompatibilities": [],
       "loadAfter": [],
       "loadBefore": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "auth-runtime-contract",
+      "name": "Auth runtime contract",
+      "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
+      "enabled": true,
+      "priority": 30,
+      "entrypoints": [
+        "main"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [],
+        "main": [
+          "app-start"
+        ]
+      },
+      "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [
+        "app-server-tweaks",
+        "workspace-state-sanitizer"
+      ],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -296,6 +345,7 @@
       "patchProfileId": "codex-10711",
       "compatibleMods": [
         "app-server-tweaks",
+        "auth-runtime-contract",
         "webview-disable-logout",
         "webview-settings-limits-panel",
         "webview-thread-list-cap",
@@ -303,6 +353,7 @@
       ],
       "incompatibleMods": [],
       "loadOrder": [
+        "auth-runtime-contract",
         "workspace-state-sanitizer",
         "app-server-tweaks",
         "webview-settings-limits-panel",
@@ -320,6 +371,7 @@
       "patchProfileId": "codex-10711",
       "compatibleMods": [
         "app-server-tweaks",
+        "auth-runtime-contract",
         "webview-disable-logout",
         "webview-settings-limits-panel",
         "webview-thread-list-cap",
@@ -327,6 +379,7 @@
       ],
       "incompatibleMods": [],
       "loadOrder": [
+        "auth-runtime-contract",
         "workspace-state-sanitizer",
         "app-server-tweaks",
         "webview-settings-limits-panel",

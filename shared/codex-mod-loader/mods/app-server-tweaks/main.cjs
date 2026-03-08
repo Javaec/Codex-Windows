@@ -74,6 +74,11 @@ module.exports = function activate(context) {
       if (node.params.refreshToken !== true) return false;
 
       const now = Date.now();
+      const lastAuthFileChangeAt = Number(globalThis.__CODEX_AUTH_RUNTIME_LAST_FILE_CHANGE_AT__ || 0);
+      if (lastAuthFileChangeAt > lastAuthRefreshAt) {
+        lastAuthRefreshAt = now;
+        return false;
+      }
       if (now - lastAuthRefreshAt < AUTH_REFRESH_DEBOUNCE_MS) {
         node.params.refreshToken = false;
         return true;

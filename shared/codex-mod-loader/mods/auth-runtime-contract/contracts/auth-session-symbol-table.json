@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "generatedBy": "auth-runtime-contract",
+  "surfaces": [
+    {
+      "id": "auth-file",
+      "layer": "filesystem",
+      "anchor": "auth.json",
+      "semanticRole": "Primary persisted auth state for the active CODEX_HOME",
+      "stableSignals": [
+        "path ends with auth.json",
+        "mtime/size/fingerprint change"
+      ],
+      "driftRisk": "medium"
+    },
+    {
+      "id": "auth-status-request",
+      "layer": "transport-stdio-outbound",
+      "anchor": "method=getAuthStatus",
+      "semanticRole": "Auth status probe and optional token refresh request",
+      "stableSignals": [
+        "JSON line method equals getAuthStatus",
+        "params.includeToken",
+        "params.refreshToken"
+      ],
+      "driftRisk": "low"
+    },
+    {
+      "id": "auth-status-response",
+      "layer": "transport-stdio-inbound",
+      "anchor": "id prefix electron-auth:",
+      "semanticRole": "Result of auth status probe",
+      "stableSignals": [
+        "response id starts with electron-auth:",
+        "result.authMethod"
+      ],
+      "driftRisk": "medium"
+    },
+    {
+      "id": "account-updated-notification",
+      "layer": "transport-stdio-inbound",
+      "anchor": "method=account/updated",
+      "semanticRole": "App-server side account mutation notification",
+      "stableSignals": [
+        "JSON line method equals account/updated"
+      ],
+      "driftRisk": "low"
+    },
+    {
+      "id": "account-login-completed-notification",
+      "layer": "transport-stdio-inbound",
+      "anchor": "method=account/login/completed",
+      "semanticRole": "Terminal auth completion notification",
+      "stableSignals": [
+        "JSON line method equals account/login/completed"
+      ],
+      "driftRisk": "low"
+    },
+    {
+      "id": "auth-token-cache-clear",
+      "layer": "main-bundle",
+      "anchor": "clearAuthTokenCache",
+      "semanticRole": "Cached auth token invalidation inside ElectronAppServerConnection",
+      "stableSignals": [
+        "account/updated clears auth token cache"
+      ],
+      "driftRisk": "medium"
+    },
+    {
+      "id": "window-auth-notification",
+      "layer": "window-message",
+      "anchor": "type=mcp-notification + method=account/updated",
+      "semanticRole": "Account update broadcast from main process to renderer windows",
+      "stableSignals": [
+        "broadcastToWindows type mcp-notification",
+        "method account/updated"
+      ],
+      "driftRisk": "medium"
+    }
+  ]
+}

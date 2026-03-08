@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "auth-runtime-contract",
+  "name": "Auth runtime contract",
+  "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
+  "enabled": true,
+  "priority": 30,
+  "compatibility": {
+    "minBuild": 0,
+    "maxBuild": 0
+  },
+  "requiresCapabilities": {
+    "main": [
+      "app-start"
+    ]
+  },
+  "entrypoints": {
+    "main": "main.cjs"
+  },
+  "conflicts": [],
+  "dependencies": [],
+  "softIncompatibilities": [],
+  "loadAfter": [],
+  "loadBefore": [
+    "workspace-state-sanitizer",
+    "app-server-tweaks"
+  ]
+}
