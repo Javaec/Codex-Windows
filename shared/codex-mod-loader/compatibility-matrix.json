@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-08T08:21:28.961Z",
+  "generatedAtIso": "2026-03-08T10:08:42.907Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -115,6 +115,55 @@
         "app-server-tweaks",
         "workspace-state-sanitizer"
       ],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "thread-activity-bridge",
+      "name": "Thread activity bridge",
+      "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
+      "enabled": true,
+      "priority": 70,
+      "entrypoints": [
+        "main"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [],
+        "main": [
+          "app-start",
+          "window-created"
+        ]
+      },
+      "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [
+        "auth-runtime-contract"
+      ],
+      "loadBefore": [],
       "knownBuilds": [
         {
           "id": "codex-10711",
@@ -346,6 +395,7 @@
       "compatibleMods": [
         "app-server-tweaks",
         "auth-runtime-contract",
+        "thread-activity-bridge",
         "webview-disable-logout",
         "webview-settings-limits-panel",
         "webview-thread-list-cap",
@@ -355,6 +405,7 @@
       "loadOrder": [
         "auth-runtime-contract",
         "workspace-state-sanitizer",
+        "thread-activity-bridge",
         "app-server-tweaks",
         "webview-settings-limits-panel",
         "webview-disable-logout",
@@ -372,6 +423,7 @@
       "compatibleMods": [
         "app-server-tweaks",
         "auth-runtime-contract",
+        "thread-activity-bridge",
         "webview-disable-logout",
         "webview-settings-limits-panel",
         "webview-thread-list-cap",
@@ -381,6 +433,7 @@
       "loadOrder": [
         "auth-runtime-contract",
         "workspace-state-sanitizer",
+        "thread-activity-bridge",
         "app-server-tweaks",
         "webview-settings-limits-panel",
         "webview-disable-logout",

@@ -17,6 +17,7 @@
   const THREAD_ROW_ATTR = "data-codex-windows-thread-row";
   const THREAD_CURRENT_ATTR = "data-codex-windows-thread-current";
   const THREAD_COMPLETED_ATTR = "data-codex-windows-thread-completed";
+  const THREAD_STATE_EVENT = "codex-thread-activity-state";
   const APPLY_THROTTLE_MS = 120;
   const NATIVE_EXPAND_RETRY_MS = 600;
   const STATUS_SCAN_SELECTOR =
@@ -43,16 +44,50 @@
       }
       [${THREAD_CURRENT_ATTR}="1"],
       [${THREAD_CURRENT_ATTR}="1"] > :first-child {
-        background: rgba(245, 158, 11, 0.18) !important;
-        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.42);
+        background: rgba(245, 158, 11, 0.10) !important;
+        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.24);
       }
       [${THREAD_COMPLETED_ATTR}="1"],
       [${THREAD_COMPLETED_ATTR}="1"] > :first-child {
-        background: rgba(34, 197, 94, 0.14) !important;
-        box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.34);
+        background: rgba(34, 197, 94, 0.08) !important;
+        box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.18);
       }
     `,
   );
+
+  function getThreadActivityState() {
+    const rawState = window.__CODEX_THREAD_ACTIVITY_STATE__;
+    if (!rawState || typeof rawState !== "object") return {};
+    const threads = rawState.threads;
+    return threads && typeof threads === "object" ? threads : {};
+  }
+
+  function extractThreadId(text) {
+    if (typeof text !== "string") return "";
+    const match = text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i);
+    return match ? match[0].toLowerCase() : "";
+  }
+
+  function getRowThreadId(row) {
+    const candidates = [
+      row.getAttribute("href"),
+      row.getAttribute("data-thread-id"),
+      row.getAttribute("data-conversation-id"),
+      row.getAttribute("aria-label"),
+      row.textContent,
+    ];
+    for (const candidate of candidates) {
+      const threadId = extractThreadId(String(candidate || ""));
+      if (threadId) return threadId;
+    }
+    const links = row.querySelectorAll("a[href]");
+    for (const link of links) {
+      if (!(link instanceof HTMLAnchorElement)) continue;
+      const threadId = extractThreadId(link.href);
+      if (threadId) return threadId;
+    }
+    return "";
+  }
 
   function getState(label) {
     let state = stateByLabel.get(label);
@@ -118,6 +153,18 @@
 
   function classifyThreadRow(row) {
     resetRowDecoration(row);
+    const threadId = getRowThreadId(row);
+    const threadActivityState = getThreadActivityState();
+    const stateEntry = threadId ? threadActivityState[threadId] : null;
+    if (stateEntry && stateEntry.status === "current") {
+      row.setAttribute(THREAD_CURRENT_ATTR, "1");
+      return;
+    }
+    if (stateEntry && stateEntry.status === "completed") {
+      row.setAttribute(THREAD_COMPLETED_ATTR, "1");
+      return;
+    }
+
     const signals = collectRowSignals(row);
     const hasProgressMarker =
       row.matches(PROGRESS_SELECTOR) ||
@@ -251,4 +298,5 @@
   api.onRendererReady(scan);
   api.onRouteChange(scheduleScan);
   api.observeDom(handleDomMutations);
+  window.addEventListener(THREAD_STATE_EVENT, scheduleScan);
 })();

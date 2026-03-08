@@ -37,3 +37,6 @@
   - `injectSidebarPanel`
   - `observeSettingsPanel`
   - `scheduleRefresh`
+- Current cadence:
+  - poll every 20s
+  - refresh on focus and on route/settings bursts

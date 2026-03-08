@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "thread-activity-bridge",
+  "name": "Thread activity bridge",
+  "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
+  "enabled": true,
+  "priority": 70,
+  "compatibility": {
+    "minBuild": 0,
+    "maxBuild": 0
+  },
+  "requiresCapabilities": {
+    "main": [
+      "app-start",
+      "window-created"
+    ]
+  },
+  "entrypoints": {
+    "main": "main.cjs"
+  },
+  "conflicts": [],
+  "dependencies": [],
+  "softIncompatibilities": [],
+  "loadAfter": [
+    "auth-runtime-contract"
+  ],
+  "loadBefore": []
+}

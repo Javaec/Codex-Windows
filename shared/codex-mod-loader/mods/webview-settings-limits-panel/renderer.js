@@ -12,7 +12,7 @@
   const PANEL_ID = "codex-windows-limit-panel-v3";
   const STYLE_ID = "codex-windows-limit-panel-style-v3";
   const LIMITS_CACHE_KEY = "codex-windows-limits-panel-cache-v6";
-  const POLL_INTERVAL_MS = 60000;
+  const POLL_INTERVAL_MS = 20000;
   const REQUEST_BURST_DELAYS_MS = [50, 1000, 5000, 15000];
   const REQUEST_TIMEOUT_MS = 15000;
   const FIVE_HOUR_WINDOW_MINUTES = 300;
@@ -275,6 +275,11 @@
     renderPanel();
     refreshUsageSnapshot();
   }, { leading: false });
+  window.addEventListener("focus", () => {
+    injectPanel();
+    renderPanel();
+    refreshUsageSnapshot();
+  });
   document.addEventListener(
     "click",
     (event) => {

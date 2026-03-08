@@ -140,6 +140,13 @@ Mod contract (v1):
 - Reason:
   - hot auth swap needs explicit runtime surfaces and drift tracking, not folklore around one file and one crash.
 
+## 2026-03-08: Thread activity is now a data bridge, not only a DOM guess
+
+- Thread row highlighting may now consume main-process state from:
+  - `mods/thread-activity-bridge`
+- Reason:
+  - the active thread id is not reliably available from the renderer URL alone; a thin state bridge is safer than deeper React internals patching.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

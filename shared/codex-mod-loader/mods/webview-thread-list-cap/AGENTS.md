@@ -23,6 +23,7 @@
 - It also applies full-row background highlighting:
   - amber for the current/in-progress thread
   - green for completed threads when a completion marker is present
+- It now prefers `window.__CODEX_THREAD_ACTIVITY_STATE__` from the main-process bridge when available, then falls back to DOM heuristics.
 
 ## Why
 
