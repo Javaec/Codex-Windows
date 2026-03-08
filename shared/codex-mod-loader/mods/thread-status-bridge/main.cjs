@@ -153,6 +153,7 @@ module.exports = function activate(context) {
 
   const trackedWebContents = new Set();
   const threadStates = new Map();
+  const loggedStateTransitions = new Set();
 
   function createSerializableState() {
     const threads = {};
@@ -200,6 +201,13 @@ module.exports = function activate(context) {
       source: update.source || "",
       titleKey: update.titleKey || (existing && existing.titleKey) || "",
     });
+    const transitionKey = `${update.threadId}:${update.status}`;
+    if (!loggedStateTransitions.has(transitionKey)) {
+      loggedStateTransitions.add(transitionKey);
+      console.log(
+        `[codex-thread-activity] state threadId=${update.threadId} status=${update.status} source=${update.source || ""}`,
+      );
+    }
     if (threadStates.size > MAX_TRACKED_THREADS) {
       const ordered = [...threadStates.entries()].sort((left, right) => left[1].updatedAtMs - right[1].updatedAtMs);
       while (ordered.length > MAX_TRACKED_THREADS) {

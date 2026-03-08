@@ -145,7 +145,7 @@ function installRendererMods(electron, rendererApiScript, rendererMods, usabilit
   function getInjectionState(contents) {
     let state = injectionStateByWebContents.get(contents);
     if (!state) {
-      state = { generation: 0, injected: new Set() };
+      state = { generation: 0, injected: new Set(), needsAppServerRestart: false };
       injectionStateByWebContents.set(contents, state);
     }
     return state;
@@ -156,6 +156,7 @@ function installRendererMods(electron, rendererApiScript, rendererMods, usabilit
     state.generation += 1;
     state.injected = new Set();
     if (reason === "render-process-gone") {
+      state.needsAppServerRestart = true;
       console.warn(`[codex-mod-loader] renderer injection state reset after ${reason}`);
     }
   }
@@ -185,6 +186,24 @@ function installRendererMods(electron, rendererApiScript, rendererMods, usabilit
         await contents.executeJavaScript(`/* CODEX-MOD:${mod.id} */\n${mod.script}\n`, true);
         if (expectedGeneration !== state.generation) return;
         injected.add(mod.id);
+      }
+
+      if (state.needsAppServerRestart) {
+        await contents.executeJavaScript(
+          `(async()=>{` +
+          `const bridge=window.electronBridge;` +
+          `if(!bridge||typeof bridge.sendMessageFromView!=='function') return;` +
+          `let hostId='local';` +
+          `try{hostId=new URL(String(window.location.href||'')).searchParams.get('hostId')||'local';}catch{hostId='local';}` +
+          `await bridge.sendMessageFromView({type:'codex-app-server-restart',hostId});` +
+          `})()`,
+          true,
+        ).catch((error) => {
+          console.error("[codex-mod-loader] app-server restart after renderer recovery failed", error);
+        });
+        if (expectedGeneration !== state.generation) return;
+        state.needsAppServerRestart = false;
+        console.warn("[codex-mod-loader] requested app-server restart after renderer recovery");
       }
     };
 
