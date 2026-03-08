@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "workspace-state-sanitizer",
+  "name": "Workspace state sanitizer",
+  "description": "Prune stale workspace and worktree roots from persisted global state at app start.",
+  "enabled": true,
+  "priority": 40,
+  "compatibility": {
+    "minBuild": 0,
+    "maxBuild": 0
+  },
+  "requiresCapabilities": {
+    "main": [
+      "app-start"
+    ]
+  },
+  "entrypoints": {
+    "main": "main.cjs"
+  },
+  "conflicts": [],
+  "dependencies": [],
+  "softIncompatibilities": [],
+  "loadAfter": [],
+  "loadBefore": [
+    "app-server-tweaks"
+  ]
+}

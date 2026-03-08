@@ -243,7 +243,12 @@
   }
 
   const scheduleScan = api.createDebouncedRunner(APPLY_THROTTLE_MS, scan);
+  function handleDomMutations(records) {
+    const sidebar = api.getSidebarRoot();
+    if (sidebar instanceof HTMLElement && !api.mutationTouchesNode(records, sidebar)) return;
+    scheduleScan();
+  }
   api.onRendererReady(scan);
   api.onRouteChange(scheduleScan);
-  api.observeDom(scheduleScan);
+  api.observeDom(handleDomMutations);
 })();

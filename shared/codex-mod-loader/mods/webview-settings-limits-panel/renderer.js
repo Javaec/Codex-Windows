@@ -247,6 +247,11 @@
   }
 
   const scheduleInject = api.createDebouncedRunner(120, injectPanel);
+  function handleDomMutations(records) {
+    const sidebar = api.getSidebarRoot();
+    if (sidebar instanceof HTMLElement && !api.mutationTouchesNode(records, sidebar)) return;
+    scheduleInject();
+  }
 
   loadSnapshot();
   api.onRendererReady(() => {
@@ -264,7 +269,7 @@
     injectPanel();
     renderPanel();
   });
-  api.observeDom(scheduleInject);
+  api.observeDom(handleDomMutations);
   api.scheduleRefresh(POLL_INTERVAL_MS, () => {
     injectPanel();
     renderPanel();

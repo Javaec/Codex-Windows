@@ -262,6 +262,37 @@
         if (!contents || typeof contents.on !== "function" || instrumentedWebContents.has(contents)) return;
         instrumentedWebContents.add(contents);
         const webContentsId = typeof contents.id === "number" ? contents.id : 0;
+        const getRendererMetricSnapshot = () => {
+          try {
+            const rendererPid = typeof contents.getOSProcessId === "function" ? contents.getOSProcessId() : 0;
+            const appMetrics =
+              electron && electron.app && typeof electron.app.getAppMetrics === "function"
+                ? electron.app.getAppMetrics()
+                : [];
+            const rendererMetric = Array.isArray(appMetrics)
+              ? appMetrics.find((metric) => metric && metric.pid === rendererPid)
+              : null;
+            const memoryUsage = process.memoryUsage();
+            const rendererMemory = rendererMetric && rendererMetric.memory ? rendererMetric.memory : null;
+            return {
+              rendererPid,
+              mainRssBytes: Number(memoryUsage && memoryUsage.rss ? memoryUsage.rss : 0),
+              mainHeapUsedBytes: Number(memoryUsage && memoryUsage.heapUsed ? memoryUsage.heapUsed : 0),
+              rendererWorkingSetKb: rendererMemory && Number.isFinite(rendererMemory.workingSetSize) ? rendererMemory.workingSetSize : 0,
+              rendererPeakWorkingSetKb: rendererMemory && Number.isFinite(rendererMemory.peakWorkingSetSize) ? rendererMemory.peakWorkingSetSize : 0,
+              rendererPrivateBytesKb: rendererMemory && Number.isFinite(rendererMemory.privateBytes) ? rendererMemory.privateBytes : 0,
+            };
+          } catch {
+            return {
+              rendererPid: 0,
+              mainRssBytes: 0,
+              mainHeapUsedBytes: 0,
+              rendererWorkingSetKb: 0,
+              rendererPeakWorkingSetKb: 0,
+              rendererPrivateBytesKb: 0,
+            };
+          }
+        };
         console.log(`[codex-windows-startup] webcontents-created browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId}`);
         contents.on("dom-ready", () => {
           console.log(`[codex-windows-startup] renderer.dom-ready browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} url=${getUrl(contents)}`);
@@ -277,8 +308,12 @@
         contents.on("render-process-gone", (_event, details) => {
           const reason = details && typeof details.reason === "string" ? details.reason : "";
           const exitCode = details && typeof details.exitCode === "number" ? details.exitCode : 0;
+          const metrics = getRendererMetricSnapshot();
           console.error(
             `[codex-windows-startup] webcontents.render-process-gone browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} reason=${reason} exitCode=${exitCode}`,
+          );
+          console.error(
+            `[codex-windows-startup] webcontents.render-process-gone-metrics browserWindowId=${browserWindowId || 0} webContentsId=${webContentsId} rendererPid=${metrics.rendererPid} mainRssBytes=${metrics.mainRssBytes} mainHeapUsedBytes=${metrics.mainHeapUsedBytes} rendererWorkingSetKb=${metrics.rendererWorkingSetKb} rendererPeakWorkingSetKb=${metrics.rendererPeakWorkingSetKb} rendererPrivateBytesKb=${metrics.rendererPrivateBytesKb}`,
           );
         });
       }

@@ -18,6 +18,9 @@
   - any `*/list`
   - `thread/realtime/*`
 - It does not touch sidebar thread caps anymore.
+- It now also provides two conservative stability guards:
+  - debounce repeated internal `getAuthStatus(refreshToken=true)` storms
+  - clamp oversized `thread/list` requests to a safer upper bound
 
 ## Why
 
@@ -26,3 +29,4 @@
 - `thread/list limit 10 -> 6` did not affect the visible grouped sidebar and only added dead logic.
 - Forcing persistence on `thread/list` can dramatically slow initial load and keep the UI on the center spinner.
 - History persistence is a stable transport-level concern, but only for thread-detail reads, not list endpoints.
+- Hot auth refresh should stay live, but repeated token refresh requests in a very tight burst are wasteful and can amplify recovery churn.

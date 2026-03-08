@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-07T16:57:59.088Z",
+  "generatedAtIso": "2026-03-08T08:03:34.049Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -237,6 +237,54 @@
           "reason": ""
         }
       ]
+    },
+    {
+      "id": "workspace-state-sanitizer",
+      "name": "Workspace state sanitizer",
+      "description": "Prune stale workspace and worktree roots from persisted global state at app start.",
+      "enabled": true,
+      "priority": 40,
+      "entrypoints": [
+        "main"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [],
+        "main": [
+          "app-start"
+        ]
+      },
+      "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [
+        "app-server-tweaks"
+      ],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
     }
   ],
   "builds": [
@@ -250,10 +298,12 @@
         "app-server-tweaks",
         "webview-disable-logout",
         "webview-settings-limits-panel",
-        "webview-thread-list-cap"
+        "webview-thread-list-cap",
+        "workspace-state-sanitizer"
       ],
       "incompatibleMods": [],
       "loadOrder": [
+        "workspace-state-sanitizer",
         "app-server-tweaks",
         "webview-settings-limits-panel",
         "webview-disable-logout",
@@ -272,10 +322,12 @@
         "app-server-tweaks",
         "webview-disable-logout",
         "webview-settings-limits-panel",
-        "webview-thread-list-cap"
+        "webview-thread-list-cap",
+        "workspace-state-sanitizer"
       ],
       "incompatibleMods": [],
       "loadOrder": [
+        "workspace-state-sanitizer",
         "app-server-tweaks",
         "webview-settings-limits-panel",
         "webview-disable-logout",

@@ -40,3 +40,11 @@
   - `onAfterAppServerResponse`
 - Rule:
   - add helpers only when at least two mods need them or when the helper clearly removes bootstrap duplication.
+
+## 2026-03-08: Scoped DOM observation is now a shared helper concern
+
+- `renderer-api.js` now exposes:
+  - `mutationTouchesNode(records, rootNode)`
+- Use it when a renderer mod should react only to mutations under a stable surface such as the sidebar.
+- Reason:
+  - full-document mutation scans during streaming are unnecessary renderer pressure and can amplify OOM risk.

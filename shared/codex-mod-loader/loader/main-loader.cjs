@@ -140,46 +140,80 @@ function installRendererMods(electron, rendererApiScript, rendererMods, usabilit
   if (globalThis.__CODEX_MOD_LOADER_RENDERER_V1__) return;
   globalThis.__CODEX_MOD_LOADER_RENDERER_V1__ = true;
 
-  const injectedByWebContents = new WeakMap();
+  const injectionStateByWebContents = new WeakMap();
 
-  function getInjected(contents) {
-    let injected = injectedByWebContents.get(contents);
-    if (!injected) {
-      injected = new Set();
-      injectedByWebContents.set(contents, injected);
+  function getInjectionState(contents) {
+    let state = injectionStateByWebContents.get(contents);
+    if (!state) {
+      state = { generation: 0, injected: new Set() };
+      injectionStateByWebContents.set(contents, state);
     }
-    return injected;
+    return state;
+  }
+
+  function resetInjectionState(contents, reason) {
+    const state = getInjectionState(contents);
+    state.generation += 1;
+    state.injected = new Set();
+    if (reason === "render-process-gone") {
+      console.warn(`[codex-mod-loader] renderer injection state reset after ${reason}`);
+    }
   }
 
   electron.app.on("web-contents-created", (_event, contents) => {
     if (!contents || typeof contents.executeJavaScript !== "function") return;
-    const inject = async () => {
+    const inject = async (expectedGeneration) => {
       const currentUrl = typeof contents.getURL === "function" ? String(contents.getURL() || "") : "";
       if (currentUrl.startsWith("devtools://")) return;
 
-      const injected = getInjected(contents);
+      const state = getInjectionState(contents);
+      if (expectedGeneration !== state.generation) return;
+      const injected = state.injected;
       if (!injected.has("__renderer_api_v1__")) {
         await contents.executeJavaScript(`/* CODEX-MOD-API:renderer */\n${rendererApiScript}\n`, true);
+        if (expectedGeneration !== state.generation) return;
         injected.add("__renderer_api_v1__");
       }
       if (usabilityProbeScript && !injected.has("__usability_probe_v1__")) {
         await contents.executeJavaScript(`/* CODEX-MOD-LOADER:usability-probe */\n${usabilityProbeScript}\n`, true);
+        if (expectedGeneration !== state.generation) return;
         injected.add("__usability_probe_v1__");
       }
 
       for (const mod of rendererMods || []) {
         if (injected.has(mod.id)) continue;
         await contents.executeJavaScript(`/* CODEX-MOD:${mod.id} */\n${mod.script}\n`, true);
+        if (expectedGeneration !== state.generation) return;
         injected.add(mod.id);
       }
     };
 
-    contents.on("dom-ready", () => {
+    const scheduleInject = () => {
+      const state = getInjectionState(contents);
+      const expectedGeneration = state.generation;
       Promise.resolve()
-        .then(inject)
+        .then(() => inject(expectedGeneration))
         .catch((error) => {
           console.error("[codex-mod-loader] inject failed", error);
         });
+    };
+
+    contents.on("dom-ready", () => {
+      scheduleInject();
+    });
+    contents.on("did-finish-load", () => {
+      scheduleInject();
+    });
+    contents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame === true && isInPlace !== true) {
+        resetInjectionState(contents, "main-frame-navigation");
+      }
+    });
+    contents.on("render-process-gone", () => {
+      resetInjectionState(contents, "render-process-gone");
+    });
+    contents.on("destroyed", () => {
+      injectionStateByWebContents.delete(contents);
     });
   });
 }

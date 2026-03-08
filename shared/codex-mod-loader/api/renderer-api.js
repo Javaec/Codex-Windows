@@ -54,6 +54,28 @@
     return observer;
   }
 
+  function mutationTouchesNode(records, rootNode) {
+    if (!(rootNode instanceof Node)) return true;
+    if (!Array.isArray(records) || records.length === 0) return true;
+
+    function touches(candidate) {
+      if (!(candidate instanceof Node)) return false;
+      return candidate === rootNode || rootNode.contains(candidate) || candidate.contains(rootNode);
+    }
+
+    for (const record of records) {
+      if (!record || typeof record !== "object") return true;
+      if (touches(record.target)) return true;
+      for (const node of record.addedNodes || []) {
+        if (touches(node)) return true;
+      }
+      for (const node of record.removedNodes || []) {
+        if (touches(node)) return true;
+      }
+    }
+    return false;
+  }
+
   function scheduleBurst(delaysMs, callback) {
     for (const delayMs of delaysMs) {
       window.setTimeout(callback, delayMs);
@@ -404,6 +426,7 @@
     isVisible,
     createDebouncedRunner,
     observeDom,
+    mutationTouchesNode,
     scheduleBurst,
     ensureStyle,
     ensureSingletonNode,

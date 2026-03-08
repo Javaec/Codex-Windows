@@ -50,6 +50,15 @@
 - Rule:
   - if a mod can be expressed through a typed hook or shared capability, do not let the mod walk raw IPC/DOM structures itself.
 
+## 2026-03-08: Renderer injection cache must be generation-aware
+
+- Injection cache must not be keyed only by `webContents` identity.
+- Reset cached renderer injections on:
+  - `render-process-gone`
+  - full main-frame reload/navigation
+- Reason:
+  - Electron can keep the same `webContents` wrapper while the renderer process and JS context are recreated.
+
 ## 2026-03-06: Usability probe is loader-owned smoke instrumentation
 
 - `loader/usability-probe.js` is not a feature mod.

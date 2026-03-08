@@ -1,5 +1,8 @@
-/* CODEX-MOD:app-server-tweaks@v3 */
+/* CODEX-MOD:app-server-tweaks@v4 */
 "use strict";
+
+const AUTH_REFRESH_DEBOUNCE_MS = 2500;
+const SAFE_THREAD_LIST_LIMIT = 30;
 
 function isPlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -24,6 +27,19 @@ function rewritePersistExtendedHistory(node) {
   return true;
 }
 
+function rewriteThreadListLimit(node) {
+  if (!isPlainObject(node)) return false;
+  if (node.method !== "thread/list") return false;
+  if (!isPlainObject(node.params)) return false;
+
+  const currentLimit = Number(node.params.limit);
+  if (Number.isFinite(currentLimit) && currentLimit > 0 && currentLimit <= SAFE_THREAD_LIST_LIMIT) {
+    return false;
+  }
+  node.params.limit = SAFE_THREAD_LIST_LIMIT;
+  return true;
+}
+
 module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const electron = ctx.electron;
@@ -38,20 +54,45 @@ module.exports = function activate(context) {
     throw new Error("app-server-tweaks: missing helpers.isPlainObject");
   }
   if (typeof helpers.onBeforeAppServerRequest !== "function") {
+    throw new Error("app-server-tweaks: missing helpers.onBeforeAppServerRequest");
+  }
+  if (typeof helpers.onBeforeCodexRequest !== "function") {
     throw new Error("app-server-tweaks: missing helpers.onBeforeCodexRequest");
   }
 
-  if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__) return;
-  globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V2__ = true;
+  if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V4__) return;
+  globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V4__ = true;
 
-  helpers.onBeforeCodexRequest(electron, ({ method, params }) => {
-    if (!method.startsWith("thread/")) return false;
-    if (method === "thread/list") return false;
-    if (method.endsWith("/list")) return false;
-    if (method.startsWith("thread/realtime/")) return false;
-    if (!params || typeof params !== "object") return false;
-    if (params.persistExtendedHistory === true) return false;
-    params.persistExtendedHistory = true;
-    return true;
-  }, { maxDepth: 6, maxKeys: 60 });
+  let lastAuthRefreshAt = 0;
+
+  helpers.onBeforeAppServerRequest(
+    electron,
+    (node) => {
+      if (!isPlainObject(node)) return false;
+      if (node.method !== "getAuthStatus") return false;
+      if (!isPlainObject(node.params)) return false;
+      if (node.params.refreshToken !== true) return false;
+
+      const now = Date.now();
+      if (now - lastAuthRefreshAt < AUTH_REFRESH_DEBOUNCE_MS) {
+        node.params.refreshToken = false;
+        return true;
+      }
+      lastAuthRefreshAt = now;
+      return false;
+    },
+    { maxDepth: 5, maxKeys: 40 },
+  );
+
+  helpers.onBeforeCodexRequest(
+    electron,
+    ({ envelope, method, params }) => {
+      if (rewritePersistExtendedHistory(envelope)) return true;
+      if (method === "thread/list" && isPlainObject(params)) {
+        return rewriteThreadListLimit(envelope);
+      }
+      return false;
+    },
+    { maxDepth: 6, maxKeys: 60 },
+  );
 };

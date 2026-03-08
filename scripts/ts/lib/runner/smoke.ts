@@ -63,7 +63,7 @@ function buildStageReport(
   };
 }
 
-function resolveAuthenticatedSmokeSeeds(options: PipelineOptions): ResolvedAuthSeeds {
+function resolveAuthenticatedSmokeSeeds(options: PipelineOptions, portableOutputDir: string): ResolvedAuthSeeds {
   const explicitUserDataPath = options.smokeUserDataSeedPath ? path.resolve(options.smokeUserDataSeedPath) : "";
   const explicitCodexHomePath = options.smokeCodexHomeSeedPath ? path.resolve(options.smokeCodexHomeSeedPath) : "";
   let autoDetected = false;
@@ -71,6 +71,8 @@ function resolveAuthenticatedSmokeSeeds(options: PipelineOptions): ResolvedAuthS
   let userDataPath = explicitUserDataPath;
   if (!userDataPath) {
     const candidates = [
+      path.join(portableOutputDir, "userdata-no-mods"),
+      path.join(portableOutputDir, "userdata"),
       path.join(REPO_ROOT, "dist", "Codex-win32-x64", "userdata-no-mods"),
       path.join(REPO_ROOT, "dist", "Codex-win32-x64", "userdata"),
     ];
@@ -135,7 +137,7 @@ export async function runSmoke(options: PipelineOptions): Promise<number> {
   let authenticatedStage: SmokeStageReport | null = null;
   let authenticatedSeeds: ResolvedAuthSeeds | null = null;
   if (options.smokeAuthStage) {
-    authenticatedSeeds = resolveAuthenticatedSmokeSeeds(options);
+    authenticatedSeeds = resolveAuthenticatedSmokeSeeds(options, pipelineResult.portableOutputDir);
     launchabilityLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "launchability");
     const authResult = await runPortableSmoke({
       outputDir: pipelineResult.portableOutputDir,

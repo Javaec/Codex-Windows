@@ -60,13 +60,15 @@ function buildStageReport(stage, smokeResult, runtimeLogsDir) {
         summaryJsonPath: path.join(runtimeLogsDir, "lane-summary.json"),
     };
 }
-function resolveAuthenticatedSmokeSeeds(options) {
+function resolveAuthenticatedSmokeSeeds(options, portableOutputDir) {
     const explicitUserDataPath = options.smokeUserDataSeedPath ? path.resolve(options.smokeUserDataSeedPath) : "";
     const explicitCodexHomePath = options.smokeCodexHomeSeedPath ? path.resolve(options.smokeCodexHomeSeedPath) : "";
     let autoDetected = false;
     let userDataPath = explicitUserDataPath;
     if (!userDataPath) {
         const candidates = [
+            path.join(portableOutputDir, "userdata-no-mods"),
+            path.join(portableOutputDir, "userdata"),
             path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "userdata-no-mods"),
             path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "userdata"),
         ];
@@ -122,7 +124,7 @@ async function runSmoke(options) {
     let authenticatedStage = null;
     let authenticatedSeeds = null;
     if (options.smokeAuthStage) {
-        authenticatedSeeds = resolveAuthenticatedSmokeSeeds(options);
+        authenticatedSeeds = resolveAuthenticatedSmokeSeeds(options, pipelineResult.portableOutputDir);
         launchabilityLogsDir = moveRuntimeLogs(pipelineResult.portableOutputDir, "launchability");
         const authResult = await (0, smoke_1.runPortableSmoke)({
             outputDir: pipelineResult.portableOutputDir,

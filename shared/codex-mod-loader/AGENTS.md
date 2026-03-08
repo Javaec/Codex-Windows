@@ -113,6 +113,21 @@ Mod contract (v1):
 - Reason:
   - preflight, matrix, and runtime loader must fail on the same invalid modpack shape instead of drifting into separate validators.
 
+## 2026-03-08: Renderer recovery must preserve the mod contract
+
+- Renderer injection state must reset when a `webContents` suffers:
+  - `render-process-gone`
+  - full main-frame navigation / reload
+- Reason:
+  - the same `webContents` object can survive while its JS world is gone; caching injected mods only by `webContents` identity causes “mods disappeared after crash recovery”.
+
+## 2026-03-08: Runtime hygiene belongs in mods, not back in the shim
+
+- Stale workspace/worktree pruning now lives in:
+  - `mods/workspace-state-sanitizer`
+- Reason:
+  - keep the main shim platform-only while still reducing repeated `git-origin-and-roots` churn from dead roots in `.codex-global-state.json`.
+
 ## 2026-03-05: app-server-tweaks (main mod)
 
 - Added `mods/app-server-tweaks` as a main-process mod.

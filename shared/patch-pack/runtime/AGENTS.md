@@ -46,6 +46,15 @@ Single source of truth for the injected Electron main shim used by repack and di
 - Reason:
   - gray-screen debugging needs direct startup markers, not inference from app-server traffic alone.
 
+## 2026-03-08: render-process-gone should log memory context
+
+- On `webcontents.render-process-gone`, also log a compact process memory snapshot:
+  - main RSS / heap
+  - renderer PID
+  - renderer working set / peak working set / private bytes when available
+- Reason:
+  - OOM is now a confirmed regression class; recovery logs need memory context, not only `reason=oom`.
+
 ## 2026-03-06: Mod loader must support hard A/B isolation
 
 - The main shim must support:

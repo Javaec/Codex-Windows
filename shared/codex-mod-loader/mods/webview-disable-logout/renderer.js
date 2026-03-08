@@ -43,6 +43,12 @@
     for (const node of candidates) disableNode(node);
   }
 
+  const scheduleScan = api.createDebouncedRunner(120, scan);
   scan();
-  api.observeDom(scan);
+  api.onRouteChange(scheduleScan);
+  api.observeDom((records) => {
+    const sidebar = api.getSidebarRoot();
+    if (sidebar instanceof HTMLElement && !api.mutationTouchesNode(records, sidebar)) return;
+    scheduleScan();
+  });
 })();
