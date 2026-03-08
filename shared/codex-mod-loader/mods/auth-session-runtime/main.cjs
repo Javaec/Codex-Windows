@@ -1,4 +1,4 @@
-/* CODEX-MOD:auth-runtime-contract@v1 */
+/* CODEX-MOD:auth-session-runtime@v1 */
 "use strict";
 
 const childProcess = require("node:child_process");
@@ -315,10 +315,10 @@ module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const helpers = ctx.helpers;
   if (!helpers || typeof helpers !== "object") {
-    throw new Error("auth-runtime-contract: missing API helpers");
+    throw new Error("auth-session-runtime: missing API helpers");
   }
   if (typeof helpers.onAppStart !== "function") {
-    throw new Error("auth-runtime-contract: missing helpers.onAppStart");
+    throw new Error("auth-session-runtime: missing helpers.onAppStart");
   }
   if (globalThis.__CODEX_AUTH_RUNTIME_CONTRACT_V1__) return;
   globalThis.__CODEX_AUTH_RUNTIME_CONTRACT_V1__ = true;

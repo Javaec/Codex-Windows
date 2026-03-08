@@ -3,7 +3,7 @@
 
   const api = window.__CODEX_MOD_API_V1__;
   if (!api || api.version !== 1) {
-    throw new Error("webview-disable-logout: Codex Mod API v1 is required");
+    throw new Error("renderer-logout-guard: Codex Mod API v1 is required");
   }
 
   if (window.__CODEX_WINDOWS_DISABLE_LOGOUT_V2__) return;
@@ -43,9 +43,18 @@
     for (const node of candidates) disableNode(node);
   }
 
-  const scheduleScan = api.createDebouncedRunner(120, scan);
+  let scheduled = false;
+  function scheduleScan() {
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      scan();
+    });
+  }
   scan();
-  api.onRouteChange(scheduleScan);
+  api.onRendererReady(scan);
+  api.onRouteChange(scan);
   api.observeDom((records) => {
     const sidebar = api.getSidebarRoot();
     if (sidebar instanceof HTMLElement && !api.mutationTouchesNode(records, sidebar)) return;

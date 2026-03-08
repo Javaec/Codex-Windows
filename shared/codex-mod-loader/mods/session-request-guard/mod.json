@@ -1,22 +1,21 @@
 {
   "schemaVersion": 1,
-  "id": "webview-disable-logout",
-  "name": "Disable logout",
-  "description": "Disable Log out controls in the renderer to prevent accidental sign-outs.",
+  "id": "session-request-guard",
+  "name": "Session request guard",
+  "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
   "enabled": true,
-  "priority": 210,
+  "priority": 80,
   "compatibility": {
     "minBuild": 0,
     "maxBuild": 0
   },
   "requiresCapabilities": {
-    "renderer": [
-      "renderer-ready",
-      "dom-observer"
+    "main": [
+      "before-app-server-request"
     ]
   },
   "entrypoints": {
-    "renderer": "renderer.js"
+    "main": "main.cjs"
   },
   "conflicts": [],
   "dependencies": [],

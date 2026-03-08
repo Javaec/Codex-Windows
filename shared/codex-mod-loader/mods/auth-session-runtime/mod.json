@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "auth-runtime-contract",
-  "name": "Auth runtime contract",
+  "id": "auth-session-runtime",
+  "name": "Auth session runtime",
   "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
   "enabled": true,
   "priority": 30,
@@ -22,7 +22,7 @@
   "softIncompatibilities": [],
   "loadAfter": [],
   "loadBefore": [
-    "workspace-state-sanitizer",
-    "app-server-tweaks"
+    "workspace-root-pruner",
+    "session-request-guard"
   ]
 }

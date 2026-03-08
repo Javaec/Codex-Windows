@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "webview-settings-limits-panel",
-  "name": "Usage limits panel",
-  "description": "Show 5h/weekly usage summary in the sidebar.",
+  "id": "renderer-thread-groups",
+  "name": "Renderer thread groups",
+  "description": "Keep project thread groups compact and tint thread rows by current/completed status.",
   "enabled": true,
-  "priority": 200,
+  "priority": 210,
   "compatibility": {
     "minBuild": 0,
     "maxBuild": 0
@@ -14,11 +14,9 @@
       "renderer-ready",
       "route-change",
       "sidebar-root",
-      "sidebar-panel",
-      "settings-panel",
-      "bridge-fetch",
-      "dom-observer",
-      "schedule-refresh"
+      "sidebar-groups",
+      "project-list",
+      "dom-observer"
     ]
   },
   "entrypoints": {

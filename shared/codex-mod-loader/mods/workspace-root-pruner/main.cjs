@@ -1,4 +1,4 @@
-/* CODEX-MOD:workspace-state-sanitizer@v1 */
+/* CODEX-MOD:workspace-root-pruner@v1 */
 "use strict";
 
 const fs = require("node:fs");
@@ -168,13 +168,13 @@ module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const helpers = ctx.helpers;
   if (!helpers || typeof helpers !== "object") {
-    throw new Error("workspace-state-sanitizer: missing API helpers");
+    throw new Error("workspace-root-pruner: missing API helpers");
   }
   if (typeof helpers.onAppStart !== "function") {
-    throw new Error("workspace-state-sanitizer: missing helpers.onAppStart");
+    throw new Error("workspace-root-pruner: missing helpers.onAppStart");
   }
-  if (globalThis.__CODEX_MOD_WORKSPACE_STATE_SANITIZER_V1__) return;
-  globalThis.__CODEX_MOD_WORKSPACE_STATE_SANITIZER_V1__ = true;
+  if (globalThis.__CODEX_MOD_WORKSPACE_ROOT_PRUNER_V1__) return;
+  globalThis.__CODEX_MOD_WORKSPACE_ROOT_PRUNER_V1__ = true;
 
   helpers.onAppStart(ctx.electron, () => {
     let scannedFiles = 0;
@@ -188,7 +188,7 @@ module.exports = function activate(context) {
     }
     if (scannedFiles > 0) {
       console.log(
-        `[codex-mod-loader] workspace-state-sanitizer scannedFiles=${scannedFiles} updatedFiles=${updatedFiles} removedEntries=${removedEntries}`,
+        `[codex-mod-loader] workspace-root-pruner scannedFiles=${scannedFiles} updatedFiles=${updatedFiles} removedEntries=${removedEntries}`,
       );
     }
   });

@@ -124,14 +124,14 @@ Mod contract (v1):
 ## 2026-03-08: Runtime hygiene belongs in mods, not back in the shim
 
 - Stale workspace/worktree pruning now lives in:
-  - `mods/workspace-state-sanitizer`
+  - `mods/workspace-root-pruner`
 - Reason:
   - keep the main shim platform-only while still reducing repeated `git-origin-and-roots` churn from dead roots in `.codex-global-state.json`.
 
 ## 2026-03-08: Auth runtime is now a first-class modding contract
 
 - Auth/session observability now lives in:
-  - `mods/auth-runtime-contract`
+  - `mods/auth-session-runtime`
 - It owns:
   - `auth.json` watching
   - structured logs for `getAuthStatus`
@@ -143,13 +143,13 @@ Mod contract (v1):
 ## 2026-03-08: Thread activity is now a data bridge, not only a DOM guess
 
 - Thread row highlighting may now consume main-process state from:
-  - `mods/thread-activity-bridge`
+  - `mods/thread-status-bridge`
 - Reason:
   - the active thread id is not reliably available from the renderer URL alone; a thin state bridge is safer than deeper React internals patching.
 
-## 2026-03-05: app-server-tweaks (main mod)
+## 2026-03-05: session-request-guard (main mod)
 
-- Added `mods/app-server-tweaks` as a main-process mod.
+- Added `mods/session-request-guard` as a main-process mod.
 - Purpose:
   - force `persistExtendedHistory=true` on thread-detail calls so legacy chat history keeps loading after Codex CLI upgrades.
 - Implementation:
@@ -169,16 +169,16 @@ Mod contract (v1):
   - renderer console: `SyntaxError: Invalid or unexpected token`
   - main log: `renderer mod failed (...)`
 
-## 2026-03-05: Limits panel contract
+## 2026-03-05: Renderer usage limits contract
 
-- `mods/webview-settings-limits-panel` must poll `/wham/usage` over the Electron fetch bridge.
+- `mods/renderer-usage-limits` must poll `/wham/usage` over the Electron fetch bridge.
 - The sidebar panel must show remaining quota, matching Settings (`x% left`), not raw `used_percent`.
 - Do not parse Settings DOM text; generic text scraping drifts and mirrors unrelated values.
 - Prefer the general root limit entry (`limitName == null`) and select only the closest 5h/weekly windows.
 
-## 2026-03-05: Grouped sidebar thread cap
+## 2026-03-05: Renderer thread groups contract
 
-- `mods/webview-thread-list-cap` keeps grouped project lists at 6 rows before expansion.
+- `mods/renderer-thread-groups` keeps grouped project lists compact before expansion.
 - It must first trigger the native React `Show more`, because rows after the bundled 10-item cap do not exist in the DOM until then.
 - It now matches visible sidebar lists by structure (`native toggle row inside sidebar`) instead of one exact `aria-label`.
 - After native expansion, the mod hides rows after 6 and renders its own compact toggle.

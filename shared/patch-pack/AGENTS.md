@@ -45,11 +45,11 @@ Single source of truth for patch profiles across repacker, generator, and manual
   - bundled into portable outputs as `resources/mods/*`
   - injected into renderer via `webContents.executeJavaScript` (DOM-only, must not mutate `window.electronBridge`)
 - App-server request tweaks are also runtime mods (main-process):
-  - `mods/app-server-tweaks` rewrites IPC request payloads:
+  - `mods/session-request-guard` rewrites IPC request payloads:
     - `thread/*` forced `persistExtendedHistory=true`
 - UI behavior tweaks are renderer mods:
-  - `mods/webview-thread-list-cap` keeps grouped project lists at 6 rows before the custom toggle
-  - `mods/webview-settings-limits-panel` polls `/wham/usage` and shows remaining 5h/weekly quota
+  - `mods/renderer-thread-groups` keeps grouped project lists compact before the custom toggle
+  - `mods/renderer-usage-limits` polls `/wham/usage` and shows remaining 5h/weekly quota
 - patch-pack preflight now validates runtime modpack presence + manifest/entry integrity.
 
 ## 2026-03-05: Explicit Codex-11012 support

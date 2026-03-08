@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedBy": "auth-runtime-contract",
+  "generatedBy": "auth-session-runtime",
   "surfaces": [
     {
       "id": "auth-file",

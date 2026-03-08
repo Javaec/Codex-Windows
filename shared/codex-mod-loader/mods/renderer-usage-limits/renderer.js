@@ -3,7 +3,7 @@
 
   const api = window.__CODEX_MOD_API_V1__;
   if (!api || api.version !== 1) {
-    throw new Error("webview-settings-limits-panel: Codex Mod API v1 is required");
+    throw new Error("renderer-usage-limits: Codex Mod API v1 is required");
   }
 
   if (window.__CODEX_WINDOWS_SETTINGS_LIMIT_PANEL_V18__) return;

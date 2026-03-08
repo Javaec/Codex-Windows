@@ -1,4 +1,4 @@
-/* CODEX-MOD:thread-activity-bridge@v1 */
+/* CODEX-MOD:thread-status-bridge@v1 */
 "use strict";
 
 const childProcess = require("node:child_process");
@@ -41,6 +41,10 @@ function createDebouncedRunner(delayMs, callback) {
       callback();
     }, delayMs);
   };
+}
+
+function normalizeTitleKey(value) {
+  return normalizePathString(value).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function extractThreadId(value) {
@@ -105,17 +109,44 @@ function classifyThreadStatusFromMessage(message) {
   return null;
 }
 
+function collectThreadEntries(value, out, depth) {
+  if (depth > 5 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectThreadEntries(item, out, depth + 1);
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const threadId = extractThreadIdFromObject(value);
+  const titleKey = normalizeTitleKey(value.title || value.name || value.label || "");
+  const rawStatus = normalizeTitleKey(value.latestTurnStatus || value.turnStatus || value.status || "");
+  if (threadId || titleKey) {
+    out.push({
+      threadId,
+      titleKey,
+      status:
+        rawStatus === "completed" || rawStatus === "aborted"
+          ? "completed"
+          : (rawStatus ? "current" : ""),
+    });
+  }
+
+  for (const childValue of Object.values(value)) {
+    collectThreadEntries(childValue, out, depth + 1);
+  }
+}
+
 module.exports = function activate(context) {
   const ctx = context && typeof context === "object" ? context : {};
   const helpers = ctx.helpers;
   if (!helpers || typeof helpers !== "object") {
-    throw new Error("thread-activity-bridge: missing API helpers");
+    throw new Error("thread-status-bridge: missing API helpers");
   }
   if (typeof helpers.onWindowCreated !== "function") {
-    throw new Error("thread-activity-bridge: missing helpers.onWindowCreated");
+    throw new Error("thread-status-bridge: missing helpers.onWindowCreated");
   }
   if (typeof helpers.onAppStart !== "function") {
-    throw new Error("thread-activity-bridge: missing helpers.onAppStart");
+    throw new Error("thread-status-bridge: missing helpers.onAppStart");
   }
   if (globalThis.__CODEX_THREAD_ACTIVITY_BRIDGE_V1__) return;
   globalThis.__CODEX_THREAD_ACTIVITY_BRIDGE_V1__ = true;
@@ -130,6 +161,7 @@ module.exports = function activate(context) {
         status: entry.status,
         updatedAtMs: entry.updatedAtMs,
         source: entry.source,
+        titleKey: entry.titleKey || "",
       };
     }
     return {
@@ -161,10 +193,12 @@ module.exports = function activate(context) {
 
   function upsertThreadState(update) {
     if (!update || !update.threadId || !update.status) return;
+    const existing = threadStates.get(update.threadId);
     threadStates.set(update.threadId, {
       status: update.status,
       updatedAtMs: Date.now(),
       source: update.source || "",
+      titleKey: update.titleKey || (existing && existing.titleKey) || "",
     });
     if (threadStates.size > MAX_TRACKED_THREADS) {
       const ordered = [...threadStates.entries()].sort((left, right) => left[1].updatedAtMs - right[1].updatedAtMs);
@@ -177,12 +211,29 @@ module.exports = function activate(context) {
     broadcastState();
   }
 
+  function ingestThreadEntries(message) {
+    const entries = [];
+    collectThreadEntries(message && typeof message === "object" ? message.result || message.params || message : null, entries, 0);
+    for (const entry of entries) {
+      if (!entry.threadId) continue;
+      const existing = threadStates.get(entry.threadId);
+      if (!existing && !entry.status && !entry.titleKey) continue;
+      threadStates.set(entry.threadId, {
+        status: entry.status || (existing && existing.status) || "",
+        updatedAtMs: Date.now(),
+        source: (existing && existing.source) || "thread-metadata",
+        titleKey: entry.titleKey || (existing && existing.titleKey) || "",
+      });
+    }
+  }
+
   function instrumentCodexChild(child, executablePath) {
     if (!child || child.__CODEX_THREAD_ACTIVITY_INSTRUMENTED__) return;
     child.__CODEX_THREAD_ACTIVITY_INSTRUMENTED__ = true;
 
     if (child.stdin && typeof child.stdin.write === "function") {
       const stdinTap = createJsonLineTap((message) => {
+        ingestThreadEntries(message);
         const update = classifyThreadStatusFromMessage(message);
         if (update) upsertThreadState(update);
       });
@@ -199,6 +250,7 @@ module.exports = function activate(context) {
 
     if (child.stdout && typeof child.stdout.on === "function") {
       const stdoutTap = createJsonLineTap((message) => {
+        ingestThreadEntries(message);
         const update = classifyThreadStatusFromMessage(message);
         if (update) upsertThreadState(update);
       });

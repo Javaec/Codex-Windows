@@ -1,21 +1,22 @@
 {
   "schemaVersion": 1,
-  "id": "app-server-tweaks",
-  "name": "App-server tweaks",
-  "description": "Runtime request rewrites for stability/UX (thread/list limit + persistExtendedHistory).",
+  "id": "renderer-logout-guard",
+  "name": "Renderer logout guard",
+  "description": "Disable logout controls fast enough to prevent accidental sign-outs.",
   "enabled": true,
-  "priority": 80,
+  "priority": 210,
   "compatibility": {
     "minBuild": 0,
     "maxBuild": 0
   },
   "requiresCapabilities": {
-    "main": [
-      "before-app-server-request"
+    "renderer": [
+      "renderer-ready",
+      "dom-observer"
     ]
   },
   "entrypoints": {
-    "main": "main.cjs"
+    "renderer": "renderer.js"
   },
   "conflicts": [],
   "dependencies": [],

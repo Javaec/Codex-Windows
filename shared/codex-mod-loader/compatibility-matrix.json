@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-08T10:08:42.907Z",
+  "generatedAtIso": "2026-03-08T12:02:19.024Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -42,54 +42,8 @@
   ],
   "mods": [
     {
-      "id": "app-server-tweaks",
-      "name": "App-server tweaks",
-      "description": "Runtime request rewrites for stability/UX (thread/list limit + persistExtendedHistory).",
-      "enabled": true,
-      "priority": 80,
-      "entrypoints": [
-        "main"
-      ],
-      "compatibility": {
-        "appVersionRegex": "",
-        "minBuild": 0,
-        "maxBuild": 0
-      },
-      "capabilities": {
-        "renderer": [],
-        "main": [
-          "before-app-server-request"
-        ]
-      },
-      "conflicts": [],
-      "dependencies": [],
-      "softIncompatibilities": [],
-      "loadAfter": [],
-      "loadBefore": [],
-      "knownBuilds": [
-        {
-          "id": "codex-10711",
-          "appVersion": "26.303.1606",
-          "buildNumber": "806",
-          "buildHint": 10711,
-          "patchProfileId": "codex-10711",
-          "compatible": true,
-          "reason": ""
-        },
-        {
-          "id": "codex-11012",
-          "appVersion": "26.305.950",
-          "buildNumber": "863",
-          "buildHint": 11012,
-          "patchProfileId": "codex-10711",
-          "compatible": true,
-          "reason": ""
-        }
-      ]
-    },
-    {
-      "id": "auth-runtime-contract",
-      "name": "Auth runtime contract",
+      "id": "auth-session-runtime",
+      "name": "Auth session runtime",
       "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
       "enabled": true,
       "priority": 30,
@@ -112,8 +66,8 @@
       "softIncompatibilities": [],
       "loadAfter": [],
       "loadBefore": [
-        "app-server-tweaks",
-        "workspace-state-sanitizer"
+        "session-request-guard",
+        "workspace-root-pruner"
       ],
       "knownBuilds": [
         {
@@ -137,58 +91,9 @@
       ]
     },
     {
-      "id": "thread-activity-bridge",
-      "name": "Thread activity bridge",
-      "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
-      "enabled": true,
-      "priority": 70,
-      "entrypoints": [
-        "main"
-      ],
-      "compatibility": {
-        "appVersionRegex": "",
-        "minBuild": 0,
-        "maxBuild": 0
-      },
-      "capabilities": {
-        "renderer": [],
-        "main": [
-          "app-start",
-          "window-created"
-        ]
-      },
-      "conflicts": [],
-      "dependencies": [],
-      "softIncompatibilities": [],
-      "loadAfter": [
-        "auth-runtime-contract"
-      ],
-      "loadBefore": [],
-      "knownBuilds": [
-        {
-          "id": "codex-10711",
-          "appVersion": "26.303.1606",
-          "buildNumber": "806",
-          "buildHint": 10711,
-          "patchProfileId": "codex-10711",
-          "compatible": true,
-          "reason": ""
-        },
-        {
-          "id": "codex-11012",
-          "appVersion": "26.305.950",
-          "buildNumber": "863",
-          "buildHint": 11012,
-          "patchProfileId": "codex-10711",
-          "compatible": true,
-          "reason": ""
-        }
-      ]
-    },
-    {
-      "id": "webview-disable-logout",
-      "name": "Disable logout",
-      "description": "Disable Log out controls in the renderer to prevent accidental sign-outs.",
+      "id": "renderer-logout-guard",
+      "name": "Renderer logout guard",
+      "description": "Disable logout controls fast enough to prevent accidental sign-outs.",
       "enabled": true,
       "priority": 210,
       "entrypoints": [
@@ -233,9 +138,60 @@
       ]
     },
     {
-      "id": "webview-settings-limits-panel",
-      "name": "Usage limits panel",
-      "description": "Show 5h/weekly usage summary in the sidebar.",
+      "id": "renderer-thread-groups",
+      "name": "Renderer thread groups",
+      "description": "Keep project thread groups compact and tint thread rows by current/completed status.",
+      "enabled": true,
+      "priority": 210,
+      "entrypoints": [
+        "renderer"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [
+          "dom-observer",
+          "project-list",
+          "renderer-ready",
+          "route-change",
+          "sidebar-groups",
+          "sidebar-root"
+        ],
+        "main": []
+      },
+      "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [],
+      "loadBefore": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "renderer-usage-limits",
+      "name": "Renderer usage limits",
+      "description": "Show 5h/weekly usage limits in the sidebar and refresh them often enough.",
       "enabled": true,
       "priority": 200,
       "entrypoints": [
@@ -286,13 +242,13 @@
       ]
     },
     {
-      "id": "webview-thread-list-cap",
-      "name": "Thread list cap",
-      "description": "Show 4 threads per project before expanding, with active/completed row highlighting.",
+      "id": "session-request-guard",
+      "name": "Session request guard",
+      "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
       "enabled": true,
-      "priority": 210,
+      "priority": 80,
       "entrypoints": [
-        "renderer"
+        "main"
       ],
       "compatibility": {
         "appVersionRegex": "",
@@ -300,15 +256,10 @@
         "maxBuild": 0
       },
       "capabilities": {
-        "renderer": [
-          "dom-observer",
-          "project-list",
-          "renderer-ready",
-          "route-change",
-          "sidebar-groups",
-          "sidebar-root"
-        ],
-        "main": []
+        "renderer": [],
+        "main": [
+          "before-app-server-request"
+        ]
       },
       "conflicts": [],
       "dependencies": [],
@@ -337,8 +288,57 @@
       ]
     },
     {
-      "id": "workspace-state-sanitizer",
-      "name": "Workspace state sanitizer",
+      "id": "thread-status-bridge",
+      "name": "Thread status bridge",
+      "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
+      "enabled": true,
+      "priority": 70,
+      "entrypoints": [
+        "main"
+      ],
+      "compatibility": {
+        "appVersionRegex": "",
+        "minBuild": 0,
+        "maxBuild": 0
+      },
+      "capabilities": {
+        "renderer": [],
+        "main": [
+          "app-start",
+          "window-created"
+        ]
+      },
+      "conflicts": [],
+      "dependencies": [],
+      "softIncompatibilities": [],
+      "loadAfter": [
+        "auth-session-runtime"
+      ],
+      "loadBefore": [],
+      "knownBuilds": [
+        {
+          "id": "codex-10711",
+          "appVersion": "26.303.1606",
+          "buildNumber": "806",
+          "buildHint": 10711,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        },
+        {
+          "id": "codex-11012",
+          "appVersion": "26.305.950",
+          "buildNumber": "863",
+          "buildHint": 11012,
+          "patchProfileId": "codex-10711",
+          "compatible": true,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "id": "workspace-root-pruner",
+      "name": "Workspace root pruner",
       "description": "Prune stale workspace and worktree roots from persisted global state at app start.",
       "enabled": true,
       "priority": 40,
@@ -361,7 +361,7 @@
       "softIncompatibilities": [],
       "loadAfter": [],
       "loadBefore": [
-        "app-server-tweaks"
+        "session-request-guard"
       ],
       "knownBuilds": [
         {
@@ -393,23 +393,23 @@
       "buildHint": 10711,
       "patchProfileId": "codex-10711",
       "compatibleMods": [
-        "app-server-tweaks",
-        "auth-runtime-contract",
-        "thread-activity-bridge",
-        "webview-disable-logout",
-        "webview-settings-limits-panel",
-        "webview-thread-list-cap",
-        "workspace-state-sanitizer"
+        "auth-session-runtime",
+        "renderer-logout-guard",
+        "renderer-thread-groups",
+        "renderer-usage-limits",
+        "session-request-guard",
+        "thread-status-bridge",
+        "workspace-root-pruner"
       ],
       "incompatibleMods": [],
       "loadOrder": [
-        "auth-runtime-contract",
-        "workspace-state-sanitizer",
-        "thread-activity-bridge",
-        "app-server-tweaks",
-        "webview-settings-limits-panel",
-        "webview-disable-logout",
-        "webview-thread-list-cap"
+        "auth-session-runtime",
+        "workspace-root-pruner",
+        "thread-status-bridge",
+        "session-request-guard",
+        "renderer-usage-limits",
+        "renderer-logout-guard",
+        "renderer-thread-groups"
       ],
       "softIncompatibilities": [],
       "recommendedDisabledMods": []
@@ -421,23 +421,23 @@
       "buildHint": 11012,
       "patchProfileId": "codex-10711",
       "compatibleMods": [
-        "app-server-tweaks",
-        "auth-runtime-contract",
-        "thread-activity-bridge",
-        "webview-disable-logout",
-        "webview-settings-limits-panel",
-        "webview-thread-list-cap",
-        "workspace-state-sanitizer"
+        "auth-session-runtime",
+        "renderer-logout-guard",
+        "renderer-thread-groups",
+        "renderer-usage-limits",
+        "session-request-guard",
+        "thread-status-bridge",
+        "workspace-root-pruner"
       ],
       "incompatibleMods": [],
       "loadOrder": [
-        "auth-runtime-contract",
-        "workspace-state-sanitizer",
-        "thread-activity-bridge",
-        "app-server-tweaks",
-        "webview-settings-limits-panel",
-        "webview-disable-logout",
-        "webview-thread-list-cap"
+        "auth-session-runtime",
+        "workspace-root-pruner",
+        "thread-status-bridge",
+        "session-request-guard",
+        "renderer-usage-limits",
+        "renderer-logout-guard",
+        "renderer-thread-groups"
       ],
       "softIncompatibilities": [],
       "recommendedDisabledMods": []

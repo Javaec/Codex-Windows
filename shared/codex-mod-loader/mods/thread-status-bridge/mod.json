@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "thread-activity-bridge",
-  "name": "Thread activity bridge",
+  "id": "thread-status-bridge",
+  "name": "Thread status bridge",
   "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
   "enabled": true,
   "priority": 70,
@@ -22,7 +22,7 @@
   "dependencies": [],
   "softIncompatibilities": [],
   "loadAfter": [
-    "auth-runtime-contract"
+    "auth-session-runtime"
   ],
   "loadBefore": []
 }

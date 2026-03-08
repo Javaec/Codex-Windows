@@ -1,4 +1,4 @@
-/* CODEX-MOD:app-server-tweaks@v4 */
+/* CODEX-MOD:session-request-guard@v1 */
 "use strict";
 
 const AUTH_REFRESH_DEBOUNCE_MS = 2500;
@@ -45,23 +45,23 @@ module.exports = function activate(context) {
   const electron = ctx.electron;
   const helpers = ctx.helpers;
   if (!electron || typeof electron !== "object") {
-    throw new Error("app-server-tweaks: missing electron handle");
+    throw new Error("session-request-guard: missing electron handle");
   }
   if (!helpers || typeof helpers !== "object") {
-    throw new Error("app-server-tweaks: missing API helpers");
+    throw new Error("session-request-guard: missing API helpers");
   }
   if (typeof helpers.isPlainObject !== "function") {
-    throw new Error("app-server-tweaks: missing helpers.isPlainObject");
+    throw new Error("session-request-guard: missing helpers.isPlainObject");
   }
   if (typeof helpers.onBeforeAppServerRequest !== "function") {
-    throw new Error("app-server-tweaks: missing helpers.onBeforeAppServerRequest");
+    throw new Error("session-request-guard: missing helpers.onBeforeAppServerRequest");
   }
   if (typeof helpers.onBeforeCodexRequest !== "function") {
-    throw new Error("app-server-tweaks: missing helpers.onBeforeCodexRequest");
+    throw new Error("session-request-guard: missing helpers.onBeforeCodexRequest");
   }
 
-  if (globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V4__) return;
-  globalThis.__CODEX_MOD_APP_SERVER_TWEAKS_V4__ = true;
+  if (globalThis.__CODEX_MOD_SESSION_REQUEST_GUARD_V1__) return;
+  globalThis.__CODEX_MOD_SESSION_REQUEST_GUARD_V1__ = true;
 
   let lastAuthRefreshAt = 0;
 

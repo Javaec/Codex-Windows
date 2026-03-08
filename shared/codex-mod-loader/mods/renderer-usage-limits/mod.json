@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "webview-thread-list-cap",
-  "name": "Thread list cap",
-  "description": "Show 4 threads per project before expanding, with active/completed row highlighting.",
+  "id": "renderer-usage-limits",
+  "name": "Renderer usage limits",
+  "description": "Show 5h/weekly usage limits in the sidebar and refresh them often enough.",
   "enabled": true,
-  "priority": 210,
+  "priority": 200,
   "compatibility": {
     "minBuild": 0,
     "maxBuild": 0
@@ -14,9 +14,11 @@
       "renderer-ready",
       "route-change",
       "sidebar-root",
-      "sidebar-groups",
-      "project-list",
-      "dom-observer"
+      "sidebar-panel",
+      "settings-panel",
+      "bridge-fetch",
+      "dom-observer",
+      "schedule-refresh"
     ]
   },
   "entrypoints": {

@@ -3,7 +3,7 @@
 
   const api = window.__CODEX_MOD_API_V1__;
   if (!api || api.version !== 1) {
-    throw new Error("webview-thread-list-cap: Codex Mod API v1 is required");
+    throw new Error("renderer-thread-groups: Codex Mod API v1 is required");
   }
 
   if (window.__CODEX_WINDOWS_THREAD_LIST_CAP_V4__) return;
@@ -44,13 +44,13 @@
       }
       [${THREAD_CURRENT_ATTR}="1"],
       [${THREAD_CURRENT_ATTR}="1"] > :first-child {
-        background: rgba(245, 158, 11, 0.10) !important;
-        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.24);
+        background: rgba(245, 158, 11, 0.07) !important;
+        box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18);
       }
       [${THREAD_COMPLETED_ATTR}="1"],
       [${THREAD_COMPLETED_ATTR}="1"] > :first-child {
-        background: rgba(34, 197, 94, 0.08) !important;
-        box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.18);
+        background: rgba(34, 197, 94, 0.05) !important;
+        box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.14);
       }
     `,
   );
@@ -60,6 +60,10 @@
     if (!rawState || typeof rawState !== "object") return {};
     const threads = rawState.threads;
     return threads && typeof threads === "object" ? threads : {};
+  }
+
+  function normalizeTitleKey(value) {
+    return api.normalizeText(value).replace(/\s+/g, " ").trim().toLowerCase();
   }
 
   function extractThreadId(text) {
@@ -87,6 +91,31 @@
       if (threadId) return threadId;
     }
     return "";
+  }
+
+  function getRowTitleKey(row) {
+    const text = normalizeTitleKey(row.textContent || row.getAttribute("aria-label") || "");
+    return text.length > 0 ? text : "";
+  }
+
+  function getThreadStateEntry(row) {
+    const threadActivityState = getThreadActivityState();
+    const threadId = getRowThreadId(row);
+    if (threadId && threadActivityState[threadId]) {
+      return threadActivityState[threadId];
+    }
+
+    const rowTitleKey = getRowTitleKey(row);
+    if (!rowTitleKey) return null;
+    for (const entry of Object.values(threadActivityState)) {
+      if (!entry || typeof entry !== "object") continue;
+      const titleKey = normalizeTitleKey(entry.titleKey || "");
+      if (!titleKey) continue;
+      if (rowTitleKey === titleKey || rowTitleKey.includes(titleKey) || titleKey.includes(rowTitleKey)) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   function getState(label) {
@@ -153,9 +182,7 @@
 
   function classifyThreadRow(row) {
     resetRowDecoration(row);
-    const threadId = getRowThreadId(row);
-    const threadActivityState = getThreadActivityState();
-    const stateEntry = threadId ? threadActivityState[threadId] : null;
+    const stateEntry = getThreadStateEntry(row);
     if (stateEntry && stateEntry.status === "current") {
       row.setAttribute(THREAD_CURRENT_ATTR, "1");
       return;
@@ -217,7 +244,7 @@
 
     const button = toggle.querySelector("button");
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error(`webview-thread-list-cap: missing toggle button for ${label}`);
+      throw new Error(`renderer-thread-groups: missing toggle button for ${label}`);
     }
     button.textContent = state.expanded ? "Show less" : "Show more";
     button.setAttribute("aria-expanded", state.expanded ? "true" : "false");
