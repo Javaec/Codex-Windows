@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileExists } from "../exec";
-import { ForgeConfig, ForgeLaunchProfile, ForgePaths } from "./paths";
+import { ForgeConfig, ForgeLaunchProfile, ForgePaths, resolveForgeRuntimeDir } from "./paths";
 import { resolveForgeModGraph } from "./resolution";
+import { ensureForgeRuntimeRegistry, ForgeRuntimeInstall } from "./runtime-registry";
 
 export type ForgeRuntimeState = {
   exists: boolean;
@@ -52,6 +53,22 @@ export type ForgeComponentState = {
   status: "ready" | "degraded" | "missing";
 };
 
+export type ForgeRuntimeInstallState = {
+  id: string;
+  label: string;
+  description: string;
+  source: "repo-dist" | "snapshot";
+  runtimeDir: string;
+  appVersion: string;
+  buildNumber: string;
+  patchProfileId: string;
+  cliSource: string;
+  rgExists: boolean;
+  hasModPlatform: boolean;
+  active: boolean;
+  capturedAtIso: string;
+};
+
 export type ForgeState = {
   name: string;
   mode: ForgeConfig["mode"];
@@ -60,6 +77,11 @@ export type ForgeState = {
   logsDir: string;
   launchProfiles: ForgeLaunchProfile[];
   runtime: ForgeRuntimeState;
+  runtimeRegistry: {
+    currentInstallId: string;
+    installCount: number;
+    installs: ForgeRuntimeInstallState[];
+  };
   components: ForgeComponentState[];
   mods: ForgeModState[];
   modCounts: {
@@ -93,7 +115,7 @@ function readJson<T>(filePath: string, fallback: T): T {
 }
 
 function readRuntimeState(paths: ForgePaths, config: ForgeConfig): ForgeRuntimeState {
-  const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
+  const runtimeDir = resolveForgeRuntimeDir(paths, config);
   const metadataPath = path.join(runtimeDir, "build-metadata.json");
   const metadata = readJson<Record<string, unknown>>(metadataPath, {});
 
@@ -132,7 +154,25 @@ function readLatestRuntimeLog(runtimeDir: string, relativeDir: string): string {
   return candidates[0] || "";
 }
 
-function buildComponentState(runtime: ForgeRuntimeState): ForgeComponentState[] {
+function mapRuntimeInstall(install: ForgeRuntimeInstall, currentInstallId: string): ForgeRuntimeInstallState {
+  return {
+    id: install.id,
+    label: install.label,
+    description: install.description,
+    source: install.source,
+    runtimeDir: install.runtimeDir,
+    appVersion: install.appVersion,
+    buildNumber: install.buildNumber,
+    patchProfileId: install.patchProfileId,
+    cliSource: install.cliSource,
+    rgExists: install.rgExists,
+    hasModPlatform: install.hasModApi && install.hasModLoader && install.hasCompatibilityHelper && install.hasVersionIdentity,
+    active: install.id === currentInstallId,
+    capturedAtIso: install.capturedAtIso,
+  };
+}
+
+function buildComponentState(runtime: ForgeRuntimeState, installCount: number): ForgeComponentState[] {
   return [
     {
       id: "codex-forge",
@@ -174,12 +214,22 @@ function buildComponentState(runtime: ForgeRuntimeState): ForgeComponentState[] 
       source: "shared/codex-mod-loader",
       status: runtime.hasModApi && runtime.hasModLoader && runtime.hasCompatibilityHelper && runtime.hasVersionIdentity ? "ready" : "degraded",
     },
+    {
+      id: "runtime-registry",
+      name: "Runtime Registry",
+      description: "Forge-managed list of runtime installs and the active runtime pointer.",
+      version: `${installCount} install${installCount === 1 ? "" : "s"}`,
+      source: "codex-forge/runtime/registry.json",
+      status: installCount > 0 ? "ready" : "degraded",
+    },
   ];
 }
 
 export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeState {
-  const resolvedGraph = resolveForgeModGraph(paths, config);
-  const runtime = readRuntimeState(paths, config);
+  const runtimeRegistryState = ensureForgeRuntimeRegistry(paths, config);
+  const effectiveConfig = runtimeRegistryState.config;
+  const resolvedGraph = resolveForgeModGraph(paths, effectiveConfig);
+  const runtime = readRuntimeState(paths, effectiveConfig);
   const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
   const runtimeInstalledIds = new Set(
     fileExists(runtimeModsRoot)
@@ -217,9 +267,16 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
     forgeRoot: paths.forgeRoot,
     configPath: paths.configPath,
     logsDir: paths.logsDir,
-    launchProfiles: config.launchProfiles,
+    launchProfiles: effectiveConfig.launchProfiles,
     runtime,
-    components: buildComponentState(runtime),
+    runtimeRegistry: {
+      currentInstallId: runtimeRegistryState.registry.currentInstallId,
+      installCount: runtimeRegistryState.registry.installs.length,
+      installs: runtimeRegistryState.registry.installs
+        .map((install) => mapRuntimeInstall(install, runtimeRegistryState.registry.currentInstallId))
+        .sort((left, right) => Number(right.active) - Number(left.active) || left.label.localeCompare(right.label)),
+    },
+    components: buildComponentState(runtime, runtimeRegistryState.registry.installs.length),
     mods,
     modCounts: {
       total: mods.length,

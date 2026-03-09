@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileExists } from "../exec";
-import { ForgeConfig, ForgePaths } from "./paths";
+import { ForgeConfig, ForgePaths, resolveForgeRuntimeDir } from "./paths";
 import { discoverForgeMods } from "./discovery";
 
 const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs")) as {
@@ -119,7 +119,7 @@ function readJson<T>(filePath: string, fallback: T): T {
 }
 
 function readRuntimeBuildContext(paths: ForgePaths, config: ForgeConfig): { appVersion: string; buildNumber: string } {
-  const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
+  const runtimeDir = resolveForgeRuntimeDir(paths, config);
   const metadata = readJson<BuildMetadata>(path.join(runtimeDir, "build-metadata.json"), {});
   return {
     appVersion: typeof metadata.appVersion === "string" ? metadata.appVersion : "",

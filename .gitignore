@@ -7,6 +7,8 @@
 /extracted/
 /cache/
 /codex-forge/cache/
+/codex-forge/runtime/
+/codex-forge/downloads/
 /orchestrator-deobf/.cache/
 /orchestrator-deobf/runs/
 /userdata/

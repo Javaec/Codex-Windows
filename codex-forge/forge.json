@@ -1,10 +1,11 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Codex Forge",
   "mode": "repo-backed-dev",
   "runtime": {
     "source": "repo-dist",
-    "currentDir": "C:\\Codex-Windows\\dist\\Codex-win32-x64"
+    "currentDir": "C:\\Codex-Windows\\dist\\Codex-win32-x64",
+    "currentInstallId": "repo-dist-current"
   },
   "mods": {
     "sourceDir": "C:\\Codex-Windows\\shared\\codex-mod-loader\\mods"

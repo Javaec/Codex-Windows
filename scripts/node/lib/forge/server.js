@@ -41,8 +41,10 @@ const path = __importStar(require("node:path"));
 const node_url_1 = require("node:url");
 const exec_1 = require("../exec");
 const env_1 = require("../env");
+const paths_1 = require("./paths");
 const state_1 = require("./state");
 const runtime_sync_1 = require("./runtime-sync");
+const runtime_registry_1 = require("./runtime-registry");
 function json(response, statusCode, payload) {
     response.statusCode = statusCode;
     response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -82,12 +84,13 @@ function launchLane(paths, config, lane) {
     if (!profile) {
         throw new Error(`Unknown Forge launch profile: ${lane}`);
     }
-    const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[profile.id] || "");
+    const activeRuntimeDir = (0, paths_1.resolveForgeRuntimeDir)(paths, config);
+    const launcherPath = path.join(activeRuntimeDir, byLane[profile.id] || "");
     if (!(0, exec_1.fileExists)(launcherPath)) {
         throw new Error(`Forge launcher missing: ${launcherPath}`);
     }
     const child = (0, node_child_process_1.spawn)("cmd.exe", ["/d", "/c", launcherPath], {
-        cwd: paths.repoDistRuntimeDir,
+        cwd: activeRuntimeDir,
         detached: true,
         stdio: "ignore",
         windowsHide: false,
@@ -114,7 +117,12 @@ function serveStaticFile(response, filePath) {
     response.end(fs.readFileSync(filePath));
 }
 async function startForgeLauncherServer(options) {
-    const state = () => (0, state_1.getForgeState)(options.paths, options.config);
+    const getEffectiveConfig = () => {
+        const ensured = (0, runtime_registry_1.ensureForgeRuntimeRegistry)(options.paths, options.config);
+        options.config = ensured.config;
+        return ensured.config;
+    };
+    const state = () => (0, state_1.getForgeState)(options.paths, getEffectiveConfig());
     const server = http.createServer(async (request, response) => {
         const requestUrl = new node_url_1.URL(request.url || "/", "http://127.0.0.1");
         const pathname = requestUrl.pathname;
@@ -128,14 +136,31 @@ async function startForgeLauncherServer(options) {
             return;
         }
         if (request.method === "POST" && pathname === "/api/runtime/sync") {
-            const result = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths, options.config);
+            const result = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths, getEffectiveConfig());
             json(response, 200, { ok: true, result, state: state() });
+            return;
+        }
+        if (request.method === "POST" && pathname === "/api/runtime/capture-current") {
+            const result = (0, runtime_registry_1.captureActiveForgeRuntime)(options.paths, getEffectiveConfig());
+            json(response, 200, { ok: true, result, state: state() });
+            return;
+        }
+        if (request.method === "POST" && pathname === "/api/runtime/activate") {
+            const rawBody = await readRequestBody(request);
+            const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
+            if (!parsed.installId) {
+                throw new Error("Missing runtime installId");
+            }
+            const result = (0, runtime_registry_1.activateForgeRuntimeInstall)(options.paths, getEffectiveConfig(), parsed.installId);
+            options.config = result.config;
+            const syncResult = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths, options.config);
+            json(response, 200, { ok: true, result: { ...result, syncResult }, state: state() });
             return;
         }
         if (request.method === "POST" && pathname === "/api/launch") {
             const rawBody = await readRequestBody(request);
             const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
-            launchLane(options.paths, options.config, parsed.lane || "default");
+            launchLane(options.paths, getEffectiveConfig(), parsed.lane || "default");
             json(response, 200, { ok: true });
             return;
         }
@@ -143,7 +168,7 @@ async function startForgeLauncherServer(options) {
             const modId = decodeURIComponent(pathname.slice("/api/mods/".length, -"/toggle".length));
             const rawBody = await readRequestBody(request);
             const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
-            (0, runtime_sync_1.setForgeModEnabled)(options.paths, options.config, modId, parsed.enabled === true);
+            (0, runtime_sync_1.setForgeModEnabled)(options.paths, getEffectiveConfig(), modId, parsed.enabled === true);
             json(response, 200, { ok: true, state: state() });
             return;
         }

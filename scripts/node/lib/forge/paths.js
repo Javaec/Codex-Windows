@@ -33,13 +33,18 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEFAULT_FORGE_RUNTIME_INSTALL_ID = void 0;
 exports.resolveForgePaths = resolveForgePaths;
+exports.resolveForgeRuntimeDir = resolveForgeRuntimeDir;
+exports.resolveForgeRuntimeArtifactPaths = resolveForgeRuntimeArtifactPaths;
+exports.saveForgeConfig = saveForgeConfig;
 exports.ensureForgeWorkspace = ensureForgeWorkspace;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const context_1 = require("../runner/context");
 const DEFAULT_FORGE_ROOT_NAME = "codex-forge";
+exports.DEFAULT_FORGE_RUNTIME_INSTALL_ID = "repo-dist-current";
 function defaultLaunchProfiles() {
     return [
         {
@@ -71,12 +76,13 @@ function defaultLaunchProfiles() {
 }
 function defaultForgeConfig(paths) {
     return {
-        version: 2,
+        version: 3,
         name: "Codex Forge",
         mode: "repo-backed-dev",
         runtime: {
             source: "repo-dist",
             currentDir: paths.repoDistRuntimeDir,
+            currentInstallId: exports.DEFAULT_FORGE_RUNTIME_INSTALL_ID,
         },
         mods: {
             sourceDir: paths.sourceModsRoot,
@@ -148,8 +154,11 @@ function normalizeForgeConfig(paths, rawValue) {
         name: normalizePathString(parsed.name) || defaults.name,
         mode: parsed.mode === "repo-backed-dev" ? parsed.mode : defaults.mode,
         runtime: {
-            source: parsed.runtime && parsed.runtime.source === "repo-dist" ? parsed.runtime.source : defaults.runtime.source,
+            source: parsed.runtime && (parsed.runtime.source === "repo-dist" || parsed.runtime.source === "forge-install")
+                ? parsed.runtime.source
+                : defaults.runtime.source,
             currentDir: normalizePathString(parsed.runtime?.currentDir) || defaults.runtime.currentDir,
+            currentInstallId: normalizePathString(parsed.runtime?.currentInstallId) || defaults.runtime.currentInstallId,
         },
         mods: {
             sourceDir: normalizePathString(parsed.mods?.sourceDir) || defaults.mods.sourceDir,
@@ -171,6 +180,8 @@ function resolveForgePaths() {
         logsDir: path.join(forgeRoot, "logs"),
         cacheDir: path.join(forgeRoot, "cache"),
         runtimeRoot: path.join(forgeRoot, "runtime"),
+        runtimeInstallsDir: path.join(forgeRoot, "runtime", "installs"),
+        runtimeRegistryPath: path.join(forgeRoot, "runtime", "registry.json"),
         runtimeDownloadsDir: path.join(forgeRoot, "downloads"),
         runtimeCurrentDir: path.join(forgeRoot, "runtime", "current"),
         distDir: path.join(context_1.REPO_ROOT, "dist"),
@@ -180,19 +191,31 @@ function resolveForgePaths() {
         sourceModLoaderRoot: path.join(context_1.REPO_ROOT, "shared", "codex-mod-loader", "loader"),
         sourceCompatibilityPath: path.join(context_1.REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs"),
         sourceVersionIdentityRoot: path.join(context_1.REPO_ROOT, "shared", "version-identity"),
-        runtimeForgeStateDir: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge"),
-        runtimeForgeLoaderStatePath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "loader-state.json"),
-        runtimeForgeResolvedGraphPath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "resolved-mod-graph.json"),
-        runtimeForgeDiscoveredModsPath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "discovered-mods.json"),
         forgeResolvedGraphPath: path.join(forgeRoot, "cache", "resolved-mod-graph.json"),
         forgeDiscoveredModsPath: path.join(forgeRoot, "cache", "discovered-mods.json"),
     };
+}
+function resolveForgeRuntimeDir(paths, config) {
+    return normalizePathString(config.runtime.currentDir) || paths.repoDistRuntimeDir;
+}
+function resolveForgeRuntimeArtifactPaths(runtimeDir) {
+    const runtimeForgeStateDir = path.join(runtimeDir, "resources", "codex-forge");
+    return {
+        runtimeForgeStateDir,
+        runtimeForgeLoaderStatePath: path.join(runtimeForgeStateDir, "loader-state.json"),
+        runtimeForgeResolvedGraphPath: path.join(runtimeForgeStateDir, "resolved-mod-graph.json"),
+        runtimeForgeDiscoveredModsPath: path.join(runtimeForgeStateDir, "discovered-mods.json"),
+    };
+}
+function saveForgeConfig(paths, config) {
+    fs.writeFileSync(paths.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 function ensureForgeWorkspace(paths) {
     (0, exec_1.ensureDir)(paths.forgeRoot);
     (0, exec_1.ensureDir)(paths.logsDir);
     (0, exec_1.ensureDir)(paths.cacheDir);
     (0, exec_1.ensureDir)(paths.runtimeRoot);
+    (0, exec_1.ensureDir)(paths.runtimeInstallsDir);
     (0, exec_1.ensureDir)(paths.runtimeDownloadsDir);
     (0, exec_1.ensureDir)(paths.runtimeCurrentDir);
     if (!(0, exec_1.fileExists)(paths.configPath)) {
@@ -202,7 +225,7 @@ function ensureForgeWorkspace(paths) {
     const normalized = normalizeForgeConfig(paths, JSON.parse(raw));
     const serialized = `${JSON.stringify(normalized, null, 2)}\n`;
     if (raw !== serialized) {
-        fs.writeFileSync(paths.configPath, serialized, "utf8");
+        saveForgeConfig(paths, normalized);
     }
     return normalized;
 }

@@ -38,6 +38,7 @@ exports.resolveForgeModGraph = resolveForgeModGraph;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
+const paths_1 = require("./paths");
 const discovery_1 = require("./discovery");
 const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs"));
 function readJson(filePath, fallback) {
@@ -51,7 +52,7 @@ function readJson(filePath, fallback) {
     }
 }
 function readRuntimeBuildContext(paths, config) {
-    const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
+    const runtimeDir = (0, paths_1.resolveForgeRuntimeDir)(paths, config);
     const metadata = readJson(path.join(runtimeDir, "build-metadata.json"), {});
     return {
         appVersion: typeof metadata.appVersion === "string" ? metadata.appVersion : "",

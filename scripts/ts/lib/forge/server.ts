@@ -5,9 +5,10 @@ import * as path from "node:path";
 import { URL } from "node:url";
 import { fileExists, runCommand } from "../exec";
 import { resolveCmdPath } from "../env";
-import { ForgeConfig, ForgeLaunchProfileId, ForgePaths } from "./paths";
+import { ForgeConfig, ForgeLaunchProfileId, ForgePaths, resolveForgeRuntimeDir } from "./paths";
 import { readLogTail, getForgeState } from "./state";
 import { setForgeModEnabled, syncForgeRuntimeLayer } from "./runtime-sync";
+import { activateForgeRuntimeInstall, captureActiveForgeRuntime, ensureForgeRuntimeRegistry } from "./runtime-registry";
 
 type ForgeServerOptions = {
   port: number;
@@ -64,12 +65,13 @@ function launchLane(paths: ForgePaths, config: ForgeConfig, lane: string): void 
   if (!profile) {
     throw new Error(`Unknown Forge launch profile: ${lane}`);
   }
-  const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[profile.id] || "");
+  const activeRuntimeDir = resolveForgeRuntimeDir(paths, config);
+  const launcherPath = path.join(activeRuntimeDir, byLane[profile.id] || "");
   if (!fileExists(launcherPath)) {
     throw new Error(`Forge launcher missing: ${launcherPath}`);
   }
   const child = spawn("cmd.exe", ["/d", "/c", launcherPath], {
-    cwd: paths.repoDistRuntimeDir,
+    cwd: activeRuntimeDir,
     detached: true,
     stdio: "ignore",
     windowsHide: false,
@@ -98,7 +100,12 @@ function serveStaticFile(response: http.ServerResponse, filePath: string): void 
 }
 
 export async function startForgeLauncherServer(options: ForgeServerOptions): Promise<ForgeServerResult> {
-  const state = () => getForgeState(options.paths, options.config);
+  const getEffectiveConfig = () => {
+    const ensured = ensureForgeRuntimeRegistry(options.paths, options.config);
+    options.config = ensured.config;
+    return ensured.config;
+  };
+  const state = () => getForgeState(options.paths, getEffectiveConfig());
 
   const server = http.createServer(async (request, response) => {
     const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
@@ -116,15 +123,34 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
     }
 
     if (request.method === "POST" && pathname === "/api/runtime/sync") {
-      const result = syncForgeRuntimeLayer(options.paths, options.config);
+      const result = syncForgeRuntimeLayer(options.paths, getEffectiveConfig());
       json(response, 200, { ok: true, result, state: state() });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/runtime/capture-current") {
+      const result = captureActiveForgeRuntime(options.paths, getEffectiveConfig());
+      json(response, 200, { ok: true, result, state: state() });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/runtime/activate") {
+      const rawBody = await readRequestBody(request);
+      const parsed = rawBody.trim() ? JSON.parse(rawBody) as { installId?: string } : {};
+      if (!parsed.installId) {
+        throw new Error("Missing runtime installId");
+      }
+      const result = activateForgeRuntimeInstall(options.paths, getEffectiveConfig(), parsed.installId);
+      options.config = result.config;
+      const syncResult = syncForgeRuntimeLayer(options.paths, options.config);
+      json(response, 200, { ok: true, result: { ...result, syncResult }, state: state() });
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/launch") {
       const rawBody = await readRequestBody(request);
       const parsed = rawBody.trim() ? JSON.parse(rawBody) as { lane?: string } : {};
-      launchLane(options.paths, options.config, parsed.lane || "default");
+      launchLane(options.paths, getEffectiveConfig(), parsed.lane || "default");
       json(response, 200, { ok: true });
       return;
     }
@@ -133,7 +159,7 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
       const modId = decodeURIComponent(pathname.slice("/api/mods/".length, -"/toggle".length));
       const rawBody = await readRequestBody(request);
       const parsed = rawBody.trim() ? JSON.parse(rawBody) as { enabled?: boolean } : {};
-      setForgeModEnabled(options.paths, options.config, modId, parsed.enabled === true);
+      setForgeModEnabled(options.paths, getEffectiveConfig(), modId, parsed.enabled === true);
       json(response, 200, { ok: true, state: state() });
       return;
     }

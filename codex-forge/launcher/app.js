@@ -56,6 +56,7 @@ function escapeHtml(value) {
 function renderRuntime(state) {
   const runtime = state.runtime;
   document.getElementById("runtime-summary").innerHTML = [
+    ["Active Install", state.runtimeRegistry.currentInstallId || "unknown"],
     ["App Version", runtime.appVersion || "unknown"],
     ["Build Number", runtime.buildNumber || "unknown"],
     ["Patch Profile", runtime.patchProfileId || "unknown"],
@@ -103,6 +104,43 @@ function renderComponents(state) {
       <div class="component-description">${escapeHtml(component.description)}</div>
     </div>
   `).join("");
+}
+
+function renderRuntimeInstalls(state) {
+  document.getElementById("install-counts").textContent = `${state.runtimeRegistry.installCount} installs`;
+  document.getElementById("runtime-installs").innerHTML = state.runtimeRegistry.installs.map((install) => `
+    <div class="install-card ${install.active ? "install-card-active" : ""}">
+      <div class="install-title">${escapeHtml(install.label)}</div>
+      <div class="runtime-chip ${install.active ? "" : "runtime-chip-muted"}">${install.active ? "active" : escapeHtml(install.source)}</div>
+      <div class="install-meta">${escapeHtml(install.appVersion || "unknown")} • ${escapeHtml(install.buildNumber || "unknown")} • ${escapeHtml(install.patchProfileId || install.source)}</div>
+      <div class="install-meta">${escapeHtml(install.runtimeDir)}</div>
+      <div class="install-meta">${escapeHtml(install.description || "")}</div>
+      <div class="install-actions">
+        <button class="action ${install.active ? "action-secondary" : ""} runtime-activate" data-install-id="${escapeHtml(install.id)}" ${install.active ? "disabled" : ""}>${install.active ? "Active" : "Activate"}</button>
+      </div>
+    </div>
+  `).join("");
+
+  document.querySelectorAll(".runtime-activate").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const installId = button.dataset.installId;
+      button.disabled = true;
+      setStatus(`Activating ${installId}...`);
+      try {
+        const result = await api("/api/runtime/activate", {
+          method: "POST",
+          body: JSON.stringify({ installId }),
+        });
+        forgeState = result.state;
+        renderAll(forgeState);
+        setStatus(`Activated ${installId}`);
+      } catch (error) {
+        setStatus(String(error));
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function renderResolution(state) {
@@ -185,6 +223,7 @@ function renderAll(state) {
   renderLaunchProfiles(state);
   renderPaths(state);
   renderComponents(state);
+  renderRuntimeInstalls(state);
   renderResolution(state);
   renderMods(state);
   renderLog(state).catch((error) => setStatus(String(error)));
@@ -205,6 +244,14 @@ async function syncRuntime() {
   setStatus("Runtime layer synced");
 }
 
+async function captureCurrentRuntime() {
+  setStatus("Capturing current runtime...");
+  const result = await api("/api/runtime/capture-current", { method: "POST", body: "{}" });
+  forgeState = result.state;
+  renderAll(forgeState);
+  setStatus(`Captured ${result.result.install.id}`);
+}
+
 async function launchLane(lane) {
   setStatus(`Launching ${lane}...`);
   await api("/api/launch", { method: "POST", body: JSON.stringify({ lane }) });
@@ -217,6 +264,10 @@ document.getElementById("refresh-state").addEventListener("click", () => {
 
 document.getElementById("sync-runtime").addEventListener("click", () => {
   syncRuntime().catch((error) => setStatus(String(error)));
+});
+
+document.getElementById("capture-runtime").addEventListener("click", () => {
+  captureCurrentRuntime().catch((error) => setStatus(String(error)));
 });
 
 document.getElementById("log-source").addEventListener("change", () => {

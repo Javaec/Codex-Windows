@@ -252,3 +252,16 @@
   - `codex-forge/cache/electron-session`
   - `codex-forge/logs/electron`
 - `forge:electron:smoke` is the non-interactive health check for the desktop shell.
+
+## 2026-03-09: Codex Forge runtime installs are now registry-managed
+
+- `scripts/ts/lib/forge/runtime-registry.ts` owns runtime install discovery, capture, and activation.
+- Runtime selection must no longer assume one hardcoded `dist\\Codex-win32-x64`.
+- Registry artifacts live under Forge-local runtime storage:
+  - `codex-forge/runtime/registry.json`
+  - `codex-forge/runtime/installs/*`
+- Active runtime mod artifacts (`loader-state.json`, `resolved-mod-graph.json`, `discovered-mods.json`) must be written relative to the active runtime root, not always to repo `dist`.
+- Snapshot capture must skip volatile runtime state:
+  - `runtime-logs*`
+  - `userdata*`
+  - `cache*`

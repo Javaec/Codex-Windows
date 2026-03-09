@@ -38,7 +38,9 @@ exports.readLogTail = readLogTail;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
+const paths_1 = require("./paths");
 const resolution_1 = require("./resolution");
+const runtime_registry_1 = require("./runtime-registry");
 function readJson(filePath, fallback) {
     if (!(0, exec_1.fileExists)(filePath))
         return fallback;
@@ -50,7 +52,7 @@ function readJson(filePath, fallback) {
     }
 }
 function readRuntimeState(paths, config) {
-    const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
+    const runtimeDir = (0, paths_1.resolveForgeRuntimeDir)(paths, config);
     const metadataPath = path.join(runtimeDir, "build-metadata.json");
     const metadata = readJson(metadataPath, {});
     return {
@@ -87,7 +89,24 @@ function readLatestRuntimeLog(runtimeDir, relativeDir) {
         .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
     return candidates[0] || "";
 }
-function buildComponentState(runtime) {
+function mapRuntimeInstall(install, currentInstallId) {
+    return {
+        id: install.id,
+        label: install.label,
+        description: install.description,
+        source: install.source,
+        runtimeDir: install.runtimeDir,
+        appVersion: install.appVersion,
+        buildNumber: install.buildNumber,
+        patchProfileId: install.patchProfileId,
+        cliSource: install.cliSource,
+        rgExists: install.rgExists,
+        hasModPlatform: install.hasModApi && install.hasModLoader && install.hasCompatibilityHelper && install.hasVersionIdentity,
+        active: install.id === currentInstallId,
+        capturedAtIso: install.capturedAtIso,
+    };
+}
+function buildComponentState(runtime, installCount) {
     return [
         {
             id: "codex-forge",
@@ -129,11 +148,21 @@ function buildComponentState(runtime) {
             source: "shared/codex-mod-loader",
             status: runtime.hasModApi && runtime.hasModLoader && runtime.hasCompatibilityHelper && runtime.hasVersionIdentity ? "ready" : "degraded",
         },
+        {
+            id: "runtime-registry",
+            name: "Runtime Registry",
+            description: "Forge-managed list of runtime installs and the active runtime pointer.",
+            version: `${installCount} install${installCount === 1 ? "" : "s"}`,
+            source: "codex-forge/runtime/registry.json",
+            status: installCount > 0 ? "ready" : "degraded",
+        },
     ];
 }
 function getForgeState(paths, config) {
-    const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, config);
-    const runtime = readRuntimeState(paths, config);
+    const runtimeRegistryState = (0, runtime_registry_1.ensureForgeRuntimeRegistry)(paths, config);
+    const effectiveConfig = runtimeRegistryState.config;
+    const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, effectiveConfig);
+    const runtime = readRuntimeState(paths, effectiveConfig);
     const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
     const runtimeInstalledIds = new Set((0, exec_1.fileExists)(runtimeModsRoot)
         ? fs.readdirSync(runtimeModsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
@@ -167,9 +196,16 @@ function getForgeState(paths, config) {
         forgeRoot: paths.forgeRoot,
         configPath: paths.configPath,
         logsDir: paths.logsDir,
-        launchProfiles: config.launchProfiles,
+        launchProfiles: effectiveConfig.launchProfiles,
         runtime,
-        components: buildComponentState(runtime),
+        runtimeRegistry: {
+            currentInstallId: runtimeRegistryState.registry.currentInstallId,
+            installCount: runtimeRegistryState.registry.installs.length,
+            installs: runtimeRegistryState.registry.installs
+                .map((install) => mapRuntimeInstall(install, runtimeRegistryState.registry.currentInstallId))
+                .sort((left, right) => Number(right.active) - Number(left.active) || left.label.localeCompare(right.label)),
+        },
+        components: buildComponentState(runtime, runtimeRegistryState.registry.installs.length),
         mods,
         modCounts: {
             total: mods.length,
