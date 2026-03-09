@@ -45,6 +45,7 @@ const paths_1 = require("./paths");
 const state_1 = require("./state");
 const runtime_sync_1 = require("./runtime-sync");
 const runtime_registry_1 = require("./runtime-registry");
+const runtime_sources_1 = require("./runtime-sources");
 function json(response, statusCode, payload) {
     response.statusCode = statusCode;
     response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -155,6 +156,16 @@ async function startForgeLauncherServer(options) {
             options.config = result.config;
             const syncResult = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths, options.config);
             json(response, 200, { ok: true, result: { ...result, syncResult }, state: state() });
+            return;
+        }
+        if (request.method === "POST" && pathname === "/api/runtime/import-source") {
+            const rawBody = await readRequestBody(request);
+            const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
+            if (!parsed.sourceId) {
+                throw new Error("Missing runtime sourceId");
+            }
+            const result = (0, runtime_sources_1.importForgeRuntimeSource)(options.paths, getEffectiveConfig(), parsed.sourceId);
+            json(response, 200, { ok: true, result, state: state() });
             return;
         }
         if (request.method === "POST" && pathname === "/api/launch") {

@@ -9,6 +9,7 @@ import { ForgeConfig, ForgeLaunchProfileId, ForgePaths, resolveForgeRuntimeDir }
 import { readLogTail, getForgeState } from "./state";
 import { setForgeModEnabled, syncForgeRuntimeLayer } from "./runtime-sync";
 import { activateForgeRuntimeInstall, captureActiveForgeRuntime, ensureForgeRuntimeRegistry } from "./runtime-registry";
+import { importForgeRuntimeSource } from "./runtime-sources";
 
 type ForgeServerOptions = {
   port: number;
@@ -144,6 +145,17 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
       options.config = result.config;
       const syncResult = syncForgeRuntimeLayer(options.paths, options.config);
       json(response, 200, { ok: true, result: { ...result, syncResult }, state: state() });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/runtime/import-source") {
+      const rawBody = await readRequestBody(request);
+      const parsed = rawBody.trim() ? JSON.parse(rawBody) as { sourceId?: string } : {};
+      if (!parsed.sourceId) {
+        throw new Error("Missing runtime sourceId");
+      }
+      const result = importForgeRuntimeSource(options.paths, getEffectiveConfig(), parsed.sourceId);
+      json(response, 200, { ok: true, result, state: state() });
       return;
     }
 

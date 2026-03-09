@@ -41,6 +41,7 @@ const exec_1 = require("../exec");
 const paths_1 = require("./paths");
 const resolution_1 = require("./resolution");
 const runtime_registry_1 = require("./runtime-registry");
+const runtime_sources_1 = require("./runtime-sources");
 function readJson(filePath, fallback) {
     if (!(0, exec_1.fileExists)(filePath))
         return fallback;
@@ -163,6 +164,7 @@ function getForgeState(paths, config) {
     const effectiveConfig = runtimeRegistryState.config;
     const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, effectiveConfig);
     const runtime = readRuntimeState(paths, effectiveConfig);
+    const runtimeSources = (0, runtime_sources_1.discoverForgeRuntimeSources)(paths, effectiveConfig);
     const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
     const runtimeInstalledIds = new Set((0, exec_1.fileExists)(runtimeModsRoot)
         ? fs.readdirSync(runtimeModsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
@@ -205,6 +207,7 @@ function getForgeState(paths, config) {
                 .map((install) => mapRuntimeInstall(install, runtimeRegistryState.registry.currentInstallId))
                 .sort((left, right) => Number(right.active) - Number(left.active) || left.label.localeCompare(right.label)),
         },
+        runtimeSources: runtimeSources.map((source) => ({ ...source })),
         components: buildComponentState(runtime, runtimeRegistryState.registry.installs.length),
         mods,
         modCounts: {

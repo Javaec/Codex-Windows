@@ -62,6 +62,10 @@ function loadWindowsCodexPackages(): WindowsCodexPackage[] {
   return cachedWindowsCodexPackages;
 }
 
+export function listWindowsCodexPackages(): WindowsCodexPackage[] {
+  return [...loadWindowsCodexPackages()];
+}
+
 function findFirstExistingTool(toolName: string): string {
   for (const runtimePackage of loadWindowsCodexPackages()) {
     const candidate = path.join(runtimePackage.resourcesDir, toolName);

@@ -265,3 +265,19 @@
   - `runtime-logs*`
   - `userdata*`
   - `cache*`
+
+## 2026-03-09: Codex Forge runtime sources are distinct from installed runtimes
+
+- `scripts/ts/lib/forge/runtime-sources.ts` is the candidate/source discovery lane for runtime imports.
+- Keep two layers separate:
+  - runtime sources:
+    - repo dist
+    - work builds
+    - Windows donor packages
+  - installed runtimes:
+    - registry-managed runnable installs under `codex-forge/runtime/installs/*`
+- Windows donor packages are visible as donor-only sources even when not directly importable as runnable installs.
+- This is the Fabric-like boundary:
+  - source discovery first
+  - install/import second
+  - activation/selection third

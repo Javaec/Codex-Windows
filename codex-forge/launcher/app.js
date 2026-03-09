@@ -143,6 +143,43 @@ function renderRuntimeInstalls(state) {
   });
 }
 
+function renderRuntimeSources(state) {
+  document.getElementById("source-counts").textContent = `${state.runtimeSources.filter((source) => source.importable).length}/${state.runtimeSources.length} importable`;
+  document.getElementById("runtime-sources").innerHTML = state.runtimeSources.map((source) => `
+    <div class="install-card">
+      <div class="install-title">${escapeHtml(source.label)}</div>
+      <div class="runtime-chip ${source.importable ? "" : "runtime-chip-muted"}">${escapeHtml(source.kind)}</div>
+      <div class="install-meta">${escapeHtml(source.appVersion || "unknown")} • ${escapeHtml(source.buildNumber || "unknown")} • ${escapeHtml(source.patchProfileId || "no patch profile")}</div>
+      <div class="install-meta">${escapeHtml(source.detail || source.runtimeDir)}</div>
+      <div class="install-meta">${escapeHtml(source.description || "")}</div>
+      <div class="install-actions">
+        <button class="action ${source.importable ? "" : "action-secondary"} runtime-import" data-source-id="${escapeHtml(source.id)}" ${source.importable ? "" : "disabled"}>${source.alreadyInstalled ? "Import Copy" : "Import"}</button>
+      </div>
+    </div>
+  `).join("");
+
+  document.querySelectorAll(".runtime-import").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const sourceId = button.dataset.sourceId;
+      button.disabled = true;
+      setStatus(`Importing ${sourceId}...`);
+      try {
+        const result = await api("/api/runtime/import-source", {
+          method: "POST",
+          body: JSON.stringify({ sourceId }),
+        });
+        forgeState = result.state;
+        renderAll(forgeState);
+        setStatus(`Imported ${result.result.install.id}`);
+      } catch (error) {
+        setStatus(String(error));
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 function renderResolution(state) {
   document.getElementById("resolution-badge").textContent = `${state.modCounts.selected}/${state.modCounts.total} resolved`;
   const sections = [
@@ -224,6 +261,7 @@ function renderAll(state) {
   renderPaths(state);
   renderComponents(state);
   renderRuntimeInstalls(state);
+  renderRuntimeSources(state);
   renderResolution(state);
   renderMods(state);
   renderLog(state).catch((error) => setStatus(String(error)));

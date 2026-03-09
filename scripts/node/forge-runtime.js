@@ -4,8 +4,9 @@ const exec_1 = require("./lib/exec");
 const paths_1 = require("./lib/forge/paths");
 const runtime_registry_1 = require("./lib/forge/runtime-registry");
 const runtime_sync_1 = require("./lib/forge/runtime-sync");
+const runtime_sources_1 = require("./lib/forge/runtime-sources");
 function usage() {
-    throw new Error("Usage: forge-runtime <list|capture-current|activate <installId>>");
+    throw new Error("Usage: forge-runtime <list|sources|capture-current|import-source <sourceId>|activate <installId>>");
 }
 async function main() {
     const command = process.argv[2];
@@ -21,6 +22,19 @@ async function main() {
         }
         case "capture-current": {
             const result = (0, runtime_registry_1.captureActiveForgeRuntime)(paths, config);
+            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+            return;
+        }
+        case "sources": {
+            const result = (0, runtime_sources_1.discoverForgeRuntimeSources)(paths, config);
+            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+            return;
+        }
+        case "import-source": {
+            const sourceId = process.argv[3];
+            if (!sourceId)
+                usage();
+            const result = (0, runtime_sources_1.importForgeRuntimeSource)(paths, config, sourceId);
             process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
             return;
         }

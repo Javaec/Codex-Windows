@@ -33,8 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.inspectForgeRuntimeDirectory = inspectForgeRuntimeDirectory;
 exports.ensureForgeRuntimeRegistry = ensureForgeRuntimeRegistry;
 exports.captureActiveForgeRuntime = captureActiveForgeRuntime;
+exports.importForgeRuntimeFromDirectory = importForgeRuntimeFromDirectory;
 exports.activateForgeRuntimeInstall = activateForgeRuntimeInstall;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
@@ -60,7 +62,7 @@ function normalizeString(value) {
 function readRuntimeBuildMetadata(runtimeDir) {
     return readJson(path.join(runtimeDir, "build-metadata.json"), {});
 }
-function inspectRuntimeInstall(runtimeDir, install) {
+function inspectForgeRuntimeDirectory(runtimeDir, install) {
     const metadata = readRuntimeBuildMetadata(runtimeDir);
     return {
         id: install.id,
@@ -98,7 +100,9 @@ function coerceRuntimeRegistry(rawValue) {
             id: normalizeString(entry.id),
             label: normalizeString(entry.label),
             description: normalizeString(entry.description),
-            source: entry.source === "snapshot" ? "snapshot" : "repo-dist",
+            source: entry.source === "snapshot"
+                ? "snapshot"
+                : (entry.source === "imported-runtime" ? "imported-runtime" : "repo-dist"),
             runtimeDir: normalizeString(entry.runtimeDir),
             appVersion: normalizeString(entry.appVersion),
             buildNumber: normalizeString(entry.buildNumber),
@@ -151,7 +155,7 @@ function ensureForgeRuntimeRegistry(paths, config) {
     (0, exec_1.ensureDir)(paths.runtimeInstallsDir);
     const existing = coerceRuntimeRegistry(readJson(paths.runtimeRegistryPath, {}));
     const existingRepoDistInstall = existing.installs.find((entry) => entry.id === paths_1.DEFAULT_FORGE_RUNTIME_INSTALL_ID);
-    const repoDistInstall = inspectRuntimeInstall(paths.repoDistRuntimeDir, {
+    const repoDistInstall = inspectForgeRuntimeDirectory(paths.repoDistRuntimeDir, {
         id: paths_1.DEFAULT_FORGE_RUNTIME_INSTALL_ID,
         label: "Repo Dist Current",
         description: "Current repo-backed dist runtime.",
@@ -218,7 +222,7 @@ function captureActiveForgeRuntime(paths, config) {
     const snapshotInstallId = allocateSnapshotInstallId(paths, ensured.registry, activeRuntimeDir);
     const targetRuntimeDir = path.join(paths.runtimeInstallsDir, snapshotInstallId);
     copyRuntimeSnapshot(activeRuntimeDir, targetRuntimeDir);
-    const snapshotInstall = inspectRuntimeInstall(targetRuntimeDir, {
+    const snapshotInstall = inspectForgeRuntimeDirectory(targetRuntimeDir, {
         id: snapshotInstallId,
         label: `Snapshot ${snapshotInstallId}`,
         description: `Captured from ${activeRuntimeDir}`,
@@ -228,6 +232,37 @@ function captureActiveForgeRuntime(paths, config) {
     const registry = upsertInstall(ensured.registry, snapshotInstall);
     saveRuntimeRegistry(paths, registry);
     return { registry, install: snapshotInstall };
+}
+function allocateImportedInstallId(paths, registry, sourceRuntimeDir) {
+    const metadata = readRuntimeBuildMetadata(sourceRuntimeDir);
+    const base = slugifyRuntimeLabel(`import-${normalizeString(metadata.patchProfileId) || normalizeString(metadata.appVersion) || "runtime"}-${normalizeString(metadata.buildNumber) || "unknown"}`);
+    let candidate = base;
+    let index = 2;
+    const existingIds = new Set(registry.installs.map((entry) => entry.id));
+    while (existingIds.has(candidate) || (0, exec_1.fileExists)(path.join(paths.runtimeInstallsDir, candidate))) {
+        candidate = `${base}-${index}`;
+        index += 1;
+    }
+    return candidate;
+}
+function importForgeRuntimeFromDirectory(paths, config, sourceRuntimeDir, options) {
+    if (!(0, exec_1.fileExists)(sourceRuntimeDir)) {
+        throw new Error(`Forge runtime source directory not found: ${sourceRuntimeDir}`);
+    }
+    const ensured = ensureForgeRuntimeRegistry(paths, config);
+    const importInstallId = allocateImportedInstallId(paths, ensured.registry, sourceRuntimeDir);
+    const targetRuntimeDir = path.join(paths.runtimeInstallsDir, importInstallId);
+    copyRuntimeSnapshot(sourceRuntimeDir, targetRuntimeDir);
+    const importedInstall = inspectForgeRuntimeDirectory(targetRuntimeDir, {
+        id: importInstallId,
+        label: options?.label || `Imported ${importInstallId}`,
+        description: options?.description || `Imported from ${sourceRuntimeDir}`,
+        source: "imported-runtime",
+        capturedAtIso: new Date().toISOString(),
+    });
+    const registry = upsertInstall(ensured.registry, importedInstall);
+    saveRuntimeRegistry(paths, registry);
+    return { registry, install: importedInstall };
 }
 function activateForgeRuntimeInstall(paths, config, installId) {
     const ensured = ensureForgeRuntimeRegistry(paths, config);

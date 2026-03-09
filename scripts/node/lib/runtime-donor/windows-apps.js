@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.listWindowsCodexPackages = listWindowsCodexPackages;
 exports.getWindowsRuntimeDonorAppDirs = getWindowsRuntimeDonorAppDirs;
 exports.getWindowsRuntimeDonorCliPath = getWindowsRuntimeDonorCliPath;
 exports.getWindowsRuntimeDonorRipgrepPath = getWindowsRuntimeDonorRipgrepPath;
@@ -88,6 +89,9 @@ function loadWindowsCodexPackages() {
     }
     cachedWindowsCodexPackages = packages;
     return cachedWindowsCodexPackages;
+}
+function listWindowsCodexPackages() {
+    return [...loadWindowsCodexPackages()];
 }
 function findFirstExistingTool(toolName) {
     for (const runtimePackage of loadWindowsCodexPackages()) {

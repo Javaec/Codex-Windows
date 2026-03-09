@@ -4,6 +4,7 @@ import { fileExists } from "../exec";
 import { ForgeConfig, ForgeLaunchProfile, ForgePaths, resolveForgeRuntimeDir } from "./paths";
 import { resolveForgeModGraph } from "./resolution";
 import { ensureForgeRuntimeRegistry, ForgeRuntimeInstall } from "./runtime-registry";
+import { discoverForgeRuntimeSources } from "./runtime-sources";
 
 export type ForgeRuntimeState = {
   exists: boolean;
@@ -57,7 +58,7 @@ export type ForgeRuntimeInstallState = {
   id: string;
   label: string;
   description: string;
-  source: "repo-dist" | "snapshot";
+  source: "repo-dist" | "snapshot" | "imported-runtime";
   runtimeDir: string;
   appVersion: string;
   buildNumber: string;
@@ -67,6 +68,20 @@ export type ForgeRuntimeInstallState = {
   hasModPlatform: boolean;
   active: boolean;
   capturedAtIso: string;
+};
+
+export type ForgeRuntimeSourceState = {
+  id: string;
+  label: string;
+  description: string;
+  kind: "repo-dist" | "work-build" | "windows-runtime-donor";
+  runtimeDir: string;
+  appVersion: string;
+  buildNumber: string;
+  patchProfileId: string;
+  importable: boolean;
+  alreadyInstalled: boolean;
+  detail: string;
 };
 
 export type ForgeState = {
@@ -82,6 +97,7 @@ export type ForgeState = {
     installCount: number;
     installs: ForgeRuntimeInstallState[];
   };
+  runtimeSources: ForgeRuntimeSourceState[];
   components: ForgeComponentState[];
   mods: ForgeModState[];
   modCounts: {
@@ -230,6 +246,7 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
   const effectiveConfig = runtimeRegistryState.config;
   const resolvedGraph = resolveForgeModGraph(paths, effectiveConfig);
   const runtime = readRuntimeState(paths, effectiveConfig);
+  const runtimeSources = discoverForgeRuntimeSources(paths, effectiveConfig);
   const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
   const runtimeInstalledIds = new Set(
     fileExists(runtimeModsRoot)
@@ -276,6 +293,7 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
         .map((install) => mapRuntimeInstall(install, runtimeRegistryState.registry.currentInstallId))
         .sort((left, right) => Number(right.active) - Number(left.active) || left.label.localeCompare(right.label)),
     },
+    runtimeSources: runtimeSources.map((source) => ({ ...source })),
     components: buildComponentState(runtime, runtimeRegistryState.registry.installs.length),
     mods,
     modCounts: {

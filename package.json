@@ -10,6 +10,7 @@
     "forge:electron:devtools": "npm run build:runner && electron ./codex-forge/electron/main.js --devtools",
     "forge:electron:smoke": "npm run build:runner && electron ./codex-forge/electron/main.js --smoke",
     "forge:runtime:list": "npm run build:runner && node scripts/node/forge-runtime.js list",
+    "forge:runtime:sources": "npm run build:runner && node scripts/node/forge-runtime.js sources",
     "forge:runtime:capture": "npm run build:runner && node scripts/node/forge-runtime.js capture-current",
     "forge:state": "npm run build:runner && node scripts/node/forge-launcher.js --print-state",
     "runner": "node scripts/node/run.js",
