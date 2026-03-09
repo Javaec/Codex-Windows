@@ -1,4 +1,5 @@
 let forgeState = null;
+const forgeHost = window.codexForgeHost || null;
 
 async function api(url, options) {
   const response = await fetch(url, {
@@ -13,6 +14,36 @@ async function api(url, options) {
 
 function setStatus(text) {
   document.getElementById("status").textContent = text;
+}
+
+function initializeHostShell() {
+  const eyebrow = document.getElementById("host-eyebrow");
+  const openForgeRoot = document.getElementById("open-forge-root");
+  const openForgeLogs = document.getElementById("open-forge-logs");
+
+  if (!forgeHost || forgeHost.shell !== "electron" || typeof forgeHost.openPath !== "function") {
+    eyebrow.textContent = "Repo-Backed Launcher Shell";
+    return;
+  }
+
+  eyebrow.textContent = `Electron Launcher • Chrome ${forgeHost.versions && forgeHost.versions.chrome ? forgeHost.versions.chrome : "unknown"}`;
+
+  openForgeRoot.hidden = false;
+  openForgeLogs.hidden = false;
+
+  openForgeRoot.addEventListener("click", async () => {
+    if (!forgeState) return;
+    setStatus("Opening Forge root...");
+    await forgeHost.openPath(forgeState.forgeRoot);
+    setStatus("Forge root opened");
+  });
+
+  openForgeLogs.addEventListener("click", async () => {
+    if (!forgeState) return;
+    setStatus("Opening Forge logs...");
+    await forgeHost.openPath(forgeState.logsDir);
+    setStatus("Forge logs opened");
+  });
 }
 
 function escapeHtml(value) {
@@ -194,3 +225,4 @@ document.getElementById("log-source").addEventListener("change", () => {
 });
 
 refreshState().catch((error) => setStatus(String(error)));
+initializeHostShell();

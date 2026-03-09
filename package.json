@@ -6,6 +6,9 @@
     "build:runner": "tsc -p tsconfig.json",
     "forge:launcher": "npm run build:runner && node scripts/node/forge-launcher.js",
     "forge:launcher:no-open": "npm run build:runner && node scripts/node/forge-launcher.js --no-open",
+    "forge:electron": "npm run build:runner && electron ./codex-forge/electron/main.js",
+    "forge:electron:devtools": "npm run build:runner && electron ./codex-forge/electron/main.js --devtools",
+    "forge:electron:smoke": "npm run build:runner && electron ./codex-forge/electron/main.js --smoke",
     "forge:state": "npm run build:runner && node scripts/node/forge-launcher.js --print-state",
     "runner": "node scripts/node/run.js",
     "verify:runner": "node scripts/node/run.js verify",
@@ -26,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.10",
+    "electron": "^40.8.0",
     "typescript": "^5.9.3"
   }
 }

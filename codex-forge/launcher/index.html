@@ -10,11 +10,13 @@
     <div class="shell">
       <header class="hero">
         <div>
-          <div class="eyebrow">Repo-Backed Launcher Shell</div>
+          <div id="host-eyebrow" class="eyebrow">Repo-Backed Launcher Shell</div>
           <h1>Codex Forge</h1>
           <p class="lede">A one-folder launcher and mod platform evolving on top of the current Codex Windows runtime.</p>
         </div>
         <div class="hero-actions">
+          <button id="open-forge-root" class="action action-secondary" hidden>Open Forge Root</button>
+          <button id="open-forge-logs" class="action action-secondary" hidden>Open Logs</button>
           <button id="refresh-state" class="action action-secondary">Refresh State</button>
           <button id="sync-runtime" class="action">Sync Runtime Layer</button>
         </div>

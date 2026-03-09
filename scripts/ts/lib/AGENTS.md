@@ -242,3 +242,13 @@
 - `resolved-mod-graph.json` is the solver output.
 - `discovered-mods.json` is the catalog/index output.
 - Keep those two artifacts distinct; do not collapse discovery back into resolution.
+
+## 2026-03-09: Codex Forge now has a real Electron shell
+
+- `codex-forge/electron/main.js` wraps the existing repo-backed Forge HTTP server in a native Electron window.
+- Keep launcher logic in shared Forge services; the Electron app should stay a thin shell, not a second backend.
+- Electron launcher storage now defaults to Forge-local paths instead of `%APPDATA%`:
+  - `codex-forge/cache/electron-userdata`
+  - `codex-forge/cache/electron-session`
+  - `codex-forge/logs/electron`
+- `forge:electron:smoke` is the non-interactive health check for the desktop shell.
