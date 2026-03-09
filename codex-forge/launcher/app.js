@@ -139,6 +139,7 @@ function renderRuntimeInstalls(state) {
       <div class="runtime-chip ${install.active ? "" : "runtime-chip-muted"}">${install.active ? "active" : escapeHtml(install.source)}</div>
       <div class="install-meta">${escapeHtml(install.appVersion || "unknown")} • ${escapeHtml(install.buildNumber || "unknown")} • ${escapeHtml(install.patchProfileId || install.source)}</div>
       <div class="install-meta">${escapeHtml(install.runtimeDir)}</div>
+      <div class="install-meta">${escapeHtml(install.originPath || "")}</div>
       <div class="install-meta">${escapeHtml(install.description || "")}</div>
       <div class="install-actions">
         <button class="action ${install.active ? "action-secondary" : ""} runtime-activate" data-install-id="${escapeHtml(install.id)}" ${install.active ? "disabled" : ""}>${install.active ? "Active" : "Activate"}</button>

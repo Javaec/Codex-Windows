@@ -69,6 +69,7 @@ function inspectForgeRuntimeDirectory(runtimeDir, install) {
         label: install.label,
         description: install.description,
         source: install.source,
+        originPath: normalizeString(install.originPath) || runtimeDir,
         runtimeDir,
         appVersion: normalizeString(metadata.appVersion),
         buildNumber: normalizeString(metadata.buildNumber),
@@ -103,6 +104,7 @@ function coerceRuntimeRegistry(rawValue) {
             source: entry.source === "snapshot"
                 ? "snapshot"
                 : (entry.source === "imported-runtime" ? "imported-runtime" : "repo-dist"),
+            originPath: normalizeString(entry.originPath) || normalizeString(entry.runtimeDir),
             runtimeDir: normalizeString(entry.runtimeDir),
             appVersion: normalizeString(entry.appVersion),
             buildNumber: normalizeString(entry.buildNumber),
@@ -121,6 +123,54 @@ function coerceRuntimeRegistry(rawValue) {
         version: typeof parsed.version === "number" && Number.isFinite(parsed.version) ? parsed.version : 1,
         currentInstallId: normalizeString(parsed.currentInstallId) || paths_1.DEFAULT_FORGE_RUNTIME_INSTALL_ID,
         installs,
+    };
+}
+function extractLegacyImportOrigin(install) {
+    if (install.source !== "imported-runtime")
+        return install.originPath;
+    for (const pattern of [/^Imported manually from (.+)$/i, /^Import packaged runtime from (.+)$/i, /^Imported from (.+)$/i]) {
+        const match = pattern.exec(install.description);
+        if (match && match[1]) {
+            return normalizeString(match[1]) || install.originPath;
+        }
+    }
+    return install.originPath;
+}
+function capturedAtValue(install) {
+    const parsed = Date.parse(install.capturedAtIso || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+function normalizeAndDedupeRegistryInstalls(installs, currentInstallId) {
+    const byKey = new Map();
+    let nextCurrentInstallId = currentInstallId;
+    for (const install of installs) {
+        const normalizedOriginPath = extractLegacyImportOrigin(install) || install.originPath || install.runtimeDir;
+        const normalizedInstall = {
+            ...install,
+            originPath: normalizedOriginPath,
+        };
+        const dedupeKey = normalizedInstall.source === "imported-runtime"
+            ? `imported:${path.resolve(normalizedOriginPath).toLowerCase()}`
+            : `id:${normalizedInstall.id.toLowerCase()}`;
+        const previous = byKey.get(dedupeKey);
+        if (!previous) {
+            byKey.set(dedupeKey, normalizedInstall);
+            continue;
+        }
+        const keepCurrent = previous.id === currentInstallId
+            ? previous
+            : normalizedInstall.id === currentInstallId
+                ? normalizedInstall
+                : (capturedAtValue(normalizedInstall) >= capturedAtValue(previous) ? normalizedInstall : previous);
+        const dropped = keepCurrent.id === previous.id ? normalizedInstall : previous;
+        byKey.set(dedupeKey, keepCurrent);
+        if (dropped.id === nextCurrentInstallId) {
+            nextCurrentInstallId = keepCurrent.id;
+        }
+    }
+    return {
+        installs: [...byKey.values()].sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id)),
+        currentInstallId: nextCurrentInstallId,
     };
 }
 function saveRuntimeRegistry(paths, registry) {
@@ -154,6 +204,7 @@ function ensureForgeRuntimeRegistry(paths, config) {
     (0, exec_1.ensureDir)(paths.runtimeRoot);
     (0, exec_1.ensureDir)(paths.runtimeInstallsDir);
     const existing = coerceRuntimeRegistry(readJson(paths.runtimeRegistryPath, {}));
+    const normalizedExisting = normalizeAndDedupeRegistryInstalls(existing.installs, existing.currentInstallId);
     const existingRepoDistInstall = existing.installs.find((entry) => entry.id === paths_1.DEFAULT_FORGE_RUNTIME_INSTALL_ID);
     const repoDistInstall = inspectForgeRuntimeDirectory(paths.repoDistRuntimeDir, {
         id: paths_1.DEFAULT_FORGE_RUNTIME_INSTALL_ID,
@@ -161,8 +212,13 @@ function ensureForgeRuntimeRegistry(paths, config) {
         description: "Current repo-backed dist runtime.",
         source: "repo-dist",
         capturedAtIso: existingRepoDistInstall?.capturedAtIso || new Date().toISOString(),
+        originPath: paths.repoDistRuntimeDir,
     });
-    let registry = upsertInstall(existing, repoDistInstall);
+    let registry = upsertInstall({
+        ...existing,
+        installs: normalizedExisting.installs,
+        currentInstallId: normalizedExisting.currentInstallId,
+    }, repoDistInstall);
     if (!registry.currentInstallId || !registry.installs.find((entry) => entry.id === registry.currentInstallId)) {
         registry = {
             ...registry,
@@ -228,6 +284,7 @@ function captureActiveForgeRuntime(paths, config) {
         description: `Captured from ${activeRuntimeDir}`,
         source: "snapshot",
         capturedAtIso: new Date().toISOString(),
+        originPath: activeRuntimeDir,
     });
     const registry = upsertInstall(ensured.registry, snapshotInstall);
     saveRuntimeRegistry(paths, registry);
@@ -250,6 +307,11 @@ function importForgeRuntimeFromDirectory(paths, config, sourceRuntimeDir, option
         throw new Error(`Forge runtime source directory not found: ${sourceRuntimeDir}`);
     }
     const ensured = ensureForgeRuntimeRegistry(paths, config);
+    const normalizedOriginPath = path.resolve(sourceRuntimeDir);
+    const existingInstall = ensured.registry.installs.find((install) => path.resolve(install.originPath || install.runtimeDir).toLowerCase() === normalizedOriginPath.toLowerCase());
+    if (existingInstall) {
+        return { registry: ensured.registry, install: existingInstall };
+    }
     const importInstallId = allocateImportedInstallId(paths, ensured.registry, sourceRuntimeDir);
     const targetRuntimeDir = path.join(paths.runtimeInstallsDir, importInstallId);
     copyRuntimeSnapshot(sourceRuntimeDir, targetRuntimeDir);
@@ -259,6 +321,7 @@ function importForgeRuntimeFromDirectory(paths, config, sourceRuntimeDir, option
         description: options?.description || `Imported from ${sourceRuntimeDir}`,
         source: "imported-runtime",
         capturedAtIso: new Date().toISOString(),
+        originPath: normalizedOriginPath,
     });
     const registry = upsertInstall(ensured.registry, importedInstall);
     saveRuntimeRegistry(paths, registry);

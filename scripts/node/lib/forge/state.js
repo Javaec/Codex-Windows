@@ -96,6 +96,7 @@ function mapRuntimeInstall(install, currentInstallId) {
         label: install.label,
         description: install.description,
         source: install.source,
+        originPath: install.originPath,
         runtimeDir: install.runtimeDir,
         appVersion: install.appVersion,
         buildNumber: install.buildNumber,

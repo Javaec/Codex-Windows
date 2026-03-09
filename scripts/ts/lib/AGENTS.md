@@ -283,3 +283,9 @@
   - install/import second
   - activation/selection third
 - Electron launcher now also supports manual directory import through a native folder picker.
+
+## 2026-03-09: Imported runtimes must dedupe by origin path
+
+- `imported-runtime` installs now carry `originPath` in the registry.
+- Re-importing the same source directory must reuse the existing install instead of creating another copy.
+- Legacy imported installs should be normalized from their description text and deduped on registry load when possible.

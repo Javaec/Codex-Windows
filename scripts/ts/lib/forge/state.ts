@@ -59,6 +59,7 @@ export type ForgeRuntimeInstallState = {
   label: string;
   description: string;
   source: "repo-dist" | "snapshot" | "imported-runtime";
+  originPath: string;
   runtimeDir: string;
   appVersion: string;
   buildNumber: string;
@@ -176,6 +177,7 @@ function mapRuntimeInstall(install: ForgeRuntimeInstall, currentInstallId: strin
     label: install.label,
     description: install.description,
     source: install.source,
+    originPath: install.originPath,
     runtimeDir: install.runtimeDir,
     appVersion: install.appVersion,
     buildNumber: install.buildNumber,
