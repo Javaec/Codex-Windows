@@ -12,6 +12,7 @@
     "forge:runtime:list": "npm run build:runner && node scripts/node/forge-runtime.js list",
     "forge:runtime:sources": "npm run build:runner && node scripts/node/forge-runtime.js sources",
     "forge:runtime:capture": "npm run build:runner && node scripts/node/forge-runtime.js capture-current",
+    "forge:runtime:import-runner-smoke": "npm run build:runner && node scripts/node/forge-runtime.js import-dir C:\\Codex-Windows\\work\\runner-smoke\\dist\\Codex-win32-x64",
     "forge:state": "npm run build:runner && node scripts/node/forge-launcher.js --print-state",
     "runner": "node scripts/node/run.js",
     "verify:runner": "node scripts/node/run.js verify",

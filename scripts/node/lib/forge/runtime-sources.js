@@ -35,6 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.discoverForgeRuntimeSources = discoverForgeRuntimeSources;
 exports.importForgeRuntimeSource = importForgeRuntimeSource;
+exports.importForgeRuntimeDirectory = importForgeRuntimeDirectory;
+exports.getForgeRuntimeSourceFinderIds = getForgeRuntimeSourceFinderIds;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
@@ -71,54 +73,65 @@ function collectWorkRuntimeCandidates(paths) {
 function isInstalledRuntime(registry, runtimeDir) {
     return registry.installs.some((install) => path.resolve(install.runtimeDir).toLowerCase() === path.resolve(runtimeDir).toLowerCase());
 }
-function discoverForgeRuntimeSources(paths, config) {
-    const { registry } = (0, runtime_registry_1.ensureForgeRuntimeRegistry)(paths, config);
-    const sources = [];
-    const repoDistInstall = (0, runtime_registry_1.inspectForgeRuntimeDirectory)(paths.repoDistRuntimeDir, {
-        id: "source-repo-dist",
-        label: "Repo Dist Runtime",
-        description: "Current repo-backed dist runtime source.",
-        source: "repo-dist",
-        capturedAtIso: "",
-    });
-    sources.push({
-        id: "source:repo-dist",
-        label: "Repo Dist Runtime",
-        description: "Current repo-backed dist runtime source.",
-        kind: "repo-dist",
-        runtimeDir: paths.repoDistRuntimeDir,
-        appVersion: repoDistInstall.appVersion,
-        buildNumber: repoDistInstall.buildNumber,
-        patchProfileId: repoDistInstall.patchProfileId,
-        importable: false,
-        alreadyInstalled: true,
-        detail: "Already managed as repo-dist-current",
-    });
-    for (const runtimeDir of collectWorkRuntimeCandidates(paths)) {
-        const workBuildId = path.basename(path.dirname(path.dirname(runtimeDir)));
-        const install = (0, runtime_registry_1.inspectForgeRuntimeDirectory)(runtimeDir, {
-            id: `source-${workBuildId}`,
-            label: `Work Build ${workBuildId}`,
-            description: "Packaged runtime found under work/*/dist.",
-            source: "imported-runtime",
+const repoDistRuntimeSourceFinder = {
+    id: "repo-dist",
+    findSources(context) {
+        const repoDistInstall = (0, runtime_registry_1.inspectForgeRuntimeDirectory)(context.paths.repoDistRuntimeDir, {
+            id: "source-repo-dist",
+            label: "Repo Dist Runtime",
+            description: "Current repo-backed dist runtime source.",
+            source: "repo-dist",
             capturedAtIso: "",
         });
-        sources.push({
-            id: `source:work:${workBuildId}`,
-            label: install.label,
-            description: `Import packaged runtime from ${runtimeDir}`,
-            kind: "work-build",
-            runtimeDir,
-            appVersion: install.appVersion,
-            buildNumber: install.buildNumber,
-            patchProfileId: install.patchProfileId,
-            importable: true,
-            alreadyInstalled: isInstalledRuntime(registry, runtimeDir),
-            detail: runtimeDir,
-        });
-    }
-    for (const runtimePackage of (0, windows_apps_1.listWindowsCodexPackages)()) {
-        sources.push({
+        return [{
+                id: "source:repo-dist",
+                label: "Repo Dist Runtime",
+                description: "Current repo-backed dist runtime source.",
+                kind: "repo-dist",
+                runtimeDir: context.paths.repoDistRuntimeDir,
+                appVersion: repoDistInstall.appVersion,
+                buildNumber: repoDistInstall.buildNumber,
+                patchProfileId: repoDistInstall.patchProfileId,
+                importable: false,
+                alreadyInstalled: true,
+                detail: "Already managed as repo-dist-current",
+            }];
+    },
+};
+const workBuildRuntimeSourceFinder = {
+    id: "work-builds",
+    findSources(context) {
+        const sources = [];
+        for (const runtimeDir of collectWorkRuntimeCandidates(context.paths)) {
+            const workBuildId = path.basename(path.dirname(path.dirname(runtimeDir)));
+            const install = (0, runtime_registry_1.inspectForgeRuntimeDirectory)(runtimeDir, {
+                id: `source-${workBuildId}`,
+                label: `Work Build ${workBuildId}`,
+                description: "Packaged runtime found under work/*/dist.",
+                source: "imported-runtime",
+                capturedAtIso: "",
+            });
+            sources.push({
+                id: `source:work:${workBuildId}`,
+                label: install.label,
+                description: `Import packaged runtime from ${runtimeDir}`,
+                kind: "work-build",
+                runtimeDir,
+                appVersion: install.appVersion,
+                buildNumber: install.buildNumber,
+                patchProfileId: install.patchProfileId,
+                importable: true,
+                alreadyInstalled: isInstalledRuntime(context.registry, runtimeDir),
+                detail: runtimeDir,
+            });
+        }
+        return sources;
+    },
+};
+const windowsRuntimeDonorSourceFinder = {
+    id: "windows-runtime-donor",
+    findSources() {
+        return (0, windows_apps_1.listWindowsCodexPackages)().map((runtimePackage) => ({
             id: `source:windows-donor:${runtimePackage.packageFullName}`,
             label: `Windows Donor ${runtimePackage.packageFullName}`,
             description: "Official Windows Codex runtime donor package.",
@@ -130,8 +143,17 @@ function discoverForgeRuntimeSources(paths, config) {
             importable: false,
             alreadyInstalled: false,
             detail: runtimePackage.packageRoot,
-        });
-    }
+        }));
+    },
+};
+const defaultRuntimeSourceFinders = [
+    repoDistRuntimeSourceFinder,
+    workBuildRuntimeSourceFinder,
+    windowsRuntimeDonorSourceFinder,
+];
+function discoverForgeRuntimeSources(paths, config) {
+    const { registry } = (0, runtime_registry_1.ensureForgeRuntimeRegistry)(paths, config);
+    const sources = defaultRuntimeSourceFinders.flatMap((finder) => finder.findSources({ paths, config, registry }));
     return sources.sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
 }
 function importForgeRuntimeSource(paths, config, sourceId) {
@@ -147,4 +169,20 @@ function importForgeRuntimeSource(paths, config, sourceId) {
         label: source.label,
         description: source.description,
     });
+}
+function importForgeRuntimeDirectory(paths, config, runtimeDir) {
+    const runtimeInstall = (0, runtime_registry_1.inspectForgeRuntimeDirectory)(runtimeDir, {
+        id: "manual-import",
+        label: `Imported ${path.basename(runtimeDir) || "runtime"}`,
+        description: `Imported manually from ${runtimeDir}`,
+        source: "imported-runtime",
+        capturedAtIso: "",
+    });
+    return (0, runtime_registry_1.importForgeRuntimeFromDirectory)(paths, config, runtimeDir, {
+        label: runtimeInstall.label,
+        description: runtimeInstall.description,
+    });
+}
+function getForgeRuntimeSourceFinderIds() {
+    return defaultRuntimeSourceFinders.map((finder) => finder.id);
 }

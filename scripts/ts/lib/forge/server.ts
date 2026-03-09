@@ -9,7 +9,7 @@ import { ForgeConfig, ForgeLaunchProfileId, ForgePaths, resolveForgeRuntimeDir }
 import { readLogTail, getForgeState } from "./state";
 import { setForgeModEnabled, syncForgeRuntimeLayer } from "./runtime-sync";
 import { activateForgeRuntimeInstall, captureActiveForgeRuntime, ensureForgeRuntimeRegistry } from "./runtime-registry";
-import { importForgeRuntimeSource } from "./runtime-sources";
+import { importForgeRuntimeDirectory, importForgeRuntimeSource } from "./runtime-sources";
 
 type ForgeServerOptions = {
   port: number;
@@ -155,6 +155,17 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
         throw new Error("Missing runtime sourceId");
       }
       const result = importForgeRuntimeSource(options.paths, getEffectiveConfig(), parsed.sourceId);
+      json(response, 200, { ok: true, result, state: state() });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/runtime/import-directory") {
+      const rawBody = await readRequestBody(request);
+      const parsed = rawBody.trim() ? JSON.parse(rawBody) as { runtimeDir?: string } : {};
+      if (!parsed.runtimeDir) {
+        throw new Error("Missing runtimeDir");
+      }
+      const result = importForgeRuntimeDirectory(options.paths, getEffectiveConfig(), parsed.runtimeDir);
       json(response, 200, { ok: true, result, state: state() });
       return;
     }

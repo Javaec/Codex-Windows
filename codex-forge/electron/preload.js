@@ -12,4 +12,7 @@ contextBridge.exposeInMainWorld("codexForgeHost", {
   openPath(targetPath) {
     return ipcRenderer.invoke("codex-forge:open-path", targetPath);
   },
+  pickDirectory() {
+    return ipcRenderer.invoke("codex-forge:pick-directory");
+  },
 });

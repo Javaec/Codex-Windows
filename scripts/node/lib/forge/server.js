@@ -168,6 +168,16 @@ async function startForgeLauncherServer(options) {
             json(response, 200, { ok: true, result, state: state() });
             return;
         }
+        if (request.method === "POST" && pathname === "/api/runtime/import-directory") {
+            const rawBody = await readRequestBody(request);
+            const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
+            if (!parsed.runtimeDir) {
+                throw new Error("Missing runtimeDir");
+            }
+            const result = (0, runtime_sources_1.importForgeRuntimeDirectory)(options.paths, getEffectiveConfig(), parsed.runtimeDir);
+            json(response, 200, { ok: true, result, state: state() });
+            return;
+        }
         if (request.method === "POST" && pathname === "/api/launch") {
             const rawBody = await readRequestBody(request);
             const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};

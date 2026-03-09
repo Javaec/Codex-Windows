@@ -1,7 +1,7 @@
 "use strict";
 
 const path = require("node:path");
-const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron");
 const { resolveForgePaths, ensureForgeWorkspace } = require("../../scripts/node/lib/forge/paths.js");
 const { startForgeLauncherServer } = require("../../scripts/node/lib/forge/server.js");
 
@@ -177,6 +177,18 @@ async function main() {
 
   ipcMain.handle("codex-forge:open-path", async (_event, targetPath) => {
     return shell.openPath(String(targetPath || ""));
+  });
+
+  ipcMain.handle("codex-forge:pick-directory", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow || null;
+    const result = await dialog.showOpenDialog(focusedWindow, {
+      title: "Import Codex Runtime Folder",
+      properties: ["openDirectory", "dontAddToRecent"],
+    });
+    if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length < 1) {
+      return "";
+    }
+    return String(result.filePaths[0] || "");
   });
 
   await app.whenReady();

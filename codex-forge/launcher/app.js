@@ -18,6 +18,7 @@ function setStatus(text) {
 
 function initializeHostShell() {
   const eyebrow = document.getElementById("host-eyebrow");
+  const importRuntimeFolder = document.getElementById("import-runtime-folder");
   const openForgeRoot = document.getElementById("open-forge-root");
   const openForgeLogs = document.getElementById("open-forge-logs");
 
@@ -27,6 +28,30 @@ function initializeHostShell() {
   }
 
   eyebrow.textContent = `Electron Launcher • Chrome ${forgeHost.versions && forgeHost.versions.chrome ? forgeHost.versions.chrome : "unknown"}`;
+
+  if (typeof forgeHost.pickDirectory === "function") {
+    importRuntimeFolder.hidden = false;
+    importRuntimeFolder.addEventListener("click", async () => {
+      setStatus("Picking runtime folder...");
+      try {
+        const pickedPath = await forgeHost.pickDirectory();
+        if (!pickedPath) {
+          setStatus("Runtime import canceled");
+          return;
+        }
+        setStatus(`Importing ${pickedPath}...`);
+        const result = await api("/api/runtime/import-directory", {
+          method: "POST",
+          body: JSON.stringify({ runtimeDir: pickedPath }),
+        });
+        forgeState = result.state;
+        renderAll(forgeState);
+        setStatus(`Imported ${result.result.install.id}`);
+      } catch (error) {
+        setStatus(String(error));
+      }
+    });
+  }
 
   openForgeRoot.hidden = false;
   openForgeLogs.hidden = false;

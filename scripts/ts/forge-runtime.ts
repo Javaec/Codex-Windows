@@ -2,10 +2,10 @@ import { writeError } from "./lib/exec";
 import { ensureForgeWorkspace, resolveForgePaths } from "./lib/forge/paths";
 import { activateForgeRuntimeInstall, captureActiveForgeRuntime, ensureForgeRuntimeRegistry } from "./lib/forge/runtime-registry";
 import { syncForgeRuntimeLayer } from "./lib/forge/runtime-sync";
-import { discoverForgeRuntimeSources, importForgeRuntimeSource } from "./lib/forge/runtime-sources";
+import { discoverForgeRuntimeSources, importForgeRuntimeDirectory, importForgeRuntimeSource } from "./lib/forge/runtime-sources";
 
 function usage(): never {
-  throw new Error("Usage: forge-runtime <list|sources|capture-current|import-source <sourceId>|activate <installId>>");
+  throw new Error("Usage: forge-runtime <list|sources|capture-current|import-source <sourceId>|import-dir <runtimeDir>|activate <installId>>");
 }
 
 async function main(): Promise<void> {
@@ -35,6 +35,13 @@ async function main(): Promise<void> {
       const sourceId = process.argv[3];
       if (!sourceId) usage();
       const result = importForgeRuntimeSource(paths, config, sourceId);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    case "import-dir": {
+      const runtimeDir = process.argv[3];
+      if (!runtimeDir) usage();
+      const result = importForgeRuntimeDirectory(paths, config, runtimeDir);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }

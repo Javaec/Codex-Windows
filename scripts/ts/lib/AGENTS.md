@@ -269,6 +269,7 @@
 ## 2026-03-09: Codex Forge runtime sources are distinct from installed runtimes
 
 - `scripts/ts/lib/forge/runtime-sources.ts` is the candidate/source discovery lane for runtime imports.
+- Runtime sources are now discovered through dedicated finder-like lanes, mirroring Fabric candidate finder structure.
 - Keep two layers separate:
   - runtime sources:
     - repo dist
@@ -281,3 +282,4 @@
   - source discovery first
   - install/import second
   - activation/selection third
+- Electron launcher now also supports manual directory import through a native folder picker.
