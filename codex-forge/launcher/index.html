@@ -28,18 +28,20 @@
 
         <section class="card summary-card">
           <h2>Launch</h2>
-          <div class="launch-grid">
-            <button data-lane="default" class="action launch">Safe Default</button>
-            <button data-lane="with-mods" class="action launch">With Mods</button>
-            <button data-lane="no-mods" class="action action-secondary launch">No Mods</button>
-            <button data-lane="minimal" class="action action-secondary launch">Minimal</button>
-            <button data-lane="isolated-home" class="action action-secondary launch">Isolated Home</button>
-          </div>
+          <div id="launch-profiles" class="launch-grid"></div>
         </section>
 
         <section class="card path-card">
           <h2>Forge Root</h2>
           <pre id="paths"></pre>
+        </section>
+
+        <section class="card resolution-card">
+          <div class="section-header">
+            <h2>Resolved Graph</h2>
+            <div id="resolution-badge" class="badge"></div>
+          </div>
+          <div id="resolution-summary" class="resolution-grid"></div>
         </section>
 
         <section class="card mods-card">

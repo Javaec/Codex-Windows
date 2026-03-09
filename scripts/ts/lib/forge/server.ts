@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { URL } from "node:url";
 import { fileExists, runCommand } from "../exec";
 import { resolveCmdPath } from "../env";
-import { ForgeConfig, ForgePaths } from "./paths";
+import { ForgeConfig, ForgeLaunchProfileId, ForgePaths } from "./paths";
 import { readLogTail, getForgeState } from "./state";
 import { setForgeModEnabled, syncForgeRuntimeLayer } from "./runtime-sync";
 
@@ -52,15 +52,19 @@ function readRequestBody(request: http.IncomingMessage): Promise<string> {
   });
 }
 
-function launchLane(paths: ForgePaths, lane: string): void {
-  const byLane: Record<string, string> = {
+function launchLane(paths: ForgePaths, config: ForgeConfig, lane: string): void {
+  const byLane: Record<ForgeLaunchProfileId, string> = {
     default: "Launch-Codex.cmd",
     "no-mods": "Launch-Codex-no-mods.cmd",
     "with-mods": "Launch-Codex-with-mods.cmd",
     minimal: "Launch-Codex-minimal.cmd",
     "isolated-home": "Launch-Codex-isolated-home.cmd",
   };
-  const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[lane] || "");
+  const profile = config.launchProfiles.find((entry) => entry.id === lane);
+  if (!profile) {
+    throw new Error(`Unknown Forge launch profile: ${lane}`);
+  }
+  const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[profile.id] || "");
   if (!fileExists(launcherPath)) {
     throw new Error(`Forge launcher missing: ${launcherPath}`);
   }
@@ -112,7 +116,7 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
     }
 
     if (request.method === "POST" && pathname === "/api/runtime/sync") {
-      const result = syncForgeRuntimeLayer(options.paths);
+      const result = syncForgeRuntimeLayer(options.paths, options.config);
       json(response, 200, { ok: true, result, state: state() });
       return;
     }
@@ -120,7 +124,7 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
     if (request.method === "POST" && pathname === "/api/launch") {
       const rawBody = await readRequestBody(request);
       const parsed = rawBody.trim() ? JSON.parse(rawBody) as { lane?: string } : {};
-      launchLane(options.paths, parsed.lane || "default");
+      launchLane(options.paths, options.config, parsed.lane || "default");
       json(response, 200, { ok: true });
       return;
     }
@@ -129,7 +133,7 @@ export async function startForgeLauncherServer(options: ForgeServerOptions): Pro
       const modId = decodeURIComponent(pathname.slice("/api/mods/".length, -"/toggle".length));
       const rawBody = await readRequestBody(request);
       const parsed = rawBody.trim() ? JSON.parse(rawBody) as { enabled?: boolean } : {};
-      setForgeModEnabled(options.paths, modId, parsed.enabled === true);
+      setForgeModEnabled(options.paths, options.config, modId, parsed.enabled === true);
       json(response, 200, { ok: true, state: state() });
       return;
     }

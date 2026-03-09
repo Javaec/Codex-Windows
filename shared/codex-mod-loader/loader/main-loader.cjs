@@ -21,6 +21,28 @@ function parseModSelectionList(rawValue) {
     .filter((value) => value.length > 0);
 }
 
+function normalizeIdList(rawValue) {
+  if (!Array.isArray(rawValue)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of rawValue) {
+    const value = normalizePathString(item);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function readJsonFile(filePath, label) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`codex-mod-loader: failed to parse ${label}: ${message}`);
+  }
+}
+
 function resolveRuntimeDirectory(leafDir, envKey, resourcesRoot) {
   const resourcesPath = normalizePathString(process.resourcesPath || "");
   if (resourcesPath) {
@@ -75,13 +97,55 @@ function loadCreateMainModApi(modApiRoot) {
   return createMainModApi;
 }
 
-function loadRuntimeMods(modsRoot, loaderRoot, buildHint, appVersion) {
+function loadOptionalForgeLoaderState(resourcesRoot) {
+  const explicitPath = normalizePathString(process.env.CODEX_FORGE_LOADER_STATE_PATH || "");
+  const candidates = [explicitPath, path.join(resourcesRoot, "codex-forge", "loader-state.json")].filter(Boolean);
+  for (const candidatePath of candidates) {
+    if (!fs.existsSync(candidatePath)) continue;
+    const parsed = readJsonFile(candidatePath, `Codex Forge loader state (${candidatePath})`);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error(`codex-mod-loader: invalid Codex Forge loader state: ${candidatePath}`);
+    }
+    const disabledIds = normalizeIdList(parsed.disabledIds);
+    const selectedModIds = normalizeIdList(parsed.selectedModIds);
+    console.warn(
+      `[codex-mod-loader] using Codex Forge loader state ${candidatePath} ` +
+      `(disabled=${disabledIds.length}, selected=${selectedModIds.length})`,
+    );
+    return {
+      path: candidatePath,
+      disabledIds,
+      selectedModIds,
+    };
+  }
+  return {
+    path: "",
+    disabledIds: [],
+    selectedModIds: [],
+  };
+}
+
+function mergeIdLists(...lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists) {
+    for (const item of list || []) {
+      const value = normalizePathString(item);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+function loadRuntimeMods(modsRoot, loaderRoot, buildHint, appVersion, forgeLoaderState) {
   if (!modsRoot || !fs.existsSync(modsRoot)) return [];
   if (normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") !== "1") return [];
   if (normalizePathString(process.env.CODEX_MODS_DISABLED || "") === "1") return [];
 
   const enabledOnlyIds = parseModSelectionList(process.env.CODEX_MODS_ONLY || "");
-  const disabledIds = parseModSelectionList(process.env.CODEX_MODS_EXCLUDE || "");
+  const disabledIds = mergeIdLists(parseModSelectionList(process.env.CODEX_MODS_EXCLUDE || ""), forgeLoaderState.disabledIds);
   const resolved = resolveRuntimeModCompatibility({
     modsRoot,
     loaderRoot,
@@ -255,6 +319,7 @@ function activateRuntimeMods(context) {
   const modLoaderRootPath = resolveRuntimeDirectory("mod-loader", "CODEX_MOD_LOADER_DIR", resourcesRoot);
   const modsRootPath = resolveRuntimeDirectory("mods", "CODEX_MODS_DIR", resourcesRoot);
   const modApiRootPath = resolveRuntimeDirectory("mod-api", "CODEX_MOD_API_DIR", resourcesRoot);
+  const forgeLoaderState = loadOptionalForgeLoaderState(resourcesRoot);
   const rendererApiScript = loadRendererApiScript(modApiRootPath);
   const usabilityProbeScript = loadOptionalUsabilityProbeScript(modLoaderRootPath);
   if (minimalPlatform) {
@@ -263,7 +328,7 @@ function activateRuntimeMods(context) {
   }
 
   const createMainModApi = loadCreateMainModApi(modApiRootPath);
-  const loadedMods = loadRuntimeMods(modsRootPath, modLoaderRootPath, buildHint, appVersion);
+  const loadedMods = loadRuntimeMods(modsRootPath, modLoaderRootPath, buildHint, appVersion, forgeLoaderState);
   applyMainMods(electron, loadedMods, buildHint, createMainModApi);
   const rendererMods = loadedMods.filter((mod) => mod.rendererScript).map((mod) => ({ id: mod.id, script: mod.rendererScript }));
   installRendererMods(electron, rendererApiScript, rendererMods, usabilityProbeScript);

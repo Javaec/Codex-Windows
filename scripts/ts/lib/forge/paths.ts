@@ -3,6 +3,14 @@ import * as path from "node:path";
 import { ensureDir, fileExists } from "../exec";
 import { REPO_ROOT } from "../runner/context";
 
+export type ForgeLaunchProfileId = "default" | "with-mods" | "no-mods" | "minimal" | "isolated-home";
+
+export type ForgeLaunchProfile = {
+  id: ForgeLaunchProfileId;
+  label: string;
+  description: string;
+};
+
 export type ForgeConfig = {
   version: number;
   name: string;
@@ -17,6 +25,8 @@ export type ForgeConfig = {
   logs: {
     rootDir: string;
   };
+  modState: Record<string, { enabled: boolean }>;
+  launchProfiles: ForgeLaunchProfile[];
 };
 
 export type ForgePaths = {
@@ -36,13 +46,47 @@ export type ForgePaths = {
   sourceModLoaderRoot: string;
   sourceCompatibilityPath: string;
   sourceVersionIdentityRoot: string;
+  runtimeForgeStateDir: string;
+  runtimeForgeLoaderStatePath: string;
+  runtimeForgeResolvedGraphPath: string;
+  forgeResolvedGraphPath: string;
 };
 
 const DEFAULT_FORGE_ROOT_NAME = "codex-forge";
 
+function defaultLaunchProfiles(): ForgeLaunchProfile[] {
+  return [
+    {
+      id: "default",
+      label: "Safe Default",
+      description: "Launch the current runtime without runtime mods.",
+    },
+    {
+      id: "with-mods",
+      label: "With Mods",
+      description: "Launch the current runtime with the active Forge mod graph.",
+    },
+    {
+      id: "no-mods",
+      label: "No Mods",
+      description: "Launch a clean lane with dedicated user data and cache.",
+    },
+    {
+      id: "minimal",
+      label: "Minimal",
+      description: "Launch the reduced Windows minimal lane for runtime diagnostics.",
+    },
+    {
+      id: "isolated-home",
+      label: "Isolated Home",
+      description: "Launch with an isolated CODEX_HOME inside the portable runtime.",
+    },
+  ];
+}
+
 function defaultForgeConfig(paths: ForgePaths): ForgeConfig {
   return {
-    version: 1,
+    version: 2,
     name: "Codex Forge",
     mode: "repo-backed-dev",
     runtime: {
@@ -55,6 +99,80 @@ function defaultForgeConfig(paths: ForgePaths): ForgeConfig {
     logs: {
       rootDir: paths.logsDir,
     },
+    modState: {},
+    launchProfiles: defaultLaunchProfiles(),
+  };
+}
+
+function normalizePathString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeModState(value: unknown): ForgeConfig["modState"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: ForgeConfig["modState"] = {};
+  for (const [modId, rawState] of Object.entries(value)) {
+    if (!modId || !rawState || typeof rawState !== "object" || Array.isArray(rawState)) continue;
+    const enabled = (rawState as { enabled?: unknown }).enabled;
+    if (typeof enabled !== "boolean") continue;
+    out[modId] = { enabled };
+  }
+  return out;
+}
+
+function normalizeLaunchProfileId(value: unknown): ForgeLaunchProfileId | null {
+  switch (value) {
+    case "default":
+    case "with-mods":
+    case "no-mods":
+    case "minimal":
+    case "isolated-home":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeLaunchProfiles(value: unknown): ForgeLaunchProfile[] {
+  if (!Array.isArray(value)) return defaultLaunchProfiles();
+  const out: ForgeLaunchProfile[] = [];
+  const seen = new Set<ForgeLaunchProfileId>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const id = normalizeLaunchProfileId((item as { id?: unknown }).id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      label: normalizePathString((item as { label?: unknown }).label) || defaultLaunchProfiles().find((profile) => profile.id === id)!.label,
+      description:
+        normalizePathString((item as { description?: unknown }).description) ||
+        defaultLaunchProfiles().find((profile) => profile.id === id)!.description,
+    });
+  }
+  if (out.length < 1) return defaultLaunchProfiles();
+  return out;
+}
+
+function normalizeForgeConfig(paths: ForgePaths, rawValue: unknown): ForgeConfig {
+  const defaults = defaultForgeConfig(paths);
+  const parsed = rawValue && typeof rawValue === "object" && !Array.isArray(rawValue) ? (rawValue as Partial<ForgeConfig>) : {};
+  return {
+    version: typeof parsed.version === "number" && Number.isFinite(parsed.version) ? parsed.version : defaults.version,
+    name: normalizePathString(parsed.name) || defaults.name,
+    mode: parsed.mode === "repo-backed-dev" ? parsed.mode : defaults.mode,
+    runtime: {
+      source: parsed.runtime && parsed.runtime.source === "repo-dist" ? parsed.runtime.source : defaults.runtime.source,
+      currentDir: normalizePathString(parsed.runtime?.currentDir) || defaults.runtime.currentDir,
+    },
+    mods: {
+      sourceDir: normalizePathString(parsed.mods?.sourceDir) || defaults.mods.sourceDir,
+    },
+    logs: {
+      rootDir: normalizePathString(parsed.logs?.rootDir) || defaults.logs.rootDir,
+    },
+    modState: normalizeModState(parsed.modState),
+    launchProfiles: normalizeLaunchProfiles((parsed as { launchProfiles?: unknown }).launchProfiles),
   };
 }
 
@@ -77,6 +195,10 @@ export function resolveForgePaths(): ForgePaths {
     sourceModLoaderRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader"),
     sourceCompatibilityPath: path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs"),
     sourceVersionIdentityRoot: path.join(REPO_ROOT, "shared", "version-identity"),
+    runtimeForgeStateDir: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge"),
+    runtimeForgeLoaderStatePath: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "loader-state.json"),
+    runtimeForgeResolvedGraphPath: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "resolved-mod-graph.json"),
+    forgeResolvedGraphPath: path.join(forgeRoot, "cache", "resolved-mod-graph.json"),
   };
 }
 
@@ -93,5 +215,10 @@ export function ensureForgeWorkspace(paths: ForgePaths): ForgeConfig {
   }
 
   const raw = fs.readFileSync(paths.configPath, "utf8").replace(/^\uFEFF/, "");
-  return JSON.parse(raw) as ForgeConfig;
+  const normalized = normalizeForgeConfig(paths, JSON.parse(raw));
+  const serialized = `${JSON.stringify(normalized, null, 2)}\n`;
+  if (raw !== serialized) {
+    fs.writeFileSync(paths.configPath, serialized, "utf8");
+  }
+  return normalized;
 }

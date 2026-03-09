@@ -214,3 +214,17 @@
   - mod toggle + runtime sync + lane launch actions
 - Rule:
   - keep real work in reusable services so this shell can later be wrapped by Electron without redoing runtime logic.
+
+## 2026-03-09: Codex Forge owns loader state and resolved mod graph outside mod manifests
+
+- Do not express launcher-owned enable/disable state by rewriting source mod manifests.
+- `Codex Forge` now emits:
+  - `dist\\Codex-win32-x64\\resources\\codex-forge\\loader-state.json`
+  - `dist\\Codex-win32-x64\\resources\\codex-forge\\resolved-mod-graph.json`
+  - `codex-forge\\cache\\resolved-mod-graph.json`
+- The runtime mod loader must treat `resources\\codex-forge\\loader-state.json` as the external selector/disable contract for current runtime resolution.
+- Reason:
+  - this is the Fabric-like boundary we want:
+    - mod metadata stays with the mod,
+    - launcher state stays with the launcher,
+    - resolved graph is a first-class artifact shared by UI, sync, and runtime.

@@ -39,6 +39,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const launchers_1 = require("../runtime-pack/launchers");
+const resolution_1 = require("./resolution");
 function syncPath(sourcePath, destinationPath) {
     if (!(0, exec_1.fileExists)(sourcePath))
         return;
@@ -51,7 +52,11 @@ function syncPath(sourcePath, destinationPath) {
     }
     (0, exec_1.copyFileSafe)(sourcePath, destinationPath);
 }
-function syncForgeRuntimeLayer(paths) {
+function writeJson(filePath, payload) {
+    (0, exec_1.ensureDir)(path.dirname(filePath));
+    fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+function syncForgeRuntimeLayer(paths, config) {
     const targetRuntimeDir = paths.repoDistRuntimeDir;
     const syncedPaths = [];
     const targets = [
@@ -67,19 +72,49 @@ function syncForgeRuntimeLayer(paths) {
         syncPath(target.source, target.destination);
         syncedPaths.push(target.destination);
     }
+    const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, config);
+    const loaderState = {
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        source: "Codex Forge",
+        build: resolvedGraph.build,
+        disabledIds: resolvedGraph.disabledByUserIds,
+        selectedModIds: resolvedGraph.selectedModIds,
+        loadOrder: resolvedGraph.loadOrder,
+        incompatibleMods: resolvedGraph.incompatibleMods,
+        recommendedDisabledMods: resolvedGraph.recommendedDisabledMods,
+        softIncompatibilities: resolvedGraph.softIncompatibilities,
+        modState: config.modState || {},
+    };
+    writeJson(paths.runtimeForgeLoaderStatePath, loaderState);
+    writeJson(paths.runtimeForgeResolvedGraphPath, resolvedGraph);
+    writeJson(paths.forgeResolvedGraphPath, resolvedGraph);
+    syncedPaths.push(paths.runtimeForgeLoaderStatePath, paths.runtimeForgeResolvedGraphPath, paths.forgeResolvedGraphPath);
     if ((0, exec_1.fileExists)(targetRuntimeDir)) {
         (0, launchers_1.writeLatestPortableLaunchers)(paths.distDir, targetRuntimeDir);
         syncedPaths.push(path.join(paths.distDir, "Launch-Codex-latest.cmd"));
     }
-    return { syncedPaths, targetRuntimeDir };
+    return {
+        syncedPaths,
+        targetRuntimeDir,
+        loaderStatePath: paths.runtimeForgeLoaderStatePath,
+        resolvedGraphPath: paths.runtimeForgeResolvedGraphPath,
+    };
 }
-function setForgeModEnabled(paths, modId, enabled) {
+function setForgeModEnabled(paths, config, modId, enabled) {
     const manifestPath = path.join(paths.sourceModsRoot, modId, "mod.json");
     if (!(0, exec_1.fileExists)(manifestPath)) {
         throw new Error(`Forge mod manifest not found: ${manifestPath}`);
     }
-    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, ""));
-    parsed.enabled = enabled;
-    fs.writeFileSync(manifestPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-    syncForgeRuntimeLayer(paths);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, ""));
+    const defaultEnabled = manifest.enabled !== false;
+    config.modState = config.modState || {};
+    if (enabled === defaultEnabled) {
+        delete config.modState[modId];
+    }
+    else {
+        config.modState[modId] = { enabled };
+    }
+    fs.writeFileSync(paths.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    syncForgeRuntimeLayer(paths, config);
 }

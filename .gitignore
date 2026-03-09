@@ -6,6 +6,7 @@
 /electron/
 /extracted/
 /cache/
+/codex-forge/cache/
 /orchestrator-deobf/.cache/
 /orchestrator-deobf/runs/
 /userdata/

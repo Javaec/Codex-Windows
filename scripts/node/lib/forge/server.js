@@ -70,7 +70,7 @@ function readRequestBody(request) {
         request.on("error", reject);
     });
 }
-function launchLane(paths, lane) {
+function launchLane(paths, config, lane) {
     const byLane = {
         default: "Launch-Codex.cmd",
         "no-mods": "Launch-Codex-no-mods.cmd",
@@ -78,7 +78,11 @@ function launchLane(paths, lane) {
         minimal: "Launch-Codex-minimal.cmd",
         "isolated-home": "Launch-Codex-isolated-home.cmd",
     };
-    const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[lane] || "");
+    const profile = config.launchProfiles.find((entry) => entry.id === lane);
+    if (!profile) {
+        throw new Error(`Unknown Forge launch profile: ${lane}`);
+    }
+    const launcherPath = path.join(paths.repoDistRuntimeDir, byLane[profile.id] || "");
     if (!(0, exec_1.fileExists)(launcherPath)) {
         throw new Error(`Forge launcher missing: ${launcherPath}`);
     }
@@ -124,14 +128,14 @@ async function startForgeLauncherServer(options) {
             return;
         }
         if (request.method === "POST" && pathname === "/api/runtime/sync") {
-            const result = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths);
+            const result = (0, runtime_sync_1.syncForgeRuntimeLayer)(options.paths, options.config);
             json(response, 200, { ok: true, result, state: state() });
             return;
         }
         if (request.method === "POST" && pathname === "/api/launch") {
             const rawBody = await readRequestBody(request);
             const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
-            launchLane(options.paths, parsed.lane || "default");
+            launchLane(options.paths, options.config, parsed.lane || "default");
             json(response, 200, { ok: true });
             return;
         }
@@ -139,7 +143,7 @@ async function startForgeLauncherServer(options) {
             const modId = decodeURIComponent(pathname.slice("/api/mods/".length, -"/toggle".length));
             const rawBody = await readRequestBody(request);
             const parsed = rawBody.trim() ? JSON.parse(rawBody) : {};
-            (0, runtime_sync_1.setForgeModEnabled)(options.paths, modId, parsed.enabled === true);
+            (0, runtime_sync_1.setForgeModEnabled)(options.paths, options.config, modId, parsed.enabled === true);
             json(response, 200, { ok: true, state: state() });
             return;
         }

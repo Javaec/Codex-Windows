@@ -1,22 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileExists } from "../exec";
-import { ForgeConfig, ForgePaths } from "./paths";
-
-const { loadModCatalog } = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs")) as {
-  loadModCatalog: (options: { modsRoot: string; loaderRoot: string }) => {
-    mods: Array<{
-      id: string;
-      name: string;
-      description: string;
-      enabled: boolean;
-      priority: number;
-      entrypoints: { renderer: string; main: string };
-      capabilities: { renderer: string[]; main: string[] };
-      manifestPath: string;
-    }>;
-  };
-};
+import { ForgeConfig, ForgeLaunchProfile, ForgePaths } from "./paths";
+import { resolveForgeModGraph } from "./resolution";
 
 export type ForgeRuntimeState = {
   exists: boolean;
@@ -40,12 +26,15 @@ export type ForgeModState = {
   name: string;
   description: string;
   enabled: boolean;
+  selected: boolean;
+  enabledInManifest: boolean;
   priority: number;
   entrypoints: string[];
   lane: "main" | "renderer" | "mixed";
   capabilities: string[];
   manifestPath: string;
   runtimeInstalled: boolean;
+  disableReason: string;
 };
 
 export type ForgeState = {
@@ -54,13 +43,25 @@ export type ForgeState = {
   forgeRoot: string;
   configPath: string;
   logsDir: string;
+  launchProfiles: ForgeLaunchProfile[];
   runtime: ForgeRuntimeState;
   mods: ForgeModState[];
   modCounts: {
     total: number;
     enabled: number;
+    selected: number;
     renderer: number;
     main: number;
+  };
+  resolution: {
+    appVersion: string;
+    buildNumber: string;
+    buildHint: number;
+    loadOrder: string[];
+    disabledByUserIds: string[];
+    incompatibleMods: Array<{ id: string; reason: string }>;
+    recommendedDisabledMods: Array<{ id: string; reason: string }>;
+    softIncompatibilities: Array<{ left: string; right: string }>;
   };
   latestRuntimeLog: string;
   latestAuthenticatedLog: string;
@@ -75,21 +76,8 @@ function readJson<T>(filePath: string, fallback: T): T {
   }
 }
 
-function detectLane(entrypoints: { renderer: string; main: string }): ForgeModState["lane"] {
-  if (entrypoints.renderer && entrypoints.main) return "mixed";
-  if (entrypoints.main) return "main";
-  return "renderer";
-}
-
-function collectEntrypoints(entrypoints: { renderer: string; main: string }): string[] {
-  const out: string[] = [];
-  if (entrypoints.main) out.push("main");
-  if (entrypoints.renderer) out.push("renderer");
-  return out;
-}
-
-function readRuntimeState(paths: ForgePaths): ForgeRuntimeState {
-  const runtimeDir = paths.repoDistRuntimeDir;
+function readRuntimeState(paths: ForgePaths, config: ForgeConfig): ForgeRuntimeState {
+  const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
   const metadataPath = path.join(runtimeDir, "build-metadata.json");
   const metadata = readJson<Record<string, unknown>>(metadataPath, {});
 
@@ -117,8 +105,8 @@ function readRuntimeState(paths: ForgePaths): ForgeRuntimeState {
   };
 }
 
-function readLatestRuntimeLog(paths: ForgePaths, relativeDir: string): string {
-  const targetDir = path.join(paths.repoDistRuntimeDir, relativeDir);
+function readLatestRuntimeLog(runtimeDir: string, relativeDir: string): string {
+  const targetDir = path.join(runtimeDir, relativeDir);
   if (!fileExists(targetDir)) return "";
   const candidates = fs
     .readdirSync(targetDir, { withFileTypes: true })
@@ -129,8 +117,8 @@ function readLatestRuntimeLog(paths: ForgePaths, relativeDir: string): string {
 }
 
 export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeState {
-  const catalog = loadModCatalog({ modsRoot: paths.sourceModsRoot, loaderRoot: paths.sourceModLoaderRoot });
-  const runtime = readRuntimeState(paths);
+  const resolvedGraph = resolveForgeModGraph(paths, config);
+  const runtime = readRuntimeState(paths, config);
   const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
   const runtimeInstalledIds = new Set(
     fileExists(runtimeModsRoot)
@@ -138,18 +126,21 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
       : [],
   );
 
-  const mods: ForgeModState[] = catalog.mods
+  const mods: ForgeModState[] = resolvedGraph.discoveredMods
     .map((mod) => ({
       id: mod.id,
       name: mod.name,
       description: mod.description,
-      enabled: mod.enabled,
+      enabled: mod.userEnabled,
+      selected: mod.selected,
+      enabledInManifest: mod.enabledInManifest,
       priority: mod.priority,
-      entrypoints: collectEntrypoints(mod.entrypoints),
-      lane: detectLane(mod.entrypoints),
-      capabilities: [...mod.capabilities.main, ...mod.capabilities.renderer].sort(),
+      entrypoints: [...mod.entrypoints],
+      lane: mod.lane,
+      capabilities: [...mod.capabilities],
       manifestPath: mod.manifestPath,
       runtimeInstalled: runtimeInstalledIds.has(mod.id),
+      disableReason: mod.disableReason,
     }))
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
 
@@ -159,16 +150,28 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
     forgeRoot: paths.forgeRoot,
     configPath: paths.configPath,
     logsDir: paths.logsDir,
+    launchProfiles: config.launchProfiles,
     runtime,
     mods,
     modCounts: {
       total: mods.length,
       enabled: mods.filter((mod) => mod.enabled).length,
+      selected: mods.filter((mod) => mod.selected).length,
       renderer: mods.filter((mod) => mod.lane === "renderer" || mod.lane === "mixed").length,
       main: mods.filter((mod) => mod.lane === "main" || mod.lane === "mixed").length,
     },
-    latestRuntimeLog: readLatestRuntimeLog(paths, path.join("runtime-logs", "with-mods")),
-    latestAuthenticatedLog: readLatestRuntimeLog(paths, path.join("runtime-logs-authenticated", "with-mods")),
+    resolution: {
+      appVersion: resolvedGraph.build.appVersion,
+      buildNumber: resolvedGraph.build.buildNumber,
+      buildHint: resolvedGraph.build.buildHint,
+      loadOrder: [...resolvedGraph.loadOrder],
+      disabledByUserIds: [...resolvedGraph.disabledByUserIds],
+      incompatibleMods: resolvedGraph.incompatibleMods.map((item) => ({ ...item })),
+      recommendedDisabledMods: resolvedGraph.recommendedDisabledMods.map((item) => ({ ...item })),
+      softIncompatibilities: resolvedGraph.softIncompatibilities.map((item) => ({ ...item })),
+    },
+    latestRuntimeLog: readLatestRuntimeLog(runtime.runtimeDir, path.join("runtime-logs", "with-mods")),
+    latestAuthenticatedLog: readLatestRuntimeLog(runtime.runtimeDir, path.join("runtime-logs-authenticated", "with-mods")),
   };
 }
 

@@ -38,7 +38,7 @@ exports.readLogTail = readLogTail;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
-const { loadModCatalog } = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs"));
+const resolution_1 = require("./resolution");
 function readJson(filePath, fallback) {
     if (!(0, exec_1.fileExists)(filePath))
         return fallback;
@@ -49,23 +49,8 @@ function readJson(filePath, fallback) {
         return fallback;
     }
 }
-function detectLane(entrypoints) {
-    if (entrypoints.renderer && entrypoints.main)
-        return "mixed";
-    if (entrypoints.main)
-        return "main";
-    return "renderer";
-}
-function collectEntrypoints(entrypoints) {
-    const out = [];
-    if (entrypoints.main)
-        out.push("main");
-    if (entrypoints.renderer)
-        out.push("renderer");
-    return out;
-}
-function readRuntimeState(paths) {
-    const runtimeDir = paths.repoDistRuntimeDir;
+function readRuntimeState(paths, config) {
+    const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
     const metadataPath = path.join(runtimeDir, "build-metadata.json");
     const metadata = readJson(metadataPath, {});
     return {
@@ -91,8 +76,8 @@ function readRuntimeState(paths) {
         },
     };
 }
-function readLatestRuntimeLog(paths, relativeDir) {
-    const targetDir = path.join(paths.repoDistRuntimeDir, relativeDir);
+function readLatestRuntimeLog(runtimeDir, relativeDir) {
+    const targetDir = path.join(runtimeDir, relativeDir);
     if (!(0, exec_1.fileExists)(targetDir))
         return "";
     const candidates = fs
@@ -103,24 +88,27 @@ function readLatestRuntimeLog(paths, relativeDir) {
     return candidates[0] || "";
 }
 function getForgeState(paths, config) {
-    const catalog = loadModCatalog({ modsRoot: paths.sourceModsRoot, loaderRoot: paths.sourceModLoaderRoot });
-    const runtime = readRuntimeState(paths);
+    const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, config);
+    const runtime = readRuntimeState(paths, config);
     const runtimeModsRoot = path.join(runtime.runtimeDir, "resources", "mods");
     const runtimeInstalledIds = new Set((0, exec_1.fileExists)(runtimeModsRoot)
         ? fs.readdirSync(runtimeModsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
         : []);
-    const mods = catalog.mods
+    const mods = resolvedGraph.discoveredMods
         .map((mod) => ({
         id: mod.id,
         name: mod.name,
         description: mod.description,
-        enabled: mod.enabled,
+        enabled: mod.userEnabled,
+        selected: mod.selected,
+        enabledInManifest: mod.enabledInManifest,
         priority: mod.priority,
-        entrypoints: collectEntrypoints(mod.entrypoints),
-        lane: detectLane(mod.entrypoints),
-        capabilities: [...mod.capabilities.main, ...mod.capabilities.renderer].sort(),
+        entrypoints: [...mod.entrypoints],
+        lane: mod.lane,
+        capabilities: [...mod.capabilities],
         manifestPath: mod.manifestPath,
         runtimeInstalled: runtimeInstalledIds.has(mod.id),
+        disableReason: mod.disableReason,
     }))
         .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
     return {
@@ -129,16 +117,28 @@ function getForgeState(paths, config) {
         forgeRoot: paths.forgeRoot,
         configPath: paths.configPath,
         logsDir: paths.logsDir,
+        launchProfiles: config.launchProfiles,
         runtime,
         mods,
         modCounts: {
             total: mods.length,
             enabled: mods.filter((mod) => mod.enabled).length,
+            selected: mods.filter((mod) => mod.selected).length,
             renderer: mods.filter((mod) => mod.lane === "renderer" || mod.lane === "mixed").length,
             main: mods.filter((mod) => mod.lane === "main" || mod.lane === "mixed").length,
         },
-        latestRuntimeLog: readLatestRuntimeLog(paths, path.join("runtime-logs", "with-mods")),
-        latestAuthenticatedLog: readLatestRuntimeLog(paths, path.join("runtime-logs-authenticated", "with-mods")),
+        resolution: {
+            appVersion: resolvedGraph.build.appVersion,
+            buildNumber: resolvedGraph.build.buildNumber,
+            buildHint: resolvedGraph.build.buildHint,
+            loadOrder: [...resolvedGraph.loadOrder],
+            disabledByUserIds: [...resolvedGraph.disabledByUserIds],
+            incompatibleMods: resolvedGraph.incompatibleMods.map((item) => ({ ...item })),
+            recommendedDisabledMods: resolvedGraph.recommendedDisabledMods.map((item) => ({ ...item })),
+            softIncompatibilities: resolvedGraph.softIncompatibilities.map((item) => ({ ...item })),
+        },
+        latestRuntimeLog: readLatestRuntimeLog(runtime.runtimeDir, path.join("runtime-logs", "with-mods")),
+        latestAuthenticatedLog: readLatestRuntimeLog(runtime.runtimeDir, path.join("runtime-logs-authenticated", "with-mods")),
     };
 }
 function readLogTail(filePath, maxLines = 120) {
