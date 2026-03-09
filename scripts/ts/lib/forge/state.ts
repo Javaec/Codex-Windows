@@ -73,6 +73,8 @@ export type ForgeRuntimeInstallState = {
 
 export type ForgeRuntimeSourceState = {
   id: string;
+  finderId: string;
+  fingerprint: string;
   label: string;
   description: string;
   kind: "repo-dist" | "work-build" | "windows-runtime-donor";
@@ -82,6 +84,7 @@ export type ForgeRuntimeSourceState = {
   patchProfileId: string;
   importable: boolean;
   alreadyInstalled: boolean;
+  recommendation: "managed" | "recommended-import" | "available-import" | "donor-only";
   detail: string;
 };
 

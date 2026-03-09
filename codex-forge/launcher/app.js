@@ -175,11 +175,13 @@ function renderRuntimeSources(state) {
     <div class="install-card">
       <div class="install-title">${escapeHtml(source.label)}</div>
       <div class="runtime-chip ${source.importable ? "" : "runtime-chip-muted"}">${escapeHtml(source.kind)}</div>
+      <div class="runtime-chip ${source.recommendation === "recommended-import" ? "" : "runtime-chip-muted"}">${escapeHtml(source.recommendation)}</div>
       <div class="install-meta">${escapeHtml(source.appVersion || "unknown")} • ${escapeHtml(source.buildNumber || "unknown")} • ${escapeHtml(source.patchProfileId || "no patch profile")}</div>
+      <div class="install-meta">${escapeHtml(source.finderId)}</div>
       <div class="install-meta">${escapeHtml(source.detail || source.runtimeDir)}</div>
       <div class="install-meta">${escapeHtml(source.description || "")}</div>
       <div class="install-actions">
-        <button class="action ${source.importable ? "" : "action-secondary"} runtime-import" data-source-id="${escapeHtml(source.id)}" ${source.importable ? "" : "disabled"}>${source.alreadyInstalled ? "Import Copy" : "Import"}</button>
+        <button class="action ${source.importable ? "" : "action-secondary"} runtime-import" data-source-id="${escapeHtml(source.id)}" ${source.importable ? "" : "disabled"}>${source.alreadyInstalled ? "Reuse Import" : "Import"}</button>
       </div>
     </div>
   `).join("");

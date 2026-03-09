@@ -41,6 +41,15 @@ export type ForgeRuntimeCaptureResult = {
   install: ForgeRuntimeInstall;
 };
 
+type ForgeImportedBuildMetadata = {
+  appVersion?: string;
+  buildNumber?: string;
+  patchProfileId?: string;
+  codexCliSource?: string;
+  importSourceKind?: string;
+  importSourceDetail?: string;
+};
+
 function readJson<T>(filePath: string, fallback: T): T {
   if (!fileExists(filePath)) return fallback;
   try {
@@ -61,6 +70,25 @@ function normalizeString(value: unknown): string {
 
 function readRuntimeBuildMetadata(runtimeDir: string): Record<string, unknown> {
   return readJson(path.join(runtimeDir, "build-metadata.json"), {});
+}
+
+function writeImportedBuildMetadata(
+  runtimeDir: string,
+  metadata: ForgeImportedBuildMetadata | undefined,
+): void {
+  const buildMetadataPath = path.join(runtimeDir, "build-metadata.json");
+  if (fileExists(buildMetadataPath)) return;
+  writeJson(buildMetadataPath, {
+    builtAtIso: new Date().toISOString(),
+    appVersion: normalizeString(metadata?.appVersion),
+    buildNumber: normalizeString(metadata?.buildNumber),
+    buildFlavor: "imported-runtime",
+    profileName: "imported",
+    patchProfileId: normalizeString(metadata?.patchProfileId),
+    codexCliSource: normalizeString(metadata?.codexCliSource),
+    importSourceKind: normalizeString(metadata?.importSourceKind),
+    importSourceDetail: normalizeString(metadata?.importSourceDetail),
+  });
 }
 
 export function inspectForgeRuntimeDirectory(runtimeDir: string, install: {
@@ -335,9 +363,18 @@ export function captureActiveForgeRuntime(paths: ForgePaths, config: ForgeConfig
 }
 
 function allocateImportedInstallId(paths: ForgePaths, registry: ForgeRuntimeRegistry, sourceRuntimeDir: string): string {
+  return allocateImportedInstallIdWithHints(paths, registry, sourceRuntimeDir, {});
+}
+
+function allocateImportedInstallIdWithHints(
+  paths: ForgePaths,
+  registry: ForgeRuntimeRegistry,
+  sourceRuntimeDir: string,
+  hints?: ForgeImportedBuildMetadata,
+): string {
   const metadata = readRuntimeBuildMetadata(sourceRuntimeDir);
   const base = slugifyRuntimeLabel(
-    `import-${normalizeString(metadata.patchProfileId) || normalizeString(metadata.appVersion) || "runtime"}-${normalizeString(metadata.buildNumber) || "unknown"}`,
+    `import-${normalizeString(hints?.patchProfileId) || normalizeString(metadata.patchProfileId) || normalizeString(hints?.appVersion) || normalizeString(metadata.appVersion) || "runtime"}-${normalizeString(hints?.buildNumber) || normalizeString(metadata.buildNumber) || "unknown"}`,
   );
   let candidate = base;
   let index = 2;
@@ -356,6 +393,7 @@ export function importForgeRuntimeFromDirectory(
   options?: {
     label?: string;
     description?: string;
+    buildMetadata?: ForgeImportedBuildMetadata;
   },
 ): ForgeRuntimeCaptureResult {
   if (!fileExists(sourceRuntimeDir)) {
@@ -369,9 +407,10 @@ export function importForgeRuntimeFromDirectory(
   if (existingInstall) {
     return { registry: ensured.registry, install: existingInstall };
   }
-  const importInstallId = allocateImportedInstallId(paths, ensured.registry, sourceRuntimeDir);
+  const importInstallId = allocateImportedInstallIdWithHints(paths, ensured.registry, sourceRuntimeDir, options?.buildMetadata);
   const targetRuntimeDir = path.join(paths.runtimeInstallsDir, importInstallId);
   copyRuntimeSnapshot(sourceRuntimeDir, targetRuntimeDir);
+  writeImportedBuildMetadata(targetRuntimeDir, options?.buildMetadata);
   const importedInstall = inspectForgeRuntimeDirectory(targetRuntimeDir, {
     id: importInstallId,
     label: options?.label || `Imported ${importInstallId}`,

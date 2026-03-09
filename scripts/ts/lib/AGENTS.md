@@ -289,3 +289,12 @@
 - `imported-runtime` installs now carry `originPath` in the registry.
 - Re-importing the same source directory must reuse the existing install instead of creating another copy.
 - Legacy imported installs should be normalized from their description text and deduped on registry load when possible.
+
+## 2026-03-09: Official Windows Codex is now an importable runtime provider
+
+- `windows-runtime-donor` is no longer only a donor/tool source; it is also an importable runtime provider when the package exposes a complete `app` directory.
+- Runtime sources now carry provider identity:
+  - `finderId`
+  - `fingerprint`
+  - `recommendation`
+- Imported runtimes may synthesize minimal `build-metadata.json` when the source runtime has none, so imported official packages still show meaningful version/source data in Forge.

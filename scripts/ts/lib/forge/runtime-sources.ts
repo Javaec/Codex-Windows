@@ -6,9 +6,12 @@ import { ForgeConfig, ForgePaths } from "./paths";
 import { ensureForgeRuntimeRegistry, ForgeRuntimeRegistry, importForgeRuntimeFromDirectory, inspectForgeRuntimeDirectory } from "./runtime-registry";
 
 export type ForgeRuntimeSourceKind = "repo-dist" | "work-build" | "windows-runtime-donor";
+export type ForgeRuntimeSourceRecommendation = "managed" | "recommended-import" | "available-import" | "donor-only";
 
 export type ForgeRuntimeSource = {
   id: string;
+  finderId: string;
+  fingerprint: string;
   label: string;
   description: string;
   kind: ForgeRuntimeSourceKind;
@@ -18,6 +21,7 @@ export type ForgeRuntimeSource = {
   patchProfileId: string;
   importable: boolean;
   alreadyInstalled: boolean;
+  recommendation: ForgeRuntimeSourceRecommendation;
   detail: string;
 };
 
@@ -59,7 +63,11 @@ function collectWorkRuntimeCandidates(paths: ForgePaths): string[] {
 }
 
 function isInstalledRuntime(registry: ForgeRuntimeRegistry, runtimeDir: string): boolean {
-  return registry.installs.some((install) => path.resolve(install.runtimeDir).toLowerCase() === path.resolve(runtimeDir).toLowerCase());
+  const normalizedRuntimeDir = path.resolve(runtimeDir).toLowerCase();
+  return registry.installs.some((install) => {
+    const originPath = path.resolve(install.originPath || install.runtimeDir).toLowerCase();
+    return originPath === normalizedRuntimeDir;
+  });
 }
 
 const repoDistRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
@@ -74,6 +82,8 @@ const repoDistRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
     });
     return [{
       id: "source:repo-dist",
+      finderId: "repo-dist",
+      fingerprint: `repo-dist:${path.resolve(context.paths.repoDistRuntimeDir).toLowerCase()}`,
       label: "Repo Dist Runtime",
       description: "Current repo-backed dist runtime source.",
       kind: "repo-dist",
@@ -83,6 +93,7 @@ const repoDistRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
       patchProfileId: repoDistInstall.patchProfileId,
       importable: false,
       alreadyInstalled: true,
+      recommendation: "managed",
       detail: "Already managed as repo-dist-current",
     }];
   },
@@ -103,6 +114,8 @@ const workBuildRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
       });
       sources.push({
         id: `source:work:${workBuildId}`,
+        finderId: "work-builds",
+        fingerprint: `work-build:${path.resolve(runtimeDir).toLowerCase()}`,
         label: install.label,
         description: `Import packaged runtime from ${runtimeDir}`,
         kind: "work-build",
@@ -112,6 +125,7 @@ const workBuildRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
         patchProfileId: install.patchProfileId,
         importable: true,
         alreadyInstalled: isInstalledRuntime(context.registry, runtimeDir),
+        recommendation: isInstalledRuntime(context.registry, runtimeDir) ? "managed" : "available-import",
         detail: runtimeDir,
       });
     }
@@ -121,18 +135,21 @@ const workBuildRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
 
 const windowsRuntimeDonorSourceFinder: ForgeRuntimeSourceFinder = {
   id: "windows-runtime-donor",
-  findSources() {
+  findSources(context) {
     return listWindowsCodexPackages().map((runtimePackage) => ({
       id: `source:windows-donor:${runtimePackage.packageFullName}`,
-      label: `Windows Donor ${runtimePackage.packageFullName}`,
-      description: "Official Windows Codex runtime donor package.",
+      finderId: "windows-runtime-donor",
+      fingerprint: `windows-donor:${runtimePackage.packageFullName.toLowerCase()}`,
+      label: `Official Windows Codex ${runtimePackage.packageVersion}`,
+      description: "Official Windows Codex package available from WindowsApps.",
       kind: "windows-runtime-donor" as const,
-      runtimeDir: runtimePackage.resourcesDir,
-      appVersion: "",
+      runtimeDir: runtimePackage.appDir,
+      appVersion: runtimePackage.packageVersion,
       buildNumber: "",
       patchProfileId: "",
-      importable: false,
-      alreadyInstalled: false,
+      importable: true,
+      alreadyInstalled: isInstalledRuntime(context.registry, runtimePackage.appDir),
+      recommendation: isInstalledRuntime(context.registry, runtimePackage.appDir) ? "managed" as const : "recommended-import" as const,
       detail: runtimePackage.packageRoot,
     }));
   },
@@ -162,6 +179,14 @@ export function importForgeRuntimeSource(paths: ForgePaths, config: ForgeConfig,
   return importForgeRuntimeFromDirectory(paths, config, source.runtimeDir, {
     label: source.label,
     description: source.description,
+    buildMetadata: {
+      appVersion: source.appVersion,
+      buildNumber: source.buildNumber,
+      patchProfileId: source.patchProfileId,
+      codexCliSource: source.kind === "windows-runtime-donor" ? "windows-runtime-donor" : "",
+      importSourceKind: source.kind,
+      importSourceDetail: source.detail,
+    },
   });
 }
 
@@ -176,6 +201,14 @@ export function importForgeRuntimeDirectory(paths: ForgePaths, config: ForgeConf
   return importForgeRuntimeFromDirectory(paths, config, runtimeDir, {
     label: runtimeInstall.label,
     description: runtimeInstall.description,
+    buildMetadata: {
+      appVersion: runtimeInstall.appVersion,
+      buildNumber: runtimeInstall.buildNumber,
+      patchProfileId: runtimeInstall.patchProfileId,
+      codexCliSource: runtimeInstall.cliSource,
+      importSourceKind: "manual-directory",
+      importSourceDetail: runtimeDir,
+    },
   });
 }
 
