@@ -38,6 +38,7 @@ exports.resolveForgeModGraph = resolveForgeModGraph;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
+const discovery_1 = require("./discovery");
 const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs"));
 function readJson(filePath, fallback) {
     if (!(0, exec_1.fileExists)(filePath))
@@ -48,21 +49,6 @@ function readJson(filePath, fallback) {
     catch {
         return fallback;
     }
-}
-function collectEntrypoints(entrypoints) {
-    const out = [];
-    if (entrypoints.main)
-        out.push("main");
-    if (entrypoints.renderer)
-        out.push("renderer");
-    return out;
-}
-function detectLane(entrypoints) {
-    if (entrypoints.renderer && entrypoints.main)
-        return "mixed";
-    if (entrypoints.main)
-        return "main";
-    return "renderer";
 }
 function readRuntimeBuildContext(paths, config) {
     const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
@@ -79,10 +65,7 @@ function getForgeUserDisabledModIds(config) {
         .sort((left, right) => left.localeCompare(right));
 }
 function resolveForgeModGraph(paths, config) {
-    const catalog = compatibility.loadModCatalog({
-        modsRoot: paths.sourceModsRoot,
-        loaderRoot: paths.sourceModLoaderRoot,
-    });
+    const discoveredMods = (0, discovery_1.discoverForgeMods)(paths);
     const disabledByUserIds = getForgeUserDisabledModIds(config);
     const buildContext = readRuntimeBuildContext(paths, config);
     const resolved = compatibility.resolveRuntimeModCompatibility({
@@ -95,10 +78,10 @@ function resolveForgeModGraph(paths, config) {
     });
     const selectedIds = new Set(resolved.selectedModIds);
     const incompatibleReasons = new Map(resolved.incompatibleMods.map((item) => [item.id, item.reason]));
-    const discoveredMods = catalog.mods
+    const discoveredModsResolved = discoveredMods
         .map((mod) => {
         const override = config.modState && config.modState[mod.id];
-        const userEnabled = typeof override?.enabled === "boolean" ? override.enabled : mod.enabled;
+        const userEnabled = typeof override?.enabled === "boolean" ? override.enabled : mod.enabledInManifest;
         const disableReason = !userEnabled
             ? "disabled in Codex Forge"
             : incompatibleReasons.get(mod.id) || "";
@@ -106,12 +89,20 @@ function resolveForgeModGraph(paths, config) {
             id: mod.id,
             name: mod.name,
             description: mod.description,
+            version: mod.version,
+            authors: [...mod.authors],
+            contact: { ...mod.contact },
+            licenses: [...mod.licenses],
+            environment: mod.environment,
+            iconPath: mod.iconPath,
+            provides: [...mod.provides],
             priority: mod.priority,
-            entrypoints: collectEntrypoints(mod.entrypoints),
-            lane: detectLane(mod.entrypoints),
-            capabilities: [...mod.capabilities.main, ...mod.capabilities.renderer].sort(),
+            entrypoints: [...mod.entrypoints],
+            lane: mod.lane,
+            capabilities: [...mod.capabilities],
             manifestPath: mod.manifestPath,
-            enabledInManifest: mod.enabled,
+            rootPath: mod.rootPath,
+            enabledInManifest: mod.enabledInManifest,
             userEnabled,
             selected: selectedIds.has(mod.id),
             disableReason,
@@ -128,7 +119,7 @@ function resolveForgeModGraph(paths, config) {
                 ? String(resolved.build.matchedBuild.buildHint)
                 : "",
         },
-        discoveredMods,
+        discoveredMods: discoveredModsResolved,
         selectedModIds: [...resolved.selectedModIds],
         loadOrder: [...resolved.loadOrder],
         disabledByUserIds,

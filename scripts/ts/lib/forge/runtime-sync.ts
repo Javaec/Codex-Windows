@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { copyDirectory, copyFileSafe, ensureDir, fileExists, removePath } from "../exec";
 import { writeLatestPortableLaunchers } from "../runtime-pack/launchers";
 import { ForgeConfig, ForgePaths } from "./paths";
+import { discoverForgeMods } from "./discovery";
 import { resolveForgeModGraph } from "./resolution";
 
 export type ForgeSyncResult = {
@@ -10,6 +11,7 @@ export type ForgeSyncResult = {
   targetRuntimeDir: string;
   loaderStatePath: string;
   resolvedGraphPath: string;
+  discoveredModsPath: string;
 };
 
 function syncPath(sourcePath: string, destinationPath: string): void {
@@ -47,6 +49,7 @@ export function syncForgeRuntimeLayer(paths: ForgePaths, config: ForgeConfig): F
   }
 
   const resolvedGraph = resolveForgeModGraph(paths, config);
+  const discoveredMods = discoverForgeMods(paths);
   const loaderState = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -62,8 +65,16 @@ export function syncForgeRuntimeLayer(paths: ForgePaths, config: ForgeConfig): F
   };
   writeJson(paths.runtimeForgeLoaderStatePath, loaderState);
   writeJson(paths.runtimeForgeResolvedGraphPath, resolvedGraph);
+  writeJson(paths.runtimeForgeDiscoveredModsPath, discoveredMods);
   writeJson(paths.forgeResolvedGraphPath, resolvedGraph);
-  syncedPaths.push(paths.runtimeForgeLoaderStatePath, paths.runtimeForgeResolvedGraphPath, paths.forgeResolvedGraphPath);
+  writeJson(paths.forgeDiscoveredModsPath, discoveredMods);
+  syncedPaths.push(
+    paths.runtimeForgeLoaderStatePath,
+    paths.runtimeForgeResolvedGraphPath,
+    paths.runtimeForgeDiscoveredModsPath,
+    paths.forgeResolvedGraphPath,
+    paths.forgeDiscoveredModsPath,
+  );
 
   if (fileExists(targetRuntimeDir)) {
     writeLatestPortableLaunchers(paths.distDir, targetRuntimeDir);
@@ -75,6 +86,7 @@ export function syncForgeRuntimeLayer(paths: ForgePaths, config: ForgeConfig): F
     targetRuntimeDir,
     loaderStatePath: paths.runtimeForgeLoaderStatePath,
     resolvedGraphPath: paths.runtimeForgeResolvedGraphPath,
+    discoveredModsPath: paths.runtimeForgeDiscoveredModsPath,
   };
 }
 

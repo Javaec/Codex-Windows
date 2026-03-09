@@ -87,6 +87,50 @@ function readLatestRuntimeLog(runtimeDir, relativeDir) {
         .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
     return candidates[0] || "";
 }
+function buildComponentState(runtime) {
+    return [
+        {
+            id: "codex-forge",
+            name: "Codex Forge",
+            description: "Launcher shell, runtime graph, and external loader state.",
+            version: "repo-dev",
+            source: "workspace",
+            status: "ready",
+        },
+        {
+            id: "codex-desktop-runtime",
+            name: "Codex Desktop Runtime",
+            description: "Current packaged Codex runtime managed by Forge.",
+            version: runtime.appVersion && runtime.buildNumber ? `${runtime.appVersion} (${runtime.buildNumber})` : runtime.appVersion || "unknown",
+            source: runtime.patchProfileId || "repo-dist",
+            status: runtime.exists ? "ready" : "missing",
+        },
+        {
+            id: "codex-cli",
+            name: "Codex CLI",
+            description: "Bundled CLI used by the packaged runtime.",
+            version: runtime.cliSource || "unknown",
+            source: runtime.cliSource || "unknown",
+            status: runtime.cliSource ? "ready" : "degraded",
+        },
+        {
+            id: "ripgrep",
+            name: "Ripgrep",
+            description: "Fast code search tool exposed to the runtime.",
+            version: runtime.rgExists ? "bundled" : "missing",
+            source: runtime.rgPath,
+            status: runtime.rgExists ? "ready" : "missing",
+        },
+        {
+            id: "mod-loader-platform",
+            name: "Mod Loader Platform",
+            description: "Shared mod API, loader, compatibility helper, and version identity.",
+            version: "v1",
+            source: "shared/codex-mod-loader",
+            status: runtime.hasModApi && runtime.hasModLoader && runtime.hasCompatibilityHelper && runtime.hasVersionIdentity ? "ready" : "degraded",
+        },
+    ];
+}
 function getForgeState(paths, config) {
     const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, config);
     const runtime = readRuntimeState(paths, config);
@@ -99,6 +143,11 @@ function getForgeState(paths, config) {
         id: mod.id,
         name: mod.name,
         description: mod.description,
+        version: mod.version,
+        authors: [...mod.authors],
+        licenses: [...mod.licenses],
+        environment: mod.environment,
+        provides: [...mod.provides],
         enabled: mod.userEnabled,
         selected: mod.selected,
         enabledInManifest: mod.enabledInManifest,
@@ -107,6 +156,7 @@ function getForgeState(paths, config) {
         lane: mod.lane,
         capabilities: [...mod.capabilities],
         manifestPath: mod.manifestPath,
+        rootPath: mod.rootPath,
         runtimeInstalled: runtimeInstalledIds.has(mod.id),
         disableReason: mod.disableReason,
     }))
@@ -119,6 +169,7 @@ function getForgeState(paths, config) {
         logsDir: paths.logsDir,
         launchProfiles: config.launchProfiles,
         runtime,
+        components: buildComponentState(runtime),
         mods,
         modCounts: {
             total: mods.length,

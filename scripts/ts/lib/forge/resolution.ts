@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileExists } from "../exec";
 import { ForgeConfig, ForgePaths } from "./paths";
+import { discoverForgeMods } from "./discovery";
 
 const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shared", "codex-mod-loader", "compatibility.cjs")) as {
   loadModCatalog: (options: { modsRoot: string; loaderRoot: string }) => {
@@ -73,11 +74,19 @@ export type ForgeResolvedMod = {
   id: string;
   name: string;
   description: string;
+  version: string;
+  authors: string[];
+  contact: Record<string, string>;
+  licenses: string[];
+  environment: string;
+  iconPath: string;
+  provides: string[];
   priority: number;
   entrypoints: string[];
   lane: "main" | "renderer" | "mixed";
   capabilities: string[];
   manifestPath: string;
+  rootPath: string;
   enabledInManifest: boolean;
   userEnabled: boolean;
   selected: boolean;
@@ -109,19 +118,6 @@ function readJson<T>(filePath: string, fallback: T): T {
   }
 }
 
-function collectEntrypoints(entrypoints: { renderer: string; main: string }): string[] {
-  const out: string[] = [];
-  if (entrypoints.main) out.push("main");
-  if (entrypoints.renderer) out.push("renderer");
-  return out;
-}
-
-function detectLane(entrypoints: { renderer: string; main: string }): ForgeResolvedMod["lane"] {
-  if (entrypoints.renderer && entrypoints.main) return "mixed";
-  if (entrypoints.main) return "main";
-  return "renderer";
-}
-
 function readRuntimeBuildContext(paths: ForgePaths, config: ForgeConfig): { appVersion: string; buildNumber: string } {
   const runtimeDir = config.runtime.currentDir || paths.repoDistRuntimeDir;
   const metadata = readJson<BuildMetadata>(path.join(runtimeDir, "build-metadata.json"), {});
@@ -139,10 +135,7 @@ export function getForgeUserDisabledModIds(config: ForgeConfig): string[] {
 }
 
 export function resolveForgeModGraph(paths: ForgePaths, config: ForgeConfig): ForgeResolvedGraph {
-  const catalog = compatibility.loadModCatalog({
-    modsRoot: paths.sourceModsRoot,
-    loaderRoot: paths.sourceModLoaderRoot,
-  });
+  const discoveredMods = discoverForgeMods(paths);
   const disabledByUserIds = getForgeUserDisabledModIds(config);
   const buildContext = readRuntimeBuildContext(paths, config);
   const resolved = compatibility.resolveRuntimeModCompatibility({
@@ -155,10 +148,10 @@ export function resolveForgeModGraph(paths: ForgePaths, config: ForgeConfig): Fo
   });
   const selectedIds = new Set(resolved.selectedModIds);
   const incompatibleReasons = new Map(resolved.incompatibleMods.map((item) => [item.id, item.reason]));
-  const discoveredMods: ForgeResolvedMod[] = catalog.mods
+  const discoveredModsResolved: ForgeResolvedMod[] = discoveredMods
     .map((mod) => {
       const override = config.modState && config.modState[mod.id];
-      const userEnabled = typeof override?.enabled === "boolean" ? override.enabled : mod.enabled;
+      const userEnabled = typeof override?.enabled === "boolean" ? override.enabled : mod.enabledInManifest;
       const disableReason = !userEnabled
         ? "disabled in Codex Forge"
         : incompatibleReasons.get(mod.id) || "";
@@ -166,12 +159,20 @@ export function resolveForgeModGraph(paths: ForgePaths, config: ForgeConfig): Fo
         id: mod.id,
         name: mod.name,
         description: mod.description,
+        version: mod.version,
+        authors: [...mod.authors],
+        contact: { ...mod.contact },
+        licenses: [...mod.licenses],
+        environment: mod.environment,
+        iconPath: mod.iconPath,
+        provides: [...mod.provides],
         priority: mod.priority,
-        entrypoints: collectEntrypoints(mod.entrypoints),
-        lane: detectLane(mod.entrypoints),
-        capabilities: [...mod.capabilities.main, ...mod.capabilities.renderer].sort(),
+        entrypoints: [...mod.entrypoints],
+        lane: mod.lane,
+        capabilities: [...mod.capabilities],
         manifestPath: mod.manifestPath,
-        enabledInManifest: mod.enabled,
+        rootPath: mod.rootPath,
+        enabledInManifest: mod.enabledInManifest,
         userEnabled,
         selected: selectedIds.has(mod.id),
         disableReason,
@@ -190,7 +191,7 @@ export function resolveForgeModGraph(paths: ForgePaths, config: ForgeConfig): Fo
           ? String(resolved.build.matchedBuild.buildHint)
           : "",
     },
-    discoveredMods,
+    discoveredMods: discoveredModsResolved,
     selectedModIds: [...resolved.selectedModIds],
     loadOrder: [...resolved.loadOrder],
     disabledByUserIds,

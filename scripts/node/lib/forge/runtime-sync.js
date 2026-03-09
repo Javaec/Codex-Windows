@@ -39,6 +39,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const launchers_1 = require("../runtime-pack/launchers");
+const discovery_1 = require("./discovery");
 const resolution_1 = require("./resolution");
 function syncPath(sourcePath, destinationPath) {
     if (!(0, exec_1.fileExists)(sourcePath))
@@ -73,6 +74,7 @@ function syncForgeRuntimeLayer(paths, config) {
         syncedPaths.push(target.destination);
     }
     const resolvedGraph = (0, resolution_1.resolveForgeModGraph)(paths, config);
+    const discoveredMods = (0, discovery_1.discoverForgeMods)(paths);
     const loaderState = {
         schemaVersion: 1,
         generatedAt: new Date().toISOString(),
@@ -88,8 +90,10 @@ function syncForgeRuntimeLayer(paths, config) {
     };
     writeJson(paths.runtimeForgeLoaderStatePath, loaderState);
     writeJson(paths.runtimeForgeResolvedGraphPath, resolvedGraph);
+    writeJson(paths.runtimeForgeDiscoveredModsPath, discoveredMods);
     writeJson(paths.forgeResolvedGraphPath, resolvedGraph);
-    syncedPaths.push(paths.runtimeForgeLoaderStatePath, paths.runtimeForgeResolvedGraphPath, paths.forgeResolvedGraphPath);
+    writeJson(paths.forgeDiscoveredModsPath, discoveredMods);
+    syncedPaths.push(paths.runtimeForgeLoaderStatePath, paths.runtimeForgeResolvedGraphPath, paths.runtimeForgeDiscoveredModsPath, paths.forgeResolvedGraphPath, paths.forgeDiscoveredModsPath);
     if ((0, exec_1.fileExists)(targetRuntimeDir)) {
         (0, launchers_1.writeLatestPortableLaunchers)(paths.distDir, targetRuntimeDir);
         syncedPaths.push(path.join(paths.distDir, "Launch-Codex-latest.cmd"));
@@ -99,6 +103,7 @@ function syncForgeRuntimeLayer(paths, config) {
         targetRuntimeDir,
         loaderStatePath: paths.runtimeForgeLoaderStatePath,
         resolvedGraphPath: paths.runtimeForgeResolvedGraphPath,
+        discoveredModsPath: paths.runtimeForgeDiscoveredModsPath,
     };
 }
 function setForgeModEnabled(paths, config, modId, enabled) {

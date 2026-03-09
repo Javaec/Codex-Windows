@@ -49,7 +49,9 @@ export type ForgePaths = {
   runtimeForgeStateDir: string;
   runtimeForgeLoaderStatePath: string;
   runtimeForgeResolvedGraphPath: string;
+  runtimeForgeDiscoveredModsPath: string;
   forgeResolvedGraphPath: string;
+  forgeDiscoveredModsPath: string;
 };
 
 const DEFAULT_FORGE_ROOT_NAME = "codex-forge";
@@ -198,7 +200,9 @@ export function resolveForgePaths(): ForgePaths {
     runtimeForgeStateDir: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge"),
     runtimeForgeLoaderStatePath: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "loader-state.json"),
     runtimeForgeResolvedGraphPath: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "resolved-mod-graph.json"),
+    runtimeForgeDiscoveredModsPath: path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "discovered-mods.json"),
     forgeResolvedGraphPath: path.join(forgeRoot, "cache", "resolved-mod-graph.json"),
+    forgeDiscoveredModsPath: path.join(forgeRoot, "cache", "discovered-mods.json"),
   };
 }
 

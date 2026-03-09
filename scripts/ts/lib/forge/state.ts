@@ -25,6 +25,11 @@ export type ForgeModState = {
   id: string;
   name: string;
   description: string;
+  version: string;
+  authors: string[];
+  licenses: string[];
+  environment: string;
+  provides: string[];
   enabled: boolean;
   selected: boolean;
   enabledInManifest: boolean;
@@ -33,8 +38,18 @@ export type ForgeModState = {
   lane: "main" | "renderer" | "mixed";
   capabilities: string[];
   manifestPath: string;
+  rootPath: string;
   runtimeInstalled: boolean;
   disableReason: string;
+};
+
+export type ForgeComponentState = {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  source: string;
+  status: "ready" | "degraded" | "missing";
 };
 
 export type ForgeState = {
@@ -45,6 +60,7 @@ export type ForgeState = {
   logsDir: string;
   launchProfiles: ForgeLaunchProfile[];
   runtime: ForgeRuntimeState;
+  components: ForgeComponentState[];
   mods: ForgeModState[];
   modCounts: {
     total: number;
@@ -116,6 +132,51 @@ function readLatestRuntimeLog(runtimeDir: string, relativeDir: string): string {
   return candidates[0] || "";
 }
 
+function buildComponentState(runtime: ForgeRuntimeState): ForgeComponentState[] {
+  return [
+    {
+      id: "codex-forge",
+      name: "Codex Forge",
+      description: "Launcher shell, runtime graph, and external loader state.",
+      version: "repo-dev",
+      source: "workspace",
+      status: "ready",
+    },
+    {
+      id: "codex-desktop-runtime",
+      name: "Codex Desktop Runtime",
+      description: "Current packaged Codex runtime managed by Forge.",
+      version: runtime.appVersion && runtime.buildNumber ? `${runtime.appVersion} (${runtime.buildNumber})` : runtime.appVersion || "unknown",
+      source: runtime.patchProfileId || "repo-dist",
+      status: runtime.exists ? "ready" : "missing",
+    },
+    {
+      id: "codex-cli",
+      name: "Codex CLI",
+      description: "Bundled CLI used by the packaged runtime.",
+      version: runtime.cliSource || "unknown",
+      source: runtime.cliSource || "unknown",
+      status: runtime.cliSource ? "ready" : "degraded",
+    },
+    {
+      id: "ripgrep",
+      name: "Ripgrep",
+      description: "Fast code search tool exposed to the runtime.",
+      version: runtime.rgExists ? "bundled" : "missing",
+      source: runtime.rgPath,
+      status: runtime.rgExists ? "ready" : "missing",
+    },
+    {
+      id: "mod-loader-platform",
+      name: "Mod Loader Platform",
+      description: "Shared mod API, loader, compatibility helper, and version identity.",
+      version: "v1",
+      source: "shared/codex-mod-loader",
+      status: runtime.hasModApi && runtime.hasModLoader && runtime.hasCompatibilityHelper && runtime.hasVersionIdentity ? "ready" : "degraded",
+    },
+  ];
+}
+
 export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeState {
   const resolvedGraph = resolveForgeModGraph(paths, config);
   const runtime = readRuntimeState(paths, config);
@@ -131,6 +192,11 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
       id: mod.id,
       name: mod.name,
       description: mod.description,
+      version: mod.version,
+      authors: [...mod.authors],
+      licenses: [...mod.licenses],
+      environment: mod.environment,
+      provides: [...mod.provides],
       enabled: mod.userEnabled,
       selected: mod.selected,
       enabledInManifest: mod.enabledInManifest,
@@ -139,6 +205,7 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
       lane: mod.lane,
       capabilities: [...mod.capabilities],
       manifestPath: mod.manifestPath,
+      rootPath: mod.rootPath,
       runtimeInstalled: runtimeInstalledIds.has(mod.id),
       disableReason: mod.disableReason,
     }))
@@ -152,6 +219,7 @@ export function getForgeState(paths: ForgePaths, config: ForgeConfig): ForgeStat
     logsDir: paths.logsDir,
     launchProfiles: config.launchProfiles,
     runtime,
+    components: buildComponentState(runtime),
     mods,
     modCounts: {
       total: mods.length,

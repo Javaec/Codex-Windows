@@ -183,7 +183,9 @@ function resolveForgePaths() {
         runtimeForgeStateDir: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge"),
         runtimeForgeLoaderStatePath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "loader-state.json"),
         runtimeForgeResolvedGraphPath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "resolved-mod-graph.json"),
+        runtimeForgeDiscoveredModsPath: path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "codex-forge", "discovered-mods.json"),
         forgeResolvedGraphPath: path.join(forgeRoot, "cache", "resolved-mod-graph.json"),
+        forgeDiscoveredModsPath: path.join(forgeRoot, "cache", "discovered-mods.json"),
     };
 }
 function ensureForgeWorkspace(paths) {

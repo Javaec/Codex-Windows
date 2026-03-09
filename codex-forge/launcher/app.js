@@ -61,6 +61,19 @@ function renderPaths(state) {
   }, null, 2);
 }
 
+function renderComponents(state) {
+  document.getElementById("component-counts").textContent = `${state.components.filter((item) => item.status === "ready").length}/${state.components.length} ready`;
+  document.getElementById("components").innerHTML = state.components.map((component) => `
+    <div class="component-card">
+      <div class="component-name">${escapeHtml(component.name)}</div>
+      <div class="runtime-chip status-chip-${escapeHtml(component.status)}">${escapeHtml(component.status)}</div>
+      <div class="component-version">${escapeHtml(component.version || "unknown")}</div>
+      <div class="component-source">${escapeHtml(component.source || "unknown source")}</div>
+      <div class="component-description">${escapeHtml(component.description)}</div>
+    </div>
+  `).join("");
+}
+
 function renderResolution(state) {
   document.getElementById("resolution-badge").textContent = `${state.modCounts.selected}/${state.modCounts.total} resolved`;
   const sections = [
@@ -87,13 +100,16 @@ function renderMods(state) {
       <input class="toggle" type="checkbox" ${mod.enabled ? "checked" : ""} data-mod-id="${escapeHtml(mod.id)}" />
       <div>
         <div class="mod-title">${escapeHtml(mod.name)}</div>
-        <div class="mod-meta">${escapeHtml(mod.id)} • ${escapeHtml(mod.lane)} • priority ${escapeHtml(mod.priority)}</div>
+        <div class="mod-meta">${escapeHtml(mod.id)} • ${escapeHtml(mod.version)} • ${escapeHtml(mod.lane)} • priority ${escapeHtml(mod.priority)}</div>
         <div class="mod-description">${escapeHtml(mod.description)}</div>
         <div class="mod-meta">${escapeHtml(mod.capabilities.join(", "))}</div>
+        <div class="mod-meta">${escapeHtml(mod.rootPath)}</div>
+        <div class="mod-meta">${escapeHtml((mod.authors && mod.authors.length ? mod.authors.join(", ") : "no authors declared"))}</div>
         <div class="runtime-chip ${mod.selected ? "" : mod.disableReason ? "runtime-chip-warning" : "runtime-chip-muted"}">
           ${mod.selected ? "selected for runtime" : escapeHtml(mod.disableReason || "not selected")}
         </div>
         <div class="runtime-chip ${mod.runtimeInstalled ? "" : "runtime-chip-muted"}">${mod.runtimeInstalled ? "synced to runtime" : "source only"}</div>
+        <div class="runtime-chip runtime-chip-muted">${escapeHtml(mod.environment || "*")}</div>
       </div>
     </label>
   `).join("");
@@ -137,6 +153,7 @@ function renderAll(state) {
   renderRuntime(state);
   renderLaunchProfiles(state);
   renderPaths(state);
+  renderComponents(state);
   renderResolution(state);
   renderMods(state);
   renderLog(state).catch((error) => setStatus(String(error)));

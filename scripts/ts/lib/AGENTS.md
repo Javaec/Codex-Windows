@@ -221,10 +221,24 @@
 - `Codex Forge` now emits:
   - `dist\\Codex-win32-x64\\resources\\codex-forge\\loader-state.json`
   - `dist\\Codex-win32-x64\\resources\\codex-forge\\resolved-mod-graph.json`
+  - `dist\\Codex-win32-x64\\resources\\codex-forge\\discovered-mods.json`
   - `codex-forge\\cache\\resolved-mod-graph.json`
+  - `codex-forge\\cache\\discovered-mods.json`
 - The runtime mod loader must treat `resources\\codex-forge\\loader-state.json` as the external selector/disable contract for current runtime resolution.
 - Reason:
   - this is the Fabric-like boundary we want:
     - mod metadata stays with the mod,
     - launcher state stays with the launcher,
     - resolved graph is a first-class artifact shared by UI, sync, and runtime.
+
+## 2026-03-09: Codex Forge discovery produces mod containers, not just a checkbox list
+
+- `scripts/ts/lib/forge/discovery.ts` is the first-class mod discovery/catalog lane for the launcher.
+- It should expose mod-container-like data:
+  - manifest path
+  - root path / code source path
+  - optional author/license/contact/version metadata
+  - provided ids and environment hints when present
+- `resolved-mod-graph.json` is the solver output.
+- `discovered-mods.json` is the catalog/index output.
+- Keep those two artifacts distinct; do not collapse discovery back into resolution.
