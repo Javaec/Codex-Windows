@@ -298,3 +298,16 @@
   - `fingerprint`
   - `recommendation`
 - Imported runtimes may synthesize minimal `build-metadata.json` when the source runtime has none, so imported official packages still show meaningful version/source data in Forge.
+
+## 2026-03-09: Codex Forge exposes root-level operator scripts
+
+- Keep simple root `.cmd` entrypoints for common human workflows:
+  - build
+  - launch
+  - launch with devtools
+  - browser fallback
+  - test
+  - import official runtime
+  - capture current runtime
+  - restore repo dist runtime
+- These wrappers should call the canonical npm/CLI flows instead of reimplementing Forge logic.

@@ -5,7 +5,7 @@ import { syncForgeRuntimeLayer } from "./lib/forge/runtime-sync";
 import { discoverForgeRuntimeSources, importForgeRuntimeDirectory, importForgeRuntimeSource } from "./lib/forge/runtime-sources";
 
 function usage(): never {
-  throw new Error("Usage: forge-runtime <list|sources|capture-current|import-source <sourceId>|import-dir <runtimeDir>|activate <installId>>");
+  throw new Error("Usage: forge-runtime <list|sources|capture-current|import-source <sourceId>|import-dir <runtimeDir>|import-official|activate <installId>|activate-repo-dist>");
 }
 
 async function main(): Promise<void> {
@@ -45,10 +45,26 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
+    case "import-official": {
+      const sources = discoverForgeRuntimeSources(paths, config);
+      const source = sources.find((entry) => entry.kind === "windows-runtime-donor");
+      if (!source) {
+        throw new Error("No official Windows Codex runtime source was found.");
+      }
+      const result = importForgeRuntimeSource(paths, config, source.id);
+      process.stdout.write(`${JSON.stringify({ source, result }, null, 2)}\n`);
+      return;
+    }
     case "activate": {
       const installId = process.argv[3];
       if (!installId) usage();
       const result = activateForgeRuntimeInstall(paths, config, installId);
+      const syncResult = syncForgeRuntimeLayer(paths, result.config);
+      process.stdout.write(`${JSON.stringify({ result, syncResult }, null, 2)}\n`);
+      return;
+    }
+    case "activate-repo-dist": {
+      const result = activateForgeRuntimeInstall(paths, config, "repo-dist-current");
       const syncResult = syncForgeRuntimeLayer(paths, result.config);
       process.stdout.write(`${JSON.stringify({ result, syncResult }, null, 2)}\n`);
       return;
