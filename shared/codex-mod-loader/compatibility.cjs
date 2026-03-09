@@ -55,6 +55,29 @@ function normalizeStringList(rawValue, label) {
   return out;
 }
 
+function normalizeFlexibleStringList(rawValue, label) {
+  if (rawValue === undefined) return [];
+  if (typeof rawValue === "string") {
+    return normalizeStringList([rawValue], label);
+  }
+  return normalizeStringList(rawValue, label);
+}
+
+function normalizeContactObject(rawValue, label) {
+  if (rawValue === undefined) return {};
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error(`codex-mod-compatibility: ${label} must be an object`);
+  }
+  const out = {};
+  for (const [key, item] of Object.entries(rawValue)) {
+    const normalizedKey = normalizePathString(key);
+    const normalizedValue = normalizePathString(item);
+    if (!normalizedKey || !normalizedValue) continue;
+    out[normalizedKey] = normalizedValue;
+  }
+  return out;
+}
+
 function loadCapabilityRegistry(loaderRoot) {
   const registryPath = path.join(loaderRoot, "capability-registry.json");
   const registry = readJson(registryPath, "capability registry");
@@ -124,6 +147,14 @@ function normalizePriority(rawValue, id) {
   return priority;
 }
 
+function normalizeEntrypointList(rawValue, label) {
+  if (rawValue === undefined) return [];
+  if (typeof rawValue === "string") {
+    return normalizeStringList([rawValue], label);
+  }
+  return normalizeStringList(rawValue, label);
+}
+
 function validateEntrypoint(modDir, id, lane, entry) {
   const entryPath = path.resolve(modDir, entry);
   const relativePath = path.relative(modDir, entryPath);
@@ -142,19 +173,47 @@ function validateEntrypoint(modDir, id, lane, entry) {
 function normalizeEntrypoints(manifest, id, modDir) {
   const entrypoints = manifest.entrypoints && typeof manifest.entrypoints === "object" ? manifest.entrypoints : {};
   const normalized = {
-    renderer: normalizePathString(entrypoints.renderer || ""),
-    main: normalizePathString(entrypoints.main || ""),
+    renderer: normalizeEntrypointList(entrypoints.renderer, `${id}.entrypoints.renderer`),
+    main: normalizeEntrypointList(entrypoints.main, `${id}.entrypoints.main`),
   };
-  if (!normalized.renderer && !normalized.main) {
+  if (normalized.renderer.length < 1 && normalized.main.length < 1) {
     throw new Error(`codex-mod-compatibility: ${id} has no entrypoints`);
   }
-  if (normalized.renderer) {
-    validateEntrypoint(modDir, id, "renderer", normalized.renderer);
+  for (const entry of normalized.renderer) {
+    validateEntrypoint(modDir, id, "renderer", entry);
   }
-  if (normalized.main) {
-    validateEntrypoint(modDir, id, "main", normalized.main);
+  for (const entry of normalized.main) {
+    validateEntrypoint(modDir, id, "main", entry);
   }
   return normalized;
+}
+
+function registerModToken(aliasToId, token, modId, sourceLabel) {
+  const normalizedToken = normalizePathString(token);
+  if (!normalizedToken) return;
+  const previous = aliasToId.get(normalizedToken);
+  if (previous && previous !== modId) {
+    throw new Error(`codex-mod-compatibility: ${sourceLabel} '${normalizedToken}' collides with mod '${previous}'`);
+  }
+  aliasToId.set(normalizedToken, modId);
+}
+
+function canonicalizeReferenceList(mod, listName, values, aliasToId) {
+  const out = [];
+  const seen = new Set();
+  for (const referencedToken of values) {
+    const canonicalId = aliasToId.get(referencedToken);
+    if (!canonicalId) {
+      throw new Error(`codex-mod-compatibility: ${mod.id}.${listName} references unknown mod '${referencedToken}'`);
+    }
+    if (canonicalId === mod.id) {
+      throw new Error(`codex-mod-compatibility: ${mod.id}.${listName} must not reference itself`);
+    }
+    if (seen.has(canonicalId)) continue;
+    seen.add(canonicalId);
+    out.push(canonicalId);
+  }
+  return out;
 }
 
 function loadModCatalog(options) {
@@ -194,10 +253,10 @@ function loadModCatalog(options) {
     const entrypoints = normalizeEntrypoints(manifest, id, modDir);
 
     const capabilities = normalizeCapabilities(manifest, id, capabilityRegistry);
-    if (entrypoints.renderer && capabilities.renderer.length < 1) {
+    if (entrypoints.renderer.length > 0 && capabilities.renderer.length < 1) {
       throw new Error(`codex-mod-compatibility: ${id} renderer entry requires renderer capabilities`);
     }
-    if (entrypoints.main && capabilities.main.length < 1) {
+    if (entrypoints.main.length > 0 && capabilities.main.length < 1) {
       throw new Error(`codex-mod-compatibility: ${id} main entry requires main capabilities`);
     }
 
@@ -205,9 +264,17 @@ function loadModCatalog(options) {
       id,
       name: normalizePathString(manifest.name || ""),
       description: normalizePathString(manifest.description || ""),
+      version: normalizePathString(manifest.version || ""),
+      authors: normalizeFlexibleStringList(manifest.authors, `${id}.authors`),
+      contact: normalizeContactObject(manifest.contact, `${id}.contact`),
+      licenses: normalizeFlexibleStringList(manifest.license, `${id}.license`),
+      environment: normalizePathString(manifest.environment || "*") || "*",
+      iconPath: normalizePathString(manifest.icon || ""),
+      provides: normalizeFlexibleStringList(manifest.provides, `${id}.provides`),
       enabled: manifest.enabled !== false,
       priority: normalizePriority(manifest.priority, id),
       entrypoints,
+      rootPath: modDir,
       manifestPath,
       compatibility: normalizeCompatibility(manifest, id),
       capabilities,
@@ -220,17 +287,18 @@ function loadModCatalog(options) {
     mods.push(mod);
   }
 
-  const knownIds = new Set(mods.map((mod) => mod.id));
+  const aliasToId = new Map();
+  for (const mod of mods) {
+    registerModToken(aliasToId, mod.id, mod.id, "mod id");
+  }
+  for (const mod of mods) {
+    for (const providedId of mod.provides) {
+      registerModToken(aliasToId, providedId, mod.id, `${mod.id}.provides`);
+    }
+  }
   for (const mod of mods) {
     for (const listName of ["conflicts", "dependencies", "softIncompatibilities", "loadAfter", "loadBefore"]) {
-      for (const referencedId of mod[listName]) {
-        if (referencedId === mod.id) {
-          throw new Error(`codex-mod-compatibility: ${mod.id}.${listName} must not reference itself`);
-        }
-        if (!knownIds.has(referencedId)) {
-          throw new Error(`codex-mod-compatibility: ${mod.id}.${listName} references unknown mod '${referencedId}'`);
-        }
-      }
+      mod[listName] = canonicalizeReferenceList(mod, listName, mod[listName], aliasToId);
     }
   }
 
@@ -238,6 +306,7 @@ function loadModCatalog(options) {
     modsRoot,
     loaderRoot,
     capabilityRegistry,
+    aliasToId,
     mods,
   };
 }
@@ -349,8 +418,16 @@ function resolveRuntimeModCompatibility(input) {
     loaderRoot: input.loaderRoot,
   });
   const buildContext = resolveBuildContext(input);
-  const enabledOnlyIds = new Set(Array.isArray(input.enabledOnlyIds) ? input.enabledOnlyIds.map((value) => normalizePathString(value)).filter(Boolean) : []);
-  const disabledIds = new Set(Array.isArray(input.disabledIds) ? input.disabledIds.map((value) => normalizePathString(value)).filter(Boolean) : []);
+  const enabledOnlyIds = new Set(
+    Array.isArray(input.enabledOnlyIds)
+      ? input.enabledOnlyIds.map((value) => normalizePathString(value)).filter(Boolean).map((value) => catalog.aliasToId.get(value) || value)
+      : [],
+  );
+  const disabledIds = new Set(
+    Array.isArray(input.disabledIds)
+      ? input.disabledIds.map((value) => normalizePathString(value)).filter(Boolean).map((value) => catalog.aliasToId.get(value) || value)
+      : [],
+  );
 
   const compatibleMods = [];
   const incompatibleMods = new Map();

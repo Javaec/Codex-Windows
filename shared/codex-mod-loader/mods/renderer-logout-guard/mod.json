@@ -2,7 +2,13 @@
   "schemaVersion": 1,
   "id": "renderer-logout-guard",
   "name": "Renderer logout guard",
+  "version": "0.1.0-local",
   "description": "Disable logout controls fast enough to prevent accidental sign-outs.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
   "enabled": true,
   "priority": 210,
   "compatibility": {
@@ -16,7 +22,9 @@
     ]
   },
   "entrypoints": {
-    "renderer": "renderer.js"
+    "renderer": [
+      "renderer.js"
+    ]
   },
   "conflicts": [],
   "dependencies": [],

@@ -23,6 +23,23 @@ Mod contract (v1):
 - `mods/<modId>/mod.json` defines metadata, compatibility, and entrypoints.
 - `entrypoints.renderer` is injected on `dom-ready` for each non-devtools webContents.
 - `entrypoints.main` is executed once in the main process before renderer injection.
+- Each lane now accepts one or more entrypoint files:
+  - string form is still accepted for compatibility
+  - array form is the preferred contract
+- Manifests may now also carry Fabric-like metadata:
+  - `version`
+  - `authors`
+  - `contact`
+  - `license`
+  - `environment`
+  - `provides`
+- `provides` aliases are resolved by the shared compatibility helper, so:
+  - dependencies
+  - conflicts
+  - soft incompatibilities
+  - `loadAfter`
+  - `loadBefore`
+  may target either a canonical mod id or one of its provided aliases.
   - It must export a function (or `{ activate() }`) that receives Mod API v1 context.
   - Use this for stable, version-tolerant behavior changes (IPC request rewrites, routing tweaks, etc).
 

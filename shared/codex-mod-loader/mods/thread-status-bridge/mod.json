@@ -2,7 +2,16 @@
   "schemaVersion": 1,
   "id": "thread-status-bridge",
   "name": "Thread status bridge",
+  "version": "0.1.0-local",
   "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
+  "provides": [
+    "thread-activity-state"
+  ],
   "enabled": true,
   "priority": 70,
   "compatibility": {
@@ -16,7 +25,9 @@
     ]
   },
   "entrypoints": {
-    "main": "main.cjs"
+    "main": [
+      "main.cjs"
+    ]
   },
   "conflicts": [],
   "dependencies": [],

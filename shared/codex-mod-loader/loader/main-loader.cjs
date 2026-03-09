@@ -162,15 +162,20 @@ function loadRuntimeMods(modsRoot, loaderRoot, buildHint, appVersion, forgeLoade
   return resolved.loadOrder.map((modId) => {
     const mod = byId.get(modId);
     let rendererScript = "";
-    if (mod.entrypoints.renderer) {
-      const rendererEntryPath = path.join(modsRoot, mod.id, mod.entrypoints.renderer);
-      rendererScript = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
+    if (Array.isArray(mod.entrypoints.renderer) && mod.entrypoints.renderer.length > 0) {
+      rendererScript = mod.entrypoints.renderer
+        .map((entry, index) => {
+          const rendererEntryPath = path.join(modsRoot, mod.id, entry);
+          const script = fs.readFileSync(rendererEntryPath, "utf8").replace(/^\uFEFF/, "");
+          return `/* CODEX-MOD-ENTRY:${mod.id}:renderer:${index + 1}:${entry} */\n${script}\n`;
+        })
+        .join("\n");
     }
     return {
       id: mod.id,
       priority: mod.priority,
       rendererScript,
-      mainEntryPath: mod.entrypoints.main ? path.join(modsRoot, mod.id, mod.entrypoints.main) : "",
+      mainEntryPaths: Array.isArray(mod.entrypoints.main) ? mod.entrypoints.main.map((entry) => path.join(modsRoot, mod.id, entry)) : [],
       conflicts: mod.conflicts,
       requiredCapabilities: mod.capabilities,
     };
@@ -183,16 +188,17 @@ function applyMainMods(electron, loadedMods, buildHint, createMainModApi) {
   globalThis.__CODEX_MOD_LOADER_MAIN_V1__ = true;
 
   for (const mod of loadedMods) {
-    if (!mod.mainEntryPath) continue;
-    const exported = require(mod.mainEntryPath);
-    const apply =
-      typeof exported === "function"
-        ? exported
-        : (exported && typeof exported.activate === "function" ? exported.activate : null);
-    if (typeof apply !== "function") {
-      throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate})`);
+    for (const mainEntryPath of mod.mainEntryPaths || []) {
+      const exported = require(mainEntryPath);
+      const apply =
+        typeof exported === "function"
+          ? exported
+          : (exported && typeof exported.activate === "function" ? exported.activate : null);
+      if (typeof apply !== "function") {
+        throw new Error(`codex-mod-loader: main entry for ${mod.id} must export a function (or {activate}): ${mainEntryPath}`);
+      }
+      apply(createMainModApi({ electron, buildHint, modId: mod.id, capabilities: mod.requiredCapabilities.main }));
     }
-    apply(createMainModApi({ electron, buildHint, modId: mod.id, capabilities: mod.requiredCapabilities.main }));
   }
 }
 

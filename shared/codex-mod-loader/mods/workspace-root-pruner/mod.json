@@ -2,7 +2,13 @@
   "schemaVersion": 1,
   "id": "workspace-root-pruner",
   "name": "Workspace root pruner",
+  "version": "0.1.0-local",
   "description": "Prune stale workspace and worktree roots from persisted global state at app start.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
   "enabled": true,
   "priority": 40,
   "compatibility": {
@@ -15,7 +21,9 @@
     ]
   },
   "entrypoints": {
-    "main": "main.cjs"
+    "main": [
+      "main.cjs"
+    ]
   },
   "conflicts": [],
   "dependencies": [],

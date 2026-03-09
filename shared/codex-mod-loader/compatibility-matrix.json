@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-08T12:02:19.024Z",
+  "generatedAtIso": "2026-03-09T10:36:10.471Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -45,6 +45,15 @@
       "id": "auth-session-runtime",
       "name": "Auth session runtime",
       "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 30,
       "entrypoints": [
@@ -94,6 +103,15 @@
       "id": "renderer-logout-guard",
       "name": "Renderer logout guard",
       "description": "Disable logout controls fast enough to prevent accidental sign-outs.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 210,
       "entrypoints": [
@@ -141,6 +159,15 @@
       "id": "renderer-thread-groups",
       "name": "Renderer thread groups",
       "description": "Keep project thread groups compact and tint thread rows by current/completed status.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 210,
       "entrypoints": [
@@ -163,7 +190,9 @@
         "main": []
       },
       "conflicts": [],
-      "dependencies": [],
+      "dependencies": [
+        "thread-status-bridge"
+      ],
       "softIncompatibilities": [],
       "loadAfter": [],
       "loadBefore": [],
@@ -192,6 +221,15 @@
       "id": "renderer-usage-limits",
       "name": "Renderer usage limits",
       "description": "Show 5h/weekly usage limits in the sidebar and refresh them often enough.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 200,
       "entrypoints": [
@@ -245,6 +283,15 @@
       "id": "session-request-guard",
       "name": "Session request guard",
       "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 80,
       "entrypoints": [
@@ -291,6 +338,17 @@
       "id": "thread-status-bridge",
       "name": "Thread status bridge",
       "description": "Track active/completed thread ids in the main process and broadcast them to renderer mods.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [
+        "thread-activity-state"
+      ],
       "enabled": true,
       "priority": 70,
       "entrypoints": [
@@ -340,6 +398,15 @@
       "id": "workspace-root-pruner",
       "name": "Workspace root pruner",
       "description": "Prune stale workspace and worktree roots from persisted global state at app start.",
+      "version": "0.1.0-local",
+      "authors": [
+        "Codex Forge"
+      ],
+      "licenses": [
+        "UNLICENSED"
+      ],
+      "environment": "*",
+      "provides": [],
       "enabled": true,
       "priority": 40,
       "entrypoints": [

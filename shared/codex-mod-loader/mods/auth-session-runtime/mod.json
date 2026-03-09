@@ -2,7 +2,13 @@
   "schemaVersion": 1,
   "id": "auth-session-runtime",
   "name": "Auth session runtime",
+  "version": "0.1.0-local",
   "description": "Watch auth.json and log structured auth/session runtime events without forcing relaunches.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
   "enabled": true,
   "priority": 30,
   "compatibility": {
@@ -15,7 +21,9 @@
     ]
   },
   "entrypoints": {
-    "main": "main.cjs"
+    "main": [
+      "main.cjs"
+    ]
   },
   "conflicts": [],
   "dependencies": [],

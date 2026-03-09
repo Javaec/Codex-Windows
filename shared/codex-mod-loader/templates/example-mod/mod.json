@@ -1,28 +1,39 @@
 {
   "schemaVersion": 1,
-  "id": "session-request-guard",
-  "name": "Session request guard",
-  "version": "0.1.0-local",
-  "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
+  "id": "example-sidebar-tool",
+  "name": "Example sidebar tool",
+  "version": "0.1.0",
+  "description": "Example Codex Forge runtime mod with Fabric-like metadata and array entrypoints.",
   "authors": [
     "Codex Forge"
   ],
   "license": "UNLICENSED",
   "environment": "*",
+  "provides": [
+    "sidebar-tooling"
+  ],
   "enabled": true,
-  "priority": 80,
+  "priority": 300,
   "compatibility": {
     "minBuild": 0,
     "maxBuild": 0
   },
   "requiresCapabilities": {
     "main": [
-      "before-app-server-request"
+      "app-start"
+    ],
+    "renderer": [
+      "renderer-ready",
+      "dom-observer",
+      "sidebar-root"
     ]
   },
   "entrypoints": {
     "main": [
       "main.cjs"
+    ],
+    "renderer": [
+      "renderer.js"
     ]
   },
   "conflicts": [],

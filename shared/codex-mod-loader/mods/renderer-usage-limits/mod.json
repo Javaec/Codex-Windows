@@ -2,7 +2,13 @@
   "schemaVersion": 1,
   "id": "renderer-usage-limits",
   "name": "Renderer usage limits",
+  "version": "0.1.0-local",
   "description": "Show 5h/weekly usage limits in the sidebar and refresh them often enough.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
   "enabled": true,
   "priority": 200,
   "compatibility": {
@@ -22,7 +28,9 @@
     ]
   },
   "entrypoints": {
-    "renderer": "renderer.js"
+    "renderer": [
+      "renderer.js"
+    ]
   },
   "conflicts": [],
   "dependencies": [],

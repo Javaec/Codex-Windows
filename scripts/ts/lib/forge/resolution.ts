@@ -12,7 +12,7 @@ const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shar
       description: string;
       enabled: boolean;
       priority: number;
-      entrypoints: { renderer: string; main: string };
+      entrypoints: { renderer: string[]; main: string[] };
       capabilities: { renderer: string[]; main: string[] };
       manifestPath: string;
     }>;
@@ -40,7 +40,7 @@ const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shar
       description: string;
       enabled: boolean;
       priority: number;
-      entrypoints: { renderer: string; main: string };
+      entrypoints: { renderer: string[]; main: string[] };
       capabilities: { renderer: string[]; main: string[] };
       manifestPath: string;
     }>;
@@ -50,7 +50,7 @@ const compatibility = require(path.join(__dirname, "..", "..", "..", "..", "shar
       description: string;
       enabled: boolean;
       priority: number;
-      entrypoints: { renderer: string; main: string };
+      entrypoints: { renderer: string[]; main: string[] };
       capabilities: { renderer: string[]; main: string[] };
       manifestPath: string;
     }>;

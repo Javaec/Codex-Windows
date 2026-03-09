@@ -2,7 +2,13 @@
   "schemaVersion": 1,
   "id": "renderer-thread-groups",
   "name": "Renderer thread groups",
+  "version": "0.1.0-local",
   "description": "Keep project thread groups compact and tint thread rows by current/completed status.",
+  "authors": [
+    "Codex Forge"
+  ],
+  "license": "UNLICENSED",
+  "environment": "*",
   "enabled": true,
   "priority": 210,
   "compatibility": {
@@ -20,10 +26,14 @@
     ]
   },
   "entrypoints": {
-    "renderer": "renderer.js"
+    "renderer": [
+      "renderer.js"
+    ]
   },
   "conflicts": [],
-  "dependencies": [],
+  "dependencies": [
+    "thread-activity-state"
+  ],
   "softIncompatibilities": [],
   "loadAfter": [],
   "loadBefore": []
