@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "Codex Forge",
+  "mode": "repo-backed-dev",
+  "runtime": {
+    "source": "repo-dist",
+    "currentDir": "C:\\Codex-Windows\\dist\\Codex-win32-x64"
+  },
+  "mods": {
+    "sourceDir": "C:\\Codex-Windows\\shared\\codex-mod-loader\\mods"
+  },
+  "logs": {
+    "rootDir": "C:\\Codex-Windows\\codex-forge\\logs"
+  }
+}

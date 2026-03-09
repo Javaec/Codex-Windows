@@ -201,3 +201,16 @@
   - local PATH
   - repo-local cached `work\\tools\\rcedit\\rcedit-<arch>.exe`
 - If `rcedit` is absent, branding is skipped with a warning; packaging must continue.
+
+## 2026-03-09: Codex Forge starts as a repo-backed launcher shell
+
+- New launcher/core lane:
+  - `scripts/ts/lib/forge/*`
+  - `scripts/ts/forge-launcher.ts`
+  - `codex-forge/launcher/*`
+- Current phase is intentionally thin:
+  - browser-hosted launcher shell
+  - repo-backed runtime state
+  - mod toggle + runtime sync + lane launch actions
+- Rule:
+  - keep real work in reusable services so this shell can later be wrapped by Electron without redoing runtime logic.

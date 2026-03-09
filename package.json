@@ -4,6 +4,9 @@
   "type": "commonjs",
   "scripts": {
     "build:runner": "tsc -p tsconfig.json",
+    "forge:launcher": "npm run build:runner && node scripts/node/forge-launcher.js",
+    "forge:launcher:no-open": "npm run build:runner && node scripts/node/forge-launcher.js --no-open",
+    "forge:state": "npm run build:runner && node scripts/node/forge-launcher.js --print-state",
     "runner": "node scripts/node/run.js",
     "verify:runner": "node scripts/node/run.js verify",
     "smoke:runner": "node scripts/node/run.js smoke",
