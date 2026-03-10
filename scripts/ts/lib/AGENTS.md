@@ -209,7 +209,7 @@
   - `scripts/ts/forge-launcher.ts`
   - `codex-forge/launcher/*`
 - Current phase is intentionally thin:
-  - browser-hosted launcher shell
+  - launcher shell
   - repo-backed runtime state
   - mod toggle + runtime sync + lane launch actions
 - Rule:
@@ -305,9 +305,21 @@
   - build
   - launch
   - launch with devtools
-  - browser fallback
   - test
   - import official runtime
   - capture current runtime
   - restore repo dist runtime
 - These wrappers should call the canonical npm/CLI flows instead of reimplementing Forge logic.
+
+## 2026-03-10: Minimal Codex Forge trims browser fallback and diagnostic runtime lanes
+
+- Browser launcher fallback is removed; Electron launcher is the primary UX.
+- Portable runtime lanes are now intentionally minimal:
+  - `default`
+  - `with-mods`
+- Removed diagnostic lanes from the normal runtime contract:
+  - `minimal`
+  - `isolated-home`
+  - `only-<mod>`
+- Auth auto-refresh rewriting is removed from `session-request-guard`.
+- `renderer-usage-limits` no longer exposes `Reload Auth`.

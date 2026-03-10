@@ -40,7 +40,6 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const args_1 = require("../args");
 const exec_1 = require("../exec");
-const runtime_compare_1 = require("./runtime-compare");
 function buildPortableLauncherScript(profile, userDataFolder, cacheFolder, laneName, extraEnv) {
     const extraEnvLines = Object.entries(extraEnv)
         .map(([key, value]) => `set "${key}=${value}"`)
@@ -123,56 +122,17 @@ exit /b %ERRORLEVEL%
 function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cacheFolder) {
     const variants = [
         {
-            fileName: "Launch-Codex-no-mods.cmd",
-            env: { CODEX_ENABLE_RUNTIME_MODS: "0", CODEX_MODS_DISABLED: "1" },
-            laneName: "no-mods",
-            userDataSuffix: "-no-mods",
-        },
-        {
-            fileName: "Launch-Codex-minimal.cmd",
-            env: { CODEX_ENABLE_RUNTIME_MODS: "0", CODEX_MODS_DISABLED: "1", CODEX_WINDOWS_MINIMAL: "1" },
-            laneName: "minimal",
-            userDataSuffix: "-minimal",
-        },
-        {
             fileName: "Launch-Codex-with-mods.cmd",
             env: { CODEX_ENABLE_RUNTIME_MODS: "1" },
             laneName: "with-mods",
             userDataSuffix: "-with-mods",
         },
-        {
-            fileName: "Launch-Codex-isolated-home.cmd",
-            env: {
-                CODEX_ENABLE_RUNTIME_MODS: "0",
-                CODEX_MODS_DISABLED: "1",
-                CODEX_HOME: "%BASE%codex-home-isolated",
-                CODEX_WINDOWS_SMOKE_MODE: "1",
-            },
-            laneName: "isolated-home",
-            userDataSuffix: "-isolated-home",
-        },
     ];
-    const modsDir = path.join(outputDir, "resources", "mods");
-    if ((0, exec_1.fileExists)(modsDir)) {
-        for (const entry of fs.readdirSync(modsDir, { withFileTypes: true })) {
-            if (!entry.isDirectory())
-                continue;
-            variants.push({
-                fileName: `Launch-Codex-only-${entry.name}.cmd`,
-                env: { CODEX_ENABLE_RUNTIME_MODS: "1", CODEX_MODS_ONLY: entry.name },
-                laneName: `only-${entry.name}`,
-                userDataSuffix: `-only-${entry.name}`,
-            });
-        }
-    }
-    const expectedVariantLaunchers = new Set([
-        "Launch-Codex.cmd",
-        ...variants.map((variant) => variant.fileName),
-    ]);
+    const expectedVariantLaunchers = new Set(["Launch-Codex.cmd", ...variants.map((variant) => variant.fileName)]);
     for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
         if (!entry.isFile())
             continue;
-        if (!entry.name.startsWith("Launch-Codex-only-"))
+        if (!entry.name.startsWith("Launch-Codex-"))
             continue;
         if (expectedVariantLaunchers.has(entry.name))
             continue;
@@ -200,17 +160,21 @@ function writePortableLauncher(outputDir, profileName) {
         CODEX_MODS_DISABLED: "1",
     }), "ascii");
     writePortableVariantLaunchers(outputDir, profile, userDataFolder, cacheFolder);
-    (0, runtime_compare_1.writeRuntimeLaneCompareTools)(outputDir);
     return launcherPath;
 }
 function writeLatestPortableLaunchers(distDir, outputDir) {
     const launchers = [
         { outputPath: path.join(distDir, "Launch-Codex-latest.cmd"), targetPath: path.join(outputDir, "Launch-Codex.cmd") },
-        { outputPath: path.join(distDir, "Launch-Codex-latest-no-mods.cmd"), targetPath: path.join(outputDir, "Launch-Codex-no-mods.cmd") },
-        { outputPath: path.join(distDir, "Launch-Codex-latest-minimal.cmd"), targetPath: path.join(outputDir, "Launch-Codex-minimal.cmd") },
         { outputPath: path.join(distDir, "Launch-Codex-latest-with-mods.cmd"), targetPath: path.join(outputDir, "Launch-Codex-with-mods.cmd") },
-        { outputPath: path.join(distDir, "Launch-Codex-latest-isolated-home.cmd"), targetPath: path.join(outputDir, "Launch-Codex-isolated-home.cmd") },
     ];
+    const staleLatestLaunchers = [
+        path.join(distDir, "Launch-Codex-latest-no-mods.cmd"),
+        path.join(distDir, "Launch-Codex-latest-minimal.cmd"),
+        path.join(distDir, "Launch-Codex-latest-isolated-home.cmd"),
+    ];
+    for (const staleLauncherPath of staleLatestLaunchers) {
+        (0, exec_1.removePath)(staleLauncherPath);
+    }
     for (const launcher of launchers) {
         if (!(0, exec_1.fileExists)(launcher.targetPath)) {
             throw new Error(`Portable launcher missing: ${launcher.targetPath}`);

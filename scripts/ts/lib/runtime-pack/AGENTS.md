@@ -25,26 +25,14 @@
 - `launchers.ts` owns launcher generation only.
 - Portable outputs must be self-contained: bundled `resources/codex.exe`, bundled `resources/mods`, isolated `userdata/cache`.
 - Portable launcher lanes now include:
-  - stable `no-mods`
+  - stable `default`
   - explicit `with-mods`
-  - diagnostic `minimal`
-  - diagnostic `isolated-home`
-  - `only-<mod>` bisect launchers
-- `minimal` means runtime mods disabled and shim reduced via `CODEX_WINDOWS_MINIMAL=1`.
-- `isolated-home` means runtime mods disabled and `CODEX_HOME` redirected into the portable artifact, so lane results are not polluted by global `C:\\Users\\lensm\\.codex`.
 - Every launcher lane writes its own runtime log bundle under `runtime-logs/<lane>/`:
   - `stdout-latest.log`
   - `chromium.log`
   - `launch.env.txt`
-- `isolated-home` is allowed to clean only its own stale `vendor_imports/skills/.git/index.lock` when `CODEX_WINDOWS_SMOKE_MODE=1`.
-- This cleanup must never target the real user `C:\\Users\\lensm\\.codex`; it exists only to keep smoke diagnostics from stalling on stale artifact-local locks.
-- Portable outputs also include:
-  - `Compare-Runtime-Lanes.ps1`
-  - `Compare-Runtime-Lanes.cmd`
-  which summarize lane differences into `runtime-logs/lane-summary.txt`.
-- `smoke.ts` must not depend on the external compare launcher for pass/fail.
-  - runner smoke now builds `lane-summary.json` directly in Node via `runtime-compare.ts`
-  - `Compare-Runtime-Lanes.*` remain operator tools only.
+- `smoke.ts` must not depend on external compare launchers for pass/fail.
+  - runner smoke builds `lane-summary.json` directly in Node via `runtime-compare.ts`
 - `smoke.ts` must evaluate launchability from `lane-summary.json` with hard criteria:
   - `cli_initialized`
   - `ready_message`
@@ -57,7 +45,7 @@
   - `usability_sidebar_present`
   - `usability_settings_present`
   - `usability_surface_ready`
-  for user-state lanes (`no-mods`, `minimal`, `with-mods`).
+  for user-state lanes (`default`, `with-mods`).
 - Auth matters:
   - if a lane reports `authMethod=unset`, smoke must treat it as an unauthenticated surface and must not fail solely because sidebar/settings/project data are absent.
 - In that case smoke still requires the launchability core:
@@ -65,8 +53,7 @@
   - ready message
   - renderer/dom load
   - ready-to-show/show
-- `isolated-home` is diagnostic; it still must reach startup markers and core API traffic, but it must not fail solely because an empty isolated home lacks the normal sidebar/settings surface.
-  and fail on:
+- fail on:
   - `syntax_error`
   - `renderer_mod_failed`
   - `preload_error`
@@ -75,9 +62,7 @@
   - `render_process_gone`
   - `usability_blocking_spinner`
 - Shared-home smoke failures caused by real `C:\\Users\\lensm\\.codex` contention (for example `state db locked`) are valid failures and must not be “fixed” by cleanup logic inside the smoke harness.
-- If both smoke seeds are provided, smoke must switch from plain launchability to authenticated usability for non-isolated lanes:
+- If both smoke seeds are provided, smoke must switch from plain launchability to authenticated usability:
   - `authMethod=unset` becomes a failure
   - populated sidebar/settings surface becomes mandatory
-- `isolated-home` exists specifically to separate platform/mod issues from user-state contention without mutating the real home.
 - `dist` is canonical; temporary fallback outputs belong under `work/portable-output`.
-- Launcher refresh should prune stale `Launch-Codex-only-*.cmd` files that no longer correspond to the current bundled modpack.

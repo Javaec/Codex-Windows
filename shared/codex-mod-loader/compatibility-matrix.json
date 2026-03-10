@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-03-09T12:58:31.744Z",
+  "generatedAtIso": "2026-03-10T19:48:42.514Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -282,7 +282,7 @@
     {
       "id": "session-request-guard",
       "name": "Session request guard",
-      "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
+      "description": "Guard transport requests for safer thread history and list sizes.",
       "version": "0.1.0-local",
       "authors": [
         "Codex Forge"

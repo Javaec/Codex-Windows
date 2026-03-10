@@ -58,8 +58,6 @@ Supported fields:
   - one or more injected renderer scripts
   - files run in manifest order
 
-String entrypoints still work, but arrays are the preferred contract.
-
 ## Aliases
 
 `provides` works like a lightweight Fabric-style alias mechanism.

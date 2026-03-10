@@ -1,7 +1,6 @@
 /* CODEX-MOD:session-request-guard@v1 */
 "use strict";
 
-const AUTH_REFRESH_DEBOUNCE_MS = 2500;
 const SAFE_THREAD_LIST_LIMIT = 30;
 
 function isPlainObject(value) {
@@ -62,32 +61,6 @@ module.exports = function activate(context) {
 
   if (globalThis.__CODEX_MOD_SESSION_REQUEST_GUARD_V1__) return;
   globalThis.__CODEX_MOD_SESSION_REQUEST_GUARD_V1__ = true;
-
-  let lastAuthRefreshAt = 0;
-
-  helpers.onBeforeAppServerRequest(
-    electron,
-    (node) => {
-      if (!isPlainObject(node)) return false;
-      if (node.method !== "getAuthStatus") return false;
-      if (!isPlainObject(node.params)) return false;
-      if (node.params.refreshToken !== true) return false;
-
-      const now = Date.now();
-      const lastAuthFileChangeAt = Number(globalThis.__CODEX_AUTH_RUNTIME_LAST_FILE_CHANGE_AT__ || 0);
-      if (lastAuthFileChangeAt > lastAuthRefreshAt) {
-        lastAuthRefreshAt = now;
-        return false;
-      }
-      if (now - lastAuthRefreshAt < AUTH_REFRESH_DEBOUNCE_MS) {
-        node.params.refreshToken = false;
-        return true;
-      }
-      lastAuthRefreshAt = now;
-      return false;
-    },
-    { maxDepth: 5, maxKeys: 40 },
-  );
 
   helpers.onBeforeCodexRequest(
     electron,

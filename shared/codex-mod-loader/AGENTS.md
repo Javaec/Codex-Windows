@@ -24,8 +24,7 @@ Mod contract (v1):
 - `entrypoints.renderer` is injected on `dom-ready` for each non-devtools webContents.
 - `entrypoints.main` is executed once in the main process before renderer injection.
 - Each lane now accepts one or more entrypoint files:
-  - string form is still accepted for compatibility
-  - array form is the preferred contract
+  - array form is the required contract
 - Manifests may now also carry Fabric-like metadata:
   - `version`
   - `authors`
@@ -156,6 +155,12 @@ Mod contract (v1):
   - auth/session target-contract artifacts
 - Reason:
   - hot auth swap needs explicit runtime surfaces and drift tracking, not folklore around one file and one crash.
+
+## 2026-03-10: Auth refresh rewriting is removed from session-request-guard
+
+- `mods/session-request-guard` no longer rewrites or debounces `getAuthStatus(refreshToken=true)`.
+- `mods/auth-session-runtime` stays as watcher/logging only.
+- `mods/renderer-usage-limits` no longer exposes a UI-level `Reload Auth` control.
 
 ## 2026-03-08: Thread activity is now a data bridge, not only a DOM guess
 

@@ -55,10 +55,7 @@ const PROTECTED_DIST_NAMES = new Set([
     "Codex-win32-x64",
     "Codex-win32-arm64",
     "Launch-Codex-latest.cmd",
-    "Launch-Codex-latest-no-mods.cmd",
     "Launch-Codex-latest-with-mods.cmd",
-    "Launch-Codex-latest-minimal.cmd",
-    "Launch-Codex-latest-isolated-home.cmd",
 ]);
 function resolveProtectedTopLevelName(rootDir, currentPath) {
     if (!currentPath)

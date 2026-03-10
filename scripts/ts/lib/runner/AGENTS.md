@@ -23,8 +23,8 @@
   - second stage: authenticated (only when `-SmokeAuthStage` is set)
   - combined report: `smoke-report.json`
 - If auth stage seed paths are omitted, `smoke.ts` should auto-detect:
-  - current smoke portable output `userdata-no-mods` (or `userdata`)
-  - fallback `dist/Codex-win32-x64/userdata-no-mods` (or `userdata`)
+  - current smoke portable output `userdata`
+  - fallback `dist/Codex-win32-x64/userdata`
   - `%USERPROFILE%\\.codex`
  and record the resolved seed paths in the combined smoke report.
 - `metadata.ts` now includes current-build runtime mod compatibility in `build-metadata.json`:

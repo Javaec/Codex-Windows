@@ -40,7 +40,6 @@ const http = __importStar(require("node:http"));
 const path = __importStar(require("node:path"));
 const node_url_1 = require("node:url");
 const exec_1 = require("../exec");
-const env_1 = require("../env");
 const paths_1 = require("./paths");
 const state_1 = require("./state");
 const runtime_sync_1 = require("./runtime-sync");
@@ -76,10 +75,7 @@ function readRequestBody(request) {
 function launchLane(paths, config, lane) {
     const byLane = {
         default: "Launch-Codex.cmd",
-        "no-mods": "Launch-Codex-no-mods.cmd",
         "with-mods": "Launch-Codex-with-mods.cmd",
-        minimal: "Launch-Codex-minimal.cmd",
-        "isolated-home": "Launch-Codex-isolated-home.cmd",
     };
     const profile = config.launchProfiles.find((entry) => entry.id === lane);
     if (!profile) {
@@ -97,15 +93,6 @@ function launchLane(paths, config, lane) {
         windowsHide: false,
     });
     child.unref();
-}
-function openBrowser(url) {
-    const cmdPath = (0, env_1.resolveCmdPath)();
-    if (!cmdPath)
-        return;
-    (0, exec_1.runCommand)(cmdPath, ["/d", "/c", "start", "", url], {
-        allowNonZero: true,
-        capture: false,
-    });
 }
 function serveStaticFile(response, filePath) {
     if (!(0, exec_1.fileExists)(filePath)) {
@@ -204,7 +191,5 @@ async function startForgeLauncherServer(options) {
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : options.port;
     const url = `http://127.0.0.1:${port}/`;
-    if (options.openBrowser)
-        openBrowser(url);
     return { port, url, server };
 }

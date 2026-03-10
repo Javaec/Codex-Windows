@@ -160,10 +160,7 @@ export async function invokePortableBuild(
   const launcherPath = writePortableLauncher(outputDir, profile);
   for (const requiredLauncher of [
     "Launch-Codex.cmd",
-    "Launch-Codex-no-mods.cmd",
-    "Launch-Codex-minimal.cmd",
     "Launch-Codex-with-mods.cmd",
-    "Launch-Codex-isolated-home.cmd",
   ]) {
     const candidate = path.join(outputDir, requiredLauncher);
     if (!fileExists(candidate)) {

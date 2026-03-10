@@ -57,21 +57,6 @@ function defaultLaunchProfiles() {
             label: "With Mods",
             description: "Launch the current runtime with the active Forge mod graph.",
         },
-        {
-            id: "no-mods",
-            label: "No Mods",
-            description: "Launch a clean lane with dedicated user data and cache.",
-        },
-        {
-            id: "minimal",
-            label: "Minimal",
-            description: "Launch the reduced Windows minimal lane for runtime diagnostics.",
-        },
-        {
-            id: "isolated-home",
-            label: "Isolated Home",
-            description: "Launch with an isolated CODEX_HOME inside the portable runtime.",
-        },
     ];
 }
 function defaultForgeConfig(paths) {
@@ -115,9 +100,6 @@ function normalizeLaunchProfileId(value) {
     switch (value) {
         case "default":
         case "with-mods":
-        case "no-mods":
-        case "minimal":
-        case "isolated-home":
             return value;
         default:
             return null;

@@ -27,7 +27,6 @@
   };
 
   let usageRequestPromise = null;
-  let authReloadPromise = null;
 
   function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -152,10 +151,7 @@
       ".codex-windows-limit-panel{display:flex;align-items:center;margin:6px 0 8px;padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);font-size:12px;line-height:1.25;max-width:320px}" +
         ".codex-windows-limit-panel__row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}" +
         ".codex-windows-limit-panel--floating{position:fixed;left:12px;bottom:12px;z-index:9999;backdrop-filter:blur(4px)}" +
-        ".codex-windows-limit-summary{font-weight:700;letter-spacing:.15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
-        ".codex-windows-limit-auth{flex:0 0 auto;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:inherit;border-radius:999px;padding:2px 8px;font:inherit;cursor:pointer;opacity:.88}" +
-        ".codex-windows-limit-auth:hover{background:rgba(255,255,255,.08)}" +
-        ".codex-windows-limit-auth:disabled{cursor:progress;opacity:.6}",
+        ".codex-windows-limit-summary{font-weight:700;letter-spacing:.15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
     );
   }
 
@@ -166,19 +162,9 @@
       element.innerHTML =
         '<div class="codex-windows-limit-panel__row">' +
         '<div class="codex-windows-limit-summary" data-codex-limit-summary>5h -- | wk --</div>' +
-        '<button type="button" class="codex-windows-limit-auth" data-codex-limit-auth>Reload Auth</button>' +
         "</div>";
       return element;
     });
-    const reloadButton = panel.querySelector("[data-codex-limit-auth]");
-    if (reloadButton instanceof HTMLButtonElement && !reloadButton.dataset.codexLimitAuthBound) {
-      reloadButton.dataset.codexLimitAuthBound = "1";
-      reloadButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        requestAuthReload();
-      });
-    }
     return panel;
   }
 
@@ -186,16 +172,11 @@
     const panel = document.getElementById(PANEL_ID);
     if (!(panel instanceof HTMLElement)) return;
     const summaryNode = panel.querySelector("[data-codex-limit-summary]");
-    const reloadButton = panel.querySelector("[data-codex-limit-auth]");
     if (!(summaryNode instanceof HTMLElement)) return;
 
     const fiveHour = panelState.fiveHour ? `${Math.round(panelState.fiveHour.remainingPercent)}%` : "--";
     const weekly = panelState.weekly ? `${Math.round(panelState.weekly.remainingPercent)}%` : "--";
     summaryNode.textContent = `5h ${fiveHour} | wk ${weekly}`;
-    if (reloadButton instanceof HTMLButtonElement) {
-      reloadButton.disabled = Boolean(authReloadPromise);
-      reloadButton.textContent = authReloadPromise ? "Reloading..." : "Reload Auth";
-    }
   }
 
   function saveSnapshot() {
@@ -267,33 +248,6 @@
     requestUsageSnapshot().catch((error) => {
       console.error("[codex-mod-loader] limits refresh failed", error);
     });
-  }
-
-  function requestAuthReload() {
-    if (authReloadPromise) return authReloadPromise;
-    const bridge = window.electronBridge;
-    if (!bridge || typeof bridge.sendMessageFromView !== "function") {
-      throw new Error("renderer-usage-limits: electronBridge.sendMessageFromView is unavailable");
-    }
-    authReloadPromise = bridge
-      .sendMessageFromView({
-        type: "codex-app-server-restart",
-        hostId: api.resolveHostId(),
-      })
-      .then(() => {
-        api.scheduleBurst([200, 1000, 3000], () => {
-          refreshUsageSnapshot();
-        });
-      })
-      .catch((error) => {
-        console.error("[codex-mod-loader] reload auth failed", error);
-      })
-      .finally(() => {
-        authReloadPromise = null;
-        renderPanel();
-      });
-    renderPanel();
-    return authReloadPromise;
   }
 
   const scheduleInject = api.createDebouncedRunner(120, injectPanel);

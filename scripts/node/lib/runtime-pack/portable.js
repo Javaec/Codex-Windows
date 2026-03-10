@@ -164,10 +164,7 @@ async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buil
     const launcherPath = (0, launchers_1.writePortableLauncher)(outputDir, profile);
     for (const requiredLauncher of [
         "Launch-Codex.cmd",
-        "Launch-Codex-no-mods.cmd",
-        "Launch-Codex-minimal.cmd",
         "Launch-Codex-with-mods.cmd",
-        "Launch-Codex-isolated-home.cmd",
     ]) {
         const candidate = path.join(outputDir, requiredLauncher);
         if (!(0, exec_1.fileExists)(candidate)) {

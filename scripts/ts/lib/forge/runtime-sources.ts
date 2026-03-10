@@ -1,12 +1,10 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileExists } from "../exec";
 import { listWindowsCodexPackages } from "../runtime-donor/windows-apps";
 import { ForgeConfig, ForgePaths } from "./paths";
 import { ensureForgeRuntimeRegistry, ForgeRuntimeRegistry, importForgeRuntimeFromDirectory, inspectForgeRuntimeDirectory } from "./runtime-registry";
 
-export type ForgeRuntimeSourceKind = "repo-dist" | "work-build" | "windows-runtime-donor";
-export type ForgeRuntimeSourceRecommendation = "managed" | "recommended-import" | "available-import" | "donor-only";
+export type ForgeRuntimeSourceKind = "repo-dist" | "windows-runtime-donor";
+export type ForgeRuntimeSourceRecommendation = "managed" | "recommended-import";
 
 export type ForgeRuntimeSource = {
   id: string;
@@ -35,32 +33,6 @@ type ForgeRuntimeSourceFinder = {
   id: string;
   findSources: (context: ForgeRuntimeSourceFinderContext) => ForgeRuntimeSource[];
 };
-
-function uniqueRuntimeDirs(candidates: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || !fileExists(candidate)) continue;
-    const resolved = path.resolve(candidate);
-    const key = resolved.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(resolved);
-  }
-  return out;
-}
-
-function collectWorkRuntimeCandidates(paths: ForgePaths): string[] {
-  const workRoot = path.join(paths.repoRoot, "work");
-  if (!fileExists(workRoot)) return [];
-  const directCandidates = [path.join(workRoot, "runner-smoke", "dist", "Codex-win32-x64")];
-  const nestedCandidates: string[] = [];
-  for (const entry of fs.readdirSync(workRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    nestedCandidates.push(path.join(workRoot, entry.name, "dist", "Codex-win32-x64"));
-  }
-  return uniqueRuntimeDirs([...directCandidates, ...nestedCandidates]);
-}
 
 function isInstalledRuntime(registry: ForgeRuntimeRegistry, runtimeDir: string): boolean {
   const normalizedRuntimeDir = path.resolve(runtimeDir).toLowerCase();
@@ -99,40 +71,6 @@ const repoDistRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
   },
 };
 
-const workBuildRuntimeSourceFinder: ForgeRuntimeSourceFinder = {
-  id: "work-builds",
-  findSources(context) {
-    const sources: ForgeRuntimeSource[] = [];
-    for (const runtimeDir of collectWorkRuntimeCandidates(context.paths)) {
-      const workBuildId = path.basename(path.dirname(path.dirname(runtimeDir)));
-      const install = inspectForgeRuntimeDirectory(runtimeDir, {
-        id: `source-${workBuildId}`,
-        label: `Work Build ${workBuildId}`,
-        description: "Packaged runtime found under work/*/dist.",
-        source: "imported-runtime",
-        capturedAtIso: "",
-      });
-      sources.push({
-        id: `source:work:${workBuildId}`,
-        finderId: "work-builds",
-        fingerprint: `work-build:${path.resolve(runtimeDir).toLowerCase()}`,
-        label: install.label,
-        description: `Import packaged runtime from ${runtimeDir}`,
-        kind: "work-build",
-        runtimeDir,
-        appVersion: install.appVersion,
-        buildNumber: install.buildNumber,
-        patchProfileId: install.patchProfileId,
-        importable: true,
-        alreadyInstalled: isInstalledRuntime(context.registry, runtimeDir),
-        recommendation: isInstalledRuntime(context.registry, runtimeDir) ? "managed" : "available-import",
-        detail: runtimeDir,
-      });
-    }
-    return sources;
-  },
-};
-
 const windowsRuntimeDonorSourceFinder: ForgeRuntimeSourceFinder = {
   id: "windows-runtime-donor",
   findSources(context) {
@@ -157,7 +95,6 @@ const windowsRuntimeDonorSourceFinder: ForgeRuntimeSourceFinder = {
 
 const defaultRuntimeSourceFinders: ForgeRuntimeSourceFinder[] = [
   repoDistRuntimeSourceFinder,
-  workBuildRuntimeSourceFinder,
   windowsRuntimeDonorSourceFinder,
 ];
 

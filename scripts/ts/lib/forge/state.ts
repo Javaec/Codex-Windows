@@ -77,14 +77,14 @@ export type ForgeRuntimeSourceState = {
   fingerprint: string;
   label: string;
   description: string;
-  kind: "repo-dist" | "work-build" | "windows-runtime-donor";
+  kind: "repo-dist" | "windows-runtime-donor";
   runtimeDir: string;
   appVersion: string;
   buildNumber: string;
   patchProfileId: string;
   importable: boolean;
   alreadyInstalled: boolean;
-  recommendation: "managed" | "recommended-import" | "available-import" | "donor-only";
+  recommendation: "managed" | "recommended-import";
   detail: string;
 };
 
@@ -155,10 +155,7 @@ function readRuntimeState(paths: ForgePaths, config: ForgeConfig): ForgeRuntimeS
     hasVersionIdentity: fileExists(path.join(runtimeDir, "resources", "version-identity")),
     launchers: {
       default: fileExists(path.join(runtimeDir, "Launch-Codex.cmd")),
-      noMods: fileExists(path.join(runtimeDir, "Launch-Codex-no-mods.cmd")),
       withMods: fileExists(path.join(runtimeDir, "Launch-Codex-with-mods.cmd")),
-      minimal: fileExists(path.join(runtimeDir, "Launch-Codex-minimal.cmd")),
-      isolatedHome: fileExists(path.join(runtimeDir, "Launch-Codex-isolated-home.cmd")),
     },
   };
 }

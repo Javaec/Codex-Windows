@@ -196,7 +196,6 @@ async function main() {
   const config = ensureForgeWorkspace(paths);
   launcherServer = await startForgeLauncherServer({
     port: options.port,
-    openBrowser: false,
     paths,
     config,
   });

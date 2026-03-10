@@ -23,7 +23,7 @@ function initializeHostShell() {
   const openForgeLogs = document.getElementById("open-forge-logs");
 
   if (!forgeHost || forgeHost.shell !== "electron" || typeof forgeHost.openPath !== "function") {
-    eyebrow.textContent = "Repo-Backed Launcher Shell";
+    eyebrow.textContent = "Codex Forge Launcher";
     return;
   }
 
@@ -181,7 +181,7 @@ function renderRuntimeSources(state) {
       <div class="install-meta">${escapeHtml(source.detail || source.runtimeDir)}</div>
       <div class="install-meta">${escapeHtml(source.description || "")}</div>
       <div class="install-actions">
-        <button class="action ${source.importable ? "" : "action-secondary"} runtime-import" data-source-id="${escapeHtml(source.id)}" ${source.importable ? "" : "disabled"}>${source.alreadyInstalled ? "Reuse Import" : "Import"}</button>
+        <button class="action ${source.importable ? "" : "action-secondary"} runtime-import" data-source-id="${escapeHtml(source.id)}" ${source.importable ? "" : "disabled"}>${source.alreadyInstalled ? "Reuse Install" : "Import"}</button>
       </div>
     </div>
   `).join("");

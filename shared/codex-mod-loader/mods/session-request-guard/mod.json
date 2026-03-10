@@ -3,7 +3,7 @@
   "id": "session-request-guard",
   "name": "Session request guard",
   "version": "0.1.0-local",
-  "description": "Guard transport requests for safer thread history, auth refresh, and list sizes.",
+  "description": "Guard transport requests for safer thread history and list sizes.",
   "authors": [
     "Codex Forge"
   ],

@@ -24,21 +24,6 @@
       "id": "with-mods",
       "label": "With Mods",
       "description": "Launch the current runtime with the active Forge mod graph."
-    },
-    {
-      "id": "no-mods",
-      "label": "No Mods",
-      "description": "Launch a clean lane with dedicated user data and cache."
-    },
-    {
-      "id": "minimal",
-      "label": "Minimal",
-      "description": "Launch the reduced Windows minimal lane for runtime diagnostics."
-    },
-    {
-      "id": "isolated-home",
-      "label": "Isolated Home",
-      "description": "Launch with an isolated CODEX_HOME inside the portable runtime."
     }
   ]
 }

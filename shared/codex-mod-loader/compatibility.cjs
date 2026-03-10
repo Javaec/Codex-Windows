@@ -149,9 +149,6 @@ function normalizePriority(rawValue, id) {
 
 function normalizeEntrypointList(rawValue, label) {
   if (rawValue === undefined) return [];
-  if (typeof rawValue === "string") {
-    return normalizeStringList([rawValue], label);
-  }
   return normalizeStringList(rawValue, label);
 }
 

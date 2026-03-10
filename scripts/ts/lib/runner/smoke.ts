@@ -71,10 +71,10 @@ function resolveAuthenticatedSmokeSeeds(options: PipelineOptions, portableOutput
   let userDataPath = explicitUserDataPath;
   if (!userDataPath) {
     const candidates = [
-      path.join(portableOutputDir, "userdata-no-mods"),
-      path.join(portableOutputDir, "userdata"),
-      path.join(REPO_ROOT, "dist", "Codex-win32-x64", "userdata-no-mods"),
+      path.join(REPO_ROOT, "dist", "Codex-win32-x64", "userdata-with-mods"),
       path.join(REPO_ROOT, "dist", "Codex-win32-x64", "userdata"),
+      path.join(portableOutputDir, "userdata-with-mods"),
+      path.join(portableOutputDir, "userdata"),
     ];
     userDataPath = candidates.find((candidate) => fileExists(candidate)) || "";
     autoDetected = true;

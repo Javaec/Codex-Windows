@@ -40,3 +40,4 @@
 - Current cadence:
   - poll every 20s
   - refresh on focus and on route/settings bursts
+- This mod no longer owns auth reload controls; it is limits-only.

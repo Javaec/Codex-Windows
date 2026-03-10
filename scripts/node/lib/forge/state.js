@@ -72,10 +72,7 @@ function readRuntimeState(paths, config) {
         hasVersionIdentity: (0, exec_1.fileExists)(path.join(runtimeDir, "resources", "version-identity")),
         launchers: {
             default: (0, exec_1.fileExists)(path.join(runtimeDir, "Launch-Codex.cmd")),
-            noMods: (0, exec_1.fileExists)(path.join(runtimeDir, "Launch-Codex-no-mods.cmd")),
             withMods: (0, exec_1.fileExists)(path.join(runtimeDir, "Launch-Codex-with-mods.cmd")),
-            minimal: (0, exec_1.fileExists)(path.join(runtimeDir, "Launch-Codex-minimal.cmd")),
-            isolatedHome: (0, exec_1.fileExists)(path.join(runtimeDir, "Launch-Codex-isolated-home.cmd")),
         },
     };
 }
