@@ -37,6 +37,7 @@ exports.runPipelineDetailed = runPipelineDetailed;
 exports.runPipeline = runPipeline;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const args_1 = require("../args");
 const git_capability_cache_1 = require("../adapters/git-capability-cache");
 const workspace_registry_1 = require("../adapters/workspace-registry");
 const branding_1 = require("../branding");
@@ -71,8 +72,9 @@ async function runPipelineDetailed(options) {
     (0, artifact_cleanup_1.cleanupRunnerArtifacts)(context_1.REPO_ROOT, workDir, distDir);
     const ripgrep = await (0, env_1.ensureRipgrepInPath)(workDir);
     (0, exec_1.writeSuccess)(`Using rg: ${ripgrep.path} (source=${ripgrep.source})`);
-    const effectiveProfile = options.devProfile && options.profileName === "default" ? "dev" : options.profileName;
-    const isDefaultProfile = effectiveProfile === "default";
+    const requestedProfile = (0, args_1.normalizeProfileName)(options.profileName);
+    const effectiveProfile = options.devProfile && (0, args_1.isLiteProfileName)(requestedProfile) ? "dev" : requestedProfile;
+    const isDefaultProfile = (0, args_1.isCanonicalProfileName)(effectiveProfile);
     process.env.CODEX_WINDOWS_PROFILE = effectiveProfile;
     const manifestFileName = isDefaultProfile ? "state.manifest.json" : `state.manifest.${effectiveProfile}.json`;
     const manifestPath = path.join(workDir, manifestFileName);
@@ -139,6 +141,8 @@ async function runPipelineDetailed(options) {
             buildNumber,
             buildFlavor,
             profileName: effectiveProfile,
+            runtimeFlavor: (0, args_1.isForgeProfileName)(effectiveProfile) ? "forge" : "lite",
+            includeRuntimeMods: (0, args_1.isForgeProfileName)(effectiveProfile),
             patchProfileId: patchReport.profileId,
             patchReportPath: patchReport.reportPath,
             cliPath: cliResolution.path,

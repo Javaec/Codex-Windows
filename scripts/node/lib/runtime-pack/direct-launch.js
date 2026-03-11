@@ -73,32 +73,40 @@ function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, code
     env.BUILD_FLAVOR = buildFlavor;
     env.NODE_ENV = "production";
     env.CODEX_CLI_PATH = codexCliPath;
+    env.CODEX_ENABLE_RUNTIME_MODS = env.CODEX_ENABLE_RUNTIME_MODS === "1" ? "1" : "0";
     env.PWD = appDir;
     if (gitCapabilityCachePath)
         env.CODEX_GIT_CAPABILITY_CACHE = gitCapabilityCachePath;
-    if (!env.CODEX_MODS_DIR) {
-        const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
-        const modsDir = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
-        if (!(0, exec_1.fileExists)(modsDir)) {
-            throw new Error(`Codex mods directory missing: ${modsDir}`);
+    if (env.CODEX_ENABLE_RUNTIME_MODS === "1") {
+        if (!env.CODEX_MODS_DIR) {
+            const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+            const modsDir = path.join(repoRoot, "shared", "codex-mod-loader", "mods");
+            if (!(0, exec_1.fileExists)(modsDir)) {
+                throw new Error(`Codex mods directory missing: ${modsDir}`);
+            }
+            env.CODEX_MODS_DIR = modsDir;
         }
-        env.CODEX_MODS_DIR = modsDir;
+        if (!env.CODEX_MOD_API_DIR) {
+            const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+            const modApiDir = path.join(repoRoot, "shared", "codex-mod-loader", "api");
+            if (!(0, exec_1.fileExists)(modApiDir)) {
+                throw new Error(`Codex mod API directory missing: ${modApiDir}`);
+            }
+            env.CODEX_MOD_API_DIR = modApiDir;
+        }
+        if (!env.CODEX_MOD_LOADER_DIR) {
+            const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+            const modLoaderDir = path.join(repoRoot, "shared", "codex-mod-loader", "loader");
+            if (!(0, exec_1.fileExists)(modLoaderDir)) {
+                throw new Error(`Codex mod loader directory missing: ${modLoaderDir}`);
+            }
+            env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+        }
     }
-    if (!env.CODEX_MOD_API_DIR) {
-        const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
-        const modApiDir = path.join(repoRoot, "shared", "codex-mod-loader", "api");
-        if (!(0, exec_1.fileExists)(modApiDir)) {
-            throw new Error(`Codex mod API directory missing: ${modApiDir}`);
-        }
-        env.CODEX_MOD_API_DIR = modApiDir;
-    }
-    if (!env.CODEX_MOD_LOADER_DIR) {
-        const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
-        const modLoaderDir = path.join(repoRoot, "shared", "codex-mod-loader", "loader");
-        if (!(0, exec_1.fileExists)(modLoaderDir)) {
-            throw new Error(`Codex mod loader directory missing: ${modLoaderDir}`);
-        }
-        env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+    else {
+        delete env.CODEX_MODS_DIR;
+        delete env.CODEX_MOD_API_DIR;
+        delete env.CODEX_MOD_LOADER_DIR;
     }
     (0, exec_1.ensureDir)(userDataDir);
     (0, exec_1.ensureDir)(cacheDir);
@@ -130,19 +138,32 @@ function composePortablePath(basePath, outputDir) {
     include(winRoot);
     include(path.join(winRoot, "System32", "Wbem"));
     include(path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"));
+    include(path.join(winRoot, "System32", "OpenSSH"));
     if (process.env.ProgramFiles)
         include(path.join(process.env.ProgramFiles, "PowerShell", "7"));
     if (process.env.ProgramFiles)
         include(path.join(process.env.ProgramFiles, "nodejs"));
+    if (process.env.ProgramFiles)
+        include(path.join(process.env.ProgramFiles, "Git", "cmd"));
+    if (process.env.ProgramFiles)
+        include(path.join(process.env.ProgramFiles, "Git", "bin"));
+    if (process.env.ProgramFiles)
+        include(path.join(process.env.ProgramFiles, "Git", "usr", "bin"));
     if (process.env["ProgramFiles(x86)"])
         include(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
+    if (process.env["ProgramFiles(x86)"])
+        include(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd"));
+    if (process.env["ProgramFiles(x86)"])
+        include(path.join(process.env["ProgramFiles(x86)"], "Git", "bin"));
+    if (process.env["ProgramFiles(x86)"])
+        include(path.join(process.env["ProgramFiles(x86)"], "Git", "usr", "bin"));
     if (process.env.APPDATA)
         include(path.join(process.env.APPDATA, "npm"));
     return entries.join(";");
 }
 function startPortableDirectLaunch(outputDir, profileName) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
-    const isDefault = profile === "default";
+    const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const userDataDir = path.join(outputDir, isDefault ? "userdata" : `userdata-${profile}`);
     const cacheDir = path.join(outputDir, isDefault ? "cache" : `cache-${profile}`);
     const exePath = path.join(outputDir, "Codex.exe");
@@ -159,23 +180,31 @@ function startPortableDirectLaunch(outputDir, profileName) {
     env.CODEX_GIT_CAPABILITY_CACHE = path.join(outputDir, "resources", "git-capability-cache.json");
     env.ELECTRON_FORCE_IS_PACKAGED = "1";
     env.NODE_ENV = "production";
+    env.CODEX_ENABLE_RUNTIME_MODS = env.CODEX_ENABLE_RUNTIME_MODS === "1" ? "1" : "0";
     delete env.ELECTRON_RENDERER_URL;
     const codexCliPath = path.join(outputDir, "resources", "codex.exe");
     if (!(0, exec_1.fileExists)(codexCliPath))
         throw new Error(`Portable Codex CLI is missing: ${codexCliPath}`);
-    const modsDir = path.join(outputDir, "resources", "mods");
-    if (!(0, exec_1.fileExists)(modsDir))
-        throw new Error(`Portable modpack is missing: ${modsDir}`);
-    const modApiDir = path.join(outputDir, "resources", "mod-api");
-    if (!(0, exec_1.fileExists)(modApiDir))
-        throw new Error(`Portable mod API is missing: ${modApiDir}`);
-    const modLoaderDir = path.join(outputDir, "resources", "mod-loader");
-    if (!(0, exec_1.fileExists)(modLoaderDir))
-        throw new Error(`Portable mod loader is missing: ${modLoaderDir}`);
     env.CODEX_CLI_PATH = codexCliPath;
-    env.CODEX_MODS_DIR = modsDir;
-    env.CODEX_MOD_API_DIR = modApiDir;
-    env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+    if (env.CODEX_ENABLE_RUNTIME_MODS === "1") {
+        const modsDir = path.join(outputDir, "resources", "mods");
+        if (!(0, exec_1.fileExists)(modsDir))
+            throw new Error(`Portable modpack is missing: ${modsDir}`);
+        const modApiDir = path.join(outputDir, "resources", "mod-api");
+        if (!(0, exec_1.fileExists)(modApiDir))
+            throw new Error(`Portable mod API is missing: ${modApiDir}`);
+        const modLoaderDir = path.join(outputDir, "resources", "mod-loader");
+        if (!(0, exec_1.fileExists)(modLoaderDir))
+            throw new Error(`Portable mod loader is missing: ${modLoaderDir}`);
+        env.CODEX_MODS_DIR = modsDir;
+        env.CODEX_MOD_API_DIR = modApiDir;
+        env.CODEX_MOD_LOADER_DIR = modLoaderDir;
+    }
+    else {
+        delete env.CODEX_MODS_DIR;
+        delete env.CODEX_MOD_API_DIR;
+        delete env.CODEX_MOD_LOADER_DIR;
+    }
     const cliProbe = (0, exec_1.runCommand)(codexCliPath, ["--version"], { capture: true, allowNonZero: true });
     if (cliProbe.status !== 0) {
         throw new Error(`Portable Codex CLI failed preflight (exit=${cliProbe.status}): ${(cliProbe.stdout || cliProbe.stderr || "").trim()}`);

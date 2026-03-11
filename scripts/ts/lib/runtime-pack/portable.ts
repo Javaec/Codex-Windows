@@ -10,11 +10,12 @@ import {
   writeWarn,
 } from "../exec";
 import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "../branding";
-import { normalizeProfileName } from "../args";
+import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from "../args";
 import { patchMainForWindowsEnvironment } from "../platform-patches/bundle-patches";
 import { bundleCodexCliResources } from "./codex-resources";
 import { startPortableDirectLaunch } from "./direct-launch";
 import { pruneStalePortableOutputs, writeLatestPortableLaunchers, writePortableLauncher } from "./launchers";
+import { verifyPortableRuntimeContract } from "./verify";
 
 export interface PortableBuildResult {
   outputDir: string;
@@ -80,7 +81,8 @@ export async function invokePortableBuild(
   appVersion: string,
 ): Promise<PortableBuildResult> {
   const profile = normalizeProfileName(profileName);
-  const isDefault = profile === "default";
+  const isDefault = isCanonicalProfileName(profile);
+  const includeRuntimeMods = isForgeProfileName(profile);
   const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
   const electronDistDir = path.join(nativeDir, "node_modules", "electron", "dist");
   if (!fileExists(electronDistDir)) throw new Error("Electron runtime not found.");
@@ -122,31 +124,35 @@ export async function invokePortableBuild(
   const appDstDir = path.join(resourcesDir, "app");
   copyDirectory(appDir, appDstDir);
 
-  if (!fileExists(CODEX_MODS_SRC_DIR)) {
-    throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+  if (includeRuntimeMods) {
+    if (!fileExists(CODEX_MODS_SRC_DIR)) {
+      throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+    }
+    if (!fileExists(CODEX_MOD_API_SRC_DIR)) {
+      throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
+    }
+    if (!fileExists(CODEX_MOD_LOADER_SRC_DIR)) {
+      throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
+    }
+    if (!fileExists(CODEX_MOD_COMPATIBILITY_SRC_PATH)) {
+      throw new Error(`Codex mod compatibility helper missing: ${CODEX_MOD_COMPATIBILITY_SRC_PATH}`);
+    }
+    if (!fileExists(CODEX_VERSION_IDENTITY_SRC_DIR)) {
+      throw new Error(`Codex version identity helper missing: ${CODEX_VERSION_IDENTITY_SRC_DIR}`);
+    }
+    writeInfo("Bundling Codex mods...");
+    copyDirectory(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
+    writeInfo("Bundling Codex mod API...");
+    copyDirectory(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
+    writeInfo("Bundling Codex mod loader...");
+    copyDirectory(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
+    writeInfo("Bundling Codex mod compatibility...");
+    copyFileSafe(CODEX_MOD_COMPATIBILITY_SRC_PATH, path.join(resourcesDir, "compatibility.cjs"));
+    writeInfo("Bundling version identity helper...");
+    copyDirectory(CODEX_VERSION_IDENTITY_SRC_DIR, path.join(resourcesDir, "version-identity"));
+  } else {
+    writeInfo("Building Codex Lite runtime (no Forge mod stack bundled)...");
   }
-  if (!fileExists(CODEX_MOD_API_SRC_DIR)) {
-    throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
-  }
-  if (!fileExists(CODEX_MOD_LOADER_SRC_DIR)) {
-    throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
-  }
-  if (!fileExists(CODEX_MOD_COMPATIBILITY_SRC_PATH)) {
-    throw new Error(`Codex mod compatibility helper missing: ${CODEX_MOD_COMPATIBILITY_SRC_PATH}`);
-  }
-  if (!fileExists(CODEX_VERSION_IDENTITY_SRC_DIR)) {
-    throw new Error(`Codex version identity helper missing: ${CODEX_VERSION_IDENTITY_SRC_DIR}`);
-  }
-  writeInfo("Bundling Codex mods...");
-  copyDirectory(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
-  writeInfo("Bundling Codex mod API...");
-  copyDirectory(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
-  writeInfo("Bundling Codex mod loader...");
-  copyDirectory(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
-  writeInfo("Bundling Codex mod compatibility...");
-  copyFileSafe(CODEX_MOD_COMPATIBILITY_SRC_PATH, path.join(resourcesDir, "compatibility.cjs"));
-  writeInfo("Bundling version identity helper...");
-  copyDirectory(CODEX_VERSION_IDENTITY_SRC_DIR, path.join(resourcesDir, "version-identity"));
 
   removePath(path.join(resourcesDir, "default_app.asar"));
   patchMainForWindowsEnvironment(appDstDir, buildNumber, buildFlavor);
@@ -160,16 +166,21 @@ export async function invokePortableBuild(
   const launcherPath = writePortableLauncher(outputDir, profile);
   for (const requiredLauncher of [
     "Launch-Codex.cmd",
-    "Launch-Codex-with-mods.cmd",
+    ...(includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
   ]) {
     const candidate = path.join(outputDir, requiredLauncher);
     if (!fileExists(candidate)) {
       throw new Error(`Portable launcher missing after packaging: ${candidate}`);
     }
   }
+  verifyPortableRuntimeContract({
+    outputDir,
+    includeRuntimeMods,
+    requireWebviewCwdPatch: true,
+  });
   if (isDefault) {
     pruneStalePortableOutputs(distDir, outputName);
-    writeLatestPortableLaunchers(distDir, outputDir);
+    writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods);
   }
   return { outputDir, launcherPath };
 }

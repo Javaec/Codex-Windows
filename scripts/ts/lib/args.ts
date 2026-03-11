@@ -29,6 +29,8 @@ export interface ParsedArgs {
   options: PipelineOptions;
 }
 
+export const DEFAULT_PROFILE_NAME = "lite";
+
 export function parseArgs(argv: string[]): ParsedArgs {
   const defaults: PipelineOptions = {
     reuse: false,
@@ -36,7 +38,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     buildPortable: false,
     buildSingleExe: false,
     devProfile: false,
-    profileName: "default",
+    profileName: DEFAULT_PROFILE_NAME,
     strictContract: false,
     smokeSeconds: 25,
     smokeAuthStage: false,
@@ -184,7 +186,7 @@ export function printUsage(): void {
   process.stdout.write("  -RuntimeLogsDir <path>\n");
   process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
-  process.stdout.write("  -ProfileName <name>  -StrictContract\n");
+  process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
   process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
   process.stdout.write("  -SmokeAuthLanes <comma-separated>\n");
   process.stdout.write("  -SmokeUserDataSeed <path>  -SmokeCodexHomeSeed <path>\n");
@@ -192,7 +194,34 @@ export function printUsage(): void {
 
 export function normalizeProfileName(profileName: string): string {
   const raw = (profileName || "").trim().toLowerCase();
-  if (!raw) return "default";
+  if (!raw) return DEFAULT_PROFILE_NAME;
   const sanitized = raw.replace(/[^a-z0-9._-]/g, "-").replace(/^[-._]+|[-._]+$/g, "");
-  return sanitized || "default";
+  if (!sanitized) return DEFAULT_PROFILE_NAME;
+  if (
+    sanitized === "default" ||
+    sanitized === "lite" ||
+    sanitized === "repack" ||
+    sanitized === "codex-lite" ||
+    sanitized === "codex-repack" ||
+    sanitized === "no-mods" ||
+    sanitized === "nomods"
+  ) {
+    return "lite";
+  }
+  if (sanitized === "forge" || sanitized === "mods" || sanitized === "modded" || sanitized === "with-mods") {
+    return "forge";
+  }
+  return sanitized;
+}
+
+export function isLiteProfileName(profileName: string): boolean {
+  return normalizeProfileName(profileName) === "lite";
+}
+
+export function isForgeProfileName(profileName: string): boolean {
+  return normalizeProfileName(profileName) === "forge";
+}
+
+export function isCanonicalProfileName(profileName: string): boolean {
+  return isLiteProfileName(profileName);
 }

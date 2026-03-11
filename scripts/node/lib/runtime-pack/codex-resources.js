@@ -54,6 +54,17 @@ const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
     "notification.wav",
     "rg.exe",
 ]);
+function ensureBundledRipgrep(resourcesDir) {
+    const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
+    if (!(0, exec_1.fileExists)(bundledRipgrepPath)) {
+        throw new Error(`Portable build requires bundled rg.exe: ${bundledRipgrepPath}`);
+    }
+    const pathToolsDir = (0, exec_1.ensureDir)(path.join(resourcesDir, "path"));
+    const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
+    if (!(0, exec_1.fileExists)(pathRipgrepPath)) {
+        (0, exec_1.copyFileSafe)(bundledRipgrepPath, pathRipgrepPath);
+    }
+}
 function bundleVendorPathTools(resourcesDir, cliSrcDir) {
     const vendorArchDir = path.resolve(cliSrcDir, "..");
     const vendorPathDir = path.join(vendorArchDir, "path");
@@ -100,5 +111,6 @@ function bundleCodexCliResources(resourcesDir, bundledCliPath) {
     }
     bundleVendorPathTools(resourcesDir, cliSrcDir);
     bundleWindowsRuntimeDonorTools(resourcesDir);
+    ensureBundledRipgrep(resourcesDir);
     trimPortableResourceRoot(resourcesDir);
 }

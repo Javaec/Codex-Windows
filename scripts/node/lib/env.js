@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveCmdPath = resolveCmdPath;
 exports.resolveWindowsPowerShellPath = resolveWindowsPowerShellPath;
 exports.resolvePwshPath = resolvePwshPath;
+exports.resolveSshPath = resolveSshPath;
 exports.ensureWindowsEnvironment = ensureWindowsEnvironment;
 exports.ensureRipgrepInPath = ensureRipgrepInPath;
 exports.invokeEnvironmentContractChecks = invokeEnvironmentContractChecks;
@@ -86,6 +87,30 @@ function resolvePwshPath() {
     }
     return resolveWindowsPowerShellPath();
 }
+function resolveSshPath() {
+    const candidates = [];
+    if (process.env.CODEX_SSH_PATH)
+        candidates.push(process.env.CODEX_SSH_PATH);
+    const whereSsh = (0, exec_1.resolveCommand)("ssh.exe") ?? (0, exec_1.resolveCommand)("ssh");
+    if (whereSsh)
+        candidates.push(whereSsh);
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    candidates.push(path.join(systemRoot, "System32", "OpenSSH", "ssh.exe"));
+    candidates.push(path.join(systemRoot, "Sysnative", "OpenSSH", "ssh.exe"));
+    if (process.env.ProgramFiles) {
+        candidates.push(path.join(process.env.ProgramFiles, "Git", "usr", "bin", "ssh.exe"));
+        candidates.push(path.join(process.env.ProgramFiles, "Git", "bin", "ssh.exe"));
+    }
+    if (process.env["ProgramFiles(x86)"]) {
+        candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "usr", "bin", "ssh.exe"));
+        candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "bin", "ssh.exe"));
+    }
+    for (const candidate of candidates) {
+        if (candidate && (0, exec_1.fileExists)(candidate))
+            return path.resolve(candidate);
+    }
+    return null;
+}
 function mergePathEntries(entries) {
     const out = [];
     const seen = new Set();
@@ -117,12 +142,14 @@ function ensureWindowsEnvironment() {
         defaults.push(path.join(process.env.ProgramFiles, "nodejs"));
         defaults.push(path.join(process.env.ProgramFiles, "Git", "cmd"));
         defaults.push(path.join(process.env.ProgramFiles, "Git", "bin"));
+        defaults.push(path.join(process.env.ProgramFiles, "Git", "usr", "bin"));
     }
     if (process.env["ProgramFiles(x86)"]) {
         defaults.push(path.join(process.env["ProgramFiles(x86)"], "PowerShell", "7"));
         defaults.push(path.join(process.env["ProgramFiles(x86)"], "nodejs"));
         defaults.push(path.join(process.env["ProgramFiles(x86)"], "Git", "cmd"));
         defaults.push(path.join(process.env["ProgramFiles(x86)"], "Git", "bin"));
+        defaults.push(path.join(process.env["ProgramFiles(x86)"], "Git", "usr", "bin"));
     }
     if (process.env.APPDATA)
         defaults.push(path.join(process.env.APPDATA, "npm"));
@@ -188,6 +215,8 @@ function invokeEnvironmentContractChecks() {
     checks.push(newContractCheck("node available in host process", Boolean(nodePath), nodePath || "node not found in current PATH"));
     const pwshPath = resolvePwshPath();
     checks.push(newContractCheck("pwsh/powershell resolver", Boolean(pwshPath), pwshPath || "pwsh and fallback powershell not found"));
+    const sshPath = resolveSshPath();
+    checks.push(newContractCheck("ssh client available", Boolean(sshPath), sshPath || "ssh.exe not found in current PATH or known Windows locations"));
     const rgPath = (0, exec_1.resolveCommand)("rg.exe") ?? (0, exec_1.resolveCommand)("rg");
     checks.push(newContractCheck("rg (ripgrep) available", Boolean(rgPath), rgPath || "rg not found in current PATH"));
     if (cmdPath) {
@@ -197,6 +226,8 @@ function invokeEnvironmentContractChecks() {
         checks.push(newContractCheck("cmd node -v", nodeV === 0, `exit=${nodeV}`));
         const wherePwsh = runCmdCheck(cmdPath, ["where", "powershell"]);
         checks.push(newContractCheck("cmd where powershell", wherePwsh === 0, `exit=${wherePwsh}`));
+        const whereSsh = runCmdCheck(cmdPath, ["where", "ssh"]);
+        checks.push(newContractCheck("cmd where ssh", whereSsh === 0, `exit=${whereSsh}`));
     }
     return { passed: checks.every((check) => check.passed), checks };
 }
@@ -244,7 +275,8 @@ function run(file,args){
 const checks=[
   ["child where node","where.exe",["node"]],
   ["child node -v","node.exe",["-v"]],
-  ["child where powershell","where.exe",["powershell"]]
+  ["child where powershell","where.exe",["powershell"]],
+  ["child where ssh","where.exe",["ssh"]]
 ];
 let ok=true;
 for(const [name,file,args] of checks){

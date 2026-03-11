@@ -4,6 +4,15 @@
   "type": "commonjs",
   "scripts": {
     "build:runner": "tsc -p tsconfig.json",
+    "build:lite": "node scripts/node/run.js build -ProfileName lite -NoLaunch",
+    "build:repack": "npm run build:lite",
+    "verify:lite": "node scripts/node/run.js verify",
+    "smoke:lite": "node scripts/node/run.js smoke -ProfileName lite",
+    "build:forge": "node scripts/node/run.js build -ProfileName forge -NoLaunch",
+    "launch:forge": "npm run build:runner && electron ./codex-forge/electron/main.js",
+    "test:forge": "npm run build:runner && node scripts/node/forge-launcher.js --print-state && node scripts/node/forge-runtime.js sources && node ./shared/codex-mod-loader/build-compatibility-matrix.mjs && node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863 && electron ./codex-forge/electron/main.js --smoke",
+    "build:portable:lite": "node scripts/node/run.js build -ProfileName lite -NoLaunch",
+    "build:portable:forge": "node scripts/node/run.js build -ProfileName forge -NoLaunch",
     "forge:electron": "npm run build:runner && electron ./codex-forge/electron/main.js",
     "forge:electron:devtools": "npm run build:runner && electron ./codex-forge/electron/main.js --devtools",
     "forge:electron:smoke": "npm run build:runner && electron ./codex-forge/electron/main.js --smoke",
@@ -15,9 +24,10 @@
     "forge:state": "npm run build:runner && node scripts/node/forge-launcher.js --print-state",
     "runner": "node scripts/node/run.js",
     "verify:runner": "node scripts/node/run.js verify",
-    "smoke:runner": "node scripts/node/run.js smoke",
-    "smoke:runner:auth": "node scripts/node/run.js smoke -SmokeAuthStage -SmokeAuthLanes with-mods -SmokeUserDataSeed %APPDATA%\\Codex -SmokeCodexHomeSeed %USERPROFILE%\\.codex",
-    "smoke:runner:daily": "node scripts/node/run.js smoke -SmokeAuthStage -SmokeUserDataSeed %APPDATA%\\Codex -SmokeCodexHomeSeed %USERPROFILE%\\.codex",
+    "smoke:runner": "node scripts/node/run.js smoke -ProfileName lite",
+    "smoke:runner:forge": "node scripts/node/run.js smoke -ProfileName forge -SmokeLanes default,with-mods",
+    "smoke:runner:auth": "node scripts/node/run.js smoke -ProfileName forge -SmokeAuthStage -SmokeAuthLanes with-mods -SmokeUserDataSeed %APPDATA%\\Codex -SmokeCodexHomeSeed %USERPROFILE%\\.codex",
+    "smoke:runner:daily": "node scripts/node/run.js smoke -ProfileName forge -SmokeAuthStage -SmokeLanes default,with-mods -SmokeUserDataSeed %APPDATA%\\Codex -SmokeCodexHomeSeed %USERPROFILE%\\.codex",
     "mods:compatibility-matrix": "node ./shared/codex-mod-loader/build-compatibility-matrix.mjs",
     "audit:runner": "node scripts/node/run.js audit",
     "contention:runner": "node scripts/node/run.js contention",
@@ -28,7 +38,7 @@
     "orchestrator:migration:enforce-size-budget": "node ./orchestrator-deobf/dist/migration/enforce-generated-size-budget.js",
     "orchestrator:daily:migrate:10711": "node ./orchestrator-deobf/dist/migration/daily-migrate-10711.js",
     "orchestrator:naming-memory:compact": "node ./orchestrator-deobf/dist/naming/compact-naming-memory-store.js",
-    "build:single-exe": "node scripts/node/run.js build -SingleExe -NoLaunch -Reuse"
+    "build:single-exe": "node scripts/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",

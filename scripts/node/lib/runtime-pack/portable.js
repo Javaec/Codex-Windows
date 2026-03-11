@@ -44,6 +44,7 @@ const codex_resources_1 = require("./codex-resources");
 const direct_launch_1 = require("./direct-launch");
 Object.defineProperty(exports, "startPortableDirectLaunch", { enumerable: true, get: function () { return direct_launch_1.startPortableDirectLaunch; } });
 const launchers_1 = require("./launchers");
+const verify_1 = require("./verify");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const CODEX_MODS_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods");
 const CODEX_MOD_API_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "api");
@@ -91,7 +92,8 @@ function preparePortableOutputDir(distDir, workDir, outputName) {
 }
 async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
-    const isDefault = profile === "default";
+    const isDefault = (0, args_1.isCanonicalProfileName)(profile);
+    const includeRuntimeMods = (0, args_1.isForgeProfileName)(profile);
     const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
     const electronDistDir = path.join(nativeDir, "node_modules", "electron", "dist");
     if (!(0, exec_1.fileExists)(electronDistDir))
@@ -129,31 +131,36 @@ async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buil
     const resourcesDir = (0, exec_1.ensureDir)(path.join(outputDir, "resources"));
     const appDstDir = path.join(resourcesDir, "app");
     (0, exec_1.copyDirectory)(appDir, appDstDir);
-    if (!(0, exec_1.fileExists)(CODEX_MODS_SRC_DIR)) {
-        throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+    if (includeRuntimeMods) {
+        if (!(0, exec_1.fileExists)(CODEX_MODS_SRC_DIR)) {
+            throw new Error(`Codex modpack missing: ${CODEX_MODS_SRC_DIR}`);
+        }
+        if (!(0, exec_1.fileExists)(CODEX_MOD_API_SRC_DIR)) {
+            throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
+        }
+        if (!(0, exec_1.fileExists)(CODEX_MOD_LOADER_SRC_DIR)) {
+            throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
+        }
+        if (!(0, exec_1.fileExists)(CODEX_MOD_COMPATIBILITY_SRC_PATH)) {
+            throw new Error(`Codex mod compatibility helper missing: ${CODEX_MOD_COMPATIBILITY_SRC_PATH}`);
+        }
+        if (!(0, exec_1.fileExists)(CODEX_VERSION_IDENTITY_SRC_DIR)) {
+            throw new Error(`Codex version identity helper missing: ${CODEX_VERSION_IDENTITY_SRC_DIR}`);
+        }
+        (0, exec_1.writeInfo)("Bundling Codex mods...");
+        (0, exec_1.copyDirectory)(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
+        (0, exec_1.writeInfo)("Bundling Codex mod API...");
+        (0, exec_1.copyDirectory)(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
+        (0, exec_1.writeInfo)("Bundling Codex mod loader...");
+        (0, exec_1.copyDirectory)(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
+        (0, exec_1.writeInfo)("Bundling Codex mod compatibility...");
+        (0, exec_1.copyFileSafe)(CODEX_MOD_COMPATIBILITY_SRC_PATH, path.join(resourcesDir, "compatibility.cjs"));
+        (0, exec_1.writeInfo)("Bundling version identity helper...");
+        (0, exec_1.copyDirectory)(CODEX_VERSION_IDENTITY_SRC_DIR, path.join(resourcesDir, "version-identity"));
     }
-    if (!(0, exec_1.fileExists)(CODEX_MOD_API_SRC_DIR)) {
-        throw new Error(`Codex mod API missing: ${CODEX_MOD_API_SRC_DIR}`);
+    else {
+        (0, exec_1.writeInfo)("Building Codex Lite runtime (no Forge mod stack bundled)...");
     }
-    if (!(0, exec_1.fileExists)(CODEX_MOD_LOADER_SRC_DIR)) {
-        throw new Error(`Codex mod loader missing: ${CODEX_MOD_LOADER_SRC_DIR}`);
-    }
-    if (!(0, exec_1.fileExists)(CODEX_MOD_COMPATIBILITY_SRC_PATH)) {
-        throw new Error(`Codex mod compatibility helper missing: ${CODEX_MOD_COMPATIBILITY_SRC_PATH}`);
-    }
-    if (!(0, exec_1.fileExists)(CODEX_VERSION_IDENTITY_SRC_DIR)) {
-        throw new Error(`Codex version identity helper missing: ${CODEX_VERSION_IDENTITY_SRC_DIR}`);
-    }
-    (0, exec_1.writeInfo)("Bundling Codex mods...");
-    (0, exec_1.copyDirectory)(CODEX_MODS_SRC_DIR, path.join(resourcesDir, "mods"));
-    (0, exec_1.writeInfo)("Bundling Codex mod API...");
-    (0, exec_1.copyDirectory)(CODEX_MOD_API_SRC_DIR, path.join(resourcesDir, "mod-api"));
-    (0, exec_1.writeInfo)("Bundling Codex mod loader...");
-    (0, exec_1.copyDirectory)(CODEX_MOD_LOADER_SRC_DIR, path.join(resourcesDir, "mod-loader"));
-    (0, exec_1.writeInfo)("Bundling Codex mod compatibility...");
-    (0, exec_1.copyFileSafe)(CODEX_MOD_COMPATIBILITY_SRC_PATH, path.join(resourcesDir, "compatibility.cjs"));
-    (0, exec_1.writeInfo)("Bundling version identity helper...");
-    (0, exec_1.copyDirectory)(CODEX_VERSION_IDENTITY_SRC_DIR, path.join(resourcesDir, "version-identity"));
     (0, exec_1.removePath)(path.join(resourcesDir, "default_app.asar"));
     (0, bundle_patches_1.patchMainForWindowsEnvironment)(appDstDir, buildNumber, buildFlavor);
     if (!bundledCliPath || !(0, exec_1.fileExists)(bundledCliPath)) {
@@ -164,16 +171,21 @@ async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buil
     const launcherPath = (0, launchers_1.writePortableLauncher)(outputDir, profile);
     for (const requiredLauncher of [
         "Launch-Codex.cmd",
-        "Launch-Codex-with-mods.cmd",
+        ...(includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
     ]) {
         const candidate = path.join(outputDir, requiredLauncher);
         if (!(0, exec_1.fileExists)(candidate)) {
             throw new Error(`Portable launcher missing after packaging: ${candidate}`);
         }
     }
+    (0, verify_1.verifyPortableRuntimeContract)({
+        outputDir,
+        includeRuntimeMods,
+        requireWebviewCwdPatch: true,
+    });
     if (isDefault) {
         (0, launchers_1.pruneStalePortableOutputs)(distDir, outputName);
-        (0, launchers_1.writeLatestPortableLaunchers)(distDir, outputDir);
+        (0, launchers_1.writeLatestPortableLaunchers)(distDir, outputDir, includeRuntimeMods);
     }
     return { outputDir, launcherPath };
 }

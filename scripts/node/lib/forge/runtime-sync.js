@@ -97,7 +97,7 @@ function syncForgeRuntimeLayer(paths, config) {
     writeJson(paths.forgeDiscoveredModsPath, discoveredMods);
     syncedPaths.push(runtimeArtifactPaths.runtimeForgeLoaderStatePath, runtimeArtifactPaths.runtimeForgeResolvedGraphPath, runtimeArtifactPaths.runtimeForgeDiscoveredModsPath, paths.forgeResolvedGraphPath, paths.forgeDiscoveredModsPath);
     if ((0, exec_1.fileExists)(targetRuntimeDir) && path.resolve(targetRuntimeDir) === path.resolve(paths.repoDistRuntimeDir)) {
-        (0, launchers_1.writeLatestPortableLaunchers)(paths.distDir, targetRuntimeDir);
+        (0, launchers_1.writeLatestPortableLaunchers)(paths.distDir, targetRuntimeDir, true);
         syncedPaths.push(path.join(paths.distDir, "Launch-Codex-latest.cmd"));
     }
     return {

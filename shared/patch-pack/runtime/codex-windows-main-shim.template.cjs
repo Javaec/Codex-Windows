@@ -20,6 +20,52 @@
       return typeof value === "string" ? value.trim().replace(/^\"+|\"+$/g, "") : "";
     }
 
+    function mergePathEntries(entries) {
+      const out = [];
+      const seen = new Set();
+      for (const entry of entries) {
+        const normalized = normalizePathString(entry);
+        if (!normalized || !fs.existsSync(normalized)) continue;
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(normalized);
+      }
+      return out;
+    }
+
+    function ensureBundledRuntimeToolsOnPath() {
+      const winRoot = normalizePathString(process.env.SystemRoot || "C:\\Windows");
+      const execPath = normalizePathString(process.execPath || "");
+      const existing = String(process.env.PATH || process.env.Path || "").split(";");
+      const merged = mergePathEntries([
+        path.join(resourcesRoot, "path"),
+        resourcesRoot,
+        execPath ? path.dirname(execPath) : "",
+        path.join(winRoot, "System32"),
+        winRoot,
+        path.join(winRoot, "System32", "Wbem"),
+        path.join(winRoot, "System32", "WindowsPowerShell", "v1.0"),
+        path.join(winRoot, "System32", "OpenSSH"),
+        normalizePathString(process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "PowerShell", "7") : ""),
+        normalizePathString(process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs") : ""),
+        normalizePathString(process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "cmd") : ""),
+        normalizePathString(process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "bin") : ""),
+        normalizePathString(process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Git", "usr", "bin") : ""),
+        normalizePathString(process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "nodejs") : ""),
+        normalizePathString(process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "cmd") : ""),
+        normalizePathString(process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "bin") : ""),
+        normalizePathString(process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "Git", "usr", "bin") : ""),
+        normalizePathString(process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : ""),
+        ...existing,
+      ]);
+      const nextPath = merged.join(";");
+      if (nextPath) {
+        process.env.PATH = nextPath;
+        process.env.Path = nextPath;
+      }
+    }
+
     function normalizeWindowsOpenPath(input) {
       let value = normalizePathString(input);
       if (!value) return value;
@@ -352,9 +398,12 @@
             : "";
         const executablePath = normalizePathString(process.execPath || "");
         const cliPath = normalizePathString(process.env.CODEX_CLI_PATH || "");
+        const rgPath = normalizePathString(path.join(resourcesRoot, "rg.exe"));
+        const sshPath = normalizePathString(process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32", "OpenSSH", "ssh.exe") : "");
         const resourcesPath = normalizePathString(process.resourcesPath || "");
+        const runtimeModsEnabled = normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") === "1";
         console.log(
-          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} mods=${modsRootPath} resources=${resourcesPath} appVersion=${appVersion} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
+          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} rg=${rgPath} ssh=${sshPath} mods=${modsRootPath} resources=${resourcesPath} appVersion=${appVersion} runtimeMods=${runtimeModsEnabled ? "1" : "0"} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
         );
       } catch (error) {
         const message = error && error.message ? error.message : String(error || "");
@@ -367,8 +416,10 @@
     if (!process.env.CODEX_BUILD_NUMBER) process.env.CODEX_BUILD_NUMBER = BUILD_NUMBER;
     if (!process.env.CODEX_BUILD_FLAVOR) process.env.CODEX_BUILD_FLAVOR = BUILD_FLAVOR;
     if (!process.env.BUILD_FLAVOR) process.env.BUILD_FLAVOR = BUILD_FLAVOR;
+    if (!process.env.CODEX_ENABLE_RUNTIME_MODS) process.env.CODEX_ENABLE_RUNTIME_MODS = "0";
     if (!process.env.NODE_ENV) process.env.NODE_ENV = "production";
     if (!process.env.PWD) process.env.PWD = process.cwd();
+    ensureBundledRuntimeToolsOnPath();
 
     // Prefer repacked/bundled CLI to avoid app-server drift.
     if (!process.env.CODEX_CLI_PATH) {
@@ -413,9 +464,12 @@
         }
       }
 
-      const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
-      const activateRuntimeMods = loadRuntimeModLoader();
-      activateRuntimeMods({ electron, buildHint, appVersion, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });
+      const runtimeModsEnabled = normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") === "1";
+      if (runtimeModsEnabled) {
+        const buildHint = parseBuildNumberHint(process.env.CODEX_BUILD_NUMBER || BUILD_NUMBER);
+        const activateRuntimeMods = loadRuntimeModLoader();
+        activateRuntimeMods({ electron, buildHint, appVersion, resourcesRoot, minimalPlatform: IS_MINIMAL_PLATFORM });
+      }
     } catch (error) {
       console.error("[codex-windows-main-shim] electron patch failed", error);
     }

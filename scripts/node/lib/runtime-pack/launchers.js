@@ -40,31 +40,12 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const args_1 = require("../args");
 const exec_1 = require("../exec");
-function buildPortableLauncherScript(profile, userDataFolder, cacheFolder, laneName, extraEnv) {
+function buildPortableLauncherScript(profile, userDataFolder, cacheFolder, laneName, runtimeModsEnabled, extraEnv) {
     const extraEnvLines = Object.entries(extraEnv)
         .map(([key, value]) => `set "${key}=${value}"`)
         .join("\n");
-    return `@echo off
-setlocal
-
-set "BASE=%~dp0"
-set "WINROOT=%SystemRoot%"
-if "%WINROOT%"=="" set "WINROOT=C:\\Windows"
-
-set "PATH=%WINROOT%\\System32;%WINROOT%;%WINROOT%\\System32\\Wbem;%WINROOT%\\System32\\WindowsPowerShell\\v1.0;%ProgramFiles%\\PowerShell\\7;%ProgramFiles%\\nodejs;%ProgramFiles(x86)%\\nodejs;%APPDATA%\\npm;%PATH%"
-set "PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC"
-set "COMSPEC=%WINROOT%\\System32\\cmd.exe"
-
-if exist "%ProgramFiles%\\PowerShell\\7\\pwsh.exe" set "CODEX_PWSH_PATH=%ProgramFiles%\\PowerShell\\7\\pwsh.exe"
-if not defined CODEX_PWSH_PATH if exist "%ProgramFiles(x86)%\\PowerShell\\7\\pwsh.exe" set "CODEX_PWSH_PATH=%ProgramFiles(x86)%\\PowerShell\\7\\pwsh.exe"
-if not defined CODEX_PWSH_PATH if exist "%WINROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" set "CODEX_PWSH_PATH=%WINROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-
-if not exist "%BASE%resources\\codex.exe" (
-  echo [ERROR] Portable Codex CLI missing: "%BASE%resources\\codex.exe"
-  exit /b 1
-)
-set "CODEX_CLI_PATH=%BASE%resources\\codex.exe"
-if not exist "%BASE%resources\\mods" (
+    const runtimeModLines = runtimeModsEnabled
+        ? `if not exist "%BASE%resources\\mods" (
   echo [ERROR] Portable modpack missing: "%BASE%resources\\mods"
   exit /b 1
 )
@@ -78,7 +59,36 @@ if not exist "%BASE%resources\\mod-loader" (
   echo [ERROR] Portable mod loader missing: "%BASE%resources\\mod-loader"
   exit /b 1
 )
-set "CODEX_MOD_LOADER_DIR=%BASE%resources\\mod-loader"
+set "CODEX_MOD_LOADER_DIR=%BASE%resources\\mod-loader"`
+        : `set "CODEX_MODS_DIR="
+set "CODEX_MOD_API_DIR="
+set "CODEX_MOD_LOADER_DIR="`;
+    const runtimeLogLines = runtimeModsEnabled
+        ? `  echo mods=%BASE%resources\\mods
+  echo modApi=%BASE%resources\\mod-api
+  echo modLoader=%BASE%resources\\mod-loader`
+        : "";
+    return `@echo off
+setlocal
+
+set "BASE=%~dp0"
+set "WINROOT=%SystemRoot%"
+if "%WINROOT%"=="" set "WINROOT=C:\\Windows"
+
+set "PATH=%BASE%resources\\path;%BASE%resources;%BASE%;%WINROOT%\\System32;%WINROOT%;%WINROOT%\\System32\\Wbem;%WINROOT%\\System32\\WindowsPowerShell\\v1.0;%WINROOT%\\System32\\OpenSSH;%ProgramFiles%\\PowerShell\\7;%ProgramFiles%\\nodejs;%ProgramFiles%\\Git\\cmd;%ProgramFiles%\\Git\\bin;%ProgramFiles%\\Git\\usr\\bin;%ProgramFiles(x86)%\\nodejs;%ProgramFiles(x86)%\\Git\\cmd;%ProgramFiles(x86)%\\Git\\bin;%ProgramFiles(x86)%\\Git\\usr\\bin;%APPDATA%\\npm;%PATH%"
+set "PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC"
+set "COMSPEC=%WINROOT%\\System32\\cmd.exe"
+
+if exist "%ProgramFiles%\\PowerShell\\7\\pwsh.exe" set "CODEX_PWSH_PATH=%ProgramFiles%\\PowerShell\\7\\pwsh.exe"
+if not defined CODEX_PWSH_PATH if exist "%ProgramFiles(x86)%\\PowerShell\\7\\pwsh.exe" set "CODEX_PWSH_PATH=%ProgramFiles(x86)%\\PowerShell\\7\\pwsh.exe"
+if not defined CODEX_PWSH_PATH if exist "%WINROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" set "CODEX_PWSH_PATH=%WINROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+
+if not exist "%BASE%resources\\codex.exe" (
+  echo [ERROR] Portable Codex CLI missing: "%BASE%resources\\codex.exe"
+  exit /b 1
+)
+set "CODEX_CLI_PATH=%BASE%resources\\codex.exe"
+${runtimeModLines}
 set "CODEX_WINDOWS_PROFILE=${profile}"
 set "CODEX_GIT_CAPABILITY_CACHE=%BASE%resources\\git-capability-cache.json"
 set "ELECTRON_FORCE_IS_PACKAGED=1"
@@ -105,9 +115,8 @@ set "CODEX_RUNTIME_ENV_LOG=%BASE%runtime-logs\\${laneName}\\launch.env.txt"
   echo cache=%BASE%${cacheFolder}
   echo codexHome=%CODEX_HOME%
   echo cli=%BASE%resources\\codex.exe
-  echo mods=%BASE%resources\\mods
-  echo modApi=%BASE%resources\\mod-api
-  echo modLoader=%BASE%resources\\mod-loader
+  echo rg=%BASE%resources\\rg.exe
+${runtimeLogLines}
   echo runtimeMods=%CODEX_ENABLE_RUNTIME_MODS%
   echo runtimeModsDisabled=%CODEX_MODS_DISABLED%
   echo runtimeModsOnly=%CODEX_MODS_ONLY%
@@ -120,14 +129,16 @@ exit /b %ERRORLEVEL%
 `;
 }
 function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cacheFolder) {
-    const variants = [
-        {
-            fileName: "Launch-Codex-with-mods.cmd",
-            env: { CODEX_ENABLE_RUNTIME_MODS: "1" },
-            laneName: "with-mods",
-            userDataSuffix: "-with-mods",
-        },
-    ];
+    const variants = (0, args_1.isForgeProfileName)(profile)
+        ? [
+            {
+                fileName: "Launch-Codex-with-mods.cmd",
+                env: { CODEX_ENABLE_RUNTIME_MODS: "1" },
+                laneName: "with-mods",
+                userDataSuffix: "-with-mods",
+            },
+        ]
+        : [];
     const expectedVariantLaunchers = new Set(["Launch-Codex.cmd", ...variants.map((variant) => variant.fileName)]);
     for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
         if (!entry.isFile())
@@ -146,31 +157,34 @@ function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cache
         }
     }
     for (const variant of variants) {
-        fs.writeFileSync(path.join(outputDir, variant.fileName), buildPortableLauncherScript(profile, `${userDataFolder}${variant.userDataSuffix}`, `${cacheFolder}${variant.userDataSuffix}`, variant.laneName, variant.env), "ascii");
+        fs.writeFileSync(path.join(outputDir, variant.fileName), buildPortableLauncherScript(profile, `${userDataFolder}${variant.userDataSuffix}`, `${cacheFolder}${variant.userDataSuffix}`, variant.laneName, true, variant.env), "ascii");
     }
 }
 function writePortableLauncher(outputDir, profileName) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
-    const isDefault = profile === "default";
+    const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const userDataFolder = isDefault ? "userdata" : `userdata-${profile}`;
     const cacheFolder = isDefault ? "cache" : `cache-${profile}`;
     const launcherPath = path.join(outputDir, "Launch-Codex.cmd");
-    fs.writeFileSync(launcherPath, buildPortableLauncherScript(profile, userDataFolder, cacheFolder, "default", {
+    fs.writeFileSync(launcherPath, buildPortableLauncherScript(profile, userDataFolder, cacheFolder, "default", false, {
         CODEX_ENABLE_RUNTIME_MODS: "0",
         CODEX_MODS_DISABLED: "1",
     }), "ascii");
     writePortableVariantLaunchers(outputDir, profile, userDataFolder, cacheFolder);
     return launcherPath;
 }
-function writeLatestPortableLaunchers(distDir, outputDir) {
+function writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods) {
     const launchers = [
         { outputPath: path.join(distDir, "Launch-Codex-latest.cmd"), targetPath: path.join(outputDir, "Launch-Codex.cmd") },
-        { outputPath: path.join(distDir, "Launch-Codex-latest-with-mods.cmd"), targetPath: path.join(outputDir, "Launch-Codex-with-mods.cmd") },
+        ...(includeRuntimeMods
+            ? [{ outputPath: path.join(distDir, "Launch-Codex-latest-with-mods.cmd"), targetPath: path.join(outputDir, "Launch-Codex-with-mods.cmd") }]
+            : []),
     ];
     const staleLatestLaunchers = [
         path.join(distDir, "Launch-Codex-latest-no-mods.cmd"),
         path.join(distDir, "Launch-Codex-latest-minimal.cmd"),
         path.join(distDir, "Launch-Codex-latest-isolated-home.cmd"),
+        ...(includeRuntimeMods ? [] : [path.join(distDir, "Launch-Codex-latest-with-mods.cmd")]),
     ];
     for (const staleLauncherPath of staleLatestLaunchers) {
         (0, exec_1.removePath)(staleLauncherPath);

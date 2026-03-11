@@ -21,7 +21,7 @@ if not defined PS_EXE (
   exit /b 1
 )
 
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch %*
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite %*
 exit /b %ERRORLEVEL%
 
 :usage
@@ -31,5 +31,9 @@ echo   build.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -DistDir .\dist  -Reuse  -NoLaunch  -CodexCliPath C:\path\to\codex.exe
 echo   -SingleExe
-echo   -DevProfile      -ProfileName dev
+echo   -ProfileName lite ^| forge ^| dev
+echo.
+echo Default behavior:
+echo   build.cmd builds Codex Lite.
+echo   Codex Lite = Codex Repack: minimal Windows repack with bundled rg.exe, required path fixes, and no Forge mod runtime.
 exit /b 0

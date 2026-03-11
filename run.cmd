@@ -40,7 +40,12 @@ echo   run.cmd -DmgPath .\Codex.dmg
 echo Optional:
 echo   -WorkDir .\work  -CodexCliPath C:\path\to\codex.exe  -Reuse  -NoLaunch
 echo   -BuildPortable   -SingleExe   -DistDir .\dist
-echo   -DevProfile      -ProfileName dev
+echo   -ProfileName lite ^| forge ^| dev
+echo.
+echo Notes:
+echo   build.cmd builds Codex Lite by default.
+echo   Codex Lite = Codex Repack.
+echo   Use -ProfileName forge only when you explicitly want the Forge mod runtime bundled.
 exit /b 0
 
 :maybe_pause

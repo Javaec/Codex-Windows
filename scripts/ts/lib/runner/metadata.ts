@@ -27,19 +27,31 @@ export function writeBuildMetadata(
     buildNumber: string;
     buildFlavor: string;
     profileName: string;
+    runtimeFlavor: "lite" | "forge";
+    includeRuntimeMods: boolean;
     patchProfileId: string;
     patchReportPath: string;
     cliPath: string | null;
     cliSource: string | null;
   },
 ): string {
-  const runtimeModCompatibility = resolveRuntimeModCompatibility({
+  const resolvedRuntimeModCompatibility = resolveRuntimeModCompatibility({
     modsRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "mods"),
     loaderRoot: path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader"),
     snapshotLabel: metadata.dmgPath,
     appVersion: metadata.appVersion,
     buildNumber: metadata.buildNumber,
   });
+  const runtimeModCompatibility = {
+    bundled: metadata.includeRuntimeMods,
+    buildHint: resolvedRuntimeModCompatibility.build.buildHint,
+    matchedBuildId: resolvedRuntimeModCompatibility.build.matchedBuild ? resolvedRuntimeModCompatibility.build.matchedBuild.id : "",
+    selectedModIds: metadata.includeRuntimeMods ? resolvedRuntimeModCompatibility.selectedModIds : [],
+    loadOrder: metadata.includeRuntimeMods ? resolvedRuntimeModCompatibility.loadOrder : [],
+    recommendedDisabledMods: metadata.includeRuntimeMods ? resolvedRuntimeModCompatibility.recommendedDisabledMods : [],
+    incompatibleMods: metadata.includeRuntimeMods ? resolvedRuntimeModCompatibility.incompatibleMods : [],
+    softIncompatibilities: metadata.includeRuntimeMods ? resolvedRuntimeModCompatibility.softIncompatibilities : [],
+  };
   const targetPath = path.join(outputDir, "build-metadata.json");
   const payload = {
     builtAtIso: new Date().toISOString(),
@@ -49,19 +61,13 @@ export function writeBuildMetadata(
     buildNumber: metadata.buildNumber,
     buildFlavor: metadata.buildFlavor,
     profileName: metadata.profileName,
+    runtimeFlavor: metadata.runtimeFlavor,
     patchProfileId: metadata.patchProfileId,
     patchReportPath: metadata.patchReportPath,
     codexCliPath: metadata.cliPath,
     codexCliSource: metadata.cliSource,
-    runtimeModCompatibility: {
-      buildHint: runtimeModCompatibility.build.buildHint,
-      matchedBuildId: runtimeModCompatibility.build.matchedBuild ? runtimeModCompatibility.build.matchedBuild.id : "",
-      selectedModIds: runtimeModCompatibility.selectedModIds,
-      loadOrder: runtimeModCompatibility.loadOrder,
-      recommendedDisabledMods: runtimeModCompatibility.recommendedDisabledMods,
-      incompatibleMods: runtimeModCompatibility.incompatibleMods,
-      softIncompatibilities: runtimeModCompatibility.softIncompatibilities,
-    },
+    bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
+    runtimeModCompatibility,
   };
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   return targetPath;

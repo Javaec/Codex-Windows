@@ -77,14 +77,14 @@ function resolveMainShimTemplate() {
     mainShimTemplateCache = template;
     return mainShimTemplateCache;
 }
-function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundError, patchContent, optionalPatch = false) {
+function patchWebviewIndexBundles(appDir, bundleNotFoundError, patchNotFoundError, patchContent, optionalPatch = false, bundlePattern = /^index-.*\.js$/i) {
     const assetsDir = path.join(appDir, "webview", "assets");
     if (!(0, exec_1.fileExists)(assetsDir)) {
         return { patchedFiles: 0, alreadyPatchedFiles: 0 };
     }
     const bundles = fs
         .readdirSync(assetsDir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && /^index-.*\.js$/i.test(entry.name))
+        .filter((entry) => entry.isFile() && bundlePattern.test(entry.name))
         .map((entry) => path.join(assetsDir, entry.name));
     if (bundles.length === 0)
         throw new Error(bundleNotFoundError);
@@ -153,17 +153,35 @@ function patchPreload(appDir) {
 function patchWebviewCwdNormalization(appDir, options = {}) {
     const allowMissingPatchPoint = options.allowMissingPatchPoint !== false;
     const helperPairPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
-    const summary = patchWebviewIndexBundles(appDir, "webview index bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
+    const slashNormalizerPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+\2\.replace\(\/\\\\\/g,([`'"])\/\3\)\}/g;
+    const drivePrefixPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)&&!\2\.startsWith\(([`'"])\/\4\)\?\4\/\$\{\2\}\4:\2\}/g;
+    const buildNormalizeFunction = (argName) => `const __codexWindowsPathRaw=${argName}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")||__codexWindowsPathRaw.startsWith("//./")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath`;
+    const summary = patchWebviewIndexBundles(appDir, "webview js bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
         }
         let changed = false;
-        const next = raw.replace(helperPairPattern, (_full, lowerFn, lowerArg, normalizeFn, normalizeArg) => {
+        let tagInserted = false;
+        const withTag = (content) => {
+            if (tagInserted)
+                return content;
+            tagInserted = true;
+            return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}${content}`;
+        };
+        let next = raw.replace(helperPairPattern, (_full, lowerFn, lowerArg, normalizeFn, normalizeArg) => {
             changed = true;
-            return `${WEBVIEW_CWD_NORMALIZER_PATCH_TAG}function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){const __codexWindowsPathRaw=${normalizeArg}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath}`;
+            return withTag(`function ${lowerFn}(${lowerArg}){return ${normalizeFn}(${lowerArg}).toLowerCase()}function ${normalizeFn}(${normalizeArg}){${buildNormalizeFunction(normalizeArg)}}`);
+        });
+        next = next.replace(slashNormalizerPattern, (_full, normalizeFn, normalizeArg) => {
+            changed = true;
+            return withTag(`function ${normalizeFn}(${normalizeArg}){${buildNormalizeFunction(normalizeArg)}}`);
+        });
+        next = next.replace(drivePrefixPattern, (_full, normalizeFn, normalizeArg, driveFn) => {
+            changed = true;
+            return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${normalizeArg}.startsWith("/")?${normalizeArg}.slice(1):${normalizeArg};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
         });
         return { alreadyPatched: false, patched: changed, content: next };
-    }, allowMissingPatchPoint);
+    }, allowMissingPatchPoint, /\.js$/i);
     const matched = summary.patchedFiles > 0 || summary.alreadyPatchedFiles > 0;
     if (!matched && allowMissingPatchPoint) {
         (0, exec_1.writeInfo)("webview cwd normalization patch not required for current bundle signature.");

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { PipelineOptions } from "../args";
+import { isCanonicalProfileName, isForgeProfileName, isLiteProfileName, normalizeProfileName, type PipelineOptions } from "../args";
 import { ensureGitCapabilityCachePath } from "../adapters/git-capability-cache";
 import { sanitizeWorkspaceRegistry } from "../adapters/workspace-registry";
 import { prepareDirectLaunchExecutable } from "../branding";
@@ -53,8 +53,9 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
   const ripgrep = await ensureRipgrepInPath(workDir);
   writeSuccess(`Using rg: ${ripgrep.path} (source=${ripgrep.source})`);
 
-  const effectiveProfile = options.devProfile && options.profileName === "default" ? "dev" : options.profileName;
-  const isDefaultProfile = effectiveProfile === "default";
+  const requestedProfile = normalizeProfileName(options.profileName);
+  const effectiveProfile = options.devProfile && isLiteProfileName(requestedProfile) ? "dev" : requestedProfile;
+  const isDefaultProfile = isCanonicalProfileName(effectiveProfile);
   process.env.CODEX_WINDOWS_PROFILE = effectiveProfile;
 
   const manifestFileName = isDefaultProfile ? "state.manifest.json" : `state.manifest.${effectiveProfile}.json`;
@@ -169,6 +170,8 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       buildNumber,
       buildFlavor,
       profileName: effectiveProfile,
+      runtimeFlavor: isForgeProfileName(effectiveProfile) ? "forge" : "lite",
+      includeRuntimeMods: isForgeProfileName(effectiveProfile),
       patchProfileId: patchReport.profileId,
       patchReportPath: patchReport.reportPath,
       cliPath: cliResolution.path,

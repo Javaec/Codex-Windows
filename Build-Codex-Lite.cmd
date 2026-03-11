@@ -1,5 +1,5 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-call npm run forge:electron
+call "%~dp0build.cmd" %*
 exit /b %ERRORLEVEL%

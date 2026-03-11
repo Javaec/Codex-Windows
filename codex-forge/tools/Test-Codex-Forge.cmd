@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0\..\.."
 
 call npm run build:runner || exit /b %ERRORLEVEL%
 call npm run forge:state || exit /b %ERRORLEVEL%

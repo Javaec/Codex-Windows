@@ -1,8 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEFAULT_PROFILE_NAME = void 0;
 exports.parseArgs = parseArgs;
 exports.printUsage = printUsage;
 exports.normalizeProfileName = normalizeProfileName;
+exports.isLiteProfileName = isLiteProfileName;
+exports.isForgeProfileName = isForgeProfileName;
+exports.isCanonicalProfileName = isCanonicalProfileName;
+exports.DEFAULT_PROFILE_NAME = "lite";
 function parseArgs(argv) {
     const defaults = {
         reuse: false,
@@ -10,7 +15,7 @@ function parseArgs(argv) {
         buildPortable: false,
         buildSingleExe: false,
         devProfile: false,
-        profileName: "default",
+        profileName: exports.DEFAULT_PROFILE_NAME,
         strictContract: false,
         smokeSeconds: 25,
         smokeAuthStage: false,
@@ -153,7 +158,7 @@ function printUsage() {
     process.stdout.write("  -RuntimeLogsDir <path>\n");
     process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
-    process.stdout.write("  -ProfileName <name>  -StrictContract\n");
+    process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
     process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
     process.stdout.write("  -SmokeAuthLanes <comma-separated>\n");
     process.stdout.write("  -SmokeUserDataSeed <path>  -SmokeCodexHomeSeed <path>\n");
@@ -161,7 +166,30 @@ function printUsage() {
 function normalizeProfileName(profileName) {
     const raw = (profileName || "").trim().toLowerCase();
     if (!raw)
-        return "default";
+        return exports.DEFAULT_PROFILE_NAME;
     const sanitized = raw.replace(/[^a-z0-9._-]/g, "-").replace(/^[-._]+|[-._]+$/g, "");
-    return sanitized || "default";
+    if (!sanitized)
+        return exports.DEFAULT_PROFILE_NAME;
+    if (sanitized === "default" ||
+        sanitized === "lite" ||
+        sanitized === "repack" ||
+        sanitized === "codex-lite" ||
+        sanitized === "codex-repack" ||
+        sanitized === "no-mods" ||
+        sanitized === "nomods") {
+        return "lite";
+    }
+    if (sanitized === "forge" || sanitized === "mods" || sanitized === "modded" || sanitized === "with-mods") {
+        return "forge";
+    }
+    return sanitized;
+}
+function isLiteProfileName(profileName) {
+    return normalizeProfileName(profileName) === "lite";
+}
+function isForgeProfileName(profileName) {
+    return normalizeProfileName(profileName) === "forge";
+}
+function isCanonicalProfileName(profileName) {
+    return isLiteProfileName(profileName);
 }

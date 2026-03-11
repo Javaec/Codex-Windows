@@ -39,7 +39,8 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const runtime_compare_1 = require("./runtime-compare");
-const DEFAULT_SMOKE_LANES = ["default", "with-mods"];
+const DEFAULT_SMOKE_LANES = ["default"];
+const SUPPORTED_SMOKE_LANES = ["default", "with-mods"];
 const CODEX_HOME_SEED_FILES = [
     ".codex-global-state.json",
     ".personality_migration",
@@ -98,7 +99,7 @@ function parseSmokeLanes(rawValue) {
     if (lanes.length === 0)
         return [...DEFAULT_SMOKE_LANES];
     for (const lane of lanes) {
-        if (!DEFAULT_SMOKE_LANES.includes(lane)) {
+        if (!SUPPORTED_SMOKE_LANES.includes(lane)) {
             throw new Error(`Unsupported smoke lane: ${lane}`);
         }
     }

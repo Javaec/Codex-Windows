@@ -17,7 +17,8 @@ export type PortableSmokeResult = {
   summaryJsonPath: string;
 };
 
-const DEFAULT_SMOKE_LANES: SmokeLaneName[] = ["default", "with-mods"];
+const DEFAULT_SMOKE_LANES: SmokeLaneName[] = ["default"];
+const SUPPORTED_SMOKE_LANES: SmokeLaneName[] = ["default", "with-mods"];
 const CODEX_HOME_SEED_FILES = [
   ".codex-global-state.json",
   ".personality_migration",
@@ -85,7 +86,7 @@ function parseSmokeLanes(rawValue: string | undefined): SmokeLaneName[] {
     .filter(Boolean) as SmokeLaneName[];
   if (lanes.length === 0) return [...DEFAULT_SMOKE_LANES];
   for (const lane of lanes) {
-    if (!DEFAULT_SMOKE_LANES.includes(lane)) {
+    if (!SUPPORTED_SMOKE_LANES.includes(lane)) {
       throw new Error(`Unsupported smoke lane: ${lane}`);
     }
   }

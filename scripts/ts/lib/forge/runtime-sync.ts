@@ -78,7 +78,7 @@ export function syncForgeRuntimeLayer(paths: ForgePaths, config: ForgeConfig): F
   );
 
   if (fileExists(targetRuntimeDir) && path.resolve(targetRuntimeDir) === path.resolve(paths.repoDistRuntimeDir)) {
-    writeLatestPortableLaunchers(paths.distDir, targetRuntimeDir);
+    writeLatestPortableLaunchers(paths.distDir, targetRuntimeDir, true);
     syncedPaths.push(path.join(paths.distDir, "Launch-Codex-latest.cmd"));
   }
 
