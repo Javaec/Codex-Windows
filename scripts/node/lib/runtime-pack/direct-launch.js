@@ -39,6 +39,8 @@ exports.startPortableDirectLaunch = startPortableDirectLaunch;
 const path = __importStar(require("node:path"));
 const args_1 = require("../args");
 const exec_1 = require("../exec");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const WINDOWS_PATH_CONTRACT = require(path.join(REPO_ROOT, "shared", "windows-path-contract", "index.cjs"));
 function ensureGitOnPath() {
     const candidates = [];
     if (process.env.ProgramFiles) {
@@ -62,8 +64,14 @@ function ensureGitOnPath() {
 function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, codexCliPath, buildNumber, buildFlavor, gitCapabilityCachePath) {
     if (!(0, exec_1.fileExists)(electronExe))
         throw new Error(`electron.exe not found: ${electronExe}`);
-    const rendererPath = path.join(appDir, "webview", "index.html");
-    const rendererUrl = `file:///${rendererPath.replace(/\\/g, "/")}`;
+    const normalizedAppDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.resolve(appDir));
+    const normalizedUserDataDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.resolve(userDataDir));
+    const normalizedCacheDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.resolve(cacheDir));
+    const normalizedCliPath = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.resolve(codexCliPath));
+    const rendererPath = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedAppDir, "webview", "index.html"), {
+        slashStyle: "forward",
+    });
+    const rendererUrl = `file:///${rendererPath}`;
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     env.ELECTRON_RENDERER_URL = rendererUrl;
@@ -72,9 +80,9 @@ function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, code
     env.CODEX_BUILD_FLAVOR = buildFlavor;
     env.BUILD_FLAVOR = buildFlavor;
     env.NODE_ENV = "production";
-    env.CODEX_CLI_PATH = codexCliPath;
+    env.CODEX_CLI_PATH = normalizedCliPath;
     env.CODEX_ENABLE_RUNTIME_MODS = env.CODEX_ENABLE_RUNTIME_MODS === "1" ? "1" : "0";
-    env.PWD = appDir;
+    env.PWD = normalizedAppDir;
     if (gitCapabilityCachePath)
         env.CODEX_GIT_CAPABILITY_CACHE = gitCapabilityCachePath;
     if (env.CODEX_ENABLE_RUNTIME_MODS === "1") {
@@ -108,9 +116,9 @@ function startCodexDirectLaunch(electronExe, appDir, userDataDir, cacheDir, code
         delete env.CODEX_MOD_API_DIR;
         delete env.CODEX_MOD_LOADER_DIR;
     }
-    (0, exec_1.ensureDir)(userDataDir);
-    (0, exec_1.ensureDir)(cacheDir);
-    const result = (0, exec_1.runCommand)(electronExe, [appDir, "--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: appDir, env, capture: false, allowNonZero: true });
+    (0, exec_1.ensureDir)(normalizedUserDataDir);
+    (0, exec_1.ensureDir)(normalizedCacheDir);
+    const result = (0, exec_1.runCommand)(electronExe, [normalizedAppDir, "--enable-logging", `--user-data-dir=${normalizedUserDataDir}`, `--disk-cache-dir=${normalizedCacheDir}`], { cwd: normalizedAppDir, env, capture: false, allowNonZero: true });
     if (result.status !== 0) {
         throw new Error(`Codex process exited with code ${result.status}.`);
     }
@@ -164,36 +172,37 @@ function composePortablePath(basePath, outputDir) {
 function startPortableDirectLaunch(outputDir, profileName) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
     const isDefault = (0, args_1.isCanonicalProfileName)(profile);
-    const userDataDir = path.join(outputDir, isDefault ? "userdata" : `userdata-${profile}`);
-    const cacheDir = path.join(outputDir, isDefault ? "cache" : `cache-${profile}`);
-    const exePath = path.join(outputDir, "Codex.exe");
+    const normalizedOutputDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.resolve(outputDir));
+    const userDataDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, isDefault ? "userdata" : `userdata-${profile}`));
+    const cacheDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, isDefault ? "cache" : `cache-${profile}`));
+    const exePath = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "Codex.exe"));
     if (!(0, exec_1.fileExists)(exePath))
         throw new Error(`Portable executable not found: ${exePath}`);
     (0, exec_1.ensureDir)(userDataDir);
     (0, exec_1.ensureDir)(cacheDir);
     const env = { ...process.env };
-    const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "", outputDir);
+    const normalizedPath = composePortablePath(process.env.PATH || process.env.Path || "", normalizedOutputDir);
     env.PATH = normalizedPath;
     env.Path = normalizedPath;
     env.PATHEXT = env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
     env.CODEX_WINDOWS_PROFILE = profile;
-    env.CODEX_GIT_CAPABILITY_CACHE = path.join(outputDir, "resources", "git-capability-cache.json");
+    env.CODEX_GIT_CAPABILITY_CACHE = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "resources", "git-capability-cache.json"));
     env.ELECTRON_FORCE_IS_PACKAGED = "1";
     env.NODE_ENV = "production";
     env.CODEX_ENABLE_RUNTIME_MODS = env.CODEX_ENABLE_RUNTIME_MODS === "1" ? "1" : "0";
     delete env.ELECTRON_RENDERER_URL;
-    const codexCliPath = path.join(outputDir, "resources", "codex.exe");
+    const codexCliPath = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "resources", "codex.exe"));
     if (!(0, exec_1.fileExists)(codexCliPath))
         throw new Error(`Portable Codex CLI is missing: ${codexCliPath}`);
     env.CODEX_CLI_PATH = codexCliPath;
     if (env.CODEX_ENABLE_RUNTIME_MODS === "1") {
-        const modsDir = path.join(outputDir, "resources", "mods");
+        const modsDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "resources", "mods"));
         if (!(0, exec_1.fileExists)(modsDir))
             throw new Error(`Portable modpack is missing: ${modsDir}`);
-        const modApiDir = path.join(outputDir, "resources", "mod-api");
+        const modApiDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "resources", "mod-api"));
         if (!(0, exec_1.fileExists)(modApiDir))
             throw new Error(`Portable mod API is missing: ${modApiDir}`);
-        const modLoaderDir = path.join(outputDir, "resources", "mod-loader");
+        const modLoaderDir = WINDOWS_PATH_CONTRACT.normalizeWindowsPathContract(path.join(normalizedOutputDir, "resources", "mod-loader"));
         if (!(0, exec_1.fileExists)(modLoaderDir))
             throw new Error(`Portable mod loader is missing: ${modLoaderDir}`);
         env.CODEX_MODS_DIR = modsDir;
@@ -209,5 +218,5 @@ function startPortableDirectLaunch(outputDir, profileName) {
     if (cliProbe.status !== 0) {
         throw new Error(`Portable Codex CLI failed preflight (exit=${cliProbe.status}): ${(cliProbe.stdout || cliProbe.stderr || "").trim()}`);
     }
-    return (0, exec_1.runCommand)(exePath, ["--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: outputDir, env, capture: false, allowNonZero: true }).status;
+    return (0, exec_1.runCommand)(exePath, ["--enable-logging", `--user-data-dir=${userDataDir}`, `--disk-cache-dir=${cacheDir}`], { cwd: normalizedOutputDir, env, capture: false, allowNonZero: true }).status;
 }

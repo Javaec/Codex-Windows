@@ -19,6 +19,37 @@ const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared"
   };
 };
 
+function writeLiteContract(outputDir: string, payload: {
+  appVersion: string;
+  buildNumber: string;
+  patchProfileId: string;
+  cliSource: string | null;
+  runtimeFlavor: "lite" | "forge";
+  includeRuntimeMods: boolean;
+}): void {
+  const targetPath = path.join(outputDir, "lite-contract.json");
+  const contract = {
+    version: 1,
+    runtimeFlavor: payload.runtimeFlavor,
+    appVersion: payload.appVersion,
+    buildNumber: payload.buildNumber,
+    patchProfileId: payload.patchProfileId,
+    directExeReady: true,
+    bundledTools: {
+      codexCli: fs.existsSync(path.join(outputDir, "resources", "codex.exe")),
+      ripgrep: fs.existsSync(path.join(outputDir, "resources", "rg.exe")),
+      windowsPathContract: fs.existsSync(path.join(outputDir, "resources", "app", ".vite", "build", "codex-windows-path-contract.cjs")),
+    },
+    runtimeModsBundled: payload.includeRuntimeMods,
+    launchers: [
+      "Launch-Codex.cmd",
+      ...(payload.includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
+    ],
+    cliSource: payload.cliSource || "",
+  };
+  fs.writeFileSync(targetPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
+}
+
 export function writeBuildMetadata(
   outputDir: string,
   metadata: {
@@ -70,5 +101,13 @@ export function writeBuildMetadata(
     runtimeModCompatibility,
   };
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  writeLiteContract(outputDir, {
+    appVersion: metadata.appVersion,
+    buildNumber: metadata.buildNumber,
+    patchProfileId: metadata.patchProfileId,
+    cliSource: metadata.cliSource,
+    runtimeFlavor: metadata.runtimeFlavor,
+    includeRuntimeMods: metadata.includeRuntimeMods,
+  });
   return targetPath;
 }

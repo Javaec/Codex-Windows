@@ -177,11 +177,16 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       cliPath: cliResolution.path,
       cliSource: cliResolution.source,
     });
+    const liteContractPath = path.join(portable.outputDir, "lite-contract.json");
+    if (!fs.existsSync(liteContractPath)) {
+      throw new Error(`Portable build is missing lite-contract.json: ${liteContractPath}`);
+    }
 
     writeSuccess(`Portable build ready: ${portable.outputDir}`);
     writeSuccess(`Launcher: ${portable.launcherPath}`);
     writeSuccess(`CLI trace: ${cliTracePath}`);
     writeSuccess(`Build metadata: ${buildMetadataPath}`);
+    writeSuccess(`Lite contract: ${liteContractPath}`);
 
     let singleExePath = "";
     if (options.buildSingleExe) {

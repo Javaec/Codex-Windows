@@ -9,3 +9,13 @@ naming-memory-store/
 regression/runs/
 regression/calibration-runs/
 regression/cycle-report.json
+regression/baseline-metrics.json
+regression/manual-ready-backlog.json
+regression/manual-ready-slice.json
+regression/manual-refactor-candidates.json
+migration/version-bridge/latest-report.json
+migration/version-bridge/reports/*.json
+shared/manual-sync/last-export-report.json
+shared/manual-sync/last-roundtrip-report.json
+shared/manual-sync/manual-batch-last-report.json
+shared/manual-sync/manual-batch-state.json

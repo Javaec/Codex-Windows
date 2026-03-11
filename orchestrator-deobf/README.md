@@ -1,5 +1,7 @@
 # orchestrator-deobf
 
+Legacy deobfuscation workspace. It is kept for occasional recovery/migration work and is not part of the normal `Codex Lite` repack path.
+
 Stage-based orchestrator for decompile/deobfuscation pipelines.
 
 ## Design rules

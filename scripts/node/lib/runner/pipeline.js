@@ -148,10 +148,15 @@ async function runPipelineDetailed(options) {
             cliPath: cliResolution.path,
             cliSource: cliResolution.source,
         });
+        const liteContractPath = path.join(portable.outputDir, "lite-contract.json");
+        if (!fs.existsSync(liteContractPath)) {
+            throw new Error(`Portable build is missing lite-contract.json: ${liteContractPath}`);
+        }
         (0, exec_1.writeSuccess)(`Portable build ready: ${portable.outputDir}`);
         (0, exec_1.writeSuccess)(`Launcher: ${portable.launcherPath}`);
         (0, exec_1.writeSuccess)(`CLI trace: ${cliTracePath}`);
         (0, exec_1.writeSuccess)(`Build metadata: ${buildMetadataPath}`);
+        (0, exec_1.writeSuccess)(`Lite contract: ${liteContractPath}`);
         let singleExePath = "";
         if (options.buildSingleExe) {
             (0, exec_1.writeHeader)("Packaging single EXE (SFX)");

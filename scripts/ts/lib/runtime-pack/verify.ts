@@ -38,6 +38,7 @@ export function verifyPortableRuntimeContract(options: PortableRuntimeContractOp
 
   assertExists(path.join(options.outputDir, "Codex.exe"), "portable executable");
   assertExists(appDir, "packaged app directory");
+  assertExists(path.join(appDir, ".vite", "build", "codex-windows-path-contract.cjs"), "runtime windows path contract helper");
   assertExists(path.join(resourcesDir, "codex.exe"), "bundled codex.exe");
   assertExists(path.join(resourcesDir, "rg.exe"), "bundled rg.exe");
   assertExists(path.join(resourcesDir, "path", "rg.exe"), "bundled path/rg.exe");

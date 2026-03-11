@@ -44,8 +44,11 @@ const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */"
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
+const WINDOWS_PATH_CONTRACT_OUTPUT_NAME = "codex-windows-path-contract.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "..", "shared", "patch-pack", "runtime", "codex-windows-main-shim.template.cjs");
+const WINDOWS_PATH_CONTRACT_SOURCE_PATH = path.resolve(__dirname, "..", "..", "..", "..", "shared", "windows-path-contract", "index.cjs");
 let mainShimTemplateCache = "";
+const WINDOWS_PATH_CONTRACT = require(WINDOWS_PATH_CONTRACT_SOURCE_PATH);
 const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
 const GOOD_LOADER_BOOTSTRAP_SNIPPETS = [
     'const activateRuntimeMods = loadRuntimeModLoader();',
@@ -155,7 +158,9 @@ function patchWebviewCwdNormalization(appDir, options = {}) {
     const helperPairPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
     const slashNormalizerPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+\2\.replace\(\/\\\\\/g,([`'"])\/\3\)\}/g;
     const drivePrefixPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)&&!\2\.startsWith\(([`'"])\/\4\)\?\4\/\$\{\2\}\4:\2\}/g;
-    const buildNormalizeFunction = (argName) => `const __codexWindowsPathRaw=${argName}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")||__codexWindowsPathRaw.startsWith("//./")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath`;
+    const buildNormalizeFunction = (argName) => `return ${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(argName, {
+        slashStyle: "forward",
+    })}`;
     const summary = patchWebviewIndexBundles(appDir, "webview js bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
@@ -178,7 +183,7 @@ function patchWebviewCwdNormalization(appDir, options = {}) {
         });
         next = next.replace(drivePrefixPattern, (_full, normalizeFn, normalizeArg, driveFn) => {
             changed = true;
-            return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${normalizeArg}.startsWith("/")?${normalizeArg}.slice(1):${normalizeArg};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
+            return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(normalizeArg, { slashStyle: "forward" })};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
         });
         return { alreadyPatched: false, patched: changed, content: next };
     }, allowMissingPatchPoint, /\.js$/i);
@@ -281,7 +286,9 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
         return;
     const buildDir = path.dirname(mainJs);
     const shimPath = path.join(buildDir, MAIN_SHIM_OUTPUT_NAME);
+    const windowsPathContractPath = path.join(buildDir, WINDOWS_PATH_CONTRACT_OUTPUT_NAME);
     fs.writeFileSync(shimPath, `${buildMainShim(buildNumber, buildFlavor)}\n`, "utf8");
+    (0, exec_1.copyFileSafe)(WINDOWS_PATH_CONTRACT_SOURCE_PATH, windowsPathContractPath);
     let raw = fs.readFileSync(mainJs, "utf8");
     raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V\d+ \*\/[\s\S]*?\}\)\(\);\s*/g, "");
     raw = raw.replace(/\(function codeXWindowsEnvironmentShim\(\)\s*\{[\s\S]*?\}\)\(\);\s*/g, "");

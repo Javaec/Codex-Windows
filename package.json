@@ -7,11 +7,6 @@
     "build:lite": "node scripts/node/run.js build -ProfileName lite -NoLaunch",
     "verify:lite": "node scripts/node/run.js verify",
     "smoke:lite": "node scripts/node/run.js smoke -ProfileName lite",
-    "mods:compatibility-matrix": "node ./shared/codex-mod-loader/build-compatibility-matrix.mjs",
-    "audit:runner": "node scripts/node/run.js audit",
-    "contention:runner": "node scripts/node/run.js contention",
-    "patch-pack:preflight": "node ./shared/patch-pack/preflight.mjs",
-    "patch-pack:preflight:11012": "node ./shared/patch-pack/preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863",
     "build:single-exe": "node scripts/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse"
   },
   "devDependencies": {

@@ -15,6 +15,10 @@
     const IS_MINIMAL_PLATFORM = normalizePathString(process.env.CODEX_WINDOWS_MINIMAL || "") === "1";
 
     const resourcesRoot = process.resourcesPath || path.join(__dirname, "..", "..", "..");
+    const windowsPathContract = require(path.join(__dirname, "codex-windows-path-contract.cjs"));
+    const normalizeWindowsOpenPathContract = windowsPathContract.normalizeWindowsOpenPathContract;
+    const normalizeThreadPathContract = windowsPathContract.normalizeThreadPathContract;
+    const buildThreadPathNormalizeExpression = windowsPathContract.buildThreadPathNormalizeExpression;
 
     function normalizePathString(value) {
       return typeof value === "string" ? value.trim().replace(/^\"+|\"+$/g, "") : "";
@@ -66,26 +70,6 @@
       }
     }
 
-    function normalizeWindowsOpenPath(input) {
-      let value = normalizePathString(input);
-      if (!value) return value;
-      if (/^file:\/\//i.test(value)) {
-        try {
-          value = url.fileURLToPath(value);
-        } catch {
-          // keep original
-        }
-      }
-
-      // Strip accidental diff prefixes (`a/`, `b/`) and malformed drive prefixes (`\\C:\\...`, `/C:/...`).
-      value = value.replace(/^([ab])[\\/](?=[^\\/])/, "");
-      const isUncPath = /^[/\\]{2}[^/\\]/.test(value) && !/^[/\\]{2}[?.][\\/]/.test(value);
-      if (!isUncPath) {
-        value = value.replace(/^[/\\]+(?=[A-Za-z]:[\\/])/, "");
-      }
-      return value;
-    }
-
     function resolveCodexHomeDir() {
       const configured = normalizePathString(process.env.CODEX_HOME || "");
       if (configured) return path.resolve(configured);
@@ -129,29 +113,6 @@
       }
       out.sort((a, b) => String(a).localeCompare(String(b)));
       return out;
-    }
-
-    function normalizeThreadPathPrefix(rawValue) {
-      if (typeof rawValue !== "string") return "";
-      let value = rawValue.trim().replace(/^\"+|\"+$/g, "");
-      if (!value) return value;
-      if (value.startsWith("\\\\?\\\\")) value = value.slice(4);
-      else if (value.startsWith("//?/")) value = value.slice(4);
-      else if (value.startsWith("/??/")) value = value.slice(4);
-      if (/^[/\\\\][A-Za-z]:[\\\\/]/.test(value)) value = value.slice(1);
-      return value;
-    }
-
-    function buildThreadPathNormalizeExpression(column) {
-      return (
-        "CASE " +
-        "WHEN typeof(" + column + ")='text' AND length(" + column + ") > 4 AND substr(hex(" + column + "), 1, 8)='5C5C3F5C' THEN substr(" + column + ", 5) " +
-        "WHEN typeof(" + column + ")='text' AND " + column + " LIKE '//?/%' THEN substr(" + column + ", 5) " +
-        "WHEN typeof(" + column + ")='text' AND " + column + " LIKE '/??/%' THEN substr(" + column + ", 5) " +
-        "WHEN typeof(" + column + ")='text' AND " + column + " GLOB '/[A-Za-z]:/*' THEN substr(" + column + ", 2) " +
-        "WHEN typeof(" + column + ")='text' AND substr(" + column + ", 1, 1)='\\\\' AND substr(" + column + ", 2, 2) GLOB '[A-Za-z]:' THEN substr(" + column + ", 2) " +
-        "ELSE " + column + " END"
-      );
     }
 
     function ensureThreadPathNormalizationTriggers(db, migrationTargets, availableColumns) {
@@ -228,7 +189,7 @@
               const threadId = row && typeof row.id === "string" ? row.id : "";
               const currentPath = row && typeof row.pathValue === "string" ? row.pathValue : "";
               if (!threadId || !currentPath) continue;
-              const normalizedPath = normalizeThreadPathPrefix(currentPath);
+              const normalizedPath = normalizeThreadPathContract(currentPath);
               if (!normalizedPath || normalizedPath === currentPath) continue;
               const updateResult = updateStatement.run(normalizedPath, threadId);
               changedRows += Number(updateResult && updateResult.changes ? updateResult.changes : 0);
@@ -457,10 +418,10 @@
           ? electron.shell.showItemInFolder.bind(electron.shell)
           : null;
         if (originalOpenPath) {
-          electron.shell.openPath = (targetPath) => originalOpenPath(normalizeWindowsOpenPath(targetPath));
+          electron.shell.openPath = (targetPath) => originalOpenPath(normalizeWindowsOpenPathContract(targetPath));
         }
         if (originalShowItemInFolder) {
-          electron.shell.showItemInFolder = (targetPath) => originalShowItemInFolder(normalizeWindowsOpenPath(targetPath));
+          electron.shell.showItemInFolder = (targetPath) => originalShowItemInFolder(normalizeWindowsOpenPathContract(targetPath));
         }
       }
 

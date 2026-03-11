@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileExists, writeInfo } from "../exec";
+import { copyFileSafe, fileExists, writeInfo } from "../exec";
 
 const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
 
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
+const WINDOWS_PATH_CONTRACT_OUTPUT_NAME = "codex-windows-path-contract.cjs";
 const MAIN_SHIM_TEMPLATE_PATH = path.resolve(
   __dirname,
   "..",
@@ -18,7 +19,28 @@ const MAIN_SHIM_TEMPLATE_PATH = path.resolve(
   "runtime",
   "codex-windows-main-shim.template.cjs",
 );
+const WINDOWS_PATH_CONTRACT_SOURCE_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "shared",
+  "windows-path-contract",
+  "index.cjs",
+);
 let mainShimTemplateCache = "";
+const WINDOWS_PATH_CONTRACT = require(WINDOWS_PATH_CONTRACT_SOURCE_PATH) as {
+  buildInlineNormalizeWindowsPathContractExpression: (
+    inputExpression: string,
+    options?: {
+      stripDiffPrefix?: boolean;
+      stripLeadingDriveSlash?: boolean;
+      slashStyle?: "forward" | "backward" | "preserve";
+      lowerCase?: boolean;
+    },
+  ) => string;
+};
 const BAD_RENDERER_MOD_WRAP_SNIPPET = "const wrapped = `/* CODEX-MOD:${mod.id} */\\\\n${mod.script}\\\\n`;";
 const GOOD_LOADER_BOOTSTRAP_SNIPPETS = [
   'const activateRuntimeMods = loadRuntimeModLoader();',
@@ -166,7 +188,9 @@ export function patchWebviewCwdNormalization(
   const drivePrefixPattern =
     /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)&&!\2\.startsWith\(([`'"])\/\4\)\?\4\/\$\{\2\}\4:\2\}/g;
   const buildNormalizeFunction = (argName: string): string =>
-    `const __codexWindowsPathRaw=${argName}.replace(/\\\\/g,"/");const __codexWindowsPath=__codexWindowsPathRaw.startsWith("//?/")||__codexWindowsPathRaw.startsWith("//./")?__codexWindowsPathRaw.slice(4):(__codexWindowsPathRaw.startsWith("/??/")?__codexWindowsPathRaw.slice(4):__codexWindowsPathRaw);const __codexWindowsDrivePath=__codexWindowsPath.startsWith("/")?__codexWindowsPath.slice(1):__codexWindowsPath;return /^[A-Za-z]:\\//.test(__codexWindowsDrivePath)?__codexWindowsDrivePath:__codexWindowsPath`;
+    `return ${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(argName, {
+      slashStyle: "forward",
+    })}`;
 
   const summary = patchWebviewIndexBundles(
     appDir,
@@ -193,7 +217,7 @@ export function patchWebviewCwdNormalization(
       });
       next = next.replace(drivePrefixPattern, (_full, normalizeFn, normalizeArg, driveFn) => {
         changed = true;
-        return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${normalizeArg}.startsWith("/")?${normalizeArg}.slice(1):${normalizeArg};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
+        return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(normalizeArg, { slashStyle: "forward" })};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
       });
       return { alreadyPatched: false, patched: changed, content: next };
     },
@@ -328,7 +352,9 @@ export function patchMainForWindowsEnvironment(appDir: string, buildNumber: stri
   if (!fileExists(mainJs)) return;
   const buildDir = path.dirname(mainJs);
   const shimPath = path.join(buildDir, MAIN_SHIM_OUTPUT_NAME);
+  const windowsPathContractPath = path.join(buildDir, WINDOWS_PATH_CONTRACT_OUTPUT_NAME);
   fs.writeFileSync(shimPath, `${buildMainShim(buildNumber, buildFlavor)}\n`, "utf8");
+  copyFileSafe(WINDOWS_PATH_CONTRACT_SOURCE_PATH, windowsPathContractPath);
 
   let raw = fs.readFileSync(mainJs, "utf8");
 
