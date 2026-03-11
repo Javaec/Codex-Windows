@@ -1,7 +1,5 @@
 "use strict";
 
-const url = require("node:url");
-
 function normalizePathString(value) {
   return typeof value === "string" ? value.trim().replace(/^"+|"+$/g, "") : "";
 }
@@ -38,13 +36,43 @@ function applySlashStyle(value, slashStyle) {
   return String(value || "");
 }
 
+function normalizeFileUrlToPath(value) {
+  const input = String(value || "");
+  if (!/^file:\/\//i.test(input)) return input;
+  try {
+    const ParsedUrl = typeof URL === "function" ? URL : null;
+    if (ParsedUrl) {
+      const parsed = new ParsedUrl(input);
+      let pathname = decodeURIComponent(parsed.pathname || "");
+      if (/^\/[A-Za-z]:[\\/]/.test(pathname)) pathname = pathname.slice(1);
+      if (parsed.hostname) {
+        return `\\\\${parsed.hostname}${pathname.replace(/\//g, "\\")}`;
+      }
+      return pathname;
+    }
+  } catch {
+    // keep original
+  }
+  try {
+    if (typeof require === "function") {
+      const nodeUrl = require("node:url");
+      if (nodeUrl && typeof nodeUrl.fileURLToPath === "function") {
+        return nodeUrl.fileURLToPath(input);
+      }
+    }
+  } catch {
+    // keep original
+  }
+  return input;
+}
+
 function normalizeWindowsPathContract(input, options = {}) {
   let value = normalizePathString(input);
   if (!value) return value;
 
   if (options.allowFileUrl && /^file:\/\//i.test(value)) {
     try {
-      value = url.fileURLToPath(value);
+      value = normalizeFileUrlToPath(value);
     } catch {
       // keep original
     }
@@ -89,6 +117,99 @@ function normalizeWebviewPathContract(input) {
     stripLeadingDriveSlash: true,
     slashStyle: "forward",
   });
+}
+
+function normalizeWindowsPathDisplayContract(input) {
+  return normalizeWindowsPathContract(input, {
+    allowFileUrl: true,
+    stripDiffPrefix: true,
+    stripLeadingDriveSlash: true,
+    slashStyle: "forward",
+  });
+}
+
+function containsMalformedWindowsPathText(input) {
+  const value = typeof input === "string" ? input : "";
+  if (!value) return false;
+  return (
+    /(^|[^A-Za-z0-9+.-])[/\\]+[A-Za-z]:[\\/]/.test(value) ||
+    /\\\\\?\\|\/\/\?\/|\/\/\.\/|\/\?\?\//.test(value)
+  );
+}
+
+function normalizeWindowsPathTextContract(input) {
+  let value = typeof input === "string" ? input : "";
+  if (!value || !containsMalformedWindowsPathText(value)) return value;
+
+  const normalizeCapture = (pathValue) => normalizeWindowsPathDisplayContract(pathValue);
+
+  value = value.replace(/(\]\()([/\\]+[A-Za-z]:[\\/][^)\r\n]+)(\))/g, (_full, prefix, pathValue, suffix) => {
+    return `${prefix}${normalizeCapture(pathValue)}${suffix}`;
+  });
+  value = value.replace(/(\[)([/\\]+[A-Za-z]:[\\/][^\]\r\n]+)(\])/g, (_full, prefix, pathValue, suffix) => {
+    return `${prefix}${normalizeCapture(pathValue)}${suffix}`;
+  });
+  value = value.replace(/(["'`])([/\\]+[A-Za-z]:[\\/][^"'`\r\n]+)\1/g, (_full, quote, pathValue) => {
+    return `${quote}${normalizeCapture(pathValue)}${quote}`;
+  });
+  value = value.replace(
+    /(^|[\s([{"'`>])([/\\]+[A-Za-z]:[\\/][^\s)\]}>,"'`;]+)(?=$|[\s)\]}>,"'`;])/gm,
+    (_full, prefix, pathValue) => `${prefix}${normalizeCapture(pathValue)}`,
+  );
+  return value;
+}
+
+function normalizeWindowsPathPayloadContract(input, seen) {
+  if (typeof input === "string") {
+    return normalizeWindowsPathTextContract(input);
+  }
+  if (!input || typeof input !== "object") {
+    return input;
+  }
+
+  const activeSeen = seen instanceof WeakSet ? seen : new WeakSet();
+  if (activeSeen.has(input)) return input;
+  activeSeen.add(input);
+
+  if (Array.isArray(input)) {
+    let changed = false;
+    const next = input.map((value) => {
+      const normalized = normalizeWindowsPathPayloadContract(value, activeSeen);
+      if (normalized !== value) changed = true;
+      return normalized;
+    });
+    return changed ? next : input;
+  }
+
+  if (Object.prototype.toString.call(input) !== "[object Object]") {
+    return input;
+  }
+
+  let changed = false;
+  const next = {};
+  for (const [key, value] of Object.entries(input)) {
+    let normalized = value;
+    if (typeof value === "string") {
+      if (/(^|_)(path|cwd|root|file|dir|directory|workspace|project)(_|$)/i.test(key)) {
+        normalized = normalizeWindowsPathContract(value, {
+          allowFileUrl: true,
+          stripDiffPrefix: true,
+          stripLeadingDriveSlash: true,
+          slashStyle: "forward",
+        });
+      } else if (
+        /(^|_)(text|body|content|message|summary|details|description|label|title|prompt)(_|$)/i.test(key) ||
+        containsMalformedWindowsPathText(value)
+      ) {
+        normalized = normalizeWindowsPathTextContract(value);
+      }
+    } else {
+      normalized = normalizeWindowsPathPayloadContract(value, activeSeen);
+    }
+    if (normalized !== value) changed = true;
+    next[key] = normalized;
+  }
+  return changed ? next : input;
 }
 
 function buildThreadPathNormalizeExpression(column) {
@@ -142,11 +263,17 @@ function buildInlineNormalizeWindowsPathContractExpression(inputExpression, opti
 }
 
 module.exports = {
+  applySlashStyle,
+  containsMalformedWindowsPathText,
   buildInlineNormalizeWindowsPathContractExpression,
   buildThreadPathNormalizeExpression,
   isUncPath,
   isWindowsDrivePath,
+  normalizeFileUrlToPath,
   normalizePathString,
+  normalizeWindowsPathDisplayContract,
+  normalizeWindowsPathPayloadContract,
+  normalizeWindowsPathTextContract,
   normalizeThreadPathContract,
   normalizeWebviewPathContract,
   normalizeWindowsOpenPathContract,

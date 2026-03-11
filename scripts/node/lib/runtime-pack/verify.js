@@ -37,7 +37,8 @@ exports.verifyPortableRuntimeContract = verifyPortableRuntimeContract;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
-const WEBVIEW_CWD_PATCH_MARKER = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
+const WEBVIEW_CWD_PATCH_MARKER = "/* CODEX-WINDOWS-CWD-NORMALIZER-V2 */";
+const MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER = "/* CODEX-WINDOWS-PATH-GUIDANCE-V1 */";
 function assertExists(targetPath, label) {
     if (!(0, exec_1.fileExists)(targetPath)) {
         throw new Error(`Portable runtime contract failed: missing ${label}: ${targetPath}`);
@@ -58,6 +59,14 @@ function verifyWebviewCwdPatch(resourcesAppDir) {
         throw new Error("Portable runtime contract failed: webview cwd patch marker not found in packaged webview bundle.");
     }
 }
+function verifyMainPathGuidancePatch(resourcesAppDir) {
+    const mainJsPath = path.join(resourcesAppDir, ".vite", "build", "main.js");
+    assertExists(mainJsPath, "packaged main.js bundle");
+    const mainJs = fs.readFileSync(mainJsPath, "utf8");
+    if (!mainJs.includes(MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER)) {
+        throw new Error("Portable runtime contract failed: Windows path guidance patch marker not found in packaged main bundle.");
+    }
+}
 function verifyPortableRuntimeContract(options) {
     const resourcesDir = path.join(options.outputDir, "resources");
     const appDir = path.join(resourcesDir, "app");
@@ -68,6 +77,7 @@ function verifyPortableRuntimeContract(options) {
     assertExists(path.join(resourcesDir, "rg.exe"), "bundled rg.exe");
     assertExists(path.join(resourcesDir, "path", "rg.exe"), "bundled path/rg.exe");
     assertExists(path.join(options.outputDir, "Launch-Codex.cmd"), "default launcher");
+    verifyMainPathGuidancePatch(appDir);
     if (options.includeRuntimeMods) {
         assertExists(path.join(resourcesDir, "mods"), "runtime mods directory");
         assertExists(path.join(resourcesDir, "mod-api"), "runtime mod API directory");

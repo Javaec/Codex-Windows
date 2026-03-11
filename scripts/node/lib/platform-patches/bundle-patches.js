@@ -40,8 +40,9 @@ exports.patchMainForWindowsEnvironment = patchMainForWindowsEnvironment;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
-const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
+const WEBVIEW_CWD_NORMALIZER_PATCH_TAG = "/* CODEX-WINDOWS-CWD-NORMALIZER-V2 */";
 const WEBVIEW_APP_SUNSET_PATCH_TAG = "/* CODEX-WINDOWS-APP-SUNSET-BYPASS-V1 */";
+const MAIN_WINDOWS_PATH_GUIDANCE_PATCH_TAG = "/* CODEX-WINDOWS-PATH-GUIDANCE-V1 */";
 const MAIN_SHIM_LOADER_TAG = "/* CODEX-WINDOWS-MAIN-SHIM-LOADER-V1 */";
 const MAIN_SHIM_OUTPUT_NAME = "codex-windows-main-shim.cjs";
 const WINDOWS_PATH_CONTRACT_OUTPUT_NAME = "codex-windows-path-contract.cjs";
@@ -158,9 +159,15 @@ function patchWebviewCwdNormalization(appDir, options = {}) {
     const helperPairPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)\.toLowerCase\(\)\}function\s+\3\(([A-Za-z0-9_$]+)\)\{return\s+\4\.replace\([^)]*\)\}/g;
     const slashNormalizerPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+\2\.replace\(\/\\\\\/g,([`'"])\/\3\)\}/g;
     const drivePrefixPattern = /function\s+([A-Za-z0-9_$]+)\(([A-Za-z0-9_$]+)\)\{return\s+([A-Za-z0-9_$]+)\(\2\)&&!\2\.startsWith\(([`'"])\/\4\)\?\4\/\$\{\2\}\4:\2\}/g;
+    const codeLocationAbsolutePathPattern = /([A-Za-z0-9_$]+)\.code_location\.absolute_file_path\.trim\(\)/g;
     const buildNormalizeFunction = (argName) => `return ${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(argName, {
         slashStyle: "forward",
     })}`;
+    const buildNormalizedDisplayPathExpression = (inputExpression) => `(()=>{const __codexWindowsDisplayPathRaw=typeof ${inputExpression}==="string"?${inputExpression}.trim():"";return ${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression("__codexWindowsDisplayPathRaw", {
+        stripDiffPrefix: true,
+        stripLeadingDriveSlash: true,
+        slashStyle: "forward",
+    })}})()`;
     const summary = patchWebviewIndexBundles(appDir, "webview js bundle not found for cwd normalization patch.", "webview cwd normalization patch point not found.", (raw) => {
         if (raw.includes(WEBVIEW_CWD_NORMALIZER_PATCH_TAG)) {
             return { alreadyPatched: true, patched: false, content: raw };
@@ -184,6 +191,10 @@ function patchWebviewCwdNormalization(appDir, options = {}) {
         next = next.replace(drivePrefixPattern, (_full, normalizeFn, normalizeArg, driveFn) => {
             changed = true;
             return withTag(`function ${normalizeFn}(${normalizeArg}){const __codexWindowsPath=${WINDOWS_PATH_CONTRACT.buildInlineNormalizeWindowsPathContractExpression(normalizeArg, { slashStyle: "forward" })};return ${driveFn}(__codexWindowsPath)?__codexWindowsPath:${normalizeArg}}`);
+        });
+        next = next.replace(codeLocationAbsolutePathPattern, (_full, findingVar) => {
+            changed = true;
+            return withTag(buildNormalizedDisplayPathExpression(`${findingVar}.code_location.absolute_file_path`));
         });
         return { alreadyPatched: false, patched: changed, content: next };
     }, allowMissingPatchPoint, /\.js$/i);
@@ -280,6 +291,37 @@ function buildMainShim(buildNumber, buildFlavor) {
         .replace(/__BUILD_NUMBER__/g, safeBuildNumber)
         .replace(/__BUILD_FLAVOR__/g, safeBuildFlavor);
 }
+function patchMainPromptPathGuidance(raw) {
+    if (raw.includes(MAIN_WINDOWS_PATH_GUIDANCE_PATCH_TAG))
+        return raw;
+    const replacements = [
+        {
+            from: "![alt](/absolute/path.png)",
+            to: "![alt](C:/absolute/path.png)",
+        },
+        {
+            from: "When referencing code or workspace files in responses, always use full absolute file paths instead of relative paths.",
+            to: "When referencing code or workspace files in responses, always use full absolute file paths instead of relative paths. On Windows, use C:/path/file.txt and never /C:/path/file.txt.",
+        },
+        {
+            from: "When referring to files, use full absolute filesystem links in Markdown (not relative paths).",
+            to: "When referring to files, use full absolute filesystem links in Markdown (not relative paths). On Windows, use C:/path/file.txt and never /C:/path/file.txt.",
+        },
+        {
+            from: "[$checks](/Users/ambrosino/.codex/skills/checks/SKILL.md)",
+            to: "[$checks](C:/Users/example/.codex/skills/checks/SKILL.md)",
+        },
+    ];
+    let next = raw;
+    let changed = false;
+    for (const replacement of replacements) {
+        if (!next.includes(replacement.from))
+            continue;
+        next = next.replace(replacement.from, replacement.to);
+        changed = true;
+    }
+    return changed ? `${MAIN_WINDOWS_PATH_GUIDANCE_PATCH_TAG}${next}` : raw;
+}
 function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
     const mainJs = path.join(appDir, ".vite", "build", "main.js");
     if (!(0, exec_1.fileExists)(mainJs))
@@ -303,5 +345,6 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
             ? raw.replace(/^(["'`])use strict\1;/, `$&${loaderStatement}`)
             : `${loaderStatement}${raw}`;
     }
+    raw = patchMainPromptPathGuidance(raw);
     fs.writeFileSync(mainJs, raw, "utf8");
 }

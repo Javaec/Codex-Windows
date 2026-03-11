@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileExists } from "../exec";
 
-const WEBVIEW_CWD_PATCH_MARKER = "/* CODEX-WINDOWS-CWD-NORMALIZER-V1 */";
+const WEBVIEW_CWD_PATCH_MARKER = "/* CODEX-WINDOWS-CWD-NORMALIZER-V2 */";
+const MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER = "/* CODEX-WINDOWS-PATH-GUIDANCE-V1 */";
 
 export interface PortableRuntimeContractOptions {
   outputDir: string;
@@ -32,6 +33,15 @@ function verifyWebviewCwdPatch(resourcesAppDir: string): void {
   }
 }
 
+function verifyMainPathGuidancePatch(resourcesAppDir: string): void {
+  const mainJsPath = path.join(resourcesAppDir, ".vite", "build", "main.js");
+  assertExists(mainJsPath, "packaged main.js bundle");
+  const mainJs = fs.readFileSync(mainJsPath, "utf8");
+  if (!mainJs.includes(MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER)) {
+    throw new Error("Portable runtime contract failed: Windows path guidance patch marker not found in packaged main bundle.");
+  }
+}
+
 export function verifyPortableRuntimeContract(options: PortableRuntimeContractOptions): void {
   const resourcesDir = path.join(options.outputDir, "resources");
   const appDir = path.join(resourcesDir, "app");
@@ -43,6 +53,7 @@ export function verifyPortableRuntimeContract(options: PortableRuntimeContractOp
   assertExists(path.join(resourcesDir, "rg.exe"), "bundled rg.exe");
   assertExists(path.join(resourcesDir, "path", "rg.exe"), "bundled path/rg.exe");
   assertExists(path.join(options.outputDir, "Launch-Codex.cmd"), "default launcher");
+  verifyMainPathGuidancePatch(appDir);
 
   if (options.includeRuntimeMods) {
     assertExists(path.join(resourcesDir, "mods"), "runtime mods directory");

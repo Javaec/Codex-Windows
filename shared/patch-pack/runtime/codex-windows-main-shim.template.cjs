@@ -18,7 +18,10 @@
     const windowsPathContract = require(path.join(__dirname, "codex-windows-path-contract.cjs"));
     const normalizeWindowsOpenPathContract = windowsPathContract.normalizeWindowsOpenPathContract;
     const normalizeThreadPathContract = windowsPathContract.normalizeThreadPathContract;
+    const normalizeWindowsPathTextContract = windowsPathContract.normalizeWindowsPathTextContract;
+    const normalizeWindowsPathPayloadContract = windowsPathContract.normalizeWindowsPathPayloadContract;
     const buildThreadPathNormalizeExpression = windowsPathContract.buildThreadPathNormalizeExpression;
+    let rendererPathNormalizationBootstrapSource = "";
 
     function normalizePathString(value) {
       return typeof value === "string" ? value.trim().replace(/^\"+|\"+$/g, "") : "";
@@ -106,6 +109,67 @@
       } catch {
         return { updated: false, path: configPath };
       }
+    }
+
+    function listRecentSessionJsonlPaths(codexHomeDir) {
+      const sessionsRoot = codexHomeDir ? path.join(codexHomeDir, "sessions") : "";
+      if (!sessionsRoot || !fs.existsSync(sessionsRoot)) return [];
+
+      const out = [];
+      function visit(dirPath, depth) {
+        if (depth > 4 || out.length >= 64) return;
+        let entries = [];
+        try {
+          entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (!entry) continue;
+          const nextPath = path.join(dirPath, entry.name);
+          if (entry.isDirectory()) {
+            visit(nextPath, depth + 1);
+            continue;
+          }
+          if (!entry.isFile() || !/\.jsonl$/i.test(entry.name || "")) continue;
+          out.push(nextPath);
+          if (out.length >= 64) break;
+        }
+      }
+
+      visit(sessionsRoot, 0);
+      out.sort((left, right) => {
+        try {
+          return fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs;
+        } catch {
+          return 0;
+        }
+      });
+      return out.slice(0, 32);
+    }
+
+    function normalizeRecentSessionLogs(codexHomeDir) {
+      const report = { scannedFiles: 0, updatedFiles: 0 };
+      for (const sessionPath of listRecentSessionJsonlPaths(codexHomeDir)) {
+        report.scannedFiles += 1;
+        let raw = "";
+        try {
+          const stat = fs.statSync(sessionPath);
+          if (!stat.isFile() || stat.size > 8 * 1024 * 1024) continue;
+          raw = fs.readFileSync(sessionPath, "utf8");
+        } catch {
+          continue;
+        }
+        const next = normalizeWindowsPathTextContract(raw);
+        if (!next || next === raw) continue;
+        try {
+          fs.writeFileSync(sessionPath, next, "utf8");
+          report.updatedFiles += 1;
+        } catch {
+          // ignore
+        }
+      }
+      return report;
     }
 
     function resolveAppVersion() {
@@ -279,6 +343,113 @@
       return activateRuntimeMods;
     }
 
+    function buildRendererPathNormalizationBootstrapSource() {
+      if (rendererPathNormalizationBootstrapSource) return rendererPathNormalizationBootstrapSource;
+      const bootstrap = [
+        "(() => {",
+        "if (globalThis.__CODEX_WINDOWS_RENDERER_PATH_CONTRACT_V1__) return;",
+        "globalThis.__CODEX_WINDOWS_RENDERER_PATH_CONTRACT_V1__ = true;",
+        windowsPathContract.normalizePathString.toString(),
+        windowsPathContract.normalizeFileUrlToPath.toString(),
+        windowsPathContract.isWindowsDrivePath.toString(),
+        windowsPathContract.isUncPath.toString(),
+        windowsPathContract.stripDiffPrefix.toString(),
+        windowsPathContract.stripExtendedWindowsPrefix.toString(),
+        windowsPathContract.stripLeadingDriveSlash.toString(),
+        windowsPathContract.applySlashStyle.toString(),
+        windowsPathContract.normalizeWindowsPathContract.toString(),
+        windowsPathContract.normalizeWindowsPathDisplayContract.toString(),
+        windowsPathContract.containsMalformedWindowsPathText.toString(),
+        windowsPathContract.normalizeWindowsPathTextContract.toString(),
+        windowsPathContract.normalizeWindowsPathPayloadContract.toString(),
+        `function patchResponsePrototype(){`,
+        `if(typeof Response==="undefined"||!Response.prototype||Response.prototype.__codexWindowsPathContractPatched)return;`,
+        `Object.defineProperty(Response.prototype,"__codexWindowsPathContractPatched",{value:!0,configurable:!0});`,
+        `const originalJson=typeof Response.prototype.json==="function"?Response.prototype.json:null;`,
+        `if(originalJson){Response.prototype.json=async function codexWindowsNormalizedResponseJson(){const payload=await originalJson.apply(this,arguments);return normalizeWindowsPathPayloadContract(payload)}}`,
+        `const originalText=typeof Response.prototype.text==="function"?Response.prototype.text:null;`,
+        `if(originalText){Response.prototype.text=async function codexWindowsNormalizedResponseText(){const payload=await originalText.apply(this,arguments);return normalizeWindowsPathTextContract(payload)}}`,
+        `}`,
+        `function patchJsonParse(){`,
+        `if(typeof JSON!=="object"||typeof JSON.parse!=="function"||JSON.parse.__codexWindowsPathContractPatched)return;`,
+        `const originalParse=JSON.parse.bind(JSON);`,
+        `const wrappedParse=function codexWindowsNormalizedJsonParse(text,reviver){const parsed=originalParse(text,reviver);return typeof text==="string"&&containsMalformedWindowsPathText(text)?normalizeWindowsPathPayloadContract(parsed):parsed};`,
+        `Object.defineProperty(wrappedParse,"__codexWindowsPathContractPatched",{value:!0,configurable:!0});`,
+        `JSON.parse=wrappedParse;`,
+        `}`,
+        `function normalizeElementAttributes(element){`,
+        `if(!element||element.nodeType!==Node.ELEMENT_NODE)return 0;`,
+        `let changed=0;`,
+        `for(const attrName of ["href","title","data-path","data-file-path"]){`,
+        `if(!element.hasAttribute||!element.hasAttribute(attrName))continue;`,
+        `const currentValue=element.getAttribute(attrName);`,
+        `if(typeof currentValue!=="string"||!containsMalformedWindowsPathText(currentValue))continue;`,
+        `const nextValue=attrName==="href"?normalizeWindowsPathDisplayContract(currentValue):normalizeWindowsPathTextContract(currentValue);`,
+        `if(nextValue&&nextValue!==currentValue){element.setAttribute(attrName,nextValue);changed+=1;}`,
+        `}`,
+        `return changed;`,
+        `}`,
+        `function normalizeTextNode(node){`,
+        `if(!node||node.nodeType!==Node.TEXT_NODE)return 0;`,
+        `const currentValue=typeof node.data==="string"?node.data:"";`,
+        `if(!containsMalformedWindowsPathText(currentValue))return 0;`,
+        `const nextValue=normalizeWindowsPathTextContract(currentValue);`,
+        `if(!nextValue||nextValue===currentValue)return 0;`,
+        `node.data=nextValue;`,
+        `return 1;`,
+        `}`,
+        `function normalizeSubtree(root){`,
+        `if(!root)return 0;`,
+        `if(root.nodeType===Node.TEXT_NODE)return normalizeTextNode(root);`,
+        `let changed=0;`,
+        `if(root.nodeType===Node.ELEMENT_NODE)changed+=normalizeElementAttributes(root);`,
+        `if(typeof document!=="object"||!document.createTreeWalker)return changed;`,
+        `const walker=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);`,
+        `let currentNode=walker.currentNode;`,
+        `while(currentNode){`,
+        `if(currentNode!==root){`,
+        `if(currentNode.nodeType===Node.TEXT_NODE)changed+=normalizeTextNode(currentNode);`,
+        `else if(currentNode.nodeType===Node.ELEMENT_NODE)changed+=normalizeElementAttributes(currentNode);`,
+        `}`,
+        `currentNode=walker.nextNode();`,
+        `}`,
+        `return changed;`,
+        `}`,
+        `function startDomObserver(){`,
+        `const targetRoot=document.body||document.documentElement;`,
+        `if(!targetRoot||globalThis.__CODEX_WINDOWS_RENDERER_PATH_OBSERVER_V1__)return;`,
+        `globalThis.__CODEX_WINDOWS_RENDERER_PATH_OBSERVER_V1__=new MutationObserver(records=>{`,
+        `for(const record of records){`,
+        `if(record.type==="characterData"){normalizeTextNode(record.target);continue;}`,
+        `if(record.type==="attributes"){normalizeSubtree(record.target);continue;}`,
+        `for(const addedNode of record.addedNodes||[]){normalizeSubtree(addedNode);}`,
+        `}`,
+        `});`,
+        `normalizeSubtree(targetRoot);`,
+        `globalThis.__CODEX_WINDOWS_RENDERER_PATH_OBSERVER_V1__.observe(targetRoot,{subtree:!0,childList:!0,characterData:!0,attributes:!0,attributeFilter:["href","title","data-path","data-file-path"]});`,
+        `}`,
+        `patchResponsePrototype();`,
+        `patchJsonParse();`,
+        `if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",startDomObserver,{once:!0});}else{startDomObserver();}`,
+        "})();",
+      ].join("");
+      rendererPathNormalizationBootstrapSource = bootstrap;
+      return rendererPathNormalizationBootstrapSource;
+    }
+
+    function installRendererPathNormalization(contents, browserWindowId) {
+      if (!contents || typeof contents.on !== "function" || typeof contents.executeJavaScript !== "function") return;
+      const injectBootstrap = () => {
+        Promise.resolve(contents.executeJavaScript(buildRendererPathNormalizationBootstrapSource(), true)).catch((error) => {
+          const message = error && error.message ? error.message : String(error || "");
+          console.warn(
+            `[codex-windows-runtime] renderer path bootstrap failed browserWindowId=${browserWindowId || 0} webContentsId=${typeof contents.id === "number" ? contents.id : 0} error=${normalizePathString(message)}`,
+          );
+        });
+      };
+      contents.on("dom-ready", injectBootstrap);
+    }
+
     function installStartupInstrumentation(electron) {
       if (!electron || typeof electron !== "object" || !electron.app) return;
       if (globalThis.__CODEX_WINDOWS_STARTUP_INSTRUMENTATION_V1__) return;
@@ -298,6 +469,7 @@
       function instrumentWebContents(contents, browserWindowId) {
         if (!contents || typeof contents.on !== "function" || instrumentedWebContents.has(contents)) return;
         instrumentedWebContents.add(contents);
+        installRendererPathNormalization(contents, browserWindowId);
         const webContentsId = typeof contents.id === "number" ? contents.id : 0;
         const getRendererMetricSnapshot = () => {
           try {
@@ -433,12 +605,18 @@
     const modsRootPath = resolveRuntimeSubdir("mods", "CODEX_MODS_DIR");
     const appVersion = resolveAppVersion();
     const configTomlProjectHeaderNormalization = normalizeConfigTomlProjectHeaders(codexHomeDir);
+    const sessionLogNormalization = normalizeRecentSessionLogs(codexHomeDir);
     if (!IS_MINIMAL_PLATFORM) {
       migrateThreadCwdPrefixInSqlite(codexHomeDir);
     }
     logRuntimeContract(codexHomeDir, modsRootPath, appVersion);
     if (configTomlProjectHeaderNormalization.updated) {
       console.log(`[codex-windows-runtime] normalized config.toml project paths path=${configTomlProjectHeaderNormalization.path}`);
+    }
+    if (sessionLogNormalization.updatedFiles > 0) {
+      console.log(
+        `[codex-windows-runtime] normalized recent session logs scanned=${sessionLogNormalization.scannedFiles} updated=${sessionLogNormalization.updatedFiles}`,
+      );
     }
 
     // Fix Windows path opening.
