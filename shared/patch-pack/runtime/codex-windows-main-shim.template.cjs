@@ -78,6 +78,36 @@
       return path.join(profileDir, ".codex");
     }
 
+    function normalizeConfigTomlProjectHeaders(codexHomeDir) {
+      if (!codexHomeDir) return { updated: false, path: "" };
+      const configPath = path.join(codexHomeDir, "config.toml");
+      if (!fs.existsSync(configPath)) return { updated: false, path: configPath };
+      let raw = "";
+      try {
+        raw = fs.readFileSync(configPath, "utf8");
+      } catch {
+        return { updated: false, path: configPath };
+      }
+      const next = raw.replace(/^\[projects\.(["'])(.+?)\1\]$/gm, (_full, quote, projectKey) => {
+        const normalizedKey = windowsPathContract.normalizeWindowsPathContract(projectKey, {
+          stripLeadingDriveSlash: true,
+          slashStyle: "backward",
+        });
+        return normalizedKey && normalizedKey !== projectKey
+          ? `[projects.${quote}${normalizedKey}${quote}]`
+          : _full;
+      });
+      if (next === raw) {
+        return { updated: false, path: configPath };
+      }
+      try {
+        fs.writeFileSync(configPath, next, "utf8");
+        return { updated: true, path: configPath };
+      } catch {
+        return { updated: false, path: configPath };
+      }
+    }
+
     function resolveAppVersion() {
       const candidatePaths = [
         path.join(__dirname, "..", "..", "package.json"),
@@ -402,10 +432,14 @@
     const codexHomeDir = resolveCodexHomeDir();
     const modsRootPath = resolveRuntimeSubdir("mods", "CODEX_MODS_DIR");
     const appVersion = resolveAppVersion();
+    const configTomlProjectHeaderNormalization = normalizeConfigTomlProjectHeaders(codexHomeDir);
     if (!IS_MINIMAL_PLATFORM) {
       migrateThreadCwdPrefixInSqlite(codexHomeDir);
     }
     logRuntimeContract(codexHomeDir, modsRootPath, appVersion);
+    if (configTomlProjectHeaderNormalization.updated) {
+      console.log(`[codex-windows-runtime] normalized config.toml project paths path=${configTomlProjectHeaderNormalization.path}`);
+    }
 
     // Fix Windows path opening.
     try {
