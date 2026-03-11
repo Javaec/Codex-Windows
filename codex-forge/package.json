@@ -1,0 +1,19 @@
+{
+  "name": "codex-forge",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build:runner": "npm --prefix .. run build:runner",
+    "build:forge": "node ..\\scripts\\node\\run.js build -ProfileName forge -NoLaunch",
+    "electron": "npm run build:runner && node ..\\node_modules\\electron\\cli.js .\\electron\\main.js",
+    "electron:devtools": "npm run build:runner && node ..\\node_modules\\electron\\cli.js .\\electron\\main.js --devtools",
+    "electron:smoke": "npm run build:runner && node ..\\node_modules\\electron\\cli.js .\\electron\\main.js --smoke",
+    "runtime:list": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js list",
+    "runtime:sources": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js sources",
+    "runtime:capture": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js capture-current",
+    "runtime:import-official": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js import-official",
+    "runtime:activate-repo-dist": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js activate-repo-dist",
+    "state": "npm run build:runner && node ..\\scripts\\node\\forge-launcher.js --print-state",
+    "test": "npm run build:runner && npm run state && npm run runtime:sources && node ..\\shared\\codex-mod-loader\\build-compatibility-matrix.mjs && node ..\\shared\\patch-pack\\preflight.mjs --snapshot-label Codex-11012.dmg --app-version 26.305.950 --build-number 863 && npm run electron:smoke"
+  }
+}

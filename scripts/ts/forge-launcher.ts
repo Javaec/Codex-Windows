@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   const paths = resolveForgePaths();
   const config = ensureForgeWorkspace(paths);
   if (!options.printState) {
-    throw new Error("Codex Forge browser launcher was removed. Use codex-forge\\tools\\Launch-Codex-Forge.cmd or npm run forge:electron.");
+    throw new Error("Codex Forge browser launcher was removed. Use codex-forge\\tools\\Launch-Codex-Forge.cmd or npm --prefix codex-forge run electron.");
   }
   process.stdout.write(`${JSON.stringify(getForgeState(paths, config), null, 2)}\n`);
 }
