@@ -284,6 +284,35 @@ function patchWebviewAppSunsetGate(appDir, options = {}) {
 function escapeJsString(value) {
     return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
+function resolvePackagedMainEntry(appDir) {
+    const pkgPath = path.join(appDir, "package.json");
+    const buildDir = path.join(appDir, ".vite", "build");
+    const candidates = [];
+    if ((0, exec_1.fileExists)(pkgPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+            const mainEntry = typeof parsed.main === "string" ? parsed.main.trim() : "";
+            if (mainEntry) {
+                candidates.push(path.resolve(appDir, mainEntry));
+            }
+        }
+        catch {
+            // ignore malformed package.json and continue with fallbacks
+        }
+    }
+    candidates.push(path.join(buildDir, "bootstrap.js"));
+    candidates.push(path.join(buildDir, "main.js"));
+    const entryPath = candidates.find((candidate) => (0, exec_1.fileExists)(candidate));
+    return entryPath ? { buildDir: path.dirname(entryPath), entryPath } : null;
+}
+function listBuildJsBundles(buildDir) {
+    if (!(0, exec_1.fileExists)(buildDir))
+        return [];
+    return fs
+        .readdirSync(buildDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /\.js$/i.test(entry.name))
+        .map((entry) => path.join(buildDir, entry.name));
+}
 function buildMainShim(buildNumber, buildFlavor) {
     const safeBuildNumber = escapeJsString(buildNumber);
     const safeBuildFlavor = escapeJsString(buildFlavor);
@@ -323,20 +352,20 @@ function patchMainPromptPathGuidance(raw) {
     return changed ? `${MAIN_WINDOWS_PATH_GUIDANCE_PATCH_TAG}${next}` : raw;
 }
 function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
-    const mainJs = path.join(appDir, ".vite", "build", "main.js");
-    if (!(0, exec_1.fileExists)(mainJs))
+    const resolvedEntry = resolvePackagedMainEntry(appDir);
+    if (!resolvedEntry)
         return;
-    const buildDir = path.dirname(mainJs);
+    const { buildDir, entryPath } = resolvedEntry;
     const shimPath = path.join(buildDir, MAIN_SHIM_OUTPUT_NAME);
     const windowsPathContractPath = path.join(buildDir, WINDOWS_PATH_CONTRACT_OUTPUT_NAME);
     fs.writeFileSync(shimPath, `${buildMainShim(buildNumber, buildFlavor)}\n`, "utf8");
     (0, exec_1.copyFileSafe)(WINDOWS_PATH_CONTRACT_SOURCE_PATH, windowsPathContractPath);
-    let raw = fs.readFileSync(mainJs, "utf8");
+    let raw = fs.readFileSync(entryPath, "utf8");
     raw = raw.replace(/\/\* CODEX-WINDOWS-ENV-SHIM-V\d+ \*\/[\s\S]*?\}\)\(\);\s*/g, "");
     raw = raw.replace(/\(function codeXWindowsEnvironmentShim\(\)\s*\{[\s\S]*?\}\)\(\);\s*/g, "");
     raw = raw.replace(/\/\* CODEX-WINDOWS-MAIN-SHIM-LOADER-V\d+ \*\/require\([^)]+\);\s*/g, "");
     if (!/require\((["'`])electron\1\)/.test(raw)) {
-        throw new Error(`Unable to locate electron bootstrap require in ${mainJs}.`);
+        throw new Error(`Unable to locate electron bootstrap require in ${entryPath}.`);
     }
     if (!raw.includes(MAIN_SHIM_LOADER_TAG)) {
         const loaderStatement = `${MAIN_SHIM_LOADER_TAG}require("./${MAIN_SHIM_OUTPUT_NAME}");`;
@@ -345,6 +374,12 @@ function patchMainForWindowsEnvironment(appDir, buildNumber, buildFlavor) {
             ? raw.replace(/^(["'`])use strict\1;/, `$&${loaderStatement}`)
             : `${loaderStatement}${raw}`;
     }
-    raw = patchMainPromptPathGuidance(raw);
-    fs.writeFileSync(mainJs, raw, "utf8");
+    fs.writeFileSync(entryPath, raw, "utf8");
+    for (const bundlePath of listBuildJsBundles(buildDir)) {
+        const bundleRaw = fs.readFileSync(bundlePath, "utf8");
+        const next = patchMainPromptPathGuidance(bundleRaw);
+        if (next !== bundleRaw) {
+            fs.writeFileSync(bundlePath, next, "utf8");
+        }
+    }
 }

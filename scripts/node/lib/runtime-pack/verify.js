@@ -60,10 +60,17 @@ function verifyWebviewCwdPatch(resourcesAppDir) {
     }
 }
 function verifyMainPathGuidancePatch(resourcesAppDir) {
-    const mainJsPath = path.join(resourcesAppDir, ".vite", "build", "main.js");
-    assertExists(mainJsPath, "packaged main.js bundle");
-    const mainJs = fs.readFileSync(mainJsPath, "utf8");
-    if (!mainJs.includes(MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER)) {
+    const buildDir = path.join(resourcesAppDir, ".vite", "build");
+    assertExists(buildDir, "packaged build directory");
+    const jsBundles = fs.readdirSync(buildDir).filter((name) => /\.js$/i.test(name));
+    if (jsBundles.length < 1) {
+        throw new Error(`Portable runtime contract failed: no build js bundle found in ${buildDir}`);
+    }
+    const patched = jsBundles.some((fileName) => {
+        const content = fs.readFileSync(path.join(buildDir, fileName), "utf8");
+        return content.includes(MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER);
+    });
+    if (!patched) {
         throw new Error("Portable runtime contract failed: Windows path guidance patch marker not found in packaged main bundle.");
     }
 }

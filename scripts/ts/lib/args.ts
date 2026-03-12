@@ -184,7 +184,7 @@ export function printUsage(): void {
   process.stdout.write("  -CodexCliPath <path>\n");
   process.stdout.write("  -CodexHomePath <path>\n");
   process.stdout.write("  -RuntimeLogsDir <path>\n");
-  process.stdout.write("  -PatchProfile <codex-106x|codex-10711|generic>\n");
+  process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|generic>\n");
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
   process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
   process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
