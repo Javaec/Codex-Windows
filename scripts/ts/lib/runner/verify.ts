@@ -8,8 +8,9 @@ import {
   invokeEnvironmentContractChecks,
 } from "../env";
 import { mustResolveCommand, runCommand, uniqueExistingDirs, writeError, writeHeader, writeSuccess, writeWarn } from "../exec";
+import { getFileDescriptorWithCache, getStepSignature, readStateManifest, writeStateManifest } from "../manifest";
 import { resolvePatchProfile } from "../platform-patches/patch-pack";
-import { resolveDmgPath } from "../source-bundle/extract";
+import { invokeExtractionStage, resolveDmgPath } from "../source-bundle/extract";
 import { REPO_ROOT, resolvePreferredCodexCliPath, sanitizeRunnerEnvironment } from "./context";
 
 type VerifyStatus = "OK" | "WARN" | "FAIL";
@@ -18,6 +19,13 @@ type VerifyItem = {
   name: string;
   status: VerifyStatus;
   details: string;
+};
+
+type DmgBuildMetadata = {
+  appVersion: string;
+  buildNumber: string;
+  buildFlavor: string;
+  appDir: string;
 };
 
 function addVerifyItem(items: VerifyItem[], name: string, status: VerifyStatus, details: string): void {
@@ -70,6 +78,39 @@ function summarizePatchPackPreflight(output: string): string {
   }
 }
 
+function resolveDmgBuildMetadata(dmgPath: string, workDir: string): DmgBuildMetadata {
+  const manifestPath = path.join(workDir, "verify.state.manifest.json");
+  const manifest = readStateManifest(manifestPath);
+  const descriptor = getFileDescriptorWithCache(dmgPath, manifest.dmg);
+  manifest.dmg = descriptor;
+  writeStateManifest(manifestPath, manifest);
+
+  const extractResult = invokeExtractionStage(
+    dmgPath,
+    workDir,
+    true,
+    false,
+    manifest,
+    manifestPath,
+    getStepSignature({ dmgSha256: descriptor.sha256 }),
+  );
+  const pkgPath = path.join(extractResult.appDir, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    throw new Error(`package.json not found after DMG extraction: ${pkgPath}`);
+  }
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+    version?: string;
+    codexBuildNumber?: string;
+    codexBuildFlavor?: string;
+  };
+  return {
+    appVersion: typeof pkg.version === "string" ? pkg.version : "",
+    buildNumber: typeof pkg.codexBuildNumber === "string" ? pkg.codexBuildNumber : "",
+    buildFlavor: typeof pkg.codexBuildFlavor === "string" ? pkg.codexBuildFlavor : "",
+    appDir: extractResult.appDir,
+  };
+}
+
 export async function runVerify(options: PipelineOptions): Promise<number> {
   sanitizeRunnerEnvironment();
   ensureWindowsEnvironment();
@@ -92,6 +133,7 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
   }
 
   let resolvedDmgPath = "";
+  let dmgBuildMetadata: DmgBuildMetadata | null = null;
   try {
     resolvedDmgPath = resolveDmgPath(options.dmgPath, REPO_ROOT);
     addVerifyItem(items, "dmg", "OK", resolvedDmgPath);
@@ -101,11 +143,25 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
   }
 
   const snapshotLabel = resolvedDmgPath ? path.basename(resolvedDmgPath) : "";
+  if (resolvedDmgPath) {
+    try {
+      dmgBuildMetadata = resolveDmgBuildMetadata(resolvedDmgPath, workDir);
+      addVerifyItem(
+        items,
+        "dmg-metadata",
+        "OK",
+        `appVersion=${dmgBuildMetadata.appVersion || "unknown"} buildNumber=${dmgBuildMetadata.buildNumber || "unknown"} buildFlavor=${dmgBuildMetadata.buildFlavor || "unknown"}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addVerifyItem(items, "dmg-metadata", "FAIL", message);
+    }
+  }
   try {
     const resolvedProfile = resolvePatchProfile({
       snapshotLabel,
-      buildNumber: "",
-      appVersion: "",
+      buildNumber: dmgBuildMetadata?.buildNumber || "",
+      appVersion: dmgBuildMetadata?.appVersion || "",
       forcedProfileId: options.patchProfile || "",
     });
     addVerifyItem(items, "patch-profile", "OK", `${resolvedProfile.profile.profileId} (${resolvedProfile.source})`);
@@ -116,6 +172,8 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
 
   const preflightArgs = [path.join(REPO_ROOT, "shared", "patch-pack", "preflight.mjs")];
   if (snapshotLabel) preflightArgs.push("--snapshot-label", snapshotLabel);
+  if (dmgBuildMetadata?.appVersion) preflightArgs.push("--app-version", dmgBuildMetadata.appVersion);
+  if (dmgBuildMetadata?.buildNumber) preflightArgs.push("--build-number", dmgBuildMetadata.buildNumber);
   const preflight = runCommand(process.execPath, preflightArgs, {
     cwd: REPO_ROOT,
     capture: true,
