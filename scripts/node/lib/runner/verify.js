@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runVerify = runVerify;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const cli_1 = require("../cli");
+const cli_resolution_1 = require("./cli-resolution");
 const env_1 = require("../env");
 const exec_1 = require("../exec");
 const manifest_1 = require("../manifest");
@@ -175,13 +175,13 @@ async function runVerify(options) {
         : takeLastLine(preflight.stderr || preflight.stdout) || `exit=${preflight.status}`);
     const preferredCodexCliPath = (0, context_1.resolvePreferredCodexCliPath)(options.codexCliPath);
     try {
-        const cliResolution = (0, cli_1.resolveCodexCliPathContract)(preferredCodexCliPath, false);
+        const cliTracePath = path.join(workDir, "verify-cli-resolution.log");
+        const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, false, cliTracePath, "Codex CLI verify probe failed", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         if (!cliResolution.found || !cliResolution.path) {
             addVerifyItem(items, "codex-cli", "FAIL", takeLastLine(cliResolution.trace.join("\n")) || "codex.exe not found");
         }
         else {
-            const probe = (0, cli_1.probeResolvedCodexCli)(cliResolution);
-            addVerifyItem(items, "codex-cli", probe.ok ? "OK" : "FAIL", `${cliResolution.path} (source=${cliResolution.source}; ${probe.details})`);
+            addVerifyItem(items, "codex-cli", "OK", `${cliResolution.path} (source=${cliResolution.source})`);
         }
     }
     catch (error) {

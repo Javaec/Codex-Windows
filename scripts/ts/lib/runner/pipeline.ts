@@ -145,11 +145,13 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
 
   if (options.buildPortable) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveAndProbeCodexCli(
+    const cliResolution = await resolveAndProbeCodexCli(
       preferredCodexCliPath,
       true,
       cliTracePath,
       "Codex CLI preflight failed for portable packaging",
+      undefined,
+      { workDir, codexCliChannel: options.codexCliChannel },
     );
 
     writeHeader("Packaging portable app");
@@ -236,11 +238,13 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
 
   if (!options.noLaunch) {
     writeHeader("Resolving Codex CLI");
-    const cliResolution = resolveAndProbeCodexCli(
+    const cliResolution = await resolveAndProbeCodexCli(
       preferredCodexCliPath,
       true,
       cliTracePath,
       "Codex CLI preflight failed",
+      undefined,
+      { workDir, codexCliChannel: options.codexCliChannel },
     );
 
     ensureGitOnPath();
@@ -261,11 +265,13 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       gitCapabilityCachePath,
     );
   } else {
-    const cliResolution = resolveAndProbeCodexCli(
+    const cliResolution = await resolveAndProbeCodexCli(
       preferredCodexCliPath,
       false,
       cliTracePath,
       "Codex CLI trace failed",
+      undefined,
+      { workDir, codexCliChannel: options.codexCliChannel },
     );
     if (cliResolution.found) {
       writeSuccess(`CLI trace recorded: ${cliTracePath}`);

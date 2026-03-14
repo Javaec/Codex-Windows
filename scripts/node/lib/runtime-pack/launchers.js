@@ -107,6 +107,7 @@ if not exist "%BASE%runtime-logs\\${laneName}" mkdir "%BASE%runtime-logs\\${lane
 set "CHROME_LOG_FILE=%BASE%runtime-logs\\${laneName}\\chromium.log"
 set "CODEX_RUNTIME_STDOUT_LOG=%BASE%runtime-logs\\${laneName}\\stdout-latest.log"
 set "CODEX_RUNTIME_ENV_LOG=%BASE%runtime-logs\\${laneName}\\launch.env.txt"
+set "CODEX_COMPACT_RUNTIME_LOG=%BASE%runtime-logs\\${laneName}\\compact-events.log"
 
 > "%CODEX_RUNTIME_ENV_LOG%" (
   echo lane=${laneName}
@@ -116,6 +117,7 @@ set "CODEX_RUNTIME_ENV_LOG=%BASE%runtime-logs\\${laneName}\\launch.env.txt"
   echo codexHome=%CODEX_HOME%
   echo cli=%BASE%resources\\codex.exe
   echo rg=%BASE%resources\\rg.exe
+  echo compactLog=%CODEX_COMPACT_RUNTIME_LOG%
 ${runtimeLogLines}
   echo runtimeMods=%CODEX_ENABLE_RUNTIME_MODS%
   echo runtimeModsDisabled=%CODEX_MODS_DISABLED%
@@ -124,21 +126,44 @@ ${runtimeLogLines}
   echo launchTime=%DATE% %TIME%
 )
 
+if /I "%CODEX_COMPACT_DEBUG%"=="1" > "%CODEX_COMPACT_RUNTIME_LOG%" type nul
+if /I "%CODEX_COMPACT_DEBUG%"=="1" (
+  echo [INFO] Compact debug log: "%CODEX_COMPACT_RUNTIME_LOG%"
+  echo [INFO] Full runtime stdout log: "%CODEX_RUNTIME_STDOUT_LOG%"
+)
+
 "%BASE%Codex.exe" --enable-logging --log-file="%CHROME_LOG_FILE%" --user-data-dir="%BASE%${userDataFolder}" --disk-cache-dir="%BASE%${cacheFolder}" > "%CODEX_RUNTIME_STDOUT_LOG%" 2>&1
 exit /b %ERRORLEVEL%
 `;
 }
 function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cacheFolder) {
-    const variants = (0, args_1.isForgeProfileName)(profile)
-        ? [
-            {
-                fileName: "Launch-Codex-with-mods.cmd",
-                env: { CODEX_ENABLE_RUNTIME_MODS: "1" },
-                laneName: "with-mods",
-                userDataSuffix: "-with-mods",
+    const variants = [
+        {
+            fileName: "Launch-Codex-compact-debug.cmd",
+            env: {
+                CODEX_ENABLE_RUNTIME_MODS: "0",
+                CODEX_MODS_DISABLED: "1",
+                CODEX_COMPACT_DEBUG: "1",
+                CODEX_COMPACT_RUST_BACKTRACE: "1",
+                CODEX_COMPACT_RUST_LOG: "info,codex_core::compact_remote=trace,codex_api::endpoint::compact=trace,codex_api::endpoint::responses=debug,codex_app_server_client=debug",
+                CODEX_COMPACT_RUST_LOG_STYLE: "never",
             },
-        ]
-        : [];
+            laneName: "compact-debug",
+            runtimeModsEnabled: false,
+            userDataSuffix: "-compact-debug",
+        },
+        ...((0, args_1.isForgeProfileName)(profile)
+            ? [
+                {
+                    fileName: "Launch-Codex-with-mods.cmd",
+                    env: { CODEX_ENABLE_RUNTIME_MODS: "1" },
+                    laneName: "with-mods",
+                    runtimeModsEnabled: true,
+                    userDataSuffix: "-with-mods",
+                },
+            ]
+            : []),
+    ];
     const expectedVariantLaunchers = new Set(["Launch-Codex.cmd", ...variants.map((variant) => variant.fileName)]);
     for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
         if (!entry.isFile())
@@ -157,7 +182,7 @@ function writePortableVariantLaunchers(outputDir, profile, userDataFolder, cache
         }
     }
     for (const variant of variants) {
-        fs.writeFileSync(path.join(outputDir, variant.fileName), buildPortableLauncherScript(profile, `${userDataFolder}${variant.userDataSuffix}`, `${cacheFolder}${variant.userDataSuffix}`, variant.laneName, true, variant.env), "ascii");
+        fs.writeFileSync(path.join(outputDir, variant.fileName), buildPortableLauncherScript(profile, `${userDataFolder}${variant.userDataSuffix}`, `${cacheFolder}${variant.userDataSuffix}`, variant.laneName, variant.runtimeModsEnabled, variant.env), "ascii");
     }
 }
 function writePortableLauncher(outputDir, profileName) {
@@ -176,6 +201,7 @@ function writePortableLauncher(outputDir, profileName) {
 function writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods) {
     const launchers = [
         { outputPath: path.join(distDir, "Launch-Codex-latest.cmd"), targetPath: path.join(outputDir, "Launch-Codex.cmd") },
+        { outputPath: path.join(distDir, "Launch-Codex-latest-compact-debug.cmd"), targetPath: path.join(outputDir, "Launch-Codex-compact-debug.cmd") },
         ...(includeRuntimeMods
             ? [{ outputPath: path.join(distDir, "Launch-Codex-latest-with-mods.cmd"), targetPath: path.join(outputDir, "Launch-Codex-with-mods.cmd") }]
             : []),
@@ -184,6 +210,7 @@ function writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods) {
         path.join(distDir, "Launch-Codex-latest-no-mods.cmd"),
         path.join(distDir, "Launch-Codex-latest-minimal.cmd"),
         path.join(distDir, "Launch-Codex-latest-isolated-home.cmd"),
+        ...((0, exec_1.fileExists)(path.join(outputDir, "Launch-Codex-compact-debug.cmd")) ? [] : [path.join(distDir, "Launch-Codex-latest-compact-debug.cmd")]),
         ...(includeRuntimeMods ? [] : [path.join(distDir, "Launch-Codex-latest-with-mods.cmd")]),
     ];
     for (const staleLauncherPath of staleLatestLaunchers) {

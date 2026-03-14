@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PipelineOptions } from "../args";
-import { probeResolvedCodexCli, resolveCodexCliPathContract } from "../cli";
+import { resolveAndProbeCodexCli } from "./cli-resolution";
 import {
   ensureRipgrepInPath,
   ensureWindowsEnvironment,
@@ -190,17 +190,19 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
 
   const preferredCodexCliPath = resolvePreferredCodexCliPath(options.codexCliPath);
   try {
-    const cliResolution = resolveCodexCliPathContract(preferredCodexCliPath, false);
+    const cliTracePath = path.join(workDir, "verify-cli-resolution.log");
+    const cliResolution = await resolveAndProbeCodexCli(
+      preferredCodexCliPath,
+      false,
+      cliTracePath,
+      "Codex CLI verify probe failed",
+      undefined,
+      { workDir, codexCliChannel: options.codexCliChannel },
+    );
     if (!cliResolution.found || !cliResolution.path) {
       addVerifyItem(items, "codex-cli", "FAIL", takeLastLine(cliResolution.trace.join("\n")) || "codex.exe not found");
     } else {
-      const probe = probeResolvedCodexCli(cliResolution);
-      addVerifyItem(
-        items,
-        "codex-cli",
-        probe.ok ? "OK" : "FAIL",
-        `${cliResolution.path} (source=${cliResolution.source}; ${probe.details})`,
-      );
+      addVerifyItem(items, "codex-cli", "OK", `${cliResolution.path} (source=${cliResolution.source})`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

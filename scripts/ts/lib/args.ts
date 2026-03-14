@@ -5,6 +5,7 @@ export interface PipelineOptions {
   workDir?: string;
   distDir?: string;
   codexCliPath?: string;
+  codexCliChannel?: string;
   codexHomePath?: string;
   patchProfile?: string;
   reuse: boolean;
@@ -96,6 +97,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case "codexclipath":
         options.codexCliPath = readValue();
         break;
+      case "codexclichannel":
+        options.codexCliChannel = readValue();
+        break;
       case "codexhomepath":
         options.codexHomePath = readValue();
         break;
@@ -182,6 +186,7 @@ export function printUsage(): void {
   process.stdout.write("  -WorkDir <path>\n");
   process.stdout.write("  -DistDir <path>\n");
   process.stdout.write("  -CodexCliPath <path>\n");
+  process.stdout.write("  -CodexCliChannel <alpha>\n");
   process.stdout.write("  -CodexHomePath <path>\n");
   process.stdout.write("  -RuntimeLogsDir <path>\n");
   process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|generic>\n");

@@ -6,6 +6,7 @@
   globalThis.__CODEX_WINDOWS_MAIN_SHIM_V1__ = true;
 
   try {
+    const childProcess = require("node:child_process");
     const fs = require("node:fs");
     const path = require("node:path");
     const url = require("node:url");
@@ -550,6 +551,425 @@
       });
     }
 
+    function installCompactTransportDiagnostics() {
+      if (normalizePathString(process.env.CODEX_COMPACT_DEBUG || "") !== "1") return;
+      if (globalThis.__CODEX_WINDOWS_COMPACT_TRANSPORT_DEBUG_V1__) return;
+      globalThis.__CODEX_WINDOWS_COMPACT_TRANSPORT_DEBUG_V1__ = true;
+
+      const LOG_PREFIX = "[codex-compact-runtime]";
+      const MAX_LOG_TEXT_CHARS = 480;
+      const MAX_LOG_KEYS = 12;
+      const COMPACT_TEXT_PATTERNS = [
+        /automatically compacting context/i,
+        /remote compact task/i,
+        /responses\/compact/i,
+        /stream disconnected before completion/i,
+        /\bcompact\b/i,
+      ];
+      const compactRuntimeLogPath = normalizePathString(process.env.CODEX_COMPACT_RUNTIME_LOG || "");
+      let compactRuntimeLogWriteFailed = false;
+
+      function isPlainObject(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        try {
+          const proto = Object.getPrototypeOf(value);
+          return proto === Object.prototype || proto === null;
+        } catch {
+          return false;
+        }
+      }
+
+      function sanitizeText(value, maxChars) {
+        const limit = Number.isFinite(maxChars) ? Number(maxChars) : MAX_LOG_TEXT_CHARS;
+        const normalized = String(value || "").replace(/\s+/g, " ").trim();
+        if (normalized.length <= limit) return normalized;
+        return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
+      }
+
+      function appendCompactRuntimeLogLine(line) {
+        if (!compactRuntimeLogPath || compactRuntimeLogWriteFailed) return;
+        try {
+          fs.appendFileSync(compactRuntimeLogPath, `${line}\n`, "utf8");
+        } catch {
+          compactRuntimeLogWriteFailed = true;
+        }
+      }
+
+      function logCompactRuntime(event, details) {
+        const payload = {
+          event,
+          at: new Date().toISOString(),
+          ...details,
+        };
+        const line = `${LOG_PREFIX} ${JSON.stringify(payload)}`;
+        console.log(line);
+        appendCompactRuntimeLogLine(line);
+      }
+
+      function createLineTap(onLine) {
+        let buffer = "";
+        return function pushChunk(chunk) {
+          if (chunk == null) return;
+          buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+          while (true) {
+            const newlineIndex = buffer.indexOf("\n");
+            if (newlineIndex < 0) break;
+            const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
+            buffer = buffer.slice(newlineIndex + 1);
+            onLine(line);
+          }
+        };
+      }
+
+      function createJsonLineTap(onMessage) {
+        return createLineTap((line) => {
+          const trimmed = line.trim();
+          if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) return;
+          try {
+            onMessage(JSON.parse(trimmed), trimmed, Buffer.byteLength(trimmed));
+          } catch {
+            // Ignore non-protocol lines.
+          }
+        });
+      }
+
+      function looksLikeCompactText(line) {
+        const normalized = sanitizeText(line, 4096);
+        if (!normalized || normalized.startsWith("{") || normalized.startsWith("[")) return false;
+        return COMPACT_TEXT_PATTERNS.some((pattern) => pattern.test(normalized));
+      }
+
+      function extractUuid(value) {
+        if (typeof value !== "string") return "";
+        const match = value.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i);
+        return match ? match[0].toLowerCase() : "";
+      }
+
+      function extractItemType(message) {
+        if (!isPlainObject(message)) return "";
+        const params = isPlainObject(message.params) ? message.params : null;
+        const item = params && isPlainObject(params.item) ? params.item : null;
+        return item && typeof item.type === "string" ? item.type : "";
+      }
+
+      function extractItemId(message) {
+        if (!isPlainObject(message)) return "";
+        const params = isPlainObject(message.params) ? message.params : null;
+        const item = params && isPlainObject(params.item) ? params.item : null;
+        return item && typeof item.id === "string" ? item.id : "";
+      }
+
+      function extractTurnIdFromObject(value, depth) {
+        if (depth > 5 || value == null) return "";
+        if (typeof value === "string") return extractUuid(value);
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            const turnId = extractTurnIdFromObject(item, depth + 1);
+            if (turnId) return turnId;
+          }
+          return "";
+        }
+        if (!isPlainObject(value)) return "";
+
+        const directCandidates = [
+          value.turnId,
+          value.turn && value.turn.id,
+          value.params && value.params.turnId,
+          value.params && value.params.turn && value.params.turn.id,
+        ];
+        for (const candidate of directCandidates) {
+          const turnId = extractTurnIdFromObject(candidate, depth + 1);
+          if (turnId) return turnId;
+        }
+        return "";
+      }
+
+      function extractErrorMessageFromProtocol(message) {
+        if (!isPlainObject(message)) return "";
+        const candidates = [
+          message.error && message.error.message,
+          message.params && message.params.error && message.params.error.message,
+          message.params && message.params.turn && message.params.turn.error && message.params.turn.error.message,
+          message.result && message.result.error && message.result.error.message,
+        ];
+        for (const candidate of candidates) {
+          if (typeof candidate === "string" && candidate.trim()) {
+            return sanitizeText(candidate, 220);
+          }
+        }
+        return "";
+      }
+
+      function looksLikeCompactProtocolMessage(message) {
+        if (!message || typeof message !== "object") return false;
+        const method = normalizePathString(message.method || "").toLowerCase();
+        const id = normalizePathString(message.id || "").toLowerCase();
+        if (method.includes("compact")) return true;
+        if (id.includes("compact")) return true;
+        if (extractItemType(message) === "contextCompaction") return true;
+        const errorMessage = normalizePathString(extractErrorMessageFromProtocol(message)).toLowerCase();
+        return COMPACT_TEXT_PATTERNS.some((pattern) => pattern.test(errorMessage));
+      }
+
+      function extractThreadId(value) {
+        return extractUuid(value);
+      }
+
+      function extractThreadIdFromObject(value, depth) {
+        if (depth > 5 || value == null) return "";
+        if (typeof value === "string") return extractThreadId(value);
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            const threadId = extractThreadIdFromObject(item, depth + 1);
+            if (threadId) return threadId;
+          }
+          return "";
+        }
+        if (!isPlainObject(value)) return "";
+
+        const directCandidates = [
+          value.threadId,
+          value.conversationId,
+          value.id,
+          value.thread && value.thread.id,
+          value.turn && value.turn.threadId,
+          value.params && value.params.threadId,
+        ];
+        for (const candidate of directCandidates) {
+          const threadId = extractThreadIdFromObject(candidate, depth + 1);
+          if (threadId) return threadId;
+        }
+        for (const nestedValue of Object.values(value)) {
+          const threadId = extractThreadIdFromObject(nestedValue, depth + 1);
+          if (threadId) return threadId;
+        }
+        return "";
+      }
+
+      function summarizeObjectKeys(value) {
+        if (!isPlainObject(value)) return [];
+        return Object.keys(value).slice(0, MAX_LOG_KEYS);
+      }
+
+      function summarizeProtocolMessage(message, rawLine, lineBytes) {
+        const params = isPlainObject(message.params) ? message.params : null;
+        const result = isPlainObject(message.result) ? message.result : null;
+        const error = isPlainObject(message.error) ? message.error : null;
+        const derivedErrorMessage = extractErrorMessageFromProtocol(message);
+        return {
+          requestId: typeof message.id === "string" ? message.id : "",
+          method: typeof message.method === "string" ? message.method : "",
+          lineBytes,
+          threadId: extractThreadIdFromObject(message, 0),
+          turnId: extractTurnIdFromObject(message, 0),
+          itemType: extractItemType(message),
+          itemId: extractItemId(message),
+          topLevelKeys: summarizeObjectKeys(message),
+          paramKeys: summarizeObjectKeys(params),
+          resultKeys: summarizeObjectKeys(result),
+          errorCode: error && error.code != null ? String(error.code) : "",
+          errorMessage: error && error.message != null ? sanitizeText(error.message, 220) : derivedErrorMessage,
+          willRetry: params && typeof params.willRetry === "boolean" ? params.willRetry : "",
+          rawLinePreview: sanitizeText(rawLine, 220),
+        };
+      }
+
+      function applyCompactChildEnv(env) {
+        const applied = {};
+        const rustBacktrace = normalizePathString(process.env.CODEX_COMPACT_RUST_BACKTRACE || "");
+        const rustLog = normalizePathString(process.env.CODEX_COMPACT_RUST_LOG || "");
+        const rustLogStyle = normalizePathString(process.env.CODEX_COMPACT_RUST_LOG_STYLE || "");
+        if (rustBacktrace && !normalizePathString(env.RUST_BACKTRACE || "")) {
+          env.RUST_BACKTRACE = rustBacktrace;
+          applied.RUST_BACKTRACE = rustBacktrace;
+        }
+        if (rustLog && !normalizePathString(env.RUST_LOG || "")) {
+          env.RUST_LOG = rustLog;
+          applied.RUST_LOG = rustLog;
+        }
+        if (rustLogStyle && !normalizePathString(env.RUST_LOG_STYLE || "")) {
+          env.RUST_LOG_STYLE = rustLogStyle;
+          applied.RUST_LOG_STYLE = rustLogStyle;
+        }
+        return applied;
+      }
+
+      function buildSpawnPatchRecord(file, args, options) {
+        const executablePath = normalizePathString(file || "");
+        const baseName = path.basename(executablePath).toLowerCase();
+        const isCodexCli = baseName === "codex.exe" || baseName === "codex";
+        const nextArgs = Array.isArray(args) ? args.slice() : [];
+        const rawOptions = isPlainObject(options) ? options : (isPlainObject(args) ? args : {});
+        const nextOptions = isPlainObject(rawOptions) ? { ...rawOptions } : {};
+        if (isPlainObject(rawOptions) && isPlainObject(rawOptions.env)) {
+          nextOptions.env = { ...rawOptions.env };
+        } else {
+          nextOptions.env = { ...process.env };
+        }
+        return {
+          executablePath,
+          isCodexCli,
+          nextArgs,
+          nextOptions,
+        };
+      }
+
+      const originalSpawn = childProcess.spawn;
+      childProcess.spawn = function patchedSpawn(file, args, options) {
+        const spawnRecord = buildSpawnPatchRecord(file, args, options);
+        if (!spawnRecord.isCodexCli) {
+          return originalSpawn.call(this, file, args, options);
+        }
+
+        const appliedEnv = applyCompactChildEnv(spawnRecord.nextOptions.env);
+        const child = originalSpawn.call(this, file, spawnRecord.nextArgs, spawnRecord.nextOptions);
+        if (!child || child.__CODEX_COMPACT_RUNTIME_INSTRUMENTED__) return child;
+        child.__CODEX_COMPACT_RUNTIME_INSTRUMENTED__ = true;
+
+        const pid = typeof child.pid === "number" ? child.pid : 0;
+        const activeRequests = new Map();
+        const activeCompactions = new Map();
+
+        function summarizePendingCompactions() {
+          const now = Date.now();
+          return Array.from(activeCompactions.entries())
+            .slice(0, 8)
+            .map(([turnId, record]) => ({
+              turnId,
+              threadId: record.threadId,
+              itemId: record.itemId,
+              ageMs: now - record.startedAtMs,
+            }));
+        }
+
+        function trackCompactionLifecycle(summary) {
+          if (summary.itemType === "contextCompaction" && summary.turnId && summary.method === "item/started") {
+            activeCompactions.set(summary.turnId, {
+              startedAtMs: Date.now(),
+              threadId: summary.threadId,
+              itemId: summary.itemId || "",
+            });
+            return;
+          }
+          if (!summary.turnId) return;
+          if (summary.itemType === "contextCompaction" && summary.method === "item/completed") {
+            activeCompactions.delete(summary.turnId);
+            return;
+          }
+          if (summary.method === "turn/completed") {
+            activeCompactions.delete(summary.turnId);
+          }
+        }
+
+        logCompactRuntime("codex-spawn", {
+          pid,
+          executable: spawnRecord.executablePath,
+          args: spawnRecord.nextArgs.slice(0, 8),
+          appliedEnvKeys: Object.keys(appliedEnv),
+          runtimeLane: normalizePathString(process.env.CODEX_RUNTIME_LANE || ""),
+        });
+
+        if (child.stdin && typeof child.stdin.write === "function") {
+          const stdinTap = createJsonLineTap((message, rawLine, lineBytes) => {
+            if (!looksLikeCompactProtocolMessage(message)) return;
+            const summary = summarizeProtocolMessage(message, rawLine, lineBytes);
+            if (summary.requestId) {
+              activeRequests.set(summary.requestId, {
+                startedAtMs: Date.now(),
+                method: summary.method,
+                threadId: summary.threadId,
+                turnId: summary.turnId,
+              });
+            }
+            logCompactRuntime("compact-request", { pid, ...summary });
+          });
+          const originalWrite = child.stdin.write.bind(child.stdin);
+          child.stdin.write = function patchedWrite(chunk, encoding, callback) {
+            try {
+              stdinTap(chunk);
+            } catch {
+              // ignore instrumentation failures
+            }
+            return originalWrite(chunk, encoding, callback);
+          };
+        }
+
+        if (child.stdout && typeof child.stdout.on === "function") {
+          const stdoutJsonTap = createJsonLineTap((message, rawLine, lineBytes) => {
+            const summary = summarizeProtocolMessage(message, rawLine, lineBytes);
+            const active = summary.requestId ? activeRequests.get(summary.requestId) : null;
+            const currentCompaction = summary.turnId ? activeCompactions.get(summary.turnId) : null;
+            if (!active && !currentCompaction && !looksLikeCompactProtocolMessage(message)) return;
+            trackCompactionLifecycle(summary);
+            logCompactRuntime("compact-response", {
+              pid,
+              durationMs: active ? Date.now() - active.startedAtMs : -1,
+              activeRequestTurnId: active && active.turnId ? active.turnId : "",
+              compactionDurationMs: currentCompaction ? Date.now() - currentCompaction.startedAtMs : -1,
+              pendingCompactionCount: activeCompactions.size,
+              ...summary,
+            });
+            if (summary.requestId) {
+              activeRequests.delete(summary.requestId);
+            }
+          });
+          const stdoutTextTap = createLineTap((line) => {
+            if (!looksLikeCompactText(line)) return;
+            logCompactRuntime("compact-stdout", {
+              pid,
+              text: sanitizeText(line, MAX_LOG_TEXT_CHARS),
+              pendingCompactRequests: activeRequests.size,
+              pendingCompactionCount: activeCompactions.size,
+            });
+          });
+          child.stdout.on("data", stdoutJsonTap);
+          child.stdout.on("data", stdoutTextTap);
+        }
+
+        if (child.stderr && typeof child.stderr.on === "function") {
+          const stderrTextTap = createLineTap((line) => {
+            if (!looksLikeCompactText(line)) return;
+            logCompactRuntime("compact-stderr", {
+              pid,
+              text: sanitizeText(line, MAX_LOG_TEXT_CHARS),
+              pendingCompactRequests: activeRequests.size,
+              pendingCompactionCount: activeCompactions.size,
+            });
+          });
+          child.stderr.on("data", stderrTextTap);
+        }
+
+        child.on("close", (code, signal) => {
+          const pendingRequests = [];
+          for (const [requestId, record] of activeRequests.entries()) {
+            pendingRequests.push({
+              requestId,
+              ageMs: Date.now() - record.startedAtMs,
+              method: record.method,
+              threadId: record.threadId,
+              turnId: record.turnId,
+            });
+          }
+          logCompactRuntime("codex-close", {
+            pid,
+            code: Number.isFinite(code) ? code : "",
+            signal: typeof signal === "string" ? signal : "",
+            pendingRequests,
+            pendingCompactions: summarizePendingCompactions(),
+          });
+        });
+
+        return child;
+      };
+
+      logCompactRuntime("install", {
+        runtimeLane: normalizePathString(process.env.CODEX_RUNTIME_LANE || ""),
+        compactRustLog: normalizePathString(process.env.CODEX_COMPACT_RUST_LOG || ""),
+        compactRustBacktrace: normalizePathString(process.env.CODEX_COMPACT_RUST_BACKTRACE || ""),
+        compactRuntimeLogPath,
+      });
+    }
+
     function logRuntimeContract(codexHomeDir, modsRootPath, appVersion) {
       if (globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__) return;
       globalThis.__CODEX_WINDOWS_RUNTIME_CONTRACT_V1__ = true;
@@ -565,8 +985,9 @@
         const sshPath = normalizePathString(process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32", "OpenSSH", "ssh.exe") : "");
         const resourcesPath = normalizePathString(process.resourcesPath || "");
         const runtimeModsEnabled = normalizePathString(process.env.CODEX_ENABLE_RUNTIME_MODS || "") === "1";
+        const compactDebugEnabled = normalizePathString(process.env.CODEX_COMPACT_DEBUG || "") === "1";
         console.log(
-          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} rg=${rgPath} ssh=${sshPath} mods=${modsRootPath} resources=${resourcesPath} appVersion=${appVersion} runtimeMods=${runtimeModsEnabled ? "1" : "0"} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
+          `[codex-windows-runtime] executable=${executablePath} userData=${userDataDir} codexHome=${codexHomeDir} cli=${cliPath} rg=${rgPath} ssh=${sshPath} mods=${modsRootPath} resources=${resourcesPath} appVersion=${appVersion} runtimeMods=${runtimeModsEnabled ? "1" : "0"} compactDebug=${compactDebugEnabled ? "1" : "0"} minimal=${IS_MINIMAL_PLATFORM ? "1" : "0"}`,
         );
       } catch (error) {
         const message = error && error.message ? error.message : String(error || "");
@@ -623,6 +1044,7 @@
     try {
       const electron = require("electron");
       installStartupInstrumentation(electron);
+      installCompactTransportDiagnostics();
       if (!IS_MINIMAL_PLATFORM && electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {
         globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__ = true;
         const originalOpenPath = typeof electron.shell.openPath === "function" ? electron.shell.openPath.bind(electron.shell) : null;

@@ -5,6 +5,7 @@
   "scripts": {
     "build:runner": "tsc -p tsconfig.json",
     "build:lite": "node scripts/node/run.js build -ProfileName lite -NoLaunch",
+    "build:lite:alpha-cli": "node scripts/node/run.js build -ProfileName lite -NoLaunch -CodexCliChannel alpha",
     "verify:lite": "node scripts/node/run.js verify",
     "smoke:lite": "node scripts/node/run.js smoke -ProfileName lite",
     "build:single-exe": "node scripts/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse"

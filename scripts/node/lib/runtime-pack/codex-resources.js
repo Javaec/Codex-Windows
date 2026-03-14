@@ -83,7 +83,10 @@ function bundleWindowsRuntimeDonorTools(resourcesDir) {
         const fileName = path.basename(donorToolPath);
         if (!DONOR_TOOL_NAMES.has(fileName.toLowerCase()))
             continue;
-        (0, exec_1.copyFileSafe)(donorToolPath, path.join(resourcesDir, fileName));
+        const destinationPath = path.join(resourcesDir, fileName);
+        if (fileName.toLowerCase() !== "rg.exe" && (0, exec_1.fileExists)(destinationPath))
+            continue;
+        (0, exec_1.copyFileSafe)(donorToolPath, destinationPath);
         if (fileName.toLowerCase() === "rg.exe") {
             (0, exec_1.copyFileSafe)(donorToolPath, path.join(pathToolsDir, fileName));
         }

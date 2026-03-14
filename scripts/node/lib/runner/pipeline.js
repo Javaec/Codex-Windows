@@ -132,7 +132,7 @@ async function runPipelineDetailed(options) {
     const cliTracePath = path.join(diagDir, "cli-resolution.log");
     if (options.buildPortable) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed for portable packaging");
+        const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed for portable packaging", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         (0, exec_1.writeHeader)("Packaging portable app");
         const portable = await (0, portable_1.invokePortableBuild)(distDir, nativeDir, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
         const buildMetadataPath = (0, metadata_1.writeBuildMetadata)(portable.outputDir, {
@@ -200,7 +200,7 @@ async function runPipelineDetailed(options) {
     }
     if (!options.noLaunch) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
-        const cliResolution = (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed");
+        const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         (0, direct_launch_1.ensureGitOnPath)();
         const directLaunchExe = await (0, branding_1.prepareDirectLaunchExecutable)(electronExe, appVersion, workDir);
         reportWorkspaceSanitizer((0, workspace_registry_1.sanitizeWorkspaceRegistry)(userDataDir, diagDir));
@@ -210,7 +210,7 @@ async function runPipelineDetailed(options) {
         (0, direct_launch_1.startCodexDirectLaunch)(directLaunchExe, appDir, userDataDir, cacheDir, cliResolution.path, buildNumber, buildFlavor, gitCapabilityCachePath);
     }
     else {
-        const cliResolution = (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, false, cliTracePath, "Codex CLI trace failed");
+        const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, false, cliTracePath, "Codex CLI trace failed", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         if (cliResolution.found) {
             (0, exec_1.writeSuccess)(`CLI trace recorded: ${cliTracePath}`);
         }
