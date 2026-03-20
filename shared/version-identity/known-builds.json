@@ -2,6 +2,30 @@
   "schemaVersion": 1,
   "builds": [
     {
+      "id": "codex-11618",
+      "appVersion": "26.318.11754",
+      "buildNumber": "1100",
+      "buildHint": 11618,
+      "patchProfileId": "codex-11618",
+      "snapshotRegex": "codex[-_]?11618"
+    },
+    {
+      "id": "codex-11517",
+      "appVersion": "26.317.21539",
+      "buildNumber": "1088",
+      "buildHint": 11517,
+      "patchProfileId": "codex-11517",
+      "snapshotRegex": "codex[-_]?11517"
+    },
+    {
+      "id": "codex-11516",
+      "appVersion": "26.313.41514",
+      "buildNumber": "1043",
+      "buildHint": 11516,
+      "patchProfileId": "codex-11516",
+      "snapshotRegex": "codex[-_]?11516"
+    },
+    {
       "id": "codex-11414",
       "appVersion": "26.311.21342",
       "buildNumber": "993",

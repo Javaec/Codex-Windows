@@ -14,6 +14,6 @@
     "runtime:import-official": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js import-official",
     "runtime:activate-repo-dist": "npm run build:runner && node ..\\scripts\\node\\forge-runtime.js activate-repo-dist",
     "state": "npm run build:runner && node ..\\scripts\\node\\forge-launcher.js --print-state",
-    "test": "npm run build:runner && npm run state && npm run runtime:sources && node ..\\shared\\codex-mod-loader\\build-compatibility-matrix.mjs && node ..\\shared\\patch-pack\\preflight.mjs --snapshot-label Codex.dmg --app-version 26.311.21342 --build-number 993 && npm run electron:smoke"
+    "test": "npm run build:runner && npm run state && npm run runtime:sources && node ..\\shared\\codex-mod-loader\\build-compatibility-matrix.mjs && node ..\\shared\\patch-pack\\preflight.mjs --snapshot-label Codex.dmg --app-version 26.318.11754 --build-number 1100 && npm run electron:smoke"
   }
 }

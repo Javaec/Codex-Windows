@@ -3,6 +3,21 @@
   "defaultProfileId": "generic",
   "rules": [
     {
+      "profileId": "codex-11618",
+      "appVersionRegex": "^26\\.318\\.11754$",
+      "minBuild": 11618
+    },
+    {
+      "profileId": "codex-11517",
+      "appVersionRegex": "^26\\.317\\.21539$",
+      "minBuild": 11517
+    },
+    {
+      "profileId": "codex-11516",
+      "appVersionRegex": "^26\\.313\\.41514$",
+      "minBuild": 11516
+    },
+    {
       "profileId": "codex-11414",
       "appVersionRegex": "^26\\.311\\.21342$",
       "minBuild": 11414
@@ -21,6 +36,18 @@
       "profileId": "codex-10711",
       "appVersionRegex": "^26\\.303\\.1606$",
       "minBuild": 10711
+    },
+    {
+      "profileId": "codex-11618",
+      "snapshotRegex": "codex[-_]?11618"
+    },
+    {
+      "profileId": "codex-11517",
+      "snapshotRegex": "codex[-_]?11517"
+    },
+    {
+      "profileId": "codex-11516",
+      "snapshotRegex": "codex[-_]?11516"
     },
     {
       "profileId": "codex-11414",
