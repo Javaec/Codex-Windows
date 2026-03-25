@@ -3,6 +3,11 @@
   "defaultProfileId": "generic",
   "rules": [
     {
+      "profileId": "codex-11619",
+      "appVersionRegex": "^26\\.323\\.20928$",
+      "minBuild": 11619
+    },
+    {
       "profileId": "codex-11618",
       "appVersionRegex": "^26\\.318\\.11754$",
       "minBuild": 11618
@@ -36,6 +41,10 @@
       "profileId": "codex-10711",
       "appVersionRegex": "^26\\.303\\.1606$",
       "minBuild": 10711
+    },
+    {
+      "profileId": "codex-11619",
+      "snapshotRegex": "codex[-_]?11619"
     },
     {
       "profileId": "codex-11618",
