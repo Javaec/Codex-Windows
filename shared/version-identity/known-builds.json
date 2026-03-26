@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "builds": [
     {
+      "id": "codex-11621",
+      "appVersion": "26.324.21641",
+      "buildNumber": "1228",
+      "buildHint": 11621,
+      "patchProfileId": "codex-11621",
+      "snapshotRegex": "codex[-_]?11621"
+    },
+    {
       "id": "codex-11619",
       "appVersion": "26.323.20928",
       "buildNumber": "1173",
