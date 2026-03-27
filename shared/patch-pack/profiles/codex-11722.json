@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "profileId": "codex-11722",
+  "description": "Codex 11722 profile with required webview cwd normalization, optional sunset bypass, and mandatory runtime shim.",
+  "mods": [
+    "core-preload",
+    "webview-sunset-optional",
+    "webview-cwd-normalization",
+    "windows-runtime-shim"
+  ]
+}

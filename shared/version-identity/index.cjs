@@ -57,6 +57,48 @@ function parseBuildHint(buildNumber, appVersion, snapshotLabel, knownBuilds = re
   return best;
 }
 
+function findKnownBuildMatch(input, knownBuilds = readKnownBuilds()) {
+  const appVersion = String(input && input.appVersion ? input.appVersion : "").trim();
+  const buildNumber = String(input && input.buildNumber ? input.buildNumber : "").trim();
+
+  if (appVersion.length > 0 && buildNumber.length > 0) {
+    const exactMatch = knownBuilds.find(
+      (knownBuild) => knownBuild.appVersion === appVersion && knownBuild.buildNumber === buildNumber,
+    );
+    if (exactMatch) {
+      return {
+        matchedBuild: exactMatch,
+        source: "app-version-build-number",
+      };
+    }
+  }
+
+  if (appVersion.length > 0) {
+    const appVersionMatch = knownBuilds.find((knownBuild) => knownBuild.appVersion === appVersion);
+    if (appVersionMatch) {
+      return {
+        matchedBuild: appVersionMatch,
+        source: "app-version",
+      };
+    }
+  }
+
+  if (buildNumber.length > 0) {
+    const buildNumberMatches = knownBuilds.filter((knownBuild) => knownBuild.buildNumber === buildNumber);
+    if (buildNumberMatches.length === 1) {
+      return {
+        matchedBuild: buildNumberMatches[0],
+        source: "build-number",
+      };
+    }
+  }
+
+  return {
+    matchedBuild: null,
+    source: "",
+  };
+}
+
 function resolveSnapshotVersionIdentity(input) {
   const snapshotPath = path.resolve(String(input && input.snapshotPath ? input.snapshotPath : ""));
   const explicitAppVersion = String(input && input.appVersion ? input.appVersion : "").trim();
@@ -117,6 +159,7 @@ function resolveSnapshotVersionIdentity(input) {
 }
 
 module.exports = {
+  findKnownBuildMatch,
   parseBuildHint,
   readKnownBuilds,
   resolveSnapshotVersionIdentity,

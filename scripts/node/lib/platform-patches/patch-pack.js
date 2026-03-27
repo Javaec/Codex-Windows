@@ -329,6 +329,16 @@ function resolveProfileId(input, selector, buildHint) {
     if (forced.length > 0) {
         return { profileId: forced, source: "forced" };
     }
+    const knownBuildMatch = VERSION_IDENTITY.findKnownBuildMatch({
+        appVersion: input.appVersion,
+        buildNumber: input.buildNumber,
+    });
+    if (knownBuildMatch.matchedBuild && knownBuildMatch.matchedBuild.patchProfileId) {
+        return {
+            profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
+            source: "version-identity",
+        };
+    }
     const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
     const appVersion = input.appVersion.trim();
     for (const rule of selector.rules) {

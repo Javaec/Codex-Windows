@@ -65,7 +65,7 @@ export type PatchPipelineReport = {
   profileId: string;
   profileDescription: string;
   profilePath: string;
-  profileSource: "forced" | "selector-rule" | "default";
+  profileSource: "forced" | "version-identity" | "selector-rule" | "default";
   selectorPath: string;
   patchPackRootPath: string;
   stageRegistryPath: string;

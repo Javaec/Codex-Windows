@@ -6,7 +6,7 @@ export type PatchStepId =
   | "webview-sunset"
   | "webview-cwd"
   | "main-runtime-shim";
-export type PatchProfileSource = "forced" | "selector-rule" | "default";
+export type PatchProfileSource = "forced" | "version-identity" | "selector-rule" | "default";
 
 export interface PatchStepPlan {
   id: PatchStepId;
@@ -162,6 +162,10 @@ const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PATCH_PACK_ROOT = path.join(REPO_ROOT, "shared", "patch-pack");
 const VERSION_IDENTITY = require(path.join(REPO_ROOT, "shared", "version-identity", "index.cjs")) as {
+  findKnownBuildMatch: (input: { appVersion: string; buildNumber: string }) => {
+    matchedBuild: { patchProfileId: string } | null;
+    source: string;
+  };
   parseBuildHint: (buildNumber: string, appVersion: string, snapshotLabel: string) => number;
 };
 const PROFILES_DIR = path.join(PATCH_PACK_ROOT, "profiles");
@@ -475,6 +479,16 @@ function resolveProfileId(input: ResolvePatchProfileInput, selector: PatchSelect
   const forced = input.forcedProfileId.trim().toLowerCase();
   if (forced.length > 0) {
     return { profileId: forced, source: "forced" };
+  }
+  const knownBuildMatch = VERSION_IDENTITY.findKnownBuildMatch({
+    appVersion: input.appVersion,
+    buildNumber: input.buildNumber,
+  });
+  if (knownBuildMatch.matchedBuild && knownBuildMatch.matchedBuild.patchProfileId) {
+    return {
+      profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
+      source: "version-identity",
+    };
   }
   const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
   const appVersion = input.appVersion.trim();

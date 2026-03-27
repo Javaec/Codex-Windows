@@ -34,6 +34,11 @@ echo   -CodexCliChannel alpha
 echo   -SingleExe
 echo   -ProfileName lite ^| forge ^| dev
 echo.
+echo Patch profile selection:
+echo   The runner extracts app metadata from the DMG and prefers internal version identity
+echo   ^(package.json version + codexBuildNumber^) over the DMG file name.
+echo   Snapshot file names remain fallback-only for unknown builds.
+echo.
 echo Default behavior:
 echo   build.cmd builds Codex Lite.
 echo   Codex Lite = Codex Repack: minimal Windows repack with bundled rg.exe, required path fixes, and no Forge mod runtime.
