@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
 
 const ANSI = {
@@ -18,6 +19,9 @@ const ANSI = {
   yellow: '\x1b[33m',
   red: '\x1b[31m',
   gray: '\x1b[90m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  white: '\x1b[37m',
 };
 
 const SPINNER_FRAMES = ['|', '/', '-', '\\'];
@@ -32,6 +36,818 @@ const DEFAULTS_KEY_ORDER = [
   'approval_policy',
   'sandbox_mode',
 ];
+
+let CURRENT_LOCALE = 'ru';
+
+const MESSAGES = {
+  en: {
+    appTitle: 'Codex Setup Wizard',
+    setupConfig: (value) => `Setup config: ${value}`,
+    codexHome: (value) => `Codex home: ${value}`,
+    provider: (value) => `Provider: ${value}`,
+    baseUrl: (value) => `Base URL: ${value}`,
+    enterEndpoint: (value) => `Enter endpoint (default: ${value}): `,
+    enterApiKey: 'Enter API key: ',
+    emptyKeyMenuTitle: 'API key is empty. Select an option:',
+    clearApiKey: 'Throw current API key overboard',
+    keepApiKey: 'Let the current API key live for now',
+    emptyKeyPrompt: 'API key is empty. Select an option: ',
+    sessionsIntro: (provider) => `Existing chats can be retagged to ${provider} so they appear in Codex history.`,
+    sessionsNoDefault: 'No, leave existing chat providers unchanged (default)',
+    sessionsYes: (provider) => `Yes, update existing chats to ${provider}`,
+    updateSessionsPrompt: 'Update existing sessions: ',
+    backupMenuTitle: 'Create a backup archive before applying changes?',
+    backupYesDefault: 'Yes, create or reuse a recent backup (default)',
+    backupNo: 'No, skip backup',
+    backupPrompt: 'Create backup archive: ',
+    detectedProviders: (source) => `Detected providers (${source})`,
+    noProviderChats: 'No provider-tagged chats were found.',
+    chatWord: (count) => (count === 1 ? 'chat' : 'chats'),
+    sourceSqlite: 'SQLite threads',
+    sourceJsonl: 'JSONL sessions',
+    menuConvertAll: (provider, total, need) => `Convert all chats -> ${provider} (${total} chats total, ${need} need changes)`,
+    menuConvertAllNoChanges: (provider, total) => `Convert all chats -> ${provider} (${total} chats total, 0 need changes)`,
+    menuReplace: (from, to, count) => `Replace ${from} -> ${to} (${count} chats)`,
+    menuCancel: 'Cancel',
+    selectOption: 'Select an option: ',
+    scanSessionsBanner: 'Scanning JSONL sessions',
+    scanSessionsProgress: 'Scanning sessions',
+    updateJsonlBanner: 'Updating JSONL session files',
+    updateJsonlProgress: 'Updating sessions',
+    updateSqliteBanner: 'Updating SQLite state',
+    updateSqliteProgress: 'Updating sqlite',
+    writeConfigBanner: 'Writing auth.json and config.toml',
+    summaryBanner: 'Summary',
+    updatedAuth: (pathValue) => `Updated auth.json: ${pathValue}`,
+    clearedAuth: (pathValue) => `Cleared OPENAI_API_KEY in auth.json: ${pathValue}`,
+    keptAuth: (pathValue) => `Kept existing auth.json unchanged: ${pathValue}`,
+    updatedConfig: (pathValue) => `Updated config.toml: ${pathValue}`,
+    sessionsUnchanged: 'Existing sessions were left unchanged.',
+    sessionsRetryLater: 'You can run the setup again later and choose session conversion if you want those chats to appear in Codex history.',
+    elapsed: (value) => `Elapsed: ${value}`,
+    setupCompleted: (provider) => `Setup completed. Active provider: ${provider}`,
+    cancelled: 'Cancelled by user.',
+    allAlreadyUsing: (provider) => `All chats are already using ${provider}. No changes were required.`,
+    converting: (from, to) => `Converting ${from} -> ${to}`,
+    backupArchive: (value) => `Backup archive: ${value}`,
+    backupSkipped: 'Backup archive: skipped by user',
+    jsonlUpdated: (updated, scanned) => `JSONL files updated: ${updated}/${scanned}`,
+    sqliteChecked: (count) => `SQLite files checked: ${count}`,
+    remainingJsonl: (count) => `Remaining JSONL files with old providers: ${count}`,
+    remainingSqlite: (count) => `Remaining SQLite rows with old providers: ${count}`,
+    setupAndConversionCompleted: (provider) => `Setup and provider conversion completed. Active provider: ${provider}`,
+    reusingBackupBanner: 'Reusing recent backup archive',
+    backupAge: (value) => `Backup age: ${value}`,
+    creatingBackupBanner: 'Creating backup archive',
+    stagingFiles: (count, home) => `Staging ${count} files from ${home}`,
+    compressingBackup: 'Compressing backup archive',
+    backupCreated: (method, pathValue) => `Backup archive created with ${method}: ${pathValue}`,
+    pirateQuestionTitle: 'Do you honor the pirate code, land rat?',
+    pirateQuestionBody: 'The captain looks at you with suspicion.',
+    pirateOptionYes: 'Aye, captain',
+    pirateOptionLoose: 'Who are you calling a rat? I am the new pirate!',
+    pirateQuestionPrompt: 'Choose your pirate answer: ',
+    cargoReadyBanner: 'Navigator Table Ready',
+    cargoReadyStatus: 'Dependencies checked. Time to chart the course to the endpoint.',
+    dependencyMapBanner: 'Dependency Map',
+    dependencyCriticalTitle: 'Critical requirements',
+    dependencyHelpfulTitle: 'Helpful but optional',
+    dependencyUsefulTitle: 'Sometimes useful',
+    subtitle: 'Provider setup and chat history migration',
+    failureBanner: 'Failure',
+    unknownMenuTryAgain: 'Unknown menu option. Try again.',
+    missingCritical: (labels) => `Missing critical dependencies: ${labels}. Install them and run the wizard again.`,
+    codexCliInstallHint: 'Install Codex CLI first.',
+    codexAppInstallHint: 'Install Codex App for Windows first.',
+    sshHint: 'Usually bundled with Git for Windows or Windows OpenSSH.',
+    missingConfigArg: 'Missing --config argument from launcher.',
+    interactiveTtyRequired: 'Interactive mode requires a TTY.',
+    noLegacyChatsFound: 'No chats were found for the selected legacy provider names.',
+    oldRefsRemain: 'Some old provider references still remain after conversion.',
+    endpointEmpty: 'Endpoint cannot be empty.',
+    invalidEndpoint: (value) => `Invalid endpoint: ${value}`,
+    descriptionNotFound: (description, filePath) => `${description} not found: ${filePath}`,
+    setupConfigLabel: 'Setup config',
+    codexHomeLabel: 'Codex home',
+    setupConfigInvalidJson: (configPath) => `Setup config is not valid JSON: ${configPath}`,
+    setupConfigMissingObject: (field) => `Setup config must contain object field "${field}".`,
+    setupConfigMissingString: (field) => `Setup config must contain string field "${field}".`,
+    setupConfigMissingBoolean: (field) => `Setup config must contain boolean field "${field}".`,
+    setupConfigFieldString: (field) => `Setup config field "${field}" must be a string when present.`,
+    setupConfigMissingDefault: (field) => `Setup config is missing defaults.${field}`,
+    backupArchiveCreationFailed: (details) => `Backup archive creation failed. ${details}`,
+    numericTomlFinite: 'Numeric TOML values must be finite.',
+    unsupportedTomlValueType: (type) => `Unsupported TOML value type: ${type}`,
+    languageOptionEnglish: '  1. English',
+    languageOptionRussian: '  2. Русский',
+    languagePrompt: 'Language / Язык (default: 2): ',
+    unknownLanguageOption: 'Unknown language option. Try again.',
+  },
+  ru: {
+    appTitle: 'Мастер настройки Codex',
+    setupConfig: (value) => `Конфиг мастера: ${value}`,
+    codexHome: (value) => `Папка Codex: ${value}`,
+    provider: (value) => `Провайдер: ${value}`,
+    baseUrl: (value) => `Базовый URL: ${value}`,
+    enterEndpoint: (value) => `Введите endpoint (по умолчанию: ${value}): `,
+    enterApiKey: 'Введите API key: ',
+    emptyKeyMenuTitle: 'API key пустой. Выберите действие:',
+    clearApiKey: 'Текущий API key за борт!',
+    keepApiKey: 'Пусть текущий API key живёт пока что',
+    emptyKeyPrompt: 'API key пустой. Выберите действие: ',
+    sessionsIntro: (provider) => `Старые чаты можно перетегать в ${provider}, чтобы они появились в истории Codex.`,
+    sessionsNoDefault: 'Нет, не менять провайдеры старых чатов (по умолчанию)',
+    sessionsYes: (provider) => `Да, обновить старые чаты на ${provider}`,
+    updateSessionsPrompt: 'Обновлять существующие сессии: ',
+    backupMenuTitle: 'Создать backup-архив перед изменениями?',
+    backupYesDefault: 'Да, создать новый backup или переиспользовать свежий (по умолчанию)',
+    backupNo: 'Нет, пропустить backup',
+    backupPrompt: 'Создать backup-архив: ',
+    detectedProviders: (source) => `Найденные провайдеры (${source})`,
+    noProviderChats: 'Чаты с тегом провайдера не найдены.',
+    chatWord: () => 'чатов',
+    sourceSqlite: 'SQLite threads',
+    sourceJsonl: 'JSONL sessions',
+    menuConvertAll: (provider, total, need) => `Конвертировать все чаты -> ${provider} (${total} всего, ${need} нужно изменить)`,
+    menuConvertAllNoChanges: (provider, total) => `Конвертировать все чаты -> ${provider} (${total} всего, 0 нужно изменить)`,
+    menuReplace: (from, to, count) => `Заменить ${from} -> ${to} (${count} чатов)`,
+    menuCancel: 'Отмена',
+    selectOption: 'Выберите пункт: ',
+    scanSessionsBanner: 'Сканирование JSONL-сессий',
+    scanSessionsProgress: 'Сканирование сессий',
+    updateJsonlBanner: 'Обновление JSONL-файлов сессий',
+    updateJsonlProgress: 'Обновление сессий',
+    updateSqliteBanner: 'Обновление SQLite state',
+    updateSqliteProgress: 'Обновление sqlite',
+    writeConfigBanner: 'Запись auth.json и config.toml',
+    summaryBanner: 'Итог',
+    updatedAuth: (pathValue) => `Обновлён auth.json: ${pathValue}`,
+    clearedAuth: (pathValue) => `OPENAI_API_KEY очищен в auth.json: ${pathValue}`,
+    keptAuth: (pathValue) => `Текущий auth.json оставлен без изменений: ${pathValue}`,
+    updatedConfig: (pathValue) => `Обновлён config.toml: ${pathValue}`,
+    sessionsUnchanged: 'Существующие сессии оставлены без изменений.',
+    sessionsRetryLater: 'Позже можно снова запустить мастер и выбрать конвертацию сессий, чтобы эти чаты появились в истории Codex.',
+    elapsed: (value) => `Время: ${value}`,
+    setupCompleted: (provider) => `Настройка завершена. Активный провайдер: ${provider}`,
+    cancelled: 'Отменено пользователем.',
+    allAlreadyUsing: (provider) => `Все чаты уже используют ${provider}. Изменения не потребовались.`,
+    converting: (from, to) => `Конвертация ${from} -> ${to}`,
+    backupArchive: (value) => `Backup-архив: ${value}`,
+    backupSkipped: 'Backup-архив: пропущен пользователем',
+    jsonlUpdated: (updated, scanned) => `Обновлено JSONL-файлов: ${updated}/${scanned}`,
+    sqliteChecked: (count) => `Проверено SQLite-файлов: ${count}`,
+    remainingJsonl: (count) => `Осталось JSONL-файлов со старыми провайдерами: ${count}`,
+    remainingSqlite: (count) => `Осталось строк SQLite со старыми провайдерами: ${count}`,
+    setupAndConversionCompleted: (provider) => `Настройка и конвертация провайдеров завершены. Активный провайдер: ${provider}`,
+    reusingBackupBanner: 'Переиспользование свежего backup-архива',
+    backupAge: (value) => `Возраст backup: ${value}`,
+    creatingBackupBanner: 'Создание backup-архива',
+    stagingFiles: (count, home) => `Подготовка ${count} файлов из ${home}`,
+    compressingBackup: 'Сжатие backup-архива',
+    backupCreated: (method, pathValue) => `Backup-архив создан через ${method}: ${pathValue}`,
+    pirateQuestionTitle: 'Ты чтишь пиратский кодекс, сухопутная крыса?',
+    pirateQuestionBody: 'Капитан обратился к вам с подозрением.',
+    pirateOptionYes: 'Да, капитан',
+    pirateOptionLoose: 'Сам ты крыса, капитан! Я новый пират!',
+    pirateQuestionPrompt: 'Выбери пиратский ответ: ',
+    cargoReadyBanner: 'Штурманский стол готов',
+    cargoReadyStatus: 'Зависимости проверены. Пора прокладывать курс к endpoint.',
+    dependencyMapBanner: 'Карта зависимостей',
+    dependencyCriticalTitle: 'Смертельно важно',
+    dependencyHelpfulTitle: 'Облегчит приключение',
+    dependencyUsefulTitle: 'Бывает полезно',
+    subtitle: 'Настройка провайдера и истории чатов',
+    failureBanner: 'Провал',
+    unknownMenuTryAgain: 'Неизвестный пункт меню. Попробуйте снова.',
+    missingCritical: (labels) => `Отсутствуют критически важные зависимости: ${labels}. Установите их и запустите мастер снова.`,
+    codexCliInstallHint: 'Сначала установите Codex CLI.',
+    codexAppInstallHint: 'Сначала установите Codex App for Windows.',
+    sshHint: 'Обычно идёт вместе с Git for Windows или Windows OpenSSH.',
+    missingConfigArg: 'Launcher не передал аргумент --config.',
+    interactiveTtyRequired: 'Интерактивному режиму нужен TTY.',
+    noLegacyChatsFound: 'Для выбранных старых провайдеров чаты не найдены.',
+    oldRefsRemain: 'После конвертации ещё остались ссылки на старых провайдеров.',
+    endpointEmpty: 'Endpoint не может быть пустым.',
+    invalidEndpoint: (value) => `Некорректный endpoint: ${value}`,
+    descriptionNotFound: (description, filePath) => `${description} не найден: ${filePath}`,
+    setupConfigLabel: 'Конфиг мастера',
+    codexHomeLabel: 'Папка Codex',
+    setupConfigInvalidJson: (configPath) => `Конфиг мастера содержит невалидный JSON: ${configPath}`,
+    setupConfigMissingObject: (field) => `В конфиге мастера должен быть объект "${field}".`,
+    setupConfigMissingString: (field) => `В конфиге мастера должно быть строковое поле "${field}".`,
+    setupConfigMissingBoolean: (field) => `В конфиге мастера должно быть булево поле "${field}".`,
+    setupConfigFieldString: (field) => `Поле "${field}" в конфиге мастера должно быть строкой, если оно задано.`,
+    setupConfigMissingDefault: (field) => `В конфиге мастера отсутствует defaults.${field}`,
+    backupArchiveCreationFailed: (details) => `Не удалось создать backup-архив. ${details}`,
+    numericTomlFinite: 'Числовые TOML-значения должны быть конечными.',
+    unsupportedTomlValueType: (type) => `Неподдерживаемый тип TOML-значения: ${type}`,
+    languageOptionEnglish: '  1. English',
+    languageOptionRussian: '  2. Русский',
+    languagePrompt: 'Language / Язык (по умолчанию: 2): ',
+    unknownLanguageOption: 'Неизвестный вариант языка. Попробуйте снова.',
+  },
+};
+
+function t(locale, key, ...args) {
+  const table = MESSAGES[locale] || MESSAGES.en;
+  const value = table[key] ?? MESSAGES.en[key];
+  return typeof value === 'function' ? value(...args) : value;
+}
+
+function supportsEmoji() {
+  if (!process.stdout.isTTY) {
+    return false;
+  }
+
+  if (process.env.NO_EMOJI === '1') {
+    return false;
+  }
+
+  return true;
+}
+
+function icon(name) {
+  const enabled = supportsEmoji();
+  const icons = {
+    skull: enabled ? '☠️ ' : '',
+    pirate: enabled ? '🏴‍☠️ ' : '',
+    gold: enabled ? '🪙 ' : '',
+    anchor: enabled ? '⚓ ' : '',
+    spark: enabled ? '✨ ' : '',
+    warn: enabled ? '⚠️ ' : '',
+  };
+
+  return icons[name] || '';
+}
+
+function getPathEntries() {
+  return String(process.env.PATH || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function getWindowsExecutableExtensions() {
+  return String(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+    .split(';')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function resolveExistingFile(candidate) {
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    if (fs.existsSync(candidate)) {
+      return path.resolve(candidate);
+    }
+  } catch (error) {
+    return null;
+  }
+
+  return null;
+}
+
+function uniquePaths(values) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+
+    const normalized = path.normalize(value);
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(value);
+  }
+
+  return result;
+}
+
+function findExecutableInPath(names) {
+  const entries = getPathEntries();
+  const extensions = process.platform === 'win32' ? getWindowsExecutableExtensions() : [''];
+
+  for (const rawName of names) {
+    const name = String(rawName || '').trim();
+    if (!name) {
+      continue;
+    }
+
+    if (name.includes(path.sep) || name.includes('/')) {
+      const direct = resolveExistingFile(name);
+      if (direct) {
+        return direct;
+      }
+    }
+
+    const hasExtension = Boolean(path.extname(name));
+    for (const entry of entries) {
+      if (hasExtension) {
+        const candidate = resolveExistingFile(path.join(entry, name));
+        if (candidate) {
+          return candidate;
+        }
+        continue;
+      }
+
+      for (const extension of extensions) {
+        const candidate = resolveExistingFile(path.join(entry, `${name}${extension.toLowerCase()}`))
+          || resolveExistingFile(path.join(entry, `${name}${extension}`));
+        if (candidate) {
+          return candidate;
+        }
+      }
+
+      const bareCandidate = resolveExistingFile(path.join(entry, name));
+      if (bareCandidate) {
+        return bareCandidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findFirstExistingCandidate(candidates) {
+  for (const candidate of candidates) {
+    const resolved = resolveExistingFile(candidate);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+function listCodexWindowsAppsResourceDirs() {
+  return listCodexWindowsAppsPackages().map((pkg) => pkg.resourcesDir).filter(Boolean);
+}
+
+const APPX_PACKAGE_CACHE = new Map();
+
+function listAppxPackages(packageQuery) {
+  const cacheKey = String(packageQuery || '').trim();
+  if (APPX_PACKAGE_CACHE.has(cacheKey)) {
+    return APPX_PACKAGE_CACHE.get(cacheKey);
+  }
+
+  const shellPath = findExecutableInPath(['pwsh.exe', 'pwsh', 'powershell.exe', 'powershell']);
+  if (!shellPath) {
+    APPX_PACKAGE_CACHE.set(cacheKey, []);
+    return [];
+  }
+
+  const command =
+    `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` +
+    `Get-AppxPackage '${cacheKey}' | ` +
+    `Sort-Object Version -Descending | ` +
+    `ForEach-Object { '{0}|{1}|{2}' -f $_.Name, $_.Version, $_.InstallLocation }`;
+
+  let result;
+  try {
+    result = spawnSync(shellPath, ['-NoProfile', '-Command', command], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 5000,
+    });
+  } catch (error) {
+    APPX_PACKAGE_CACHE.set(cacheKey, []);
+    return [];
+  }
+
+  if (result.error || result.status !== 0) {
+    APPX_PACKAGE_CACHE.set(cacheKey, []);
+    return [];
+  }
+
+  const packages = String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('|');
+      const name = String(parts[0] || '').trim();
+      const version = String(parts[1] || '').trim();
+      const installLocation = String(parts.slice(2).join('|') || '').trim();
+      return {
+        name,
+        version,
+        installLocation,
+      };
+    })
+    .filter((pkg) => pkg.name && pkg.installLocation);
+
+  APPX_PACKAGE_CACHE.set(cacheKey, packages);
+  return packages;
+}
+
+function listCodexWindowsAppsPackages() {
+  return listAppxPackages('OpenAI.Codex*')
+    .map((pkg) => ({
+      ...pkg,
+      resourcesDir: path.join(pkg.installLocation, 'app', 'resources'),
+      appAsarUnpackedDir: path.join(pkg.installLocation, 'app', 'resources', 'app.asar.unpacked'),
+    }))
+    .filter((pkg) => fs.existsSync(pkg.resourcesDir));
+}
+
+function getLatestCodexAppPackage() {
+  return listCodexWindowsAppsPackages()[0] || null;
+}
+
+function firstNonEmptyLine(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || '';
+}
+
+function runVersionCommand(executablePath, args) {
+  if (!executablePath) {
+    return '';
+  }
+
+  try {
+    let result;
+    if (/\.(cmd|bat)$/i.test(executablePath)) {
+      const commandLine = [`"${executablePath}"`, ...args].join(' ');
+      result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 4000,
+      });
+    } else {
+      result = spawnSync(executablePath, args, {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 4000,
+      });
+    }
+
+    if (result.error) {
+      return '';
+    }
+
+    return firstNonEmptyLine(result.stdout) || firstNonEmptyLine(result.stderr);
+  } catch (error) {
+    return '';
+  }
+}
+
+function runPowerShellQuery(command) {
+  const powershell = findExecutableInPath(['pwsh.exe', 'pwsh', 'powershell.exe', 'powershell']);
+  if (!powershell) {
+    return '';
+  }
+
+  return runVersionCommand(powershell, ['-NoProfile', '-Command', command]);
+}
+
+function getCodexExecutableCandidates() {
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'dist', 'Codex-win32-x64', 'resources', 'codex.exe'),
+    path.resolve(__dirname, '..', '..', 'dist', 'Codex-win32-arm64', 'resources', 'codex.exe'),
+    process.env.CODEX_CLI_PATH || '',
+    localAppData ? path.join(localAppData, 'Programs', 'OpenAI', 'Codex', 'resources', 'codex.exe') : '',
+    ...listCodexWindowsAppsResourceDirs().map((resourceDir) => path.join(resourceDir, 'codex.exe')),
+    findExecutableInPath(['codex.exe', 'codex.cmd', 'codex']),
+  ];
+
+  return uniquePaths(candidates);
+}
+
+function getToolCandidatesNearCodex(codexPath, fileName) {
+  const codexDirs = [];
+  if (codexPath) {
+    codexDirs.push(path.dirname(codexPath));
+  }
+
+  codexDirs.push(...listCodexWindowsAppsResourceDirs());
+
+  return uniquePaths(codexDirs.flatMap((codexDir) => [
+    path.join(codexDir, fileName),
+    path.join(codexDir, 'path', fileName),
+    path.join(codexDir, 'tools', fileName),
+  ]));
+}
+
+function getProgramFilesCandidate(subPath) {
+  const candidates = [
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, subPath) : '',
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], subPath) : '',
+  ];
+
+  return findFirstExistingCandidate(candidates);
+}
+
+function parseMajorVersion(text) {
+  const match = String(text || '').match(/(\d+)(?:\.\d+)?(?:\.\d+)?/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function sanitizeVersionText(label, text) {
+  const raw = String(text || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (/is not recognized as an internal or external command/i.test(raw)) {
+    return '';
+  }
+
+  switch (label) {
+    case 'Node.js':
+      return firstNonEmptyLine(raw);
+    case 'npm': {
+      const match = raw.match(/\b\d+\.\d+\.\d+(?:[-+][^\s]+)?\b/);
+      return match ? match[0] : '';
+    }
+    case 'Codex CLI': {
+      const match = raw.match(/codex-cli\s+[^\s]+/i);
+      return match ? match[0] : firstNonEmptyLine(raw);
+    }
+    case 'rg': {
+      const match = raw.match(/ripgrep\s+[^\s]+/i);
+      return match ? match[0] : firstNonEmptyLine(raw);
+    }
+    case 'SQLite': {
+      if (/better-sqlite3/i.test(raw)) {
+        return 'better-sqlite3';
+      }
+      const match = raw.match(/\b\d+\.\d+\.\d+\b/);
+      return match ? match[0] : '';
+    }
+    case 'PowerShell 7+': {
+      const match = raw.match(/\b\d+\.\d+\.\d+\b/);
+      return match ? match[0] : firstNonEmptyLine(raw);
+    }
+    case 'git (Git for Windows)':
+      return firstNonEmptyLine(raw).replace(/^git version\s+/i, 'git ');
+    case 'python': {
+      const match = raw.match(/Python\s+\S+/i);
+      return match ? match[0] : firstNonEmptyLine(raw);
+    }
+    case 'java': {
+      const match = raw.match(/(?:openjdk|java)\s+version\s+"([^"]+)"/i);
+      return match ? `Java ${match[1]}` : firstNonEmptyLine(raw);
+    }
+    case '7zip': {
+      const match = raw.match(/7-Zip\s+\S+(?:\s+\([^)]+\))?/i);
+      return match ? match[0] : firstNonEmptyLine(raw);
+    }
+    case 'ssh':
+      return firstNonEmptyLine(raw).split(',')[0];
+    default:
+      return firstNonEmptyLine(raw);
+  }
+}
+
+function makeDependency(label, state, pathValue, detail, hint = '') {
+  return {
+    label,
+    state,
+    path: pathValue || '',
+    detail: sanitizeVersionText(label, detail),
+    hint,
+  };
+}
+
+function getNpmVersion(npmPath) {
+  const direct = runVersionCommand(npmPath, ['--version']);
+  if (direct) {
+    return direct;
+  }
+
+  if (!npmPath) {
+    return '';
+  }
+
+  try {
+    const npmDir = path.dirname(npmPath);
+    const packageJsonPath = path.join(npmDir, 'node_modules', 'npm', 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      if (parsed && typeof parsed.version === 'string') {
+        return parsed.version;
+      }
+    }
+
+    const nodePackageJsonPath = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'package.json');
+    if (fs.existsSync(nodePackageJsonPath)) {
+      const parsed = JSON.parse(fs.readFileSync(nodePackageJsonPath, 'utf8'));
+      if (parsed && typeof parsed.version === 'string') {
+        return parsed.version;
+      }
+    }
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+}
+
+function getCodexCliVersion(codexPath) {
+  const direct = runVersionCommand(codexPath, ['--version']);
+  if (direct) {
+    return direct;
+  }
+
+  if (!codexPath) {
+    return '';
+  }
+
+  try {
+    const normalized = path.normalize(codexPath).toLowerCase();
+    if (normalized.endsWith(path.normalize('\\AppData\\Roaming\\npm\\codex.cmd').toLowerCase())) {
+      const packageJsonPath = path.join(path.dirname(codexPath), 'node_modules', '@openai', 'codex', 'package.json');
+      if (fs.existsSync(packageJsonPath)) {
+        const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        if (parsed && typeof parsed.version === 'string') {
+          return `codex-cli ${parsed.version}`;
+        }
+      }
+    }
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+}
+
+function dependencyStateLine(state) {
+  if (state === 'ok') {
+    return color(`${icon('spark')}OK`, ANSI.green);
+  }
+
+  if (state === 'warn') {
+    return color(`${icon('warn')}WARN`, ANSI.yellow);
+  }
+
+  return color(`${icon('skull')}MISSING`, ANSI.red);
+}
+
+function buildDependencyMap(locale) {
+  const codexAppPackage = getLatestCodexAppPackage();
+  const windowsTerminalPackage = listAppxPackages('Microsoft.WindowsTerminal')[0] || null;
+  const codexPath = findFirstExistingCandidate(getCodexExecutableCandidates());
+  const rgPath = findFirstExistingCandidate([
+    ...(codexAppPackage ? [path.join(codexAppPackage.resourcesDir, 'rg.exe')] : []),
+    ...getToolCandidatesNearCodex(codexPath, 'rg.exe'),
+    findExecutableInPath(['rg.exe', 'rg']),
+  ]);
+  const npmPath = findExecutableInPath(['npm.cmd', 'npm.exe', 'npm']);
+  const pwshPath = findExecutableInPath(['pwsh.exe', 'pwsh']);
+  const wtPath = findFirstExistingCandidate([
+    findExecutableInPath(['wt.exe', 'wt']),
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'WindowsApps', 'wt.exe') : '',
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'WindowsApps', 'wt.exe') : '',
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'wt.exe') : '',
+    ...(windowsTerminalPackage ? [windowsTerminalPackage.installLocation] : []),
+  ]);
+  const gitPath = findExecutableInPath(['git.exe', 'git.cmd', 'git']);
+  const pythonPath = findExecutableInPath(['python.exe', 'python', 'py.exe', 'py']);
+  const javaPath = findExecutableInPath(['java.exe', 'java']);
+  const sevenZipPath = findFirstExistingCandidate([
+    findExecutableInPath(['7z.exe', '7za.exe', '7z']),
+    getProgramFilesCandidate(path.join('7-Zip', '7z.exe')),
+  ]);
+  const sshPath = findFirstExistingCandidate([
+    findExecutableInPath(['ssh.exe', 'ssh']),
+    process.env.WINDIR ? path.join(process.env.WINDIR, 'System32', 'OpenSSH', 'ssh.exe') : '',
+    gitPath ? path.resolve(path.dirname(gitPath), '..', 'usr', 'bin', 'ssh.exe') : '',
+    gitPath ? path.resolve(path.dirname(gitPath), '..', 'bin', 'ssh.exe') : '',
+  ]);
+
+  const pwshVersion = pwshPath ? runVersionCommand(pwshPath, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()']) : '';
+  const pwshMajor = parseMajorVersion(pwshVersion);
+  const executionPolicy = runPowerShellQuery('Get-ExecutionPolicy');
+  const executionPolicyOk = executionPolicy && !/^Restricted$/i.test(executionPolicy);
+
+  return {
+    critical: [
+      makeDependency('Node.js', process.execPath ? 'ok' : 'missing', process.execPath || '', process.version || '', 'https://nodejs.org/'),
+      makeDependency('npm', npmPath ? 'ok' : 'missing', npmPath || '', npmPath ? getNpmVersion(npmPath) : '', 'https://nodejs.org/'),
+      makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
+      makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
+      makeDependency('rg', rgPath ? 'ok' : 'missing', rgPath || '', rgPath ? runVersionCommand(rgPath, ['--version']) : '', 'https://ripgrep.dev/download/'),
+    ],
+    important: [
+      makeDependency('PowerShell 7+', pwshPath ? (pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'warn') : 'missing', pwshPath || '', pwshVersion || '', 'https://aka.ms/powershell-release?tag=stable'),
+      makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
+      makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
+      makeDependency('git (Git for Windows)', gitPath ? 'ok' : 'missing', gitPath || '', gitPath ? runVersionCommand(gitPath, ['--version']) : '', 'https://git-scm.com/download/win'),
+    ],
+    optional: [
+      makeDependency('python', pythonPath ? 'ok' : 'missing', pythonPath || '', pythonPath ? runVersionCommand(pythonPath, ['--version']) : '', 'https://www.python.org/downloads/windows/'),
+      makeDependency('java', javaPath ? 'ok' : 'missing', javaPath || '', javaPath ? runVersionCommand(javaPath, ['-version']) : '', 'https://adoptium.net/'),
+      makeDependency('7zip', sevenZipPath ? 'ok' : 'missing', sevenZipPath || '', sevenZipPath ? runVersionCommand(sevenZipPath, []) : '', 'https://www.7-zip.org/download.html'),
+      makeDependency('ssh', sshPath ? 'ok' : 'missing', sshPath || '', sshPath ? runVersionCommand(sshPath, ['-V']) : '', t(locale, 'sshHint')),
+    ],
+  };
+}
+
+function printDependencyGroup(locale, titleEn, titleRu, dependencies) {
+  const title = locale === 'ru' ? titleRu : titleEn;
+  console.log('');
+  console.log(color(title, ANSI.yellow));
+
+  for (const dependency of dependencies) {
+    const stateText = dependencyStateLine(dependency.state);
+    const summary = [dependency.detail].filter(Boolean).join('  ');
+    console.log(`  ${stateText} ${color(dependency.label.padEnd(28), ANSI.bold)} ${summary}`.trimEnd());
+    if (dependency.path) {
+      console.log(color(`      ${dependency.path}`, ANSI.gray));
+    }
+    if (dependency.state !== 'ok' && dependency.hint) {
+      console.log(color(`      ${dependency.hint}`, ANSI.cyan));
+    }
+  }
+}
+
+function printDependencyMap(locale, dependencyMap) {
+  banner(`${icon('anchor')}${t(locale, 'dependencyMapBanner')}`, ANSI.blue);
+  printDependencyGroup(locale, t(locale, 'dependencyCriticalTitle'), t(locale, 'dependencyCriticalTitle'), dependencyMap.critical);
+  printDependencyGroup(locale, t(locale, 'dependencyHelpfulTitle'), t(locale, 'dependencyHelpfulTitle'), dependencyMap.important);
+  printDependencyGroup(locale, t(locale, 'dependencyUsefulTitle'), t(locale, 'dependencyUsefulTitle'), dependencyMap.optional);
+}
+
+function ensureCriticalDependencies(dependencyMap, locale) {
+  const missing = dependencyMap.critical.filter((dependency) => dependency.state !== 'ok');
+  if (missing.length === 0) {
+    return;
+  }
+
+  const labels = missing.map((dependency) => dependency.label).join(', ');
+  throw new Error(t(locale, 'missingCritical', labels));
+}
+
+async function askMenuChoice(prompt, question, validChoices, { defaultChoice = '', locale = 'en', invalidMessage } = {}) {
+  while (true) {
+    const answer = await prompt.ask(question);
+    const normalized = answer || defaultChoice;
+    if (validChoices.includes(normalized)) {
+      return normalized;
+    }
+
+    status('WARN', invalidMessage || t(locale, 'unknownMenuTryAgain'));
+  }
+}
+
+function printPirateLogo(locale) {
+  const lines = [
+    color(`                  ${icon('pirate')}${icon('gold')}${icon('skull')}`.trimEnd(), ANSI.yellow),
+    color('                         .-""""-.', ANSI.yellow),
+    color("                       .'  _   _  '.", ANSI.yellow),
+    color('                      /   (o) (o)   \\', ANSI.yellow),
+    color("                     |      .-.      |", ANSI.white),
+    color("                     |     /###\\     |", ANSI.white),
+    color("                      \\    \\___/    /", ANSI.white),
+    color("                  _.-'`'--._____.--'`'-._", ANSI.red),
+    color(`                .'  _   ${icon('pirate')}PIRATE CODEX   _ '.`, ANSI.red),
+    color(`               /___/ \\___ ${icon('gold')}GOLD & BONES ___\\`, ANSI.yellow),
+  ];
+
+  console.log('');
+  for (const line of lines) {
+    console.log(line);
+  }
+  console.log(color(`             ${t(locale, 'subtitle')}`, ANSI.cyan));
+}
+
+function centerText(text) {
+  const width = Number(process.stdout.columns || 80);
+  const plain = String(text || '');
+  const visibleLength = plain.replace(/\x1b\[[0-9;]*m/g, '').length;
+  const padding = Math.max(0, Math.floor((width - visibleLength) / 2));
+  return `${' '.repeat(padding)}${plain}`;
+}
+
+async function promptPirateCode(prompt, locale) {
+  console.log('');
+  console.log(color(centerText(`${icon('pirate')}${t(locale, 'pirateQuestionTitle')}`), ANSI.yellow));
+  console.log(color(centerText(t(locale, 'pirateQuestionBody')), ANSI.gray));
+  console.log('');
+  console.log(centerText(`1. ${t(locale, 'pirateOptionYes')}`));
+  console.log(centerText(`2. ${t(locale, 'pirateOptionLoose')}`));
+  await askMenuChoice(
+    prompt,
+    color(centerText(t(locale, 'pirateQuestionPrompt')), ANSI.cyan),
+    ['1', '2'],
+    {
+      defaultChoice: '1',
+      locale,
+    },
+  );
+}
 
 function color(text, ansi) {
   if (!process.stdout.isTTY) {
@@ -61,7 +877,7 @@ function status(level, message) {
 }
 
 function fail(message) {
-  banner('Failure', ANSI.red);
+  banner(t(CURRENT_LOCALE, 'failureBanner'), ANSI.red);
   status('ERROR', message);
   process.exit(1);
 }
@@ -345,10 +1161,10 @@ function buildManagedProviderSection(setupConfig) {
     name: `model_providers.${setupConfig.provider.id}`,
     headerLine: `[model_providers.${setupConfig.provider.id}]`,
     bodyLines: [
-      `name = ${serializeTomlValue(setupConfig.provider.name)}`,
-      `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl)}`,
-      `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi)}`,
-      `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets)}`,
+      `name = ${serializeTomlValue(setupConfig.provider.name, CURRENT_LOCALE)}`,
+      `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl, CURRENT_LOCALE)}`,
+      `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi, CURRENT_LOCALE)}`,
+      `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets, CURRENT_LOCALE)}`,
       '',
     ],
   };
@@ -420,9 +1236,9 @@ function ensureCanonicalProviderSection(document, setupConfig) {
   return sections;
 }
 
-function ensureExists(filePath, description) {
+function ensureExists(filePath, description, locale = CURRENT_LOCALE) {
   if (!fs.existsSync(filePath)) {
-    throw new Error(`${description} not found: ${filePath}`);
+    throw new Error(t(locale, 'descriptionNotFound', description, filePath));
   }
 }
 
@@ -457,51 +1273,57 @@ function parseArgs(argv) {
   return options;
 }
 
-function readSetupConfig(configPath) {
-  ensureExists(configPath, 'Setup config');
+function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
+  ensureExists(configPath, t(locale, 'setupConfigLabel'), locale);
   const raw = fs.readFileSync(configPath, 'utf8');
   let parsed;
 
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Setup config is not valid JSON: ${configPath}`);
+    throw new Error(t(locale, 'setupConfigInvalidJson', configPath));
   }
 
   const provider = parsed && typeof parsed === 'object' ? parsed.provider : null;
   const defaults = parsed && typeof parsed === 'object' ? parsed.defaults : null;
+  const defaultEndpoint = parsed && typeof parsed === 'object' ? parsed.defaultEndpoint : null;
 
   if (!provider || typeof provider !== 'object') {
-    throw new Error(`Setup config must contain object field "provider".`);
+    throw new Error(t(locale, 'setupConfigMissingObject', 'provider'));
   }
 
   if (!provider.id || typeof provider.id !== 'string') {
-    throw new Error(`Setup config must contain string field "provider.id".`);
+    throw new Error(t(locale, 'setupConfigMissingString', 'provider.id'));
   }
 
   if (!provider.name || typeof provider.name !== 'string') {
-    throw new Error(`Setup config must contain string field "provider.name".`);
+    throw new Error(t(locale, 'setupConfigMissingString', 'provider.name'));
   }
 
   if (!provider.wireApi || typeof provider.wireApi !== 'string') {
-    throw new Error(`Setup config must contain string field "provider.wireApi".`);
+    throw new Error(t(locale, 'setupConfigMissingString', 'provider.wireApi'));
   }
 
   if (typeof provider.supportsWebsockets !== 'boolean') {
-    throw new Error(`Setup config must contain boolean field "provider.supportsWebsockets".`);
+    throw new Error(t(locale, 'setupConfigMissingBoolean', 'provider.supportsWebsockets'));
   }
 
   if (!defaults || typeof defaults !== 'object') {
-    throw new Error(`Setup config must contain object field "defaults".`);
+    throw new Error(t(locale, 'setupConfigMissingObject', 'defaults'));
+  }
+
+  if (defaultEndpoint != null && typeof defaultEndpoint !== 'string') {
+    throw new Error(t(locale, 'setupConfigFieldString', 'defaultEndpoint'));
   }
 
   for (const key of DEFAULTS_KEY_ORDER) {
     if (!(key in defaults)) {
-      throw new Error(`Setup config is missing defaults.${key}`);
+      throw new Error(t(locale, 'setupConfigMissingDefault', key));
     }
   }
 
   return {
+    defaultEndpoint: defaultEndpoint || 'http://144.31.220.80:20300/v1',
     provider: {
       id: provider.id,
       name: provider.name,
@@ -586,7 +1408,7 @@ async function tryPowerShellCompressArchive(sourceDir, zipPath) {
   ]);
 }
 
-async function createZipArchive(sourceDir, zipPath) {
+async function createZipArchive(sourceDir, zipPath, locale = CURRENT_LOCALE) {
   const attempts = [
     {
       name: 'tar.exe',
@@ -616,7 +1438,7 @@ async function createZipArchive(sourceDir, zipPath) {
     failures.push(`${attempt.name}: ${(result.stderr || result.stdout || `exit code ${result.code}`).trim()}`);
   }
 
-  throw new Error(`Backup archive creation failed. ${failures.join(' | ')}`);
+  throw new Error(t(locale, 'backupArchiveCreationFailed', failures.join(' | ')));
 }
 
 async function findRecentBackupZip(backupDir) {
@@ -647,13 +1469,13 @@ async function findRecentBackupZip(backupDir) {
   return newest;
 }
 
-async function createBackupArchive(codexHome, backupDir) {
+async function createBackupArchive(codexHome, backupDir, locale = 'en') {
   await fsp.mkdir(backupDir, { recursive: true });
   const recentBackup = await findRecentBackupZip(backupDir);
   if (recentBackup) {
-    banner('Reusing recent backup archive', ANSI.yellow);
-    status('INFO', `Backup age: ${formatDuration(Date.now() - recentBackup.mtimeMs)}`);
-    status('OK', `Backup archive: ${recentBackup.path}`);
+    banner(t(locale, 'reusingBackupBanner'), ANSI.yellow);
+    status('INFO', t(locale, 'backupAge', formatDuration(Date.now() - recentBackup.mtimeMs)));
+    status('OK', t(locale, 'backupArchive', recentBackup.path));
     return recentBackup.path;
   }
 
@@ -666,8 +1488,8 @@ async function createBackupArchive(codexHome, backupDir) {
 
   try {
     const files = await listFilesRecursive(codexHome);
-    banner('Creating backup archive', ANSI.yellow);
-    status('INFO', `Staging ${files.length} files from ${codexHome}`);
+    banner(t(locale, 'creatingBackupBanner'), ANSI.yellow);
+    status('INFO', t(locale, 'stagingFiles', files.length, codexHome));
 
     for (let index = 0; index < files.length; index += 1) {
       const filePath = files[index];
@@ -678,31 +1500,60 @@ async function createBackupArchive(codexHome, backupDir) {
       renderProgress('Backup snapshot', index + 1, files.length || 1, relativePath);
     }
 
-    const spinner = createSpinner('Compressing backup archive');
+    const spinner = createSpinner(t(locale, 'compressingBackup'));
     spinner.start();
     let archiveMethod = '';
     try {
-      archiveMethod = await createZipArchive(stageRoot, zipPath);
+      archiveMethod = await createZipArchive(stageRoot, zipPath, locale);
     } finally {
       spinner.stop();
     }
 
-    status('OK', `Backup archive created with ${archiveMethod}: ${zipPath}`);
+    status('OK', t(locale, 'backupCreated', archiveMethod, zipPath));
     return zipPath;
   } finally {
     await fsp.rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-function writeAuthJson(authPath, apiKey) {
-  const authContent = `${JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)}\n`;
-  fs.writeFileSync(authPath, authContent, 'utf8');
+function readExistingAuthJson(authPath) {
+  if (!fs.existsSync(authPath)) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (error) {
+    return {};
+  }
+
+  return {};
 }
 
-function serializeTomlValue(value) {
+function updateAuthJson(authPath, authAction) {
+  if (authAction.mode === 'keep') {
+    return 'kept';
+  }
+
+  const authJson = readExistingAuthJson(authPath);
+  if (authAction.mode === 'clear') {
+    delete authJson.OPENAI_API_KEY;
+    fs.writeFileSync(authPath, `${JSON.stringify(authJson, null, 2)}\n`, 'utf8');
+    return 'cleared';
+  }
+
+  authJson.OPENAI_API_KEY = authAction.apiKey;
+  fs.writeFileSync(authPath, `${JSON.stringify(authJson, null, 2)}\n`, 'utf8');
+  return 'updated';
+}
+
+function serializeTomlValue(value, locale = CURRENT_LOCALE) {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      throw new Error('Numeric TOML values must be finite.');
+      throw new Error(t(locale, 'numericTomlFinite'));
     }
 
     return String(value);
@@ -716,15 +1567,15 @@ function serializeTomlValue(value) {
     return JSON.stringify(value);
   }
 
-  throw new Error(`Unsupported TOML value type: ${typeof value}`);
+  throw new Error(t(locale, 'unsupportedTomlValueType', typeof value));
 }
 
-function buildDefaultsBlock(defaults) {
+function buildDefaultsBlock(defaults, locale = CURRENT_LOCALE) {
   const seen = new Set();
   const lines = [];
 
   for (const key of DEFAULTS_KEY_ORDER) {
-    lines.push(`${key} = ${serializeTomlValue(defaults[key])}`);
+    lines.push(`${key} = ${serializeTomlValue(defaults[key], locale)}`);
     seen.add(key);
   }
 
@@ -733,7 +1584,7 @@ function buildDefaultsBlock(defaults) {
       continue;
     }
 
-    lines.push(`${key} = ${serializeTomlValue(defaults[key])}`);
+    lines.push(`${key} = ${serializeTomlValue(defaults[key], locale)}`);
   }
 
   return lines.join('\n');
@@ -755,12 +1606,13 @@ function updateConfigToml(configPath, setupConfig) {
 }
 
 async function scanSessions(sessionsRoot) {
+  const locale = scanSessions.locale || 'en';
   const entries = [];
   const allFiles = await listFilesRecursive(sessionsRoot);
   const jsonlFiles = allFiles.filter((filePath) => filePath.toLowerCase().endsWith('.jsonl'));
   const providerRegex = /"model_provider":"([^"]+)"/;
 
-  banner('Scanning JSONL sessions', ANSI.cyan);
+  banner(t(locale, 'scanSessionsBanner'), ANSI.cyan);
   for (let index = 0; index < jsonlFiles.length; index += 1) {
     const filePath = jsonlFiles[index];
     const relativePath = path.relative(sessionsRoot, filePath);
@@ -771,7 +1623,7 @@ async function scanSessions(sessionsRoot) {
       relativePath,
       provider: match ? match[1] : '',
     });
-    renderProgress('Scanning sessions', index + 1, jsonlFiles.length || 1, relativePath);
+    renderProgress(t(locale, 'scanSessionsProgress'), index + 1, jsonlFiles.length || 1, relativePath);
   }
 
   return entries;
@@ -822,20 +1674,20 @@ function providerCount(providerCounts, providerName) {
   return Number(providerCounts.get(providerName) || 0);
 }
 
-function printProviderSummary(providerCounts, sourceLabel) {
-  banner(`Detected providers (${sourceLabel})`, ANSI.cyan);
+function printProviderSummary(providerCounts, sourceLabel, locale = 'en') {
+  banner(t(locale, 'detectedProviders', sourceLabel), ANSI.cyan);
 
   const rows = [...providerCounts.entries()]
     .map(([provider, count]) => ({ provider, count }))
     .sort((left, right) => right.count - left.count || left.provider.localeCompare(right.provider));
 
   if (rows.length === 0) {
-    status('WARN', 'No provider-tagged chats were found.');
+    status('WARN', t(locale, 'noProviderChats'));
     return;
   }
 
   for (const row of rows) {
-    console.log(`  ${color(row.provider, ANSI.bold)}: ${color(String(row.count), ANSI.green)} ${row.count === 1 ? 'chat' : 'chats'}`);
+    console.log(`  ${color(row.provider, ANSI.bold)}: ${color(String(row.count), ANSI.green)} ${t(locale, 'chatWord', row.count)}`);
   }
 }
 
@@ -857,10 +1709,34 @@ function createPrompt() {
   };
 }
 
-function normalizeEndpointInput(value) {
+async function promptLanguage(prompt) {
+  console.log('');
+  console.log(color(t('ru', 'languageOptionEnglish'), ANSI.cyan));
+  console.log(color(t('ru', 'languageOptionRussian'), ANSI.green));
+  const answer = await askMenuChoice(
+    prompt,
+    color(t('ru', 'languagePrompt'), ANSI.yellow),
+    ['1', '2', 'en', 'EN', 'ru', 'RU'],
+    {
+      defaultChoice: '2',
+      invalidMessage: t('ru', 'unknownLanguageOption'),
+    },
+  );
+  if (answer === '2' || /^ru$/i.test(answer)) {
+    return 'ru';
+  }
+
+  if (answer === '1' || /^en$/i.test(answer)) {
+    return 'en';
+  }
+
+  return 'ru';
+}
+
+function normalizeEndpointInput(value, locale = 'en') {
   const trimmed = String(value || '').trim();
   if (!trimmed) {
-    throw new Error('Endpoint cannot be empty.');
+    throw new Error(t(locale, 'endpointEmpty'));
   }
 
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -868,7 +1744,7 @@ function normalizeEndpointInput(value) {
   try {
     parsedUrl = new URL(withScheme);
   } catch (error) {
-    throw new Error(`Invalid endpoint: ${trimmed}`);
+    throw new Error(t(locale, 'invalidEndpoint', trimmed));
   }
 
   if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
@@ -883,20 +1759,87 @@ function normalizeEndpointInput(value) {
 }
 
 async function promptConnectionDetails(prompt, setupConfig) {
+  const locale = prompt.locale || 'en';
+  const defaultEndpoint = setupConfig.defaultEndpoint;
   const endpointAnswer = await prompt.ask(
-    color(`Enter endpoint ${color('(example: http://144.31.220.80:20300/v1)', ANSI.gray)}: `, ANSI.cyan),
+    color(t(locale, 'enterEndpoint', color(defaultEndpoint, ANSI.gray)), ANSI.cyan),
   );
-  const apiKeyAnswer = await prompt.ask(color('Enter API key: ', ANSI.cyan));
+  const apiKeyAnswer = await prompt.ask(color(t(locale, 'enterApiKey'), ANSI.cyan));
 
-  const baseUrl = normalizeEndpointInput(endpointAnswer);
+  const endpointInput = String(endpointAnswer || '').trim() || defaultEndpoint;
+  const baseUrl = normalizeEndpointInput(endpointInput, locale);
   const apiKey = String(apiKeyAnswer || '').trim();
+
+  let authAction;
   if (!apiKey) {
-    throw new Error('API key cannot be empty.');
+    console.log('');
+    console.log(color(t(locale, 'emptyKeyMenuTitle'), ANSI.yellow));
+    console.log(`  1. ${t(locale, 'clearApiKey')}`);
+    console.log(`  2. ${t(locale, 'keepApiKey')}`);
+    const emptyKeyChoice = await askMenuChoice(
+      prompt,
+      color(t(locale, 'emptyKeyPrompt'), ANSI.cyan),
+      ['1', '2'],
+      {
+        locale,
+        invalidMessage: locale === 'ru'
+          ? 'Неизвестный вариант для API key. Попробуйте снова.'
+          : 'Unknown API key option. Try again.',
+      },
+    );
+    if (emptyKeyChoice === '1') {
+      authAction = { mode: 'clear' };
+    } else {
+      authAction = { mode: 'keep' };
+    }
+  } else {
+    authAction = {
+      mode: 'set',
+      apiKey,
+    };
   }
+
+  console.log('');
+  console.log(t(locale, 'sessionsIntro', color(setupConfig.provider.id, ANSI.green)));
+  console.log(`  1. ${t(locale, 'sessionsNoDefault')}`);
+  console.log(`  2. ${t(locale, 'sessionsYes', color(setupConfig.provider.id, ANSI.green))}`);
+  const sessionChoice = await askMenuChoice(
+    prompt,
+    color(t(locale, 'updateSessionsPrompt'), ANSI.cyan),
+    ['1', '2'],
+    {
+      defaultChoice: '1',
+      locale,
+      invalidMessage: locale === 'ru'
+        ? 'Неизвестный вариант обновления сессий. Попробуйте снова.'
+        : 'Unknown session update option. Try again.',
+    },
+  );
+  const updateSessions = sessionChoice === '2';
+
+  console.log('');
+  console.log(color(t(locale, 'backupMenuTitle'), ANSI.yellow));
+  console.log(`  1. ${t(locale, 'backupYesDefault')}`);
+  console.log(`  2. ${t(locale, 'backupNo')}`);
+  const backupChoice = await askMenuChoice(
+    prompt,
+    color(t(locale, 'backupPrompt'), ANSI.cyan),
+    ['1', '2'],
+    {
+      defaultChoice: '1',
+      locale,
+      invalidMessage: locale === 'ru'
+        ? 'Неизвестный вариант backup. Попробуйте снова.'
+        : 'Unknown backup option. Try again.',
+    },
+  );
+  const createBackup = backupChoice === '1';
 
   return {
     ...setupConfig,
-    apiKey,
+    authAction,
+    updateSessions,
+    createBackup,
     provider: {
       ...setupConfig.provider,
       baseUrl,
@@ -905,6 +1848,7 @@ async function promptConnectionDetails(prompt, setupConfig) {
 }
 
 async function chooseProviders(prompt, providerCounts) {
+  const locale = prompt.locale || 'en';
   const targetProvider = prompt.targetProvider;
   const rows = [...providerCounts.entries()]
     .map(([provider, count]) => ({ provider, count: Number(count || 0) }))
@@ -915,10 +1859,17 @@ async function chooseProviders(prompt, providerCounts) {
 
   console.log('');
   if (selectableRows.length === 0) {
-    console.log(`  1. Convert all chats -> ${color(targetProvider, ANSI.green)} (${totalChats} chats total, 0 need changes)`);
-    console.log('  0. Cancel');
+    console.log(`  1. ${t(locale, 'menuConvertAllNoChanges', color(targetProvider, ANSI.green), totalChats)}`);
+    console.log(`  0. ${t(locale, 'menuCancel')}`);
 
-    const answer = await prompt.ask(color('Select an option: ', ANSI.cyan));
+    const answer = await askMenuChoice(
+      prompt,
+      color(t(locale, 'selectOption'), ANSI.cyan),
+      ['0', '1'],
+      {
+        locale,
+      },
+    );
     if (answer === '0') {
       return null;
     }
@@ -926,27 +1877,30 @@ async function chooseProviders(prompt, providerCounts) {
     if (answer === '1') {
       return [];
     }
-
-    throw new Error('Unknown menu option.');
   }
 
   selectableRows.forEach((row, index) => {
-    console.log(`  ${index + 1}. Replace ${color(row.provider, ANSI.bold)} -> ${color(targetProvider, ANSI.green)} (${row.count} chats)`);
+    console.log(`  ${index + 1}. ${t(locale, 'menuReplace', color(row.provider, ANSI.bold), color(targetProvider, ANSI.green), row.count)}`);
   });
 
   const convertAllOption = selectableRows.length + 1;
-  console.log(`  ${convertAllOption}. Convert all chats -> ${color(targetProvider, ANSI.green)} (${totalChats} chats total, ${convertibleChats} need changes)`);
-  console.log('  0. Cancel');
+  console.log(`  ${convertAllOption}. ${t(locale, 'menuConvertAll', color(targetProvider, ANSI.green), totalChats, convertibleChats)}`);
+  console.log(`  0. ${t(locale, 'menuCancel')}`);
 
-  const answer = await prompt.ask(color('Select an option: ', ANSI.cyan));
+  const validChoices = ['0', ...Array.from({ length: convertAllOption }, (_, index) => String(index + 1))];
+  const answer = await askMenuChoice(
+    prompt,
+    color(t(locale, 'selectOption'), ANSI.cyan),
+    validChoices,
+    {
+      locale,
+    },
+  );
   if (answer === '0') {
     return null;
   }
 
   const choice = Number.parseInt(answer, 10);
-  if (!Number.isInteger(choice) || choice < 1 || choice > convertAllOption) {
-    throw new Error('Unknown menu option.');
-  }
 
   if (choice === convertAllOption) {
     return selectableRows.map((row) => row.provider);
@@ -956,10 +1910,11 @@ async function chooseProviders(prompt, providerCounts) {
 }
 
 async function retagSessionFiles(sessionEntries, fromProviders, toProvider) {
+  const locale = retagSessionFiles.locale || 'en';
   let updated = 0;
   const matchingEntries = sessionEntries.filter((entry) => fromProviders.includes(entry.provider));
 
-  banner('Updating JSONL session files', ANSI.cyan);
+  banner(t(locale, 'updateJsonlBanner'), ANSI.cyan);
   for (let index = 0; index < matchingEntries.length; index += 1) {
     const entry = matchingEntries[index];
     let text = await fsp.readFile(entry.filePath, 'utf8');
@@ -979,16 +1934,17 @@ async function retagSessionFiles(sessionEntries, fromProviders, toProvider) {
       updated += 1;
     }
 
-    renderProgress('Updating sessions', index + 1, matchingEntries.length || 1, entry.relativePath);
+    renderProgress(t(locale, 'updateJsonlProgress'), index + 1, matchingEntries.length || 1, entry.relativePath);
   }
 
   return { scanned: matchingEntries.length, updated };
 }
 
 function retagSqliteFiles(dbPaths, fromProviders, toProvider) {
+  const locale = retagSqliteFiles.locale || 'en';
   const results = [];
 
-  banner('Updating SQLite state', ANSI.cyan);
+  banner(t(locale, 'updateSqliteBanner'), ANSI.cyan);
   for (let index = 0; index < dbPaths.length; index += 1) {
     const dbPath = dbPaths[index];
     const db = new DatabaseSync(dbPath, { timeout: 5000 });
@@ -1017,7 +1973,7 @@ function retagSqliteFiles(dbPaths, fromProviders, toProvider) {
     }
 
     results.push({ dbPath, before, after, changed });
-    renderProgress('Updating sqlite', index + 1, dbPaths.length || 1, path.basename(dbPath));
+    renderProgress(t(locale, 'updateSqliteProgress'), index + 1, dbPaths.length || 1, path.basename(dbPath));
   }
 
   return results;
@@ -1027,10 +1983,9 @@ async function main() {
   const startedAt = Date.now();
   const options = parseArgs(process.argv.slice(2));
   if (!options.configPath) {
-    throw new Error('Missing --config argument from launcher.');
+    throw new Error(t(CURRENT_LOCALE, 'missingConfigArg'));
   }
 
-  const staticConfig = readSetupConfig(options.configPath);
   const codexHome = options.codexHome;
   const authPath = path.join(codexHome, 'auth.json');
   const configPath = path.join(codexHome, 'config.toml');
@@ -1038,61 +1993,94 @@ async function main() {
 
   await fsp.mkdir(codexHome, { recursive: true });
 
-  banner('Codex Setup Wizard', ANSI.cyan);
-  status('INFO', `Setup config: ${options.configPath}`);
-  status('INFO', `Codex home: ${codexHome}`);
-  status('INFO', `Provider: ${staticConfig.provider.id}`);
-
   if (!process.stdin.isTTY) {
-    throw new Error('Interactive mode requires a TTY.');
+    throw new Error(t(CURRENT_LOCALE, 'interactiveTtyRequired'));
   }
 
   const prompt = createPrompt();
   try {
+    const locale = await promptLanguage(prompt);
+    CURRENT_LOCALE = locale;
+    prompt.locale = locale;
+    const staticConfig = readSetupConfig(options.configPath, locale);
+    printPirateLogo(locale);
+    banner(t(locale, 'appTitle'), ANSI.magenta);
+    status('INFO', t(locale, 'setupConfig', options.configPath));
+    status('INFO', t(locale, 'codexHome', codexHome));
+    status('INFO', t(locale, 'provider', staticConfig.provider.id));
+    await promptPirateCode(prompt, locale);
+    const dependencyMap = buildDependencyMap(locale);
+    printDependencyMap(locale, dependencyMap);
+    ensureCriticalDependencies(dependencyMap, locale);
+    banner(`${icon('anchor')}${t(locale, 'cargoReadyBanner')}`, ANSI.green);
+    status('INFO', t(locale, 'cargoReadyStatus'));
+
     const setupConfig = await promptConnectionDetails(prompt, staticConfig);
     const targetProvider = setupConfig.provider.id;
-    status('INFO', `Base URL: ${setupConfig.provider.baseUrl}`);
+    status('INFO', t(locale, 'baseUrl', setupConfig.provider.baseUrl));
 
-    const backupZip = await createBackupArchive(codexHome, options.backupDir);
+    let backupZip = null;
+    if (setupConfig.createBackup) {
+      backupZip = await createBackupArchive(codexHome, options.backupDir, locale);
+    }
 
-    banner('Writing auth.json and config.toml', ANSI.cyan);
-    writeAuthJson(authPath, setupConfig.apiKey);
+    banner(t(locale, 'writeConfigBanner'), ANSI.cyan);
+    const authUpdateMode = updateAuthJson(authPath, setupConfig.authAction);
     updateConfigToml(configPath, setupConfig);
-    status('OK', `Updated auth.json: ${authPath}`);
-    status('OK', `Updated config.toml: ${configPath}`);
+    if (authUpdateMode === 'updated') {
+      status('OK', t(locale, 'updatedAuth', authPath));
+    } else if (authUpdateMode === 'cleared') {
+      status('OK', t(locale, 'clearedAuth', authPath));
+    } else {
+      status('OK', t(locale, 'keptAuth', authPath));
+    }
+    status('OK', t(locale, 'updatedConfig', configPath));
+
+    if (!setupConfig.updateSessions) {
+      banner(t(locale, 'summaryBanner'), ANSI.green);
+      status('INFO', backupZip ? t(locale, 'backupArchive', backupZip) : t(locale, 'backupSkipped'));
+      status('INFO', t(locale, 'sessionsUnchanged'));
+      status('INFO', t(locale, 'sessionsRetryLater'));
+      status('INFO', t(locale, 'elapsed', formatDuration(Date.now() - startedAt)));
+      status('OK', t(locale, 'setupCompleted', targetProvider));
+      return;
+    }
 
     ensureExists(codexHome, 'Codex home');
+    scanSessions.locale = locale;
+    retagSessionFiles.locale = locale;
+    retagSqliteFiles.locale = locale;
     const sessionEntries = await scanSessions(sessionsRoot);
     const sqliteFiles = await findStateDatabases(codexHome);
     const sqliteProviderCounts = collectProviderCountsFromSqlite(sqliteFiles);
     const sessionProviderCounts = collectProviderCountsFromSessions(sessionEntries);
     const providerCounts = sqliteProviderCounts.size > 0 ? sqliteProviderCounts : sessionProviderCounts;
-    const providerSource = sqliteProviderCounts.size > 0 ? 'SQLite threads' : 'JSONL sessions';
+    const providerSource = sqliteProviderCounts.size > 0 ? t(locale, 'sourceSqlite') : t(locale, 'sourceJsonl');
 
-    printProviderSummary(providerCounts, providerSource);
+    printProviderSummary(providerCounts, providerSource, locale);
     prompt.targetProvider = targetProvider;
     const fromProviders = await chooseProviders(prompt, providerCounts);
     if (fromProviders === null) {
-      status('WARN', 'Cancelled by user.');
+      status('WARN', t(locale, 'cancelled'));
       return;
     }
 
     const availableLegacyProviders = fromProviders.filter((provider) => providerCount(providerCounts, provider) > 0);
     if (fromProviders.length === 0) {
-      banner('Summary', ANSI.green);
-      status('INFO', `Backup archive: ${backupZip}`);
-      status('INFO', `All chats are already using ${targetProvider}. No changes were required.`);
-      status('INFO', `Elapsed: ${formatDuration(Date.now() - startedAt)}`);
-      status('OK', `Setup completed. Active provider: ${targetProvider}`);
+      banner(t(locale, 'summaryBanner'), ANSI.green);
+      status('INFO', backupZip ? t(locale, 'backupArchive', backupZip) : t(locale, 'backupSkipped'));
+      status('INFO', t(locale, 'allAlreadyUsing', targetProvider));
+      status('INFO', t(locale, 'elapsed', formatDuration(Date.now() - startedAt)));
+      status('OK', t(locale, 'setupCompleted', targetProvider));
       return;
     }
 
     if (availableLegacyProviders.length === 0) {
-      throw new Error('No chats were found for the selected legacy provider names.');
+      throw new Error(t(locale, 'noLegacyChatsFound'));
     }
 
     console.log('');
-    status('INFO', `Converting ${availableLegacyProviders.join(', ')} -> ${targetProvider}`);
+    status('INFO', t(locale, 'converting', availableLegacyProviders.join(', '), targetProvider));
 
     const sessionUpdate = await retagSessionFiles(sessionEntries, availableLegacyProviders, targetProvider);
     const sqliteUpdate = retagSqliteFiles(sqliteFiles, availableLegacyProviders, targetProvider);
@@ -1113,23 +2101,23 @@ async function main() {
     const rescannedSessions = await scanSessions(sessionsRoot);
     const remainingSessionFiles = rescannedSessions.filter((entry) => availableLegacyProviders.includes(entry.provider)).length;
 
-    banner('Summary', ANSI.green);
-    status('INFO', `Backup archive: ${backupZip}`);
-    status('INFO', `JSONL files updated: ${sessionUpdate.updated}/${sessionUpdate.scanned}`);
-    status('INFO', `SQLite files checked: ${sqliteUpdate.length}`);
+    banner(t(locale, 'summaryBanner'), ANSI.green);
+    status('INFO', backupZip ? t(locale, 'backupArchive', backupZip) : t(locale, 'backupSkipped'));
+    status('INFO', t(locale, 'jsonlUpdated', sessionUpdate.updated, sessionUpdate.scanned));
+    status('INFO', t(locale, 'sqliteChecked', sqliteUpdate.length));
     for (const row of sqliteUpdate) {
       console.log(`  - ${path.basename(row.dbPath)}: ${row.before} -> ${row.after} (changed ${row.changed})`);
     }
-    status('INFO', `Remaining JSONL files with old providers: ${remainingSessionFiles}`);
-    status('INFO', `Remaining SQLite rows with old providers: ${remainingRows}`);
-    status('INFO', `Elapsed: ${formatDuration(Date.now() - startedAt)}`);
+    status('INFO', t(locale, 'remainingJsonl', remainingSessionFiles));
+    status('INFO', t(locale, 'remainingSqlite', remainingRows));
+    status('INFO', t(locale, 'elapsed', formatDuration(Date.now() - startedAt)));
 
     if (remainingSessionFiles === 0 && remainingRows === 0) {
-      status('OK', `Setup and provider conversion completed. Active provider: ${targetProvider}`);
+      status('OK', t(locale, 'setupAndConversionCompleted', targetProvider));
       return;
     }
 
-    throw new Error('Some old provider references still remain after conversion.');
+    throw new Error(t(locale, 'oldRefsRemain'));
   } finally {
     prompt.close();
   }

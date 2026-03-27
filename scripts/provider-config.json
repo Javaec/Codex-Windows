@@ -1,4 +1,5 @@
 {
+  "defaultEndpoint": "http://144.31.220.80:20300/v1",
   "provider": {
     "id": "codex",
     "name": "OpenAI",
