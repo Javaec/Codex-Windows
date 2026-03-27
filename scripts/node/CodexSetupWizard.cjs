@@ -135,43 +135,289 @@ function normalizeNewlines(text) {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-function toWindowsNewlines(text) {
-  return normalizeNewlines(text).replace(/\n/g, '\r\n');
+function detectLineEnding(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function removeTopLevelKey(text, key) {
-  const pattern = new RegExp(`^[ \\t]*${escapeRegex(key)}[ \\t]*=[^\\n]*(?:\\n|$)`, 'gm');
-  return text.replace(pattern, '');
+function splitTopLevelAssignment(line, key) {
+  const pattern = new RegExp(`^(\\s*${escapeRegex(key)}\\s*=\\s*)([^#\\n]*?)(\\s*(#.*)?)$`);
+  const match = line.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    prefix: match[1],
+    rawValue: match[2].trim(),
+    suffix: match[3] || '',
+  };
 }
 
-function removeTomlSection(text, sectionName) {
-  const lines = normalizeNewlines(text).split('\n');
-  const result = [];
-  const header = `[${sectionName}]`;
-  let skip = false;
+function findTopLevelKeyIndex(lines, key) {
+  const pattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=`);
+  return lines.findIndex((line) => pattern.test(line));
+}
 
-  for (const line of lines) {
-    if (!skip && line.trim() === header) {
-      skip = true;
+function parseTomlInteger(valueText) {
+  const normalized = String(valueText || '').trim().replace(/_/g, '');
+  if (!/^[+-]?\d+$/.test(normalized)) {
+    return null;
+  }
+
+  return Number.parseInt(normalized, 10);
+}
+
+function roundToStep(value, step) {
+  return Math.round(value / step) * step;
+}
+
+function clampManagedNumber(key, value) {
+  if (!Number.isFinite(value) || value <= 410000) {
+    return value;
+  }
+
+  const base = key === 'model_context_window' ? 340000 : 290000;
+  const clamped = roundToStep(base + ((value - 400000) * 0.12), 10000);
+  return Math.min(value, clamped);
+}
+
+function updateExistingTopLevelLine(line, key, replacementValue) {
+  const parts = splitTopLevelAssignment(line, key);
+  if (!parts) {
+    return `${key} = ${serializeTomlValue(replacementValue)}`;
+  }
+
+  return `${parts.prefix}${serializeTomlValue(replacementValue)}${parts.suffix}`;
+}
+
+function applyManagedDefaultsToPreamble(preambleLines, defaults, targetProviderId) {
+  const lines = [...preambleLines];
+  const existingDefaultIndices = [];
+  const pendingDefaultInsertions = [];
+
+  for (const key of DEFAULTS_KEY_ORDER) {
+    const index = findTopLevelKeyIndex(lines, key);
+    if (index === -1) {
+      pendingDefaultInsertions.push({ key, value: defaults[key] });
       continue;
     }
 
-    if (skip) {
-      if (/^\s*\[/.test(line) || /^\s*#\[/.test(line) || /^\s*#\s*model_provider\s*=/.test(line)) {
-        skip = false;
-      } else {
-        continue;
+    existingDefaultIndices.push(index);
+
+    if (key === 'model_context_window' || key === 'model_auto_compact_token_limit') {
+      const parts = splitTopLevelAssignment(lines[index], key);
+      const parsed = parts ? parseTomlInteger(parts.rawValue) : null;
+      if (parsed !== null) {
+        const clamped = clampManagedNumber(key, parsed);
+        if (clamped !== parsed) {
+          lines[index] = updateExistingTopLevelLine(lines[index], key, clamped);
+        }
       }
     }
-
-    result.push(line);
   }
 
-  return result.join('\n');
+  const modelProviderIndex = findTopLevelKeyIndex(lines, 'model_provider');
+  const isModelProviderMissing = modelProviderIndex === -1;
+  if (!isModelProviderMissing) {
+    lines[modelProviderIndex] = updateExistingTopLevelLine(lines[modelProviderIndex], 'model_provider', targetProviderId);
+  }
+
+  if (pendingDefaultInsertions.length > 0 || isModelProviderMissing) {
+    const insertionLines = [
+      ...pendingDefaultInsertions.map(({ key, value }) => `${key} = ${serializeTomlValue(value)}`),
+    ];
+    if (isModelProviderMissing) {
+      insertionLines.push(`model_provider = ${serializeTomlValue(targetProviderId)}`);
+    }
+
+    const insertAt = !isModelProviderMissing
+      ? modelProviderIndex
+      : existingDefaultIndices.length > 0
+        ? Math.max(...existingDefaultIndices) + 1
+        : lines.length;
+    lines.splice(insertAt, 0, ...insertionLines);
+  }
+
+  return lines;
+}
+
+function parseConfigDocument(text) {
+  if (!text) {
+    return {
+      preambleLines: [],
+      sections: [],
+    };
+  }
+
+  const lines = normalizeNewlines(text).split('\n');
+  const preambleLines = [];
+  const sections = [];
+  let currentSection = null;
+
+  for (const line of lines) {
+    const match = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (match) {
+      currentSection = {
+        name: match[1],
+        headerLine: line,
+        bodyLines: [],
+      };
+      sections.push(currentSection);
+      continue;
+    }
+
+    if (currentSection) {
+      currentSection.bodyLines.push(line);
+    } else {
+      preambleLines.push(line);
+    }
+  }
+
+  return { preambleLines, sections };
+}
+
+function renderConfigDocument(document, lineEnding) {
+  const lines = [...document.preambleLines];
+  for (const section of document.sections) {
+    lines.push(section.headerLine, ...section.bodyLines);
+  }
+
+  let rendered = lines.join('\n');
+  rendered = rendered.replace(/\n*$/, '\n');
+  return rendered.replace(/\n/g, lineEnding);
+}
+
+function isProviderSection(section) {
+  return /^model_providers\./.test(section.name);
+}
+
+function getProviderId(section) {
+  const match = section.name.match(/^model_providers\.(.+)$/);
+  return match ? match[1] : null;
+}
+
+function getProviderBaseUrl(section) {
+  for (const line of section.bodyLines) {
+    const match = line.match(/^\s*base_url\s*=\s*"([^"]+)"\s*(#.*)?$/);
+    if (match) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+function cloneSection(section) {
+  return {
+    name: section.name,
+    headerLine: section.headerLine,
+    bodyLines: [...section.bodyLines],
+  };
+}
+
+function getProviderSectionIndex(sections, providerId) {
+  return sections.findIndex((section) => isProviderSection(section) && getProviderId(section) === providerId);
+}
+
+function getUniqueOldProviderId(sections) {
+  const providerIds = new Set(
+    sections.filter(isProviderSection).map((section) => getProviderId(section)),
+  );
+
+  if (!providerIds.has('codex-old')) {
+    return 'codex-old';
+  }
+
+  let counter = 2;
+  while (providerIds.has(`codex-old${counter}`)) {
+    counter += 1;
+  }
+
+  return `codex-old${counter}`;
+}
+
+function buildManagedProviderSection(setupConfig) {
+  return {
+    name: `model_providers.${setupConfig.provider.id}`,
+    headerLine: `[model_providers.${setupConfig.provider.id}]`,
+    bodyLines: [
+      `name = ${serializeTomlValue(setupConfig.provider.name)}`,
+      `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl)}`,
+      `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi)}`,
+      `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets)}`,
+      '',
+    ],
+  };
+}
+
+function findMatchingProviderSectionIndex(sections, baseUrl) {
+  let fallbackIndex = -1;
+
+  for (let index = 0; index < sections.length; index += 1) {
+    const section = sections[index];
+    if (!isProviderSection(section)) {
+      continue;
+    }
+
+    if (getProviderBaseUrl(section) !== baseUrl) {
+      continue;
+    }
+
+    const providerId = getProviderId(section);
+    if (providerId === 'codex') {
+      return index;
+    }
+
+    if (fallbackIndex === -1) {
+      fallbackIndex = index;
+    }
+  }
+
+  return fallbackIndex;
+}
+
+function getManagedProviderInsertIndex(sections, originalCodexIndex) {
+  if (originalCodexIndex >= 0) {
+    return originalCodexIndex;
+  }
+
+  const firstProviderIndex = sections.findIndex(isProviderSection);
+  if (firstProviderIndex >= 0) {
+    return firstProviderIndex;
+  }
+
+  return sections.length;
+}
+
+function ensureCanonicalProviderSection(document, setupConfig) {
+  const sections = document.sections.map(cloneSection);
+  const targetProviderId = setupConfig.provider.id;
+  const baseUrl = setupConfig.provider.baseUrl;
+  const matchingIndex = findMatchingProviderSectionIndex(sections, baseUrl);
+  let codexIndex = getProviderSectionIndex(sections, targetProviderId);
+  const managedSection = buildManagedProviderSection(setupConfig);
+
+  if (matchingIndex === codexIndex && codexIndex >= 0) {
+    sections[codexIndex] = managedSection;
+    return sections;
+  }
+
+  if (codexIndex >= 0) {
+    const renamedProviderId = getUniqueOldProviderId(sections);
+    sections[codexIndex] = {
+      ...sections[codexIndex],
+      name: `model_providers.${renamedProviderId}`,
+      headerLine: `[model_providers.${renamedProviderId}]`,
+    };
+  }
+
+  const insertAt = getManagedProviderInsertIndex(sections, codexIndex);
+  sections.splice(insertAt, 0, managedSection);
+  return sections;
 }
 
 function ensureExists(filePath, description) {
@@ -494,37 +740,18 @@ function buildDefaultsBlock(defaults) {
 }
 
 function updateConfigToml(configPath, setupConfig) {
-  let existingConfig = '';
-  if (fs.existsSync(configPath)) {
-    existingConfig = normalizeNewlines(fs.readFileSync(configPath, 'utf8'));
-  }
-
-  for (const key of [
-    ...Object.keys(setupConfig.defaults),
-    'model_provider',
-  ]) {
-    existingConfig = removeTopLevelKey(existingConfig, key);
-  }
-
-  existingConfig = removeTomlSection(existingConfig, `model_providers.${setupConfig.provider.id}`);
-  existingConfig = existingConfig.trim();
-
-  const providerBlock = [
-    `model_provider = ${serializeTomlValue(setupConfig.provider.id)}`,
-    `[model_providers.${setupConfig.provider.id}]`,
-    `name = ${serializeTomlValue(setupConfig.provider.name)}`,
-    `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl)}`,
-    `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi)}`,
-    `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets)}`,
-  ].join('\n');
-
-  let newConfig = `${buildDefaultsBlock(setupConfig.defaults)}\n\n${providerBlock}`;
-  if (existingConfig) {
-    newConfig += `\n\n${existingConfig}`;
-  }
-  newConfig += '\n';
-
-  fs.writeFileSync(configPath, toWindowsNewlines(newConfig), 'utf8');
+  const originalText = fs.existsSync(configPath)
+    ? fs.readFileSync(configPath, 'utf8')
+    : '';
+  const lineEnding = originalText ? detectLineEnding(originalText) : '\r\n';
+  const document = parseConfigDocument(originalText);
+  document.preambleLines = applyManagedDefaultsToPreamble(
+    document.preambleLines,
+    setupConfig.defaults,
+    setupConfig.provider.id,
+  );
+  document.sections = ensureCanonicalProviderSection(document, setupConfig);
+  fs.writeFileSync(configPath, renderConfigDocument(document, lineEnding), 'utf8');
 }
 
 async function scanSessions(sessionsRoot) {

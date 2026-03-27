@@ -8,7 +8,9 @@
     "build:lite:alpha-cli": "node scripts/node/run.js build -ProfileName lite -NoLaunch -CodexCliChannel alpha",
     "verify:lite": "node scripts/node/run.js verify",
     "smoke:lite": "node scripts/node/run.js smoke -ProfileName lite",
-    "build:single-exe": "node scripts/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse"
+    "build:single-exe": "node scripts/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse",
+    "provider-retag": "node scripts/node/CodexProviderRetag.cjs",
+    "provider-retag:prepare": "powershell -ExecutionPolicy Bypass -File scripts/Prepare-CodexProviderRetag.ps1"
   },
   "devDependencies": {
     "@types/node": "^22.19.10",
