@@ -376,6 +376,18 @@ function findExecutableInPath(names) {
   return null;
 }
 
+function findPowerShell7ExecutableInPath() {
+  return findFirstExistingCandidate([
+    process.env.CODEX_PWSH_PATH || '',
+    process.env.PWSH_EXE || '',
+    findExecutableInPath(['pwsh.exe', 'pwsh']),
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'PowerShell', '7', 'pwsh.exe') : '',
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'PowerShell', '7-preview', 'pwsh.exe') : '',
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'PowerShell', '7', 'pwsh.exe') : '',
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'PowerShell', '7-preview', 'pwsh.exe') : '',
+  ]);
+}
+
 function findFirstExistingCandidate(candidates) {
   for (const candidate of candidates) {
     const resolved = resolveExistingFile(candidate);
@@ -705,7 +717,7 @@ function buildDependencyMap(locale) {
     findExecutableInPath(['rg.exe', 'rg']),
   ]);
   const npmPath = findExecutableInPath(['npm.cmd', 'npm.exe', 'npm']);
-  const pwshPath = findExecutableInPath(['pwsh.exe', 'pwsh']);
+  const pwshPath = findPowerShell7ExecutableInPath();
   const wtPath = findFirstExistingCandidate([
     findExecutableInPath(['wt.exe', 'wt']),
     process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'WindowsApps', 'wt.exe') : '',
@@ -736,12 +748,12 @@ function buildDependencyMap(locale) {
     critical: [
       makeDependency('Node.js', process.execPath ? 'ok' : 'missing', process.execPath || '', process.version || '', 'https://nodejs.org/'),
       makeDependency('npm', npmPath ? 'ok' : 'missing', npmPath || '', npmPath ? getNpmVersion(npmPath) : '', 'https://nodejs.org/'),
+      makeDependency('PowerShell 7+', pwshPath ? (pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing') : 'missing', pwshPath || '', pwshVersion || '', 'https://aka.ms/powershell-release?tag=stable'),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
       makeDependency('rg', rgPath ? 'ok' : 'missing', rgPath || '', rgPath ? runVersionCommand(rgPath, ['--version']) : '', 'https://ripgrep.dev/download/'),
     ],
     important: [
-      makeDependency('PowerShell 7+', pwshPath ? (pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'warn') : 'missing', pwshPath || '', pwshVersion || '', 'https://aka.ms/powershell-release?tag=stable'),
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
       makeDependency('git (Git for Windows)', gitPath ? 'ok' : 'missing', gitPath || '', gitPath ? runVersionCommand(gitPath, ['--version']) : '', 'https://git-scm.com/download/win'),
@@ -1385,7 +1397,12 @@ async function tryTarZip(sourceParentDir, sourceDirName, zipPath) {
 }
 
 async function tryPowerShellDotNetZip(sourceDir, zipPath) {
-  return runProcessCapture('powershell', [
+  const powershell = findPowerShell7ExecutableInPath();
+  if (!powershell) {
+    return { code: -1, stdout: '', stderr: 'pwsh.exe not found' };
+  }
+
+  return runProcessCapture(powershell, [
     '-NoProfile',
     '-ExecutionPolicy',
     'Bypass',
@@ -1399,7 +1416,12 @@ async function tryPowerShellDotNetZip(sourceDir, zipPath) {
 }
 
 async function tryPowerShellCompressArchive(sourceDir, zipPath) {
-  return runProcessCapture('powershell', [
+  const powershell = findPowerShell7ExecutableInPath();
+  if (!powershell) {
+    return { code: -1, stdout: '', stderr: 'pwsh.exe not found' };
+  }
+
+  return runProcessCapture(powershell, [
     '-NoProfile',
     '-ExecutionPolicy',
     'Bypass',
@@ -1411,16 +1433,16 @@ async function tryPowerShellCompressArchive(sourceDir, zipPath) {
 async function createZipArchive(sourceDir, zipPath, locale = CURRENT_LOCALE) {
   const attempts = [
     {
-      name: 'tar.exe',
-      run: () => tryTarZip(path.dirname(sourceDir), path.basename(sourceDir), zipPath),
-    },
-    {
       name: 'PowerShell ZipFile',
       run: () => tryPowerShellDotNetZip(sourceDir, zipPath),
     },
     {
       name: 'Compress-Archive',
       run: () => tryPowerShellCompressArchive(sourceDir, zipPath),
+    },
+    {
+      name: 'tar.exe',
+      run: () => tryTarZip(path.dirname(sourceDir), path.basename(sourceDir), zipPath),
     },
   ];
 

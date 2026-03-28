@@ -3,6 +3,20 @@ setlocal
 cd /d "%~dp0"
 title Codex Setup Wizard
 
+set "PWSH_EXE="
+for %%F in (pwsh.exe) do set "PWSH_EXE=%%~$PATH:F"
+if not defined PWSH_EXE if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "PWSH_EXE=%ProgramFiles%\PowerShell\7\pwsh.exe"
+if not defined PWSH_EXE if exist "%ProgramFiles(x86)%\PowerShell\7\pwsh.exe" set "PWSH_EXE=%ProgramFiles(x86)%\PowerShell\7\pwsh.exe"
+
+if not defined PWSH_EXE (
+  echo [ERROR] PowerShell 7+ ^(pwsh.exe^) is required for Setup-Codex.
+  echo [ERROR] Install PowerShell 7 and run this launcher again.
+  echo [ERROR] Download: https://aka.ms/powershell-release?tag=stable
+  echo.
+  pause
+  exit /b 1
+)
+
 set "NODE_EXE="
 for %%F in (node.exe) do set "NODE_EXE=%%~$PATH:F"
 
@@ -28,13 +42,20 @@ if not exist "%~dp0provider-config.json" (
   exit /b 1
 )
 
+if not exist "%~dp0internal\Setup-Codex-Internal.ps1" (
+  echo [ERROR] Missing script: %~dp0internal\Setup-Codex-Internal.ps1
+  echo.
+  pause
+  exit /b 1
+)
+
 set "NODE_NO_WARNINGS=1"
-"%NODE_EXE%" "%~dp0node\CodexSetupWizard.cjs" --config "%~dp0provider-config.json"
+"%PWSH_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0internal\Setup-Codex-Internal.ps1"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 if "%EXIT_CODE%"=="0" (
-  powershell -NoProfile -EncodedCommand WwBDAG8AbgBzAG8AbABlAF0AOgA6AE8AdQB0AHAAdQB0AEUAbgBjAG8AZABpAG4AZwA9AFsAUwB5AHMAdABlAG0ALgBUAGUAeAB0AC4AVQBUAEYAOABFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAA7ACAAWwBDAG8AbgBzAG8AbABlAF0AOgA6AFcAcgBpAHQAZQBMAGkAbgBlACgAJwBbAE8ASwBdACAAHQQwBCAAMgRBBEIEQAQ1BEcEQwQgAD8EQAQ4BDoEOwROBEcENQQ9BDgETwQ8BCEAIQAhACEAIQAhACEAJwApAA==
+  "%PWSH_EXE%" -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::WriteLine('[OK] Setup completed.')"
 ) else (
   echo [ERROR] Setup failed with exit code %EXIT_CODE%.
 )

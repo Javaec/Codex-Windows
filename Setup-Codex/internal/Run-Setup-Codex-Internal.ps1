@@ -11,11 +11,11 @@ if (-not $node) {
   throw "node is required but not found in PATH."
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$tsConfig = Join-Path $repoRoot "tsconfig.json"
-$tsCompiler = Join-Path $repoRoot "node_modules\typescript\bin\tsc"
-$tsRoot = Join-Path $PSScriptRoot "ts"
-$compiledRoot = Join-Path $PSScriptRoot "node"
+$rootDir = Split-Path -Parent $PSScriptRoot
+$tsConfig = Join-Path $rootDir "tsconfig.json"
+$tsCompiler = Join-Path $rootDir "node_modules\typescript\bin\tsc"
+$tsRoot = Join-Path $rootDir "ts"
+$compiledRoot = Join-Path $rootDir "node"
 $compiledEntry = Join-Path $compiledRoot "run.js"
 
 $shouldCompile = -not (Test-Path $compiledEntry)
@@ -41,6 +41,6 @@ if (-not (Test-Path $cliScript)) {
   throw "Missing Node CLI script: $cliScript"
 }
 
-# Thin compatibility adapter: keep PowerShell entrypoint while Node owns orchestration.
+# Internal PowerShell adapter: keep Node as the orchestration owner.
 & $node.Path $cliScript "run" @ForwardArgs
 exit $LASTEXITCODE
