@@ -160,7 +160,7 @@ function printUsage() {
     process.stdout.write("  -CodexCliChannel <alpha>\n");
     process.stdout.write("  -CodexHomePath <path>\n");
     process.stdout.write("  -RuntimeLogsDir <path>\n");
-    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|generic>\n");
+    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|codex-11723|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
     process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
