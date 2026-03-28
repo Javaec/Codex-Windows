@@ -82,6 +82,8 @@ const MESSAGES = {
     clearedAuth: (pathValue) => `Cleared OPENAI_API_KEY in auth.json: ${pathValue}`,
     keptAuth: (pathValue) => `Kept existing auth.json unchanged: ${pathValue}`,
     updatedConfig: (pathValue) => `Updated config.toml: ${pathValue}`,
+    keptConfig: (pathValue) => `Kept existing config.toml unchanged: ${pathValue}`,
+    sidecarBackup: (originalName, backupPath) => `Backup created for ${originalName}: ${backupPath}`,
     sessionsUnchanged: 'Existing sessions were left unchanged.',
     sessionsRetryLater: 'You can run the setup again later and choose session conversion if you want those chats to appear in Codex history.',
     elapsed: (value) => `Elapsed: ${value}`,
@@ -185,6 +187,8 @@ const MESSAGES = {
     clearedAuth: (pathValue) => `OPENAI_API_KEY очищен в auth.json: ${pathValue}`,
     keptAuth: (pathValue) => `Текущий auth.json оставлен без изменений: ${pathValue}`,
     updatedConfig: (pathValue) => `Обновлён config.toml: ${pathValue}`,
+    keptConfig: (pathValue) => `Текущий config.toml оставлен без изменений: ${pathValue}`,
+    sidecarBackup: (originalName, backupPath) => `Создан backup для ${originalName}: ${backupPath}`,
     sessionsUnchanged: 'Существующие сессии оставлены без изменений.',
     sessionsRetryLater: 'Позже можно снова запустить мастер и выбрать конвертацию сессий, чтобы эти чаты появились в истории Codex.',
     elapsed: (value) => `Время: ${value}`,
@@ -1555,21 +1559,72 @@ function readExistingAuthJson(authPath) {
   return {};
 }
 
+function normalizeTextForComparison(text) {
+  return normalizeNewlines(String(text || '')).replace(/\n*$/, '\n');
+}
+
+function getNextSidecarBackupPath(filePath) {
+  const parsed = path.parse(filePath);
+  for (let counter = 1; ; counter += 1) {
+    const candidate = path.join(parsed.dir, `${parsed.name}${counter}${parsed.ext}`);
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+function writeFileWithSidecarBackup(filePath, nextText) {
+  const normalizedNext = normalizeTextForComparison(nextText);
+  const existed = fs.existsSync(filePath);
+  const currentText = existed ? fs.readFileSync(filePath, 'utf8') : '';
+  const normalizedCurrent = normalizeTextForComparison(currentText);
+
+  if (existed && normalizedCurrent === normalizedNext) {
+    return {
+      changed: false,
+      created: false,
+      backupPath: '',
+    };
+  }
+
+  let backupPath = '';
+  if (existed) {
+    backupPath = getNextSidecarBackupPath(filePath);
+    fs.writeFileSync(backupPath, currentText, 'utf8');
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, nextText, 'utf8');
+  return {
+    changed: true,
+    created: !existed,
+    backupPath,
+  };
+}
+
+function buildAuthJsonText(authAction, existingAuthJson) {
+  const nextAuthJson = {};
+
+  if (authAction.mode === 'set') {
+    nextAuthJson.OPENAI_API_KEY = authAction.apiKey;
+  } else if (authAction.mode === 'keep' && typeof existingAuthJson.OPENAI_API_KEY === 'string' && existingAuthJson.OPENAI_API_KEY) {
+    nextAuthJson.OPENAI_API_KEY = existingAuthJson.OPENAI_API_KEY;
+  }
+
+  return `${JSON.stringify(nextAuthJson, null, 2)}\n`;
+}
+
 function updateAuthJson(authPath, authAction) {
-  if (authAction.mode === 'keep') {
-    return 'kept';
-  }
+  const existingAuthJson = readExistingAuthJson(authPath);
+  const nextText = buildAuthJsonText(authAction, existingAuthJson);
+  const writeResult = writeFileWithSidecarBackup(authPath, nextText);
 
-  const authJson = readExistingAuthJson(authPath);
-  if (authAction.mode === 'clear') {
-    delete authJson.OPENAI_API_KEY;
-    fs.writeFileSync(authPath, `${JSON.stringify(authJson, null, 2)}\n`, 'utf8');
-    return 'cleared';
-  }
-
-  authJson.OPENAI_API_KEY = authAction.apiKey;
-  fs.writeFileSync(authPath, `${JSON.stringify(authJson, null, 2)}\n`, 'utf8');
-  return 'updated';
+  return {
+    mode: writeResult.changed
+      ? (authAction.mode === 'clear' ? 'cleared' : 'updated')
+      : 'kept',
+    backupPath: writeResult.backupPath,
+  };
 }
 
 function serializeTomlValue(value, locale = CURRENT_LOCALE) {
@@ -1612,19 +1667,29 @@ function buildDefaultsBlock(defaults, locale = CURRENT_LOCALE) {
   return lines.join('\n');
 }
 
+function buildConfigTomlText(setupConfig, lineEnding = '\r\n') {
+  const lines = [
+    ...buildDefaultsBlock(setupConfig.defaults, CURRENT_LOCALE).split('\n'),
+    `model_provider = ${serializeTomlValue(setupConfig.provider.id, CURRENT_LOCALE)}`,
+    '',
+    `[model_providers.${setupConfig.provider.id}]`,
+    `name = ${serializeTomlValue(setupConfig.provider.name, CURRENT_LOCALE)}`,
+    `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl, CURRENT_LOCALE)}`,
+    `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi, CURRENT_LOCALE)}`,
+    `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets, CURRENT_LOCALE)}`,
+    '',
+  ];
+
+  return lines.join(lineEnding);
+}
+
 function updateConfigToml(configPath, setupConfig) {
   const originalText = fs.existsSync(configPath)
     ? fs.readFileSync(configPath, 'utf8')
     : '';
   const lineEnding = originalText ? detectLineEnding(originalText) : '\r\n';
-  const document = parseConfigDocument(originalText);
-  document.preambleLines = applyManagedDefaultsToPreamble(
-    document.preambleLines,
-    setupConfig.defaults,
-    setupConfig.provider.id,
-  );
-  document.sections = ensureCanonicalProviderSection(document, setupConfig);
-  fs.writeFileSync(configPath, renderConfigDocument(document, lineEnding), 'utf8');
+  const nextText = buildConfigTomlText(setupConfig, lineEnding);
+  return writeFileWithSidecarBackup(configPath, nextText);
 }
 
 async function scanSessions(sessionsRoot) {
@@ -2047,16 +2112,26 @@ async function main() {
     }
 
     banner(t(locale, 'writeConfigBanner'), ANSI.cyan);
-    const authUpdateMode = updateAuthJson(authPath, setupConfig.authAction);
-    updateConfigToml(configPath, setupConfig);
-    if (authUpdateMode === 'updated') {
+    const authUpdate = updateAuthJson(authPath, setupConfig.authAction);
+    const configUpdate = updateConfigToml(configPath, setupConfig);
+    if (authUpdate.backupPath) {
+      status('INFO', t(locale, 'sidecarBackup', 'auth.json', authUpdate.backupPath));
+    }
+    if (authUpdate.mode === 'updated') {
       status('OK', t(locale, 'updatedAuth', authPath));
-    } else if (authUpdateMode === 'cleared') {
+    } else if (authUpdate.mode === 'cleared') {
       status('OK', t(locale, 'clearedAuth', authPath));
     } else {
       status('OK', t(locale, 'keptAuth', authPath));
     }
-    status('OK', t(locale, 'updatedConfig', configPath));
+    if (configUpdate.backupPath) {
+      status('INFO', t(locale, 'sidecarBackup', 'config.toml', configUpdate.backupPath));
+    }
+    if (configUpdate.changed) {
+      status('OK', t(locale, 'updatedConfig', configPath));
+    } else {
+      status('OK', t(locale, 'keptConfig', configPath));
+    }
 
     if (!setupConfig.updateSessions) {
       banner(t(locale, 'summaryBanner'), ANSI.green);
