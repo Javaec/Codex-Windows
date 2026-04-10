@@ -41,7 +41,7 @@ At pipeline start, stale data in `%USERPROFILE%\.codex` (or `%CODEX_HOME%`) is c
 ```text
 run.cmd / build.cmd
   -> scripts/run.ps1
-    -> scripts/node/run.js
+    -> Setup-Codex/node/run.js
       -> scripts/ts/run.ts
 ```
 

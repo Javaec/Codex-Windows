@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "ENTRY=%~dp0scripts\run.ps1"
+set "ENTRY=%~dp0Setup-Codex\internal\Run-Setup-Codex-Internal.ps1"
 if not exist "%ENTRY%" (
   echo Missing %ENTRY%
   exit /b 1

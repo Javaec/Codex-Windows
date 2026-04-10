@@ -41,7 +41,7 @@
 ```text
 run.cmd / build.cmd
   -> scripts/run.ps1
-    -> scripts/node/run.js
+    -> Setup-Codex/node/run.js
       -> scripts/ts/run.ts
 ```
 
