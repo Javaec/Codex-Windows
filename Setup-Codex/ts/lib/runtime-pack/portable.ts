@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   copyFileSafe,
@@ -71,7 +72,7 @@ export { startPortableDirectLaunch };
 
 export async function invokePortableBuild(
   distDir: string,
-  nativeDir: string,
+  electronExe: string,
   appDir: string,
   buildNumber: string,
   buildFlavor: string,
@@ -84,14 +85,29 @@ export async function invokePortableBuild(
   const isDefault = isCanonicalProfileName(profile);
   const includeRuntimeMods = isForgeProfileName(profile);
   const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
-  const electronDistDir = path.join(nativeDir, "node_modules", "electron", "dist");
-  if (!fileExists(electronDistDir)) throw new Error("Electron runtime not found.");
+  if (!fileExists(electronExe)) throw new Error("Electron runtime not found.");
+  const electronRuntimeDir = path.dirname(electronExe);
+  const isPackagedRuntime = path.basename(electronExe).toLowerCase() === "codex.exe";
 
   const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
   const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
 
   writeInfo("Copying Electron runtime...");
-  copyDirectory(electronDistDir, outputDir);
+  if (isPackagedRuntime) {
+    for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
+      if (entry.name.toLowerCase() === "resources") continue;
+      const sourcePath = path.join(electronRuntimeDir, entry.name);
+      const destinationPath = path.join(outputDir, entry.name);
+      if (entry.isDirectory()) {
+        copyDirectory(sourcePath, destinationPath);
+      } else {
+        copyFileSafe(sourcePath, destinationPath);
+      }
+    }
+    ensureDir(path.join(outputDir, "resources"));
+  } else {
+    copyDirectory(electronRuntimeDir, outputDir);
+  }
 
   const srcExe = path.join(outputDir, "electron.exe");
   const dstExe = path.join(outputDir, "Codex.exe");

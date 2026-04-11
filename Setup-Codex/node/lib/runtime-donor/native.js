@@ -180,15 +180,96 @@ function getNativeSeedAppDirs(workDir, arch) {
     }
     return (0, exec_1.uniqueExistingDirs)(candidates);
 }
-function ensureElectronRuntime(nativeDir, electronVersion, sourceAppDirs) {
-    const electronExe = path.join(nativeDir, "node_modules", "electron", "dist", "electron.exe");
-    if ((0, exec_1.fileExists)(electronExe))
-        return electronExe;
+function readElectronPackageVersion(electronRoot) {
+    const packageJsonPath = path.join(electronRoot, "package.json");
+    if (!(0, exec_1.fileExists)(packageJsonPath))
+        return "";
+    try {
+        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+        return typeof pkg.version === "string" ? pkg.version.trim() : "";
+    }
+    catch {
+        return "";
+    }
+}
+function testPackagedElectronRuntime(executablePath) {
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
+    const result = (0, exec_1.runCommand)(executablePath, ["-e", "process.exit(0)"], {
+        env,
+        allowNonZero: true,
+        capture: true,
+    });
+    return result.status === 0;
+}
+function findPackagedElectronRuntime(sourceAppDirs) {
     for (const sourceAppDir of sourceAppDirs) {
+        const packagedAppDir = path.resolve(sourceAppDir, "..", "..");
+        const packagedExe = path.join(packagedAppDir, "Codex.exe");
+        if (!(0, exec_1.fileExists)(packagedExe))
+            continue;
+        if (!testPackagedElectronRuntime(packagedExe))
+            continue;
+        (0, exec_1.writeSuccess)(`Using packaged Electron runtime from donor: ${packagedExe}`);
+        return packagedExe;
+    }
+    return "";
+}
+function tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVersion) {
+    const nodeExe = (0, exec_1.resolveCommand)("node.exe") ?? (0, exec_1.resolveCommand)("node");
+    if (!nodeExe) {
+        (0, exec_1.writeInfo)(`Repairing incomplete cached Electron runtime skipped: Node.js is not available for ${electronVersion}.`);
+        return false;
+    }
+    const result = (0, exec_1.runCommand)(nodeExe, ["install.js"], {
+        cwd: electronRoot,
+        allowNonZero: true,
+        capture: true,
+    });
+    if (result.status === 0 && (0, exec_1.fileExists)(electronExe)) {
+        (0, exec_1.writeSuccess)(`Repaired cached Electron runtime in place: ${electronVersion}`);
+        return true;
+    }
+    (0, exec_1.writeInfo)(`In-place Electron runtime repair did not validate (exit code ${result.status}).`);
+    return false;
+}
+function ensureElectronRuntime(nativeDir, electronVersion, sourceAppDirs) {
+    const packagedRuntime = findPackagedElectronRuntime(sourceAppDirs);
+    if (packagedRuntime)
+        return packagedRuntime;
+    const electronRoot = path.join(nativeDir, "node_modules", "electron");
+    const electronExe = path.join(electronRoot, "dist", "electron.exe");
+    const installedVersion = readElectronPackageVersion(electronRoot);
+    const hasElectronExe = (0, exec_1.fileExists)(electronExe);
+    if (hasElectronExe && installedVersion === electronVersion)
+        return electronExe;
+    const shouldReplaceCachedElectron = hasElectronExe || (installedVersion !== "" && installedVersion !== electronVersion);
+    if (shouldReplaceCachedElectron) {
+        (0, exec_1.writeInfo)(`Refreshing cached Electron runtime: expected ${electronVersion}, found ${installedVersion || "unknown"}.`);
+        (0, exec_1.removePath)(electronRoot);
+        (0, exec_1.removePath)(path.join(nativeDir, "node_modules", ".bin", "electron"));
+        (0, exec_1.removePath)(path.join(nativeDir, "node_modules", ".bin", "electron.cmd"));
+        (0, exec_1.removePath)(path.join(nativeDir, "node_modules", ".bin", "electron.ps1"));
+    }
+    else if (installedVersion === electronVersion) {
+        (0, exec_1.writeInfo)(`Repairing incomplete cached Electron runtime: ${electronVersion} is present but electron.exe is missing.`);
+        if (tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVersion)) {
+            return electronExe;
+        }
+    }
+    for (const sourceAppDir of sourceAppDirs) {
+        const srcElectronRoot = path.join(sourceAppDir, "node_modules", "electron");
         const srcDist = path.join(sourceAppDir, "node_modules", "electron", "dist");
         if (!(0, exec_1.fileExists)(path.join(srcDist, "electron.exe")))
             continue;
-        (0, exec_1.copyDirectory)(srcDist, path.join(nativeDir, "node_modules", "electron", "dist"));
+        (0, exec_1.copyDirectory)(srcDist, path.join(electronRoot, "dist"));
+        const srcPackageJson = path.join(srcElectronRoot, "package.json");
+        if ((0, exec_1.fileExists)(srcPackageJson)) {
+            (0, exec_1.copyFileSafe)(srcPackageJson, path.join(electronRoot, "package.json"));
+        }
+        else {
+            (0, exec_1.ensureDir)(electronRoot);
+            fs.writeFileSync(path.join(electronRoot, "package.json"), `${JSON.stringify({ name: "electron", version: electronVersion }, null, 2)}\n`, "utf8");
+        }
         if ((0, exec_1.fileExists)(electronExe)) {
             (0, exec_1.writeSuccess)(`Using Electron runtime from donor: ${sourceAppDir}`);
             return electronExe;

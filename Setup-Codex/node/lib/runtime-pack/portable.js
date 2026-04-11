@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startPortableDirectLaunch = void 0;
 exports.invokePortableBuild = invokePortableBuild;
+const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const branding_1 = require("../branding");
@@ -90,18 +91,36 @@ function preparePortableOutputDir(distDir, workDir, outputName) {
     }
     throw new Error(`Portable output directory is locked and no fallback path could be prepared. Primary: ${primary}`);
 }
-async function invokePortableBuild(distDir, nativeDir, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
+async function invokePortableBuild(distDir, electronExe, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
     const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const includeRuntimeMods = (0, args_1.isForgeProfileName)(profile);
     const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
-    const electronDistDir = path.join(nativeDir, "node_modules", "electron", "dist");
-    if (!(0, exec_1.fileExists)(electronDistDir))
+    if (!(0, exec_1.fileExists)(electronExe))
         throw new Error("Electron runtime not found.");
+    const electronRuntimeDir = path.dirname(electronExe);
+    const isPackagedRuntime = path.basename(electronExe).toLowerCase() === "codex.exe";
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
     const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
     (0, exec_1.writeInfo)("Copying Electron runtime...");
-    (0, exec_1.copyDirectory)(electronDistDir, outputDir);
+    if (isPackagedRuntime) {
+        for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
+            if (entry.name.toLowerCase() === "resources")
+                continue;
+            const sourcePath = path.join(electronRuntimeDir, entry.name);
+            const destinationPath = path.join(outputDir, entry.name);
+            if (entry.isDirectory()) {
+                (0, exec_1.copyDirectory)(sourcePath, destinationPath);
+            }
+            else {
+                (0, exec_1.copyFileSafe)(sourcePath, destinationPath);
+            }
+        }
+        (0, exec_1.ensureDir)(path.join(outputDir, "resources"));
+    }
+    else {
+        (0, exec_1.copyDirectory)(electronRuntimeDir, outputDir);
+    }
     const srcExe = path.join(outputDir, "electron.exe");
     const dstExe = path.join(outputDir, "Codex.exe");
     if ((0, exec_1.fileExists)(srcExe)) {

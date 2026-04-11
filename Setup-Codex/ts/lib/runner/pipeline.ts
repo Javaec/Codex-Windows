@@ -157,7 +157,7 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
     writeHeader("Packaging portable app");
     const portable = await invokePortableBuild(
       distDir,
-      nativeDir,
+      electronExe,
       appDir,
       buildNumber,
       buildFlavor,
