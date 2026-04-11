@@ -14,6 +14,7 @@
     const BUILD_NUMBER = "__BUILD_NUMBER__";
     const BUILD_FLAVOR = "__BUILD_FLAVOR__";
     const IS_MINIMAL_PLATFORM = normalizePathString(process.env.CODEX_WINDOWS_MINIMAL || "") === "1";
+    const DISABLE_SINGLE_INSTANCE = normalizePathString(process.env.CODEX_WINDOWS_DISABLE_SINGLE_INSTANCE || "") === "1";
 
     const resourcesRoot = process.resourcesPath || path.join(__dirname, "..", "..", "..");
     const windowsPathContract = require(path.join(__dirname, "codex-windows-path-contract.cjs"));
@@ -26,6 +27,21 @@
 
     function normalizePathString(value) {
       return typeof value === "string" ? value.trim().replace(/^\"+|\"+$/g, "") : "";
+    }
+
+    function appendBootstrapTrace(event, detail) {
+      const tracePath = normalizePathString(process.env.CODEX_BOOTSTRAP_TRACE_PATH || "");
+      if (!tracePath) return;
+      try {
+        fs.mkdirSync(path.dirname(tracePath), { recursive: true });
+        fs.appendFileSync(
+          tracePath,
+          `[${new Date().toISOString()}] ${event}${detail ? ` ${detail}` : ""}\n`,
+          "utf8",
+        );
+      } catch {
+        // ignore trace failures
+      }
     }
 
     function mergePathEntries(entries) {
@@ -325,6 +341,31 @@
       if (configured) return path.resolve(configured);
 
       return path.resolve(resourcesRoot, "..", leafDir);
+    }
+
+    function installPortableStartupGuards(electron) {
+      if (!electron || !electron.app) return;
+      const configuredUserDataDir = normalizePathString(process.env.CODEX_ELECTRON_USER_DATA_PATH || "");
+      if (configuredUserDataDir && typeof electron.app.setPath === "function") {
+        try {
+          electron.app.setPath("userData", path.resolve(configuredUserDataDir));
+          appendBootstrapTrace("set-user-data", path.resolve(configuredUserDataDir));
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error || "");
+          console.warn(`[codex-windows-runtime] failed to apply CODEX_ELECTRON_USER_DATA_PATH: ${message}`);
+          appendBootstrapTrace("set-user-data-failed", message);
+        }
+      }
+      if (
+        DISABLE_SINGLE_INSTANCE &&
+        typeof electron.app.requestSingleInstanceLock === "function" &&
+        !globalThis.__CODEX_WINDOWS_SINGLE_INSTANCE_DISABLED_V1__
+      ) {
+        globalThis.__CODEX_WINDOWS_SINGLE_INSTANCE_DISABLED_V1__ = true;
+        electron.app.requestSingleInstanceLock = () => true;
+        console.log("[codex-windows-runtime] single-instance lock disabled for portable launcher");
+        appendBootstrapTrace("disable-single-instance", "1");
+      }
     }
 
     function loadRuntimeModLoader() {
@@ -1003,6 +1044,7 @@
     if (!process.env.CODEX_ENABLE_RUNTIME_MODS) process.env.CODEX_ENABLE_RUNTIME_MODS = "0";
     if (!process.env.NODE_ENV) process.env.NODE_ENV = "production";
     if (!process.env.PWD) process.env.PWD = process.cwd();
+    appendBootstrapTrace("shim-enter", `exec=${normalizePathString(process.execPath || "")} resources=${normalizePathString(process.resourcesPath || "")}`);
     ensureBundledRuntimeToolsOnPath();
 
     // Prefer repacked/bundled CLI to avoid app-server drift.
@@ -1017,7 +1059,10 @@
     if (!process.env.ELECTRON_RENDERER_URL) {
       const unpacked = path.join(__dirname, "..", "..", "webview", "index.html");
       const packaged = path.join(resourcesRoot, "app", "webview", "index.html");
-      const chosen = fs.existsSync(unpacked) ? unpacked : (fs.existsSync(packaged) ? packaged : "");
+      const packagedAsar = path.join(resourcesRoot, "app.asar", "webview", "index.html");
+      const chosen = fs.existsSync(unpacked)
+        ? unpacked
+        : (fs.existsSync(packaged) ? packaged : (fs.existsSync(packagedAsar) ? packagedAsar : ""));
       if (chosen) process.env.ELECTRON_RENDERER_URL = url.pathToFileURL(chosen).toString();
     }
 
@@ -1042,7 +1087,10 @@
 
     // Fix Windows path opening.
     try {
+      appendBootstrapTrace("require-electron", "begin");
       const electron = require("electron");
+      appendBootstrapTrace("require-electron", "ok");
+      installPortableStartupGuards(electron);
       installStartupInstrumentation(electron);
       installCompactTransportDiagnostics();
       if (!IS_MINIMAL_PLATFORM && electron && electron.shell && !globalThis.__CODEX_WINDOWS_SHELL_OPEN_PATH_PATCHED__) {

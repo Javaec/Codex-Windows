@@ -343,12 +343,6 @@ function tryReusePackagedRuntimeCache(
     }
     return null;
   }
-  if (!testElectronRuntimeExecutable(packagedRuntimeExe)) {
-    if (!quiet) {
-      writeInfo(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
-    }
-    return null;
-  }
   return createRuntimeDescriptor(
     "packaged-runtime-cache",
     packagedRuntimeExe,
@@ -374,7 +368,7 @@ function materializePackagedRuntimeCopy(
 
   removePath(packagedRuntimeTmpDir);
   copyDirectory(donorRuntimeDir, packagedRuntimeTmpDir);
-  if (!fileExists(packagedRuntimeTmpExe) || !testElectronRuntimeExecutable(packagedRuntimeTmpExe)) {
+  if (!fileExists(packagedRuntimeTmpExe)) {
     removePath(packagedRuntimeTmpDir);
     return null;
   }

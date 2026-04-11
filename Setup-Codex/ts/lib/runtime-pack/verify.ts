@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileExists } from "../exec";
+import { extractAsarArchive } from "../asar";
+import { fileExists, removePath } from "../exec";
 
 const WEBVIEW_CWD_PATCH_MARKER = "/* CODEX-WINDOWS-CWD-NORMALIZER-V2 */";
 const MAIN_WINDOWS_PATH_GUIDANCE_PATCH_MARKER = "/* CODEX-WINDOWS-PATH-GUIDANCE-V1 */";
@@ -49,29 +50,51 @@ function verifyMainPathGuidancePatch(resourcesAppDir: string): void {
   }
 }
 
+function resolvePackagedAppDir(outputDir: string, resourcesDir: string): { appDir: string; cleanup: () => void } {
+  const unpackedAppDir = path.join(resourcesDir, "app");
+  if (fileExists(unpackedAppDir)) {
+    return { appDir: unpackedAppDir, cleanup: () => {} };
+  }
+
+  const packedAppPath = path.join(resourcesDir, "app.asar");
+  assertExists(packedAppPath, "packaged app archive");
+  assertExists(`${packedAppPath}.unpacked`, "packaged app unpacked directory");
+
+  const inspectDir = path.join(outputDir, ".verify-app");
+  removePath(inspectDir);
+  extractAsarArchive(packedAppPath, inspectDir);
+  return {
+    appDir: inspectDir,
+    cleanup: () => removePath(inspectDir),
+  };
+}
+
 export function verifyPortableRuntimeContract(options: PortableRuntimeContractOptions): void {
   const resourcesDir = path.join(options.outputDir, "resources");
-  const appDir = path.join(resourcesDir, "app");
 
   assertExists(path.join(options.outputDir, "Codex.exe"), "portable executable");
-  assertExists(appDir, "packaged app directory");
-  assertExists(path.join(appDir, ".vite", "build", "codex-windows-path-contract.cjs"), "runtime windows path contract helper");
   assertExists(path.join(resourcesDir, "codex.exe"), "bundled codex.exe");
   assertExists(path.join(resourcesDir, "rg.exe"), "bundled rg.exe");
   assertExists(path.join(resourcesDir, "path", "rg.exe"), "bundled path/rg.exe");
   assertExists(path.join(options.outputDir, "Launch-Codex.cmd"), "default launcher");
-  verifyMainPathGuidancePatch(appDir);
+  const { appDir, cleanup } = resolvePackagedAppDir(options.outputDir, resourcesDir);
+  try {
+    assertExists(path.join(appDir, ".vite", "build", "codex-windows-path-contract.cjs"), "runtime windows path contract helper");
+    verifyMainPathGuidancePatch(appDir);
 
-  if (options.includeRuntimeMods) {
-    assertExists(path.join(resourcesDir, "mods"), "runtime mods directory");
-    assertExists(path.join(resourcesDir, "mod-api"), "runtime mod API directory");
-    assertExists(path.join(resourcesDir, "mod-loader"), "runtime mod loader directory");
-    assertExists(path.join(resourcesDir, "compatibility.cjs"), "runtime compatibility helper");
-    assertExists(path.join(resourcesDir, "version-identity"), "runtime version identity directory");
-    assertExists(path.join(options.outputDir, "Launch-Codex-with-mods.cmd"), "with-mods launcher");
-  }
+    if (options.includeRuntimeMods) {
+      assertExists(path.join(resourcesDir, "mods"), "runtime mods directory");
+      assertExists(path.join(resourcesDir, "mod-api"), "runtime mod API directory");
+      assertExists(path.join(resourcesDir, "mod-loader"), "runtime mod loader directory");
+      assertExists(path.join(resourcesDir, "compatibility.cjs"), "runtime compatibility helper");
+      assertExists(path.join(resourcesDir, "version-identity"), "runtime version identity directory");
+      assertExists(path.join(options.outputDir, "Launch-Codex-with-mods.cmd"), "with-mods launcher");
+    }
 
-  if (options.requireWebviewCwdPatch) {
-    verifyWebviewCwdPatch(appDir);
+    if (options.requireWebviewCwdPatch) {
+      verifyWebviewCwdPatch(appDir);
+    }
+  } finally {
+    cleanup();
   }
 }

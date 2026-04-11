@@ -69,6 +69,8 @@ set "CODEX_CLI_PATH=%BASE%resources\\codex.exe"
 ${runtimeModLines}
 set "CODEX_WINDOWS_PROFILE=${profile}"
 set "CODEX_GIT_CAPABILITY_CACHE=%BASE%resources\\git-capability-cache.json"
+set "CODEX_ELECTRON_USER_DATA_PATH=%BASE%${userDataFolder}"
+set "CODEX_WINDOWS_DISABLE_SINGLE_INSTANCE=1"
 set "ELECTRON_FORCE_IS_PACKAGED=1"
 set "NODE_ENV=production"
 set "ELECTRON_ENABLE_LOGGING=1"
@@ -86,6 +88,7 @@ set "CHROME_LOG_FILE=%BASE%runtime-logs\\${laneName}\\chromium.log"
 set "CODEX_RUNTIME_STDOUT_LOG=%BASE%runtime-logs\\${laneName}\\stdout-latest.log"
 set "CODEX_RUNTIME_ENV_LOG=%BASE%runtime-logs\\${laneName}\\launch.env.txt"
 set "CODEX_COMPACT_RUNTIME_LOG=%BASE%runtime-logs\\${laneName}\\compact-events.log"
+set "CODEX_BOOTSTRAP_TRACE_PATH=%BASE%runtime-logs\\${laneName}\\shim-startup.log"
 
 > "%CODEX_RUNTIME_ENV_LOG%" (
   echo lane=${laneName}
@@ -96,6 +99,7 @@ set "CODEX_COMPACT_RUNTIME_LOG=%BASE%runtime-logs\\${laneName}\\compact-events.l
   echo cli=%BASE%resources\\codex.exe
   echo rg=%BASE%resources\\rg.exe
   echo compactLog=%CODEX_COMPACT_RUNTIME_LOG%
+  echo bootstrapTrace=%CODEX_BOOTSTRAP_TRACE_PATH%
 ${runtimeLogLines}
   echo runtimeMods=%CODEX_ENABLE_RUNTIME_MODS%
   echo runtimeModsDisabled=%CODEX_MODS_DISABLED%

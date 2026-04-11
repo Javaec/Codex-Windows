@@ -179,7 +179,7 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       patchReportPath: patchReport.reportPath,
       cliPath: cliResolution.path,
       cliSource: cliResolution.source,
-      runtime,
+      runtime: portable.runtime,
       canonicalOutputReady: portable.canonicalOutputReady,
       latestLaunchersReady: portable.latestLaunchersReady,
     });

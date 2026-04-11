@@ -274,12 +274,6 @@ function tryReusePackagedRuntimeCache(nativeDir, donorPackage, electronVersion, 
         }
         return null;
     }
-    if (!testElectronRuntimeExecutable(packagedRuntimeExe)) {
-        if (!quiet) {
-            (0, exec_1.writeInfo)(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
-        }
-        return null;
-    }
     return createRuntimeDescriptor("packaged-runtime-cache", packagedRuntimeExe, electronVersion, donorPackage.packageFullName, actualFingerprint);
 }
 function materializePackagedRuntimeCopy(nativeDir, donorPackage, electronVersion) {
@@ -293,7 +287,7 @@ function materializePackagedRuntimeCopy(nativeDir, donorPackage, electronVersion
     const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
     (0, exec_1.removePath)(packagedRuntimeTmpDir);
     (0, exec_1.copyDirectory)(donorRuntimeDir, packagedRuntimeTmpDir);
-    if (!(0, exec_1.fileExists)(packagedRuntimeTmpExe) || !testElectronRuntimeExecutable(packagedRuntimeTmpExe)) {
+    if (!(0, exec_1.fileExists)(packagedRuntimeTmpExe)) {
         (0, exec_1.removePath)(packagedRuntimeTmpDir);
         return null;
     }

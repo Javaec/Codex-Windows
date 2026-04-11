@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import {
   copyFileSafe,
   copyDirectory,
@@ -16,7 +17,7 @@ import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIcon
 import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from "../args";
 import { patchMainForWindowsEnvironment } from "../platform-patches/bundle-patches";
 import type { RuntimeDescriptor } from "../runtime-donor/native";
-import { bundleCodexCliResources } from "./codex-resources";
+import { bundleCodexCliResources, bundlePackagedRuntimeSupportResources } from "./codex-resources";
 import { startPortableDirectLaunch } from "./direct-launch";
 import { pruneStalePortableOutputs, writeLatestPortableLaunchers, writePortableLauncher } from "./launchers";
 import { verifyPortableRuntimeContract } from "./verify";
@@ -26,6 +27,7 @@ export interface PortableBuildResult {
   launcherPath: string;
   canonicalOutputReady: boolean;
   latestLaunchersReady: boolean;
+  runtime: RuntimeDescriptor;
 }
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -34,6 +36,50 @@ const CODEX_MOD_API_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader",
 const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader");
 const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs");
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
+
+function getFileSha256(targetPath: string): string {
+  const hash = createHash("sha256");
+  const fd = fs.openSync(targetPath, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, offset);
+      if (bytesRead <= 0) break;
+      hash.update(bytesRead === buffer.length ? buffer : buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+function resolvePortableShellRuntime(runtime: RuntimeDescriptor): RuntimeDescriptor {
+  if (runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy") {
+    return runtime;
+  }
+
+  const nativeRoot = path.dirname(runtime.runtimeRoot);
+  const electronRuntimeDir = path.join(nativeRoot, "node_modules", "electron", "dist");
+  const electronExe = path.join(electronRuntimeDir, "electron.exe");
+  if (!fileExists(electronExe)) {
+    throw new Error(
+      `Portable packaging requires plain Electron dist because donor Codex.exe enforces upstream ASAR integrity: ${electronExe}`,
+    );
+  }
+
+  writeInfo(`Using Electron dist cache for portable shell: ${electronExe}`);
+  return {
+    sourceKind: "electron-dist-cache",
+    executablePath: electronExe,
+    runtimeRoot: electronRuntimeDir,
+    electronVersion: runtime.electronVersion,
+    sourceLabel: electronRuntimeDir,
+    fingerprint: getFileSha256(electronExe),
+    validationMode: "electron-run-as-node",
+  };
+}
 
 function preparePortableOutputDir(
   distDir: string,
@@ -92,19 +138,20 @@ export async function invokePortableBuild(
   const isDefault = isCanonicalProfileName(profile);
   const includeRuntimeMods = isForgeProfileName(profile);
   const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
-  const electronExe = runtime.executablePath;
+  const portableRuntime = resolvePortableShellRuntime(runtime);
+  const electronExe = portableRuntime.executablePath;
   if (!fileExists(electronExe)) throw new Error("Electron runtime not found.");
-  const electronRuntimeDir = runtime.runtimeRoot;
+  const electronRuntimeDir = portableRuntime.runtimeRoot;
   const isPackagedRuntime =
-    runtime.sourceKind === "packaged-runtime-cache" ||
-    runtime.sourceKind === "windows-runtime-donor-copy" ||
+    portableRuntime.sourceKind === "packaged-runtime-cache" ||
+    portableRuntime.sourceKind === "windows-runtime-donor-copy" ||
     path.basename(electronExe).toLowerCase() === "codex.exe";
 
   const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
   const canonicalOutputDir = path.join(distDir, outputName);
   const outputDir = preparePortableOutputDir(distDir, workDir, outputName, !isDefault);
 
-  writeInfo(`Copying Electron runtime (${runtime.sourceKind})...`);
+  writeInfo(`Copying Electron runtime (${portableRuntime.sourceKind})...`);
   if (isPackagedRuntime) {
     for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
       if (entry.name.toLowerCase() === "resources") continue;
@@ -149,8 +196,13 @@ export async function invokePortableBuild(
 
   writeInfo("Copying app files...");
   const resourcesDir = ensureDir(path.join(outputDir, "resources"));
-  const appDstDir = path.join(resourcesDir, "app");
-  copyDirectory(appDir, appDstDir);
+  const donorSupportResourcesDir = path.join(runtime.runtimeRoot, "resources");
+  if (fileExists(donorSupportResourcesDir)) {
+    bundlePackagedRuntimeSupportResources(resourcesDir, donorSupportResourcesDir);
+  }
+  const appStagingDir = path.join(outputDir, ".app-staging");
+  removePath(appStagingDir);
+  copyDirectory(appDir, appStagingDir);
 
   if (includeRuntimeMods) {
     if (!fileExists(CODEX_MODS_SRC_DIR)) {
@@ -183,7 +235,9 @@ export async function invokePortableBuild(
   }
 
   removePath(path.join(resourcesDir, "default_app.asar"));
-  patchMainForWindowsEnvironment(appDstDir, buildNumber, buildFlavor);
+  patchMainForWindowsEnvironment(appStagingDir, buildNumber, buildFlavor);
+  copyDirectory(appStagingDir, path.join(resourcesDir, "app"));
+  removePath(appStagingDir);
 
   if (!bundledCliPath || !fileExists(bundledCliPath)) {
     throw new Error("Portable build requires a valid codex.exe source path.");
@@ -221,5 +275,6 @@ export async function invokePortableBuild(
     launcherPath,
     canonicalOutputReady: isDefault && path.resolve(outputDir) === path.resolve(canonicalOutputDir),
     latestLaunchersReady,
+    runtime: portableRuntime,
   };
 }

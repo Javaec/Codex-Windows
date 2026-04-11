@@ -7,18 +7,32 @@ const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-san
 const CLI_RESOURCE_ALLOWLIST = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe", "notification.wav"]);
 const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
   "app",
+  "app.asar.unpacked",
+  "native",
   "mods",
   "mod-api",
   "mod-loader",
   "compatibility.cjs",
   "version-identity",
   "path",
+  "codex",
   "codex.exe",
   "codex-command-runner.exe",
   "codex-windows-sandbox-setup.exe",
+  "icon.ico",
   "notification.wav",
+  "rg",
   "rg.exe",
+  "third_party_notices.txt",
 ]);
+
+const PACKAGED_RUNTIME_SUPPORT_NAMES = [
+  "native",
+  "codex",
+  "icon.ico",
+  "rg",
+  "THIRD_PARTY_NOTICES.txt",
+];
 
 function ensureBundledRipgrep(resourcesDir: string): void {
   const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
@@ -63,6 +77,22 @@ function trimPortableResourceRoot(resourcesDir: string): void {
   for (const entry of fs.readdirSync(resourcesDir, { withFileTypes: true })) {
     if (PORTABLE_RESOURCE_ROOT_ALLOWLIST.has(entry.name.toLowerCase())) continue;
     removePath(path.join(resourcesDir, entry.name));
+  }
+}
+
+export function bundlePackagedRuntimeSupportResources(resourcesDir: string, runtimeResourcesDir: string): void {
+  if (!fileExists(runtimeResourcesDir)) return;
+  for (const entryName of PACKAGED_RUNTIME_SUPPORT_NAMES) {
+    const sourcePath = path.join(runtimeResourcesDir, entryName);
+    if (!fileExists(sourcePath)) continue;
+    const destinationPath = path.join(resourcesDir, entryName);
+    removePath(destinationPath);
+    const stat = fs.statSync(sourcePath);
+    if (stat.isDirectory()) {
+      copyDirectory(sourcePath, destinationPath);
+    } else {
+      copyFileSafe(sourcePath, destinationPath);
+    }
   }
 }
 
