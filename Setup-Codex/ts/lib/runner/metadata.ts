@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { RuntimeDescriptor } from "../runtime-donor/native";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs")) as {
@@ -26,6 +27,9 @@ function writeLiteContract(outputDir: string, payload: {
   cliSource: string | null;
   runtimeFlavor: "lite" | "forge";
   includeRuntimeMods: boolean;
+  runtime: RuntimeDescriptor;
+  canonicalOutputReady: boolean;
+  latestLaunchersReady: boolean;
 }): void {
   const targetPath = path.join(outputDir, "lite-contract.json");
   const contract = {
@@ -45,6 +49,9 @@ function writeLiteContract(outputDir: string, payload: {
       "Launch-Codex.cmd",
       ...(payload.includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
     ],
+    electronRuntimeSource: payload.runtime.sourceKind,
+    canonicalOutputReady: payload.canonicalOutputReady,
+    latestLaunchersReady: payload.latestLaunchersReady,
     cliSource: payload.cliSource || "",
   };
   fs.writeFileSync(targetPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
@@ -64,6 +71,9 @@ export function writeBuildMetadata(
     patchReportPath: string;
     cliPath: string | null;
     cliSource: string | null;
+    runtime: RuntimeDescriptor;
+    canonicalOutputReady: boolean;
+    latestLaunchersReady: boolean;
   },
 ): string {
   const resolvedRuntimeModCompatibility = resolveRuntimeModCompatibility({
@@ -97,6 +107,12 @@ export function writeBuildMetadata(
     patchReportPath: metadata.patchReportPath,
     codexCliPath: metadata.cliPath,
     codexCliSource: metadata.cliSource,
+    electronRuntimeSource: metadata.runtime.sourceKind,
+    electronRuntimePath: metadata.runtime.executablePath,
+    electronRuntimeVersion: metadata.runtime.electronVersion,
+    electronRuntimeFingerprint: metadata.runtime.fingerprint,
+    electronRuntimeValidationMode: metadata.runtime.validationMode,
+    packagedRuntimeCached: metadata.runtime.sourceKind === "packaged-runtime-cache",
     bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
     runtimeModCompatibility,
   };
@@ -108,6 +124,9 @@ export function writeBuildMetadata(
     cliSource: metadata.cliSource,
     runtimeFlavor: metadata.runtimeFlavor,
     includeRuntimeMods: metadata.includeRuntimeMods,
+    runtime: metadata.runtime,
+    canonicalOutputReady: metadata.canonicalOutputReady,
+    latestLaunchersReady: metadata.latestLaunchersReady,
   });
   return targetPath;
 }

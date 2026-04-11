@@ -104,6 +104,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         runtime.sourceKind === "windows-runtime-donor-copy" ||
         path.basename(electronExe).toLowerCase() === "codex.exe";
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
+    const canonicalOutputDir = path.join(distDir, outputName);
     const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
     (0, exec_1.writeInfo)(`Copying Electron runtime (${runtime.sourceKind})...`);
     if (isPackagedRuntime) {
@@ -205,9 +206,20 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         includeRuntimeMods,
         requireWebviewCwdPatch: true,
     });
+    let latestLaunchersReady = false;
     if (isDefault) {
         (0, launchers_1.pruneStalePortableOutputs)(distDir, outputName);
         (0, launchers_1.writeLatestPortableLaunchers)(distDir, outputDir, includeRuntimeMods);
+        latestLaunchersReady = [
+            path.join(distDir, "Launch-Codex-latest.cmd"),
+            path.join(distDir, "Launch-Codex-latest-compact-debug.cmd"),
+            ...(includeRuntimeMods ? [path.join(distDir, "Launch-Codex-latest-with-mods.cmd")] : []),
+        ].every((candidate) => (0, exec_1.fileExists)(candidate));
     }
-    return { outputDir, launcherPath };
+    return {
+        outputDir,
+        launcherPath,
+        canonicalOutputReady: isDefault && path.resolve(outputDir) === path.resolve(canonicalOutputDir),
+        latestLaunchersReady,
+    };
 }

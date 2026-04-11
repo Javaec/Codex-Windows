@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.inspectRuntimePreflight = inspectRuntimePreflight;
 exports.invokeNativeStage = invokeNativeStage;
 const crypto = __importStar(require("node:crypto"));
 const fs = __importStar(require("node:fs"));
@@ -255,7 +256,7 @@ function testElectronRuntimeExecutable(executablePath) {
     });
     return result.status === 0;
 }
-function tryReusePackagedRuntimeCache(nativeDir, donorPackage, electronVersion) {
+function tryReusePackagedRuntimeCache(nativeDir, donorPackage, electronVersion, quiet = false) {
     const packagedRuntimeDir = path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME);
     const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
     const descriptorPath = path.join(packagedRuntimeDir, RUNTIME_DESCRIPTOR_FILE_NAME);
@@ -268,11 +269,15 @@ function tryReusePackagedRuntimeCache(nativeDir, donorPackage, electronVersion) 
         descriptor.electronVersion === electronVersion &&
         descriptor.fingerprint === actualFingerprint);
     if (!descriptorMatches) {
-        (0, exec_1.writeInfo)(`Refreshing packaged Electron runtime cache: expected ${donorPackage.packageFullName} / ${electronVersion}, found ${descriptor?.sourceLabel || "unknown"} / ${descriptor?.electronVersion || "unknown"}.`);
+        if (!quiet) {
+            (0, exec_1.writeInfo)(`Refreshing packaged Electron runtime cache: expected ${donorPackage.packageFullName} / ${electronVersion}, found ${descriptor?.sourceLabel || "unknown"} / ${descriptor?.electronVersion || "unknown"}.`);
+        }
         return null;
     }
     if (!testElectronRuntimeExecutable(packagedRuntimeExe)) {
-        (0, exec_1.writeInfo)(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
+        if (!quiet) {
+            (0, exec_1.writeInfo)(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
+        }
         return null;
     }
     return createRuntimeDescriptor("packaged-runtime-cache", packagedRuntimeExe, electronVersion, donorPackage.packageFullName, actualFingerprint);
@@ -314,6 +319,87 @@ function preparePackagedElectronRuntime(nativeDir, electronVersion) {
             return materialized;
     }
     return null;
+}
+function getReusableElectronDistCache(nativeDir, electronVersion) {
+    const electronRoot = path.join(nativeDir, "node_modules", "electron");
+    const electronExe = path.join(electronRoot, "dist", "electron.exe");
+    const installedVersion = readElectronPackageVersion(electronRoot);
+    if (!(0, exec_1.fileExists)(electronExe) || installedVersion !== electronVersion)
+        return null;
+    if (!testElectronRuntimeExecutable(electronExe))
+        return null;
+    return createRuntimeDescriptor("electron-dist-cache", electronExe, electronVersion, electronRoot);
+}
+function findFirstElectronDistSource(appDirs) {
+    for (const appDir of appDirs) {
+        const candidate = path.join(appDir, "node_modules", "electron", "dist", "electron.exe");
+        if ((0, exec_1.fileExists)(candidate))
+            return appDir;
+    }
+    return "";
+}
+function inspectRuntimePreflight(workDir, electronVersion, arch) {
+    const nativeDir = path.join(workDir, "native-builds");
+    const donorDirs = getNativeDonorAppDirs(workDir);
+    const seedDirs = getNativeSeedAppDirs(workDir, arch);
+    const donorPackages = (0, windows_apps_1.listWindowsCodexPackages)().filter((runtimePackage) => (0, exec_1.fileExists)(path.join(runtimePackage.appDir, "Codex.exe")));
+    const packagedRuntimeCacheAvailable = (0, exec_1.fileExists)(path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME, "Codex.exe"));
+    const packagedRuntimeCacheValid = donorPackages.length > 0 && Boolean(tryReusePackagedRuntimeCache(nativeDir, donorPackages[0], electronVersion, true));
+    if (packagedRuntimeCacheValid) {
+        return {
+            selectedSourceKind: "packaged-runtime-cache",
+            sourceLabel: donorPackages[0].packageFullName,
+            packagedRuntimeCacheAvailable,
+            packagedRuntimeCacheValid,
+            fallbackRequired: false,
+        };
+    }
+    if (donorPackages.length > 0) {
+        return {
+            selectedSourceKind: "windows-runtime-donor-copy",
+            sourceLabel: donorPackages[0].packageFullName,
+            packagedRuntimeCacheAvailable,
+            packagedRuntimeCacheValid: false,
+            fallbackRequired: false,
+        };
+    }
+    const reusableElectronCache = getReusableElectronDistCache(nativeDir, electronVersion);
+    if (reusableElectronCache) {
+        return {
+            selectedSourceKind: reusableElectronCache.sourceKind,
+            sourceLabel: reusableElectronCache.sourceLabel,
+            packagedRuntimeCacheAvailable,
+            packagedRuntimeCacheValid: false,
+            fallbackRequired: false,
+        };
+    }
+    const donorElectronSource = findFirstElectronDistSource(donorDirs);
+    if (donorElectronSource) {
+        return {
+            selectedSourceKind: "electron-dist-cache",
+            sourceLabel: donorElectronSource,
+            packagedRuntimeCacheAvailable,
+            packagedRuntimeCacheValid: false,
+            fallbackRequired: false,
+        };
+    }
+    const seedElectronSource = findFirstElectronDistSource(seedDirs);
+    if (seedElectronSource) {
+        return {
+            selectedSourceKind: "seed",
+            sourceLabel: seedElectronSource,
+            packagedRuntimeCacheAvailable,
+            packagedRuntimeCacheValid: false,
+            fallbackRequired: false,
+        };
+    }
+    return {
+        selectedSourceKind: "npm-fallback",
+        sourceLabel: `electron@${electronVersion}`,
+        packagedRuntimeCacheAvailable,
+        packagedRuntimeCacheValid: false,
+        fallbackRequired: true,
+    };
 }
 function tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVersion) {
     const nodeExe = (0, exec_1.resolveCommand)("node.exe") ?? (0, exec_1.resolveCommand)("node");

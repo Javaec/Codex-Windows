@@ -179,6 +179,9 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       patchReportPath: patchReport.reportPath,
       cliPath: cliResolution.path,
       cliSource: cliResolution.source,
+      runtime,
+      canonicalOutputReady: portable.canonicalOutputReady,
+      latestLaunchersReady: portable.latestLaunchersReady,
     });
     const liteContractPath = path.join(portable.outputDir, "lite-contract.json");
     if (!fs.existsSync(liteContractPath)) {

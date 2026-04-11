@@ -41,6 +41,14 @@ export interface NativeStageResult {
   performed: boolean;
 }
 
+export interface RuntimePreflight {
+  selectedSourceKind: RuntimeSourceKind;
+  sourceLabel: string;
+  packagedRuntimeCacheAvailable: boolean;
+  packagedRuntimeCacheValid: boolean;
+  fallbackRequired: boolean;
+}
+
 const PACKAGED_RUNTIME_DIR_NAME = "packaged-runtime";
 const PACKAGED_RUNTIME_TMP_DIR_NAME = "packaged-runtime.tmp";
 const RUNTIME_DESCRIPTOR_FILE_NAME = "runtime-descriptor.json";
@@ -312,6 +320,7 @@ function tryReusePackagedRuntimeCache(
   nativeDir: string,
   donorPackage: WindowsCodexPackage,
   electronVersion: string,
+  quiet = false,
 ): RuntimeDescriptor | null {
   const packagedRuntimeDir = path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME);
   const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
@@ -327,13 +336,17 @@ function tryReusePackagedRuntimeCache(
     descriptor.fingerprint === actualFingerprint,
   );
   if (!descriptorMatches) {
-    writeInfo(
-      `Refreshing packaged Electron runtime cache: expected ${donorPackage.packageFullName} / ${electronVersion}, found ${descriptor?.sourceLabel || "unknown"} / ${descriptor?.electronVersion || "unknown"}.`,
-    );
+    if (!quiet) {
+      writeInfo(
+        `Refreshing packaged Electron runtime cache: expected ${donorPackage.packageFullName} / ${electronVersion}, found ${descriptor?.sourceLabel || "unknown"} / ${descriptor?.electronVersion || "unknown"}.`,
+      );
+    }
     return null;
   }
   if (!testElectronRuntimeExecutable(packagedRuntimeExe)) {
-    writeInfo(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
+    if (!quiet) {
+      writeInfo(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
+    }
     return null;
   }
   return createRuntimeDescriptor(
@@ -397,6 +410,91 @@ function preparePackagedElectronRuntime(nativeDir: string, electronVersion: stri
     if (materialized) return materialized;
   }
   return null;
+}
+
+function getReusableElectronDistCache(nativeDir: string, electronVersion: string): RuntimeDescriptor | null {
+  const electronRoot = path.join(nativeDir, "node_modules", "electron");
+  const electronExe = path.join(electronRoot, "dist", "electron.exe");
+  const installedVersion = readElectronPackageVersion(electronRoot);
+  if (!fileExists(electronExe) || installedVersion !== electronVersion) return null;
+  if (!testElectronRuntimeExecutable(electronExe)) return null;
+  return createRuntimeDescriptor("electron-dist-cache", electronExe, electronVersion, electronRoot);
+}
+
+function findFirstElectronDistSource(appDirs: string[]): string {
+  for (const appDir of appDirs) {
+    const candidate = path.join(appDir, "node_modules", "electron", "dist", "electron.exe");
+    if (fileExists(candidate)) return appDir;
+  }
+  return "";
+}
+
+export function inspectRuntimePreflight(workDir: string, electronVersion: string, arch: string): RuntimePreflight {
+  const nativeDir = path.join(workDir, "native-builds");
+  const donorDirs = getNativeDonorAppDirs(workDir);
+  const seedDirs = getNativeSeedAppDirs(workDir, arch);
+  const donorPackages = listWindowsCodexPackages().filter((runtimePackage) =>
+    fileExists(path.join(runtimePackage.appDir, "Codex.exe")),
+  );
+  const packagedRuntimeCacheAvailable = fileExists(path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME, "Codex.exe"));
+  const packagedRuntimeCacheValid = donorPackages.length > 0 && Boolean(
+    tryReusePackagedRuntimeCache(nativeDir, donorPackages[0], electronVersion, true),
+  );
+  if (packagedRuntimeCacheValid) {
+    return {
+      selectedSourceKind: "packaged-runtime-cache",
+      sourceLabel: donorPackages[0].packageFullName,
+      packagedRuntimeCacheAvailable,
+      packagedRuntimeCacheValid,
+      fallbackRequired: false,
+    };
+  }
+  if (donorPackages.length > 0) {
+    return {
+      selectedSourceKind: "windows-runtime-donor-copy",
+      sourceLabel: donorPackages[0].packageFullName,
+      packagedRuntimeCacheAvailable,
+      packagedRuntimeCacheValid: false,
+      fallbackRequired: false,
+    };
+  }
+  const reusableElectronCache = getReusableElectronDistCache(nativeDir, electronVersion);
+  if (reusableElectronCache) {
+    return {
+      selectedSourceKind: reusableElectronCache.sourceKind,
+      sourceLabel: reusableElectronCache.sourceLabel,
+      packagedRuntimeCacheAvailable,
+      packagedRuntimeCacheValid: false,
+      fallbackRequired: false,
+    };
+  }
+  const donorElectronSource = findFirstElectronDistSource(donorDirs);
+  if (donorElectronSource) {
+    return {
+      selectedSourceKind: "electron-dist-cache",
+      sourceLabel: donorElectronSource,
+      packagedRuntimeCacheAvailable,
+      packagedRuntimeCacheValid: false,
+      fallbackRequired: false,
+    };
+  }
+  const seedElectronSource = findFirstElectronDistSource(seedDirs);
+  if (seedElectronSource) {
+    return {
+      selectedSourceKind: "seed",
+      sourceLabel: seedElectronSource,
+      packagedRuntimeCacheAvailable,
+      packagedRuntimeCacheValid: false,
+      fallbackRequired: false,
+    };
+  }
+  return {
+    selectedSourceKind: "npm-fallback",
+    sourceLabel: `electron@${electronVersion}`,
+    packagedRuntimeCacheAvailable,
+    packagedRuntimeCacheValid: false,
+    fallbackRequired: true,
+  };
 }
 
 function tryRepairElectronRuntimeInPlace(

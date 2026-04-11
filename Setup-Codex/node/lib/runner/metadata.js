@@ -57,6 +57,9 @@ function writeLiteContract(outputDir, payload) {
             "Launch-Codex.cmd",
             ...(payload.includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
         ],
+        electronRuntimeSource: payload.runtime.sourceKind,
+        canonicalOutputReady: payload.canonicalOutputReady,
+        latestLaunchersReady: payload.latestLaunchersReady,
         cliSource: payload.cliSource || "",
     };
     fs.writeFileSync(targetPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
@@ -93,6 +96,12 @@ function writeBuildMetadata(outputDir, metadata) {
         patchReportPath: metadata.patchReportPath,
         codexCliPath: metadata.cliPath,
         codexCliSource: metadata.cliSource,
+        electronRuntimeSource: metadata.runtime.sourceKind,
+        electronRuntimePath: metadata.runtime.executablePath,
+        electronRuntimeVersion: metadata.runtime.electronVersion,
+        electronRuntimeFingerprint: metadata.runtime.fingerprint,
+        electronRuntimeValidationMode: metadata.runtime.validationMode,
+        packagedRuntimeCached: metadata.runtime.sourceKind === "packaged-runtime-cache",
         bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
         runtimeModCompatibility,
     };
@@ -104,6 +113,9 @@ function writeBuildMetadata(outputDir, metadata) {
         cliSource: metadata.cliSource,
         runtimeFlavor: metadata.runtimeFlavor,
         includeRuntimeMods: metadata.includeRuntimeMods,
+        runtime: metadata.runtime,
+        canonicalOutputReady: metadata.canonicalOutputReady,
+        latestLaunchersReady: metadata.latestLaunchersReady,
     });
     return targetPath;
 }

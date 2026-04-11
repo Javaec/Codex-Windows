@@ -10,6 +10,7 @@ import {
 import { mustResolveCommand, runCommand, uniqueExistingDirs, writeError, writeHeader, writeSuccess, writeWarn } from "../exec";
 import { getFileDescriptorWithCache, getStepSignature, readStateManifest, writeStateManifest } from "../manifest";
 import { resolvePatchProfile } from "../platform-patches/patch-pack";
+import { inspectRuntimePreflight } from "../runtime-donor/native";
 import { invokeExtractionStage, resolveDmgPath } from "../source-bundle/extract";
 import { REPO_ROOT, resolvePreferredCodexCliPath, sanitizeRunnerEnvironment } from "./context";
 
@@ -25,6 +26,7 @@ type DmgBuildMetadata = {
   appVersion: string;
   buildNumber: string;
   buildFlavor: string;
+  electronVersion: string;
   appDir: string;
 };
 
@@ -102,11 +104,13 @@ function resolveDmgBuildMetadata(dmgPath: string, workDir: string): DmgBuildMeta
     version?: string;
     codexBuildNumber?: string;
     codexBuildFlavor?: string;
+    devDependencies?: Record<string, string>;
   };
   return {
     appVersion: typeof pkg.version === "string" ? pkg.version : "",
     buildNumber: typeof pkg.codexBuildNumber === "string" ? pkg.codexBuildNumber : "",
     buildFlavor: typeof pkg.codexBuildFlavor === "string" ? pkg.codexBuildFlavor : "",
+    electronVersion: typeof pkg.devDependencies?.electron === "string" ? pkg.devDependencies.electron : "",
     appDir: extractResult.appDir,
   };
 }
@@ -218,6 +222,19 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
       ? `${nativeCandidates.length} donor/seed path(s) available`
       : "no donor/seed app directories found under dist/ or scripts/native-seeds/",
   );
+
+  if (dmgBuildMetadata?.electronVersion) {
+    const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+    const runtimePreflight = inspectRuntimePreflight(workDir, dmgBuildMetadata.electronVersion, arch);
+    addVerifyItem(
+      items,
+      "runtime-preflight",
+      runtimePreflight.fallbackRequired ? "WARN" : "OK",
+      `selected=${runtimePreflight.selectedSourceKind} source=${runtimePreflight.sourceLabel} cacheAvailable=${runtimePreflight.packagedRuntimeCacheAvailable} cacheValid=${runtimePreflight.packagedRuntimeCacheValid} fallbackRequired=${runtimePreflight.fallbackRequired}`,
+    );
+  } else {
+    addVerifyItem(items, "runtime-preflight", "WARN", "electron version missing in extracted package.json");
+  }
 
   writeVerifySummary(items);
   return items.some((item) => item.status === "FAIL") ? 1 : 0;

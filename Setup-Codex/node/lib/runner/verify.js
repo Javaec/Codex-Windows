@@ -41,6 +41,7 @@ const env_1 = require("../env");
 const exec_1 = require("../exec");
 const manifest_1 = require("../manifest");
 const patch_pack_1 = require("../platform-patches/patch-pack");
+const native_1 = require("../runtime-donor/native");
 const extract_1 = require("../source-bundle/extract");
 const context_1 = require("./context");
 function addVerifyItem(items, name, status, details) {
@@ -105,6 +106,7 @@ function resolveDmgBuildMetadata(dmgPath, workDir) {
         appVersion: typeof pkg.version === "string" ? pkg.version : "",
         buildNumber: typeof pkg.codexBuildNumber === "string" ? pkg.codexBuildNumber : "",
         buildFlavor: typeof pkg.codexBuildFlavor === "string" ? pkg.codexBuildFlavor : "",
+        electronVersion: typeof pkg.devDependencies?.electron === "string" ? pkg.devDependencies.electron : "",
         appDir: extractResult.appDir,
     };
 }
@@ -192,6 +194,14 @@ async function runVerify(options) {
     addVerifyItem(items, "native-support", nativeCandidates.length > 0 ? "OK" : "FAIL", nativeCandidates.length > 0
         ? `${nativeCandidates.length} donor/seed path(s) available`
         : "no donor/seed app directories found under dist/ or scripts/native-seeds/");
+    if (dmgBuildMetadata?.electronVersion) {
+        const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+        const runtimePreflight = (0, native_1.inspectRuntimePreflight)(workDir, dmgBuildMetadata.electronVersion, arch);
+        addVerifyItem(items, "runtime-preflight", runtimePreflight.fallbackRequired ? "WARN" : "OK", `selected=${runtimePreflight.selectedSourceKind} source=${runtimePreflight.sourceLabel} cacheAvailable=${runtimePreflight.packagedRuntimeCacheAvailable} cacheValid=${runtimePreflight.packagedRuntimeCacheValid} fallbackRequired=${runtimePreflight.fallbackRequired}`);
+    }
+    else {
+        addVerifyItem(items, "runtime-preflight", "WARN", "electron version missing in extracted package.json");
+    }
     writeVerifySummary(items);
     return items.some((item) => item.status === "FAIL") ? 1 : 0;
 }
