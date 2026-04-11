@@ -201,16 +201,24 @@ function testPackagedElectronRuntime(executablePath) {
     });
     return result.status === 0;
 }
-function findPackagedElectronRuntime(sourceAppDirs) {
+function preparePackagedElectronRuntime(nativeDir, sourceAppDirs) {
+    const packagedRuntimeDir = path.join(nativeDir, "packaged-runtime");
+    const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
+    if ((0, exec_1.fileExists)(packagedRuntimeExe) && testPackagedElectronRuntime(packagedRuntimeExe)) {
+        (0, exec_1.writeSuccess)(`Using packaged Electron runtime cache: ${packagedRuntimeExe}`);
+        return packagedRuntimeExe;
+    }
     for (const sourceAppDir of sourceAppDirs) {
         const packagedAppDir = path.resolve(sourceAppDir, "..", "..");
         const packagedExe = path.join(packagedAppDir, "Codex.exe");
         if (!(0, exec_1.fileExists)(packagedExe))
             continue;
-        if (!testPackagedElectronRuntime(packagedExe))
+        (0, exec_1.removePath)(packagedRuntimeDir);
+        (0, exec_1.copyDirectory)(packagedAppDir, packagedRuntimeDir);
+        if (!testPackagedElectronRuntime(packagedRuntimeExe))
             continue;
         (0, exec_1.writeSuccess)(`Using packaged Electron runtime from donor: ${packagedExe}`);
-        return packagedExe;
+        return packagedRuntimeExe;
     }
     return "";
 }
@@ -233,7 +241,7 @@ function tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVers
     return false;
 }
 function ensureElectronRuntime(nativeDir, electronVersion, sourceAppDirs) {
-    const packagedRuntime = findPackagedElectronRuntime(sourceAppDirs);
+    const packagedRuntime = preparePackagedElectronRuntime(nativeDir, sourceAppDirs);
     if (packagedRuntime)
         return packagedRuntime;
     const electronRoot = path.join(nativeDir, "node_modules", "electron");

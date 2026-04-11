@@ -221,14 +221,23 @@ function testPackagedElectronRuntime(executablePath: string): boolean {
   return result.status === 0;
 }
 
-function findPackagedElectronRuntime(sourceAppDirs: string[]): string {
+function preparePackagedElectronRuntime(nativeDir: string, sourceAppDirs: string[]): string {
+  const packagedRuntimeDir = path.join(nativeDir, "packaged-runtime");
+  const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
+  if (fileExists(packagedRuntimeExe) && testPackagedElectronRuntime(packagedRuntimeExe)) {
+    writeSuccess(`Using packaged Electron runtime cache: ${packagedRuntimeExe}`);
+    return packagedRuntimeExe;
+  }
+
   for (const sourceAppDir of sourceAppDirs) {
     const packagedAppDir = path.resolve(sourceAppDir, "..", "..");
     const packagedExe = path.join(packagedAppDir, "Codex.exe");
     if (!fileExists(packagedExe)) continue;
-    if (!testPackagedElectronRuntime(packagedExe)) continue;
+    removePath(packagedRuntimeDir);
+    copyDirectory(packagedAppDir, packagedRuntimeDir);
+    if (!testPackagedElectronRuntime(packagedRuntimeExe)) continue;
     writeSuccess(`Using packaged Electron runtime from donor: ${packagedExe}`);
-    return packagedExe;
+    return packagedRuntimeExe;
   }
   return "";
 }
@@ -257,7 +266,7 @@ function tryRepairElectronRuntimeInPlace(
 }
 
 function ensureElectronRuntime(nativeDir: string, electronVersion: string, sourceAppDirs: string[]): string {
-  const packagedRuntime = findPackagedElectronRuntime(sourceAppDirs);
+  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, sourceAppDirs);
   if (packagedRuntime) return packagedRuntime;
 
   const electronRoot = path.join(nativeDir, "node_modules", "electron");
