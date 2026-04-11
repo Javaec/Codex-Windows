@@ -207,6 +207,54 @@ function copyNativeFile(sourcePath: string, destinationPath: string, label: stri
   }
 }
 
+function readPeMachineType(filePath: string): number {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const dosHeader = Buffer.allocUnsafe(64);
+    const dosRead = fs.readSync(fd, dosHeader, 0, dosHeader.length, 0);
+    if (dosRead < 64) return 0;
+    if (dosHeader[0] !== 0x4d || dosHeader[1] !== 0x5a) return 0;
+    const peOffset = dosHeader.readUInt32LE(0x3c);
+    if (!Number.isFinite(peOffset) || peOffset < 0) return 0;
+    const peHeader = Buffer.allocUnsafe(6);
+    const peRead = fs.readSync(fd, peHeader, 0, peHeader.length, peOffset);
+    if (peRead < 6) return 0;
+    if (
+      peHeader[0] !== 0x50 ||
+      peHeader[1] !== 0x45 ||
+      peHeader[2] !== 0x00 ||
+      peHeader[3] !== 0x00
+    ) {
+      return 0;
+    }
+    return peHeader.readUInt16LE(4);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function expectedPeMachineTypes(arch: string): number[] {
+  if (arch === "arm64") return [0xaa64];
+  return [0x8664];
+}
+
+function isUsableWindowsNativeAddon(filePath: string, arch: string): boolean {
+  if (!fileExists(filePath)) return false;
+  return expectedPeMachineTypes(arch).includes(readPeMachineType(filePath));
+}
+
+function hasUsableAppNativeArtifacts(appDir: string, arch: string): boolean {
+  const betterSqlite3Path = path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
+  const nodePtyCandidates = [
+    path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node"),
+    path.join(appDir, "node_modules", "node-pty", "build", "Release", "pty.node"),
+  ];
+  return (
+    isUsableWindowsNativeAddon(betterSqlite3Path, arch) &&
+    nodePtyCandidates.some((candidate) => isUsableWindowsNativeAddon(candidate, arch))
+  );
+}
+
 function copyNativeArtifactsFromAppLayout(sourceAppDir: string, appDir: string, nativeDir: string, arch: string): boolean {
   const bsSrc = path.join(sourceAppDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
   if (!fileExists(bsSrc)) return false;
@@ -657,9 +705,10 @@ export function invokeNativeStage(
   const ptyAppPre = path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node");
   const ptyAppRel = path.join(appDir, "node_modules", "node-pty", "build", "Release", "pty.node");
   const appArtifactsPresent = fileExists(bsApp) && (fileExists(ptyAppPre) || fileExists(ptyAppRel));
+  const appArtifactsUsable = hasUsableAppNativeArtifacts(appDir, arch);
 
   let appReady = false;
-  if (appArtifactsPresent) {
+  if (appArtifactsPresent && appArtifactsUsable) {
     if (!shouldValidateNativeWithRuntime) {
       writeSuccess("Native cache hit: reusing app binaries without packaged runtime smoke tests.");
       appReady = true;
@@ -682,6 +731,8 @@ export function invokeNativeStage(
         appReady = true;
       }
     }
+  } else if (appArtifactsPresent && !appArtifactsUsable) {
+    writeInfo("Native app cache present but not usable on Windows; refreshing native binaries from donor artifacts.");
   }
 
   if (!appReady) {

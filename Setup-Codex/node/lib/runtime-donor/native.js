@@ -1,43 +1,10 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inspectRuntimePreflight = inspectRuntimePreflight;
 exports.invokeNativeStage = invokeNativeStage;
-const crypto = __importStar(require("node:crypto"));
-const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const exec_1 = require("../exec");
 const manifest_1 = require("../manifest");
 const npm_1 = require("../npm");
@@ -161,6 +128,53 @@ function copyNativeFile(sourcePath, destinationPath, label) {
         }
         throw error;
     }
+}
+function readPeMachineType(filePath) {
+    const fd = fs.openSync(filePath, "r");
+    try {
+        const dosHeader = Buffer.allocUnsafe(64);
+        const dosRead = fs.readSync(fd, dosHeader, 0, dosHeader.length, 0);
+        if (dosRead < 64)
+            return 0;
+        if (dosHeader[0] !== 0x4d || dosHeader[1] !== 0x5a)
+            return 0;
+        const peOffset = dosHeader.readUInt32LE(0x3c);
+        if (!Number.isFinite(peOffset) || peOffset < 0)
+            return 0;
+        const peHeader = Buffer.allocUnsafe(6);
+        const peRead = fs.readSync(fd, peHeader, 0, peHeader.length, peOffset);
+        if (peRead < 6)
+            return 0;
+        if (peHeader[0] !== 0x50 ||
+            peHeader[1] !== 0x45 ||
+            peHeader[2] !== 0x00 ||
+            peHeader[3] !== 0x00) {
+            return 0;
+        }
+        return peHeader.readUInt16LE(4);
+    }
+    finally {
+        fs.closeSync(fd);
+    }
+}
+function expectedPeMachineTypes(arch) {
+    if (arch === "arm64")
+        return [0xaa64];
+    return [0x8664];
+}
+function isUsableWindowsNativeAddon(filePath, arch) {
+    if (!(0, exec_1.fileExists)(filePath))
+        return false;
+    return expectedPeMachineTypes(arch).includes(readPeMachineType(filePath));
+}
+function hasUsableAppNativeArtifacts(appDir, arch) {
+    const betterSqlite3Path = path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
+    const nodePtyCandidates = [
+        path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node"),
+        path.join(appDir, "node_modules", "node-pty", "build", "Release", "pty.node"),
+    ];
+    return (isUsableWindowsNativeAddon(betterSqlite3Path, arch) &&
+        nodePtyCandidates.some((candidate) => isUsableWindowsNativeAddon(candidate, arch)));
 }
 function copyNativeArtifactsFromAppLayout(sourceAppDir, appDir, nativeDir, arch) {
     const bsSrc = path.join(sourceAppDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
@@ -421,8 +435,9 @@ function ensureElectronRuntime(nativeDir, electronVersion, donorAppDirs, seedApp
     const electronExe = path.join(electronRoot, "dist", "electron.exe");
     const installedVersion = readElectronPackageVersion(electronRoot);
     const hasElectronExe = (0, exec_1.fileExists)(electronExe);
-    if (hasElectronExe && installedVersion === electronVersion && testElectronRuntimeExecutable(electronExe))
+    if (hasElectronExe && installedVersion === electronVersion && testElectronRuntimeExecutable(electronExe)) {
         return createRuntimeDescriptor("electron-dist-cache", electronExe, electronVersion, electronRoot);
+    }
     const shouldReplaceCachedElectron = hasElectronExe || (installedVersion !== "" && installedVersion !== electronVersion);
     if (shouldReplaceCachedElectron) {
         (0, exec_1.writeInfo)(`Refreshing cached Electron runtime: expected ${electronVersion}, found ${installedVersion || "unknown"}.`);
@@ -511,8 +526,9 @@ function invokeNativeStage(appDir, nativeDir, electronVersion, betterVersion, pt
     const ptyAppPre = path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node");
     const ptyAppRel = path.join(appDir, "node_modules", "node-pty", "build", "Release", "pty.node");
     const appArtifactsPresent = (0, exec_1.fileExists)(bsApp) && ((0, exec_1.fileExists)(ptyAppPre) || (0, exec_1.fileExists)(ptyAppRel));
+    const appArtifactsUsable = hasUsableAppNativeArtifacts(appDir, arch);
     let appReady = false;
-    if (appArtifactsPresent) {
+    if (appArtifactsPresent && appArtifactsUsable) {
         if (!shouldValidateNativeWithRuntime) {
             (0, exec_1.writeSuccess)("Native cache hit: reusing app binaries without packaged runtime smoke tests.");
             appReady = true;
@@ -525,6 +541,9 @@ function invokeNativeStage(appDir, nativeDir, electronVersion, betterVersion, pt
                 appReady = true;
             }
         }
+    }
+    else if (appArtifactsPresent && !appArtifactsUsable) {
+        (0, exec_1.writeInfo)("Native app cache present but not usable on Windows; refreshing native binaries from donor artifacts.");
     }
     if (!appReady) {
         const recoveredDonor = tryRecoverNativeFromCandidateDirs(donorDirs, "donor", appDir, nativeDir, arch, electronExe, shouldValidateNativeWithRuntime);
