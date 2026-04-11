@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -5,6 +6,7 @@ import {
   copyFileSafe,
   ensureDir,
   fileExists,
+  movePathSafe,
   removePath,
   resolveCommand,
   runCommand,
@@ -15,11 +17,96 @@ import {
 } from "../exec";
 import { setManifestStepState, StateManifest, writeStateManifest } from "../manifest";
 import { invokeNpm } from "../npm";
-import { getWindowsRuntimeDonorAppDirs } from "./windows-apps";
+import { getWindowsRuntimeDonorAppDirs, listWindowsCodexPackages, type WindowsCodexPackage } from "./windows-apps";
+
+export type RuntimeSourceKind =
+  | "packaged-runtime-cache"
+  | "windows-runtime-donor-copy"
+  | "electron-dist-cache"
+  | "seed"
+  | "npm-fallback";
+
+export interface RuntimeDescriptor {
+  sourceKind: RuntimeSourceKind;
+  executablePath: string;
+  runtimeRoot: string;
+  electronVersion: string;
+  sourceLabel: string;
+  fingerprint: string;
+  validationMode: "electron-run-as-node";
+}
 
 export interface NativeStageResult {
-  electronExe: string;
+  runtime: RuntimeDescriptor;
   performed: boolean;
+}
+
+const PACKAGED_RUNTIME_DIR_NAME = "packaged-runtime";
+const PACKAGED_RUNTIME_TMP_DIR_NAME = "packaged-runtime.tmp";
+const RUNTIME_DESCRIPTOR_FILE_NAME = "runtime-descriptor.json";
+const RUNTIME_VALIDATION_MODE = "electron-run-as-node";
+
+function getFileSha256(filePath: string): string {
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest("hex");
+}
+
+function createRuntimeDescriptor(
+  sourceKind: RuntimeSourceKind,
+  executablePath: string,
+  electronVersion: string,
+  sourceLabel: string,
+  fingerprint = getFileSha256(executablePath),
+): RuntimeDescriptor {
+  const resolvedExecutablePath = path.resolve(executablePath);
+  return {
+    sourceKind,
+    executablePath: resolvedExecutablePath,
+    runtimeRoot: path.dirname(resolvedExecutablePath),
+    electronVersion,
+    sourceLabel,
+    fingerprint,
+    validationMode: RUNTIME_VALIDATION_MODE,
+  };
+}
+
+function readRuntimeDescriptor(descriptorPath: string): RuntimeDescriptor | null {
+  if (!fileExists(descriptorPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(descriptorPath, "utf8")) as Partial<RuntimeDescriptor>;
+    if (
+      typeof parsed.sourceKind !== "string" ||
+      typeof parsed.executablePath !== "string" ||
+      typeof parsed.runtimeRoot !== "string" ||
+      typeof parsed.electronVersion !== "string" ||
+      typeof parsed.sourceLabel !== "string" ||
+      typeof parsed.fingerprint !== "string" ||
+      parsed.validationMode !== RUNTIME_VALIDATION_MODE
+    ) {
+      return null;
+    }
+    return {
+      sourceKind: parsed.sourceKind as RuntimeSourceKind,
+      executablePath: path.resolve(parsed.executablePath),
+      runtimeRoot: path.resolve(parsed.runtimeRoot),
+      electronVersion: parsed.electronVersion,
+      sourceLabel: parsed.sourceLabel,
+      fingerprint: parsed.fingerprint,
+      validationMode: RUNTIME_VALIDATION_MODE,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRuntimeDescriptor(runtimeRoot: string, descriptor: RuntimeDescriptor): void {
+  ensureDir(runtimeRoot);
+  fs.writeFileSync(
+    path.join(runtimeRoot, RUNTIME_DESCRIPTOR_FILE_NAME),
+    `${JSON.stringify(descriptor, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 function resolveValidationRuntime(
@@ -211,7 +298,7 @@ function readElectronPackageVersion(electronRoot: string): string {
   }
 }
 
-function testPackagedElectronRuntime(executablePath: string): boolean {
+function testElectronRuntimeExecutable(executablePath: string): boolean {
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
   const result = runCommand(executablePath, ["-e", "process.exit(0)"], {
     env,
@@ -221,25 +308,95 @@ function testPackagedElectronRuntime(executablePath: string): boolean {
   return result.status === 0;
 }
 
-function preparePackagedElectronRuntime(nativeDir: string, sourceAppDirs: string[]): string {
-  const packagedRuntimeDir = path.join(nativeDir, "packaged-runtime");
+function tryReusePackagedRuntimeCache(
+  nativeDir: string,
+  donorPackage: WindowsCodexPackage,
+  electronVersion: string,
+): RuntimeDescriptor | null {
+  const packagedRuntimeDir = path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME);
   const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
-  if (fileExists(packagedRuntimeExe) && testPackagedElectronRuntime(packagedRuntimeExe)) {
-    writeSuccess(`Using packaged Electron runtime cache: ${packagedRuntimeExe}`);
-    return packagedRuntimeExe;
+  const descriptorPath = path.join(packagedRuntimeDir, RUNTIME_DESCRIPTOR_FILE_NAME);
+  if (!fileExists(packagedRuntimeExe)) return null;
+
+  const descriptor = readRuntimeDescriptor(descriptorPath);
+  const actualFingerprint = getFileSha256(packagedRuntimeExe);
+  const descriptorMatches = Boolean(
+    descriptor &&
+    descriptor.sourceLabel === donorPackage.packageFullName &&
+    descriptor.electronVersion === electronVersion &&
+    descriptor.fingerprint === actualFingerprint,
+  );
+  if (!descriptorMatches) {
+    writeInfo(
+      `Refreshing packaged Electron runtime cache: expected ${donorPackage.packageFullName} / ${electronVersion}, found ${descriptor?.sourceLabel || "unknown"} / ${descriptor?.electronVersion || "unknown"}.`,
+    );
+    return null;
+  }
+  if (!testElectronRuntimeExecutable(packagedRuntimeExe)) {
+    writeInfo(`Refreshing packaged Electron runtime cache: validation failed for ${packagedRuntimeExe}.`);
+    return null;
+  }
+  return createRuntimeDescriptor(
+    "packaged-runtime-cache",
+    packagedRuntimeExe,
+    electronVersion,
+    donorPackage.packageFullName,
+    actualFingerprint,
+  );
+}
+
+function materializePackagedRuntimeCopy(
+  nativeDir: string,
+  donorPackage: WindowsCodexPackage,
+  electronVersion: string,
+): RuntimeDescriptor | null {
+  const donorRuntimeDir = donorPackage.appDir;
+  const donorExe = path.join(donorRuntimeDir, "Codex.exe");
+  if (!fileExists(donorExe)) return null;
+
+  const packagedRuntimeDir = path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME);
+  const packagedRuntimeTmpDir = path.join(nativeDir, PACKAGED_RUNTIME_TMP_DIR_NAME);
+  const packagedRuntimeTmpExe = path.join(packagedRuntimeTmpDir, "Codex.exe");
+  const packagedRuntimeExe = path.join(packagedRuntimeDir, "Codex.exe");
+
+  removePath(packagedRuntimeTmpDir);
+  copyDirectory(donorRuntimeDir, packagedRuntimeTmpDir);
+  if (!fileExists(packagedRuntimeTmpExe) || !testElectronRuntimeExecutable(packagedRuntimeTmpExe)) {
+    removePath(packagedRuntimeTmpDir);
+    return null;
   }
 
-  for (const sourceAppDir of sourceAppDirs) {
-    const packagedAppDir = path.resolve(sourceAppDir, "..", "..");
-    const packagedExe = path.join(packagedAppDir, "Codex.exe");
-    if (!fileExists(packagedExe)) continue;
-    removePath(packagedRuntimeDir);
-    copyDirectory(packagedAppDir, packagedRuntimeDir);
-    if (!testPackagedElectronRuntime(packagedRuntimeExe)) continue;
-    writeSuccess(`Using packaged Electron runtime from donor: ${packagedExe}`);
-    return packagedRuntimeExe;
+  removePath(packagedRuntimeDir);
+  movePathSafe(packagedRuntimeTmpDir, packagedRuntimeDir);
+
+  const descriptor = createRuntimeDescriptor(
+    "windows-runtime-donor-copy",
+    packagedRuntimeExe,
+    electronVersion,
+    donorPackage.packageFullName,
+  );
+  writeRuntimeDescriptor(packagedRuntimeDir, descriptor);
+  writeSuccess(`Using packaged Electron runtime from donor copy: ${packagedRuntimeExe} (source=${donorExe})`);
+  return descriptor;
+}
+
+function preparePackagedElectronRuntime(nativeDir: string, electronVersion: string): RuntimeDescriptor | null {
+  const donorPackages = listWindowsCodexPackages().filter((runtimePackage) =>
+    fileExists(path.join(runtimePackage.appDir, "Codex.exe")),
+  );
+  if (donorPackages.length === 0) return null;
+
+  const reusableCache = tryReusePackagedRuntimeCache(nativeDir, donorPackages[0], electronVersion);
+  if (reusableCache) {
+    writeSuccess(`Using packaged Electron runtime cache: ${reusableCache.executablePath}`);
+    return reusableCache;
   }
-  return "";
+
+  for (const donorPackage of donorPackages) {
+    const materialized = materializePackagedRuntimeCopy(nativeDir, donorPackage, electronVersion);
+    if (materialized) return materialized;
+  }
+  return null;
 }
 
 function tryRepairElectronRuntimeInPlace(
@@ -265,15 +422,22 @@ function tryRepairElectronRuntimeInPlace(
   return false;
 }
 
-function ensureElectronRuntime(nativeDir: string, electronVersion: string, sourceAppDirs: string[]): string {
-  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, sourceAppDirs);
+function ensureElectronRuntime(
+  nativeDir: string,
+  electronVersion: string,
+  donorAppDirs: string[],
+  seedAppDirs: string[],
+): RuntimeDescriptor {
+  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
   if (packagedRuntime) return packagedRuntime;
 
   const electronRoot = path.join(nativeDir, "node_modules", "electron");
   const electronExe = path.join(electronRoot, "dist", "electron.exe");
   const installedVersion = readElectronPackageVersion(electronRoot);
   const hasElectronExe = fileExists(electronExe);
-  if (hasElectronExe && installedVersion === electronVersion) return electronExe;
+  if (hasElectronExe && installedVersion === electronVersion && testElectronRuntimeExecutable(electronExe)) {
+    return createRuntimeDescriptor("electron-dist-cache", electronExe, electronVersion, electronRoot);
+  }
   const shouldReplaceCachedElectron = hasElectronExe || (installedVersion !== "" && installedVersion !== electronVersion);
   if (shouldReplaceCachedElectron) {
     writeInfo(
@@ -286,29 +450,34 @@ function ensureElectronRuntime(nativeDir: string, electronVersion: string, sourc
   } else if (installedVersion === electronVersion) {
     writeInfo(`Repairing incomplete cached Electron runtime: ${electronVersion} is present but electron.exe is missing.`);
     if (tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVersion)) {
-      return electronExe;
+      return createRuntimeDescriptor("electron-dist-cache", electronExe, electronVersion, electronRoot);
     }
   }
 
-  for (const sourceAppDir of sourceAppDirs) {
-    const srcElectronRoot = path.join(sourceAppDir, "node_modules", "electron");
-    const srcDist = path.join(sourceAppDir, "node_modules", "electron", "dist");
-    if (!fileExists(path.join(srcDist, "electron.exe"))) continue;
-    copyDirectory(srcDist, path.join(electronRoot, "dist"));
-    const srcPackageJson = path.join(srcElectronRoot, "package.json");
-    if (fileExists(srcPackageJson)) {
-      copyFileSafe(srcPackageJson, path.join(electronRoot, "package.json"));
-    } else {
-      ensureDir(electronRoot);
-      fs.writeFileSync(
-        path.join(electronRoot, "package.json"),
-        `${JSON.stringify({ name: "electron", version: electronVersion }, null, 2)}\n`,
-        "utf8",
-      );
-    }
-    if (fileExists(electronExe)) {
-      writeSuccess(`Using Electron runtime from donor: ${sourceAppDir}`);
-      return electronExe;
+  for (const runtimeCandidate of [
+    { sourceKind: "electron-dist-cache" as const, label: "donor", appDirs: donorAppDirs },
+    { sourceKind: "seed" as const, label: "bundled seed", appDirs: seedAppDirs },
+  ]) {
+    for (const sourceAppDir of runtimeCandidate.appDirs) {
+      const srcElectronRoot = path.join(sourceAppDir, "node_modules", "electron");
+      const srcDist = path.join(sourceAppDir, "node_modules", "electron", "dist");
+      if (!fileExists(path.join(srcDist, "electron.exe"))) continue;
+      copyDirectory(srcDist, path.join(electronRoot, "dist"));
+      const srcPackageJson = path.join(srcElectronRoot, "package.json");
+      if (fileExists(srcPackageJson)) {
+        copyFileSafe(srcPackageJson, path.join(electronRoot, "package.json"));
+      } else {
+        ensureDir(electronRoot);
+        fs.writeFileSync(
+          path.join(electronRoot, "package.json"),
+          `${JSON.stringify({ name: "electron", version: electronVersion }, null, 2)}\n`,
+          "utf8",
+        );
+      }
+      if (fileExists(electronExe) && testElectronRuntimeExecutable(electronExe)) {
+        writeSuccess(`Using Electron runtime from ${runtimeCandidate.label}: ${sourceAppDir}`);
+        return createRuntimeDescriptor(runtimeCandidate.sourceKind, electronExe, electronVersion, sourceAppDir);
+      }
     }
   }
 
@@ -320,7 +489,10 @@ function ensureElectronRuntime(nativeDir: string, electronVersion: string, sourc
   const npmInstallExit = invokeNpm(["install", "--no-save", `electron@${electronVersion}`], nativeDir);
   if (npmInstallExit !== 0) throw new Error(`npm install electron@${electronVersion} failed.`);
   if (!fileExists(electronExe)) throw new Error(`electron.exe not found after runtime preparation: ${electronExe}`);
-  return electronExe;
+  if (!testElectronRuntimeExecutable(electronExe)) {
+    throw new Error(`Electron runtime did not validate after npm fallback: ${electronExe}`);
+  }
+  return createRuntimeDescriptor("npm-fallback", electronExe, electronVersion, `electron@${electronVersion}`);
 }
 
 function tryRecoverNativeFromCandidateDirs(
@@ -371,7 +543,13 @@ export function invokeNativeStage(
   const allowNativeRebuild = process.env.CODEX_ENABLE_NATIVE_REBUILD === "1";
   const donorDirs = getNativeDonorAppDirs(workDir);
   const seedDirs = getNativeSeedAppDirs(workDir, arch);
-  const electronExe = ensureElectronRuntime(nativeDir, electronVersion, uniqueExistingDirs([...donorDirs, ...seedDirs]));
+  const runtime = ensureElectronRuntime(
+    nativeDir,
+    electronVersion,
+    uniqueExistingDirs(donorDirs),
+    uniqueExistingDirs(seedDirs),
+  );
+  const electronExe = runtime.executablePath;
 
   const bsApp = path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
   const ptyAppPre = path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node");
@@ -428,8 +606,9 @@ export function invokeNativeStage(
     nodePty: ptyVersion,
     arch,
     rebuildEnabled: allowNativeRebuild,
+    runtime,
   });
   writeStateManifest(manifestPath, manifest);
 
-  return { electronExe, performed: true };
+  return { runtime, performed: true };
 }

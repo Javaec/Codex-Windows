@@ -135,7 +135,8 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
     manifestPath,
     nativeSignature,
   );
-  const electronExe = nativeResult.electronExe;
+  const runtime = nativeResult.runtime;
+  const electronExe = runtime.executablePath;
 
   writeHeader("Environment contract checks");
   assertEnvironmentContract(options.strictContract);
@@ -157,7 +158,7 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
     writeHeader("Packaging portable app");
     const portable = await invokePortableBuild(
       distDir,
-      electronExe,
+      runtime,
       appDir,
       buildNumber,
       buildFlavor,

@@ -13,6 +13,7 @@ import {
 import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIconPath } from "../branding";
 import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from "../args";
 import { patchMainForWindowsEnvironment } from "../platform-patches/bundle-patches";
+import type { RuntimeDescriptor } from "../runtime-donor/native";
 import { bundleCodexCliResources } from "./codex-resources";
 import { startPortableDirectLaunch } from "./direct-launch";
 import { pruneStalePortableOutputs, writeLatestPortableLaunchers, writePortableLauncher } from "./launchers";
@@ -72,7 +73,7 @@ export { startPortableDirectLaunch };
 
 export async function invokePortableBuild(
   distDir: string,
-  electronExe: string,
+  runtime: RuntimeDescriptor,
   appDir: string,
   buildNumber: string,
   buildFlavor: string,
@@ -85,14 +86,18 @@ export async function invokePortableBuild(
   const isDefault = isCanonicalProfileName(profile);
   const includeRuntimeMods = isForgeProfileName(profile);
   const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
+  const electronExe = runtime.executablePath;
   if (!fileExists(electronExe)) throw new Error("Electron runtime not found.");
-  const electronRuntimeDir = path.dirname(electronExe);
-  const isPackagedRuntime = path.basename(electronExe).toLowerCase() === "codex.exe";
+  const electronRuntimeDir = runtime.runtimeRoot;
+  const isPackagedRuntime =
+    runtime.sourceKind === "packaged-runtime-cache" ||
+    runtime.sourceKind === "windows-runtime-donor-copy" ||
+    path.basename(electronExe).toLowerCase() === "codex.exe";
 
   const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
   const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
 
-  writeInfo("Copying Electron runtime...");
+  writeInfo(`Copying Electron runtime (${runtime.sourceKind})...`);
   if (isPackagedRuntime) {
     for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
       if (entry.name.toLowerCase() === "resources") continue;

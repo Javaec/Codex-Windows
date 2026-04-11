@@ -125,7 +125,8 @@ async function runPipelineDetailed(options) {
     });
     (0, exec_1.writeHeader)("Preparing native modules");
     const nativeResult = (0, native_1.invokeNativeStage)(appDir, nativeDir, electronVersion, betterVersion, ptyVersion, arch, manifest, manifestPath, nativeSignature);
-    const electronExe = nativeResult.electronExe;
+    const runtime = nativeResult.runtime;
+    const electronExe = runtime.executablePath;
     (0, exec_1.writeHeader)("Environment contract checks");
     (0, env_1.assertEnvironmentContract)(options.strictContract);
     const preferredCodexCliPath = (0, context_1.resolvePreferredCodexCliPath)(options.codexCliPath);
@@ -134,7 +135,7 @@ async function runPipelineDetailed(options) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
         const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed for portable packaging", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         (0, exec_1.writeHeader)("Packaging portable app");
-        const portable = await (0, portable_1.invokePortableBuild)(distDir, electronExe, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
+        const portable = await (0, portable_1.invokePortableBuild)(distDir, runtime, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
         const buildMetadataPath = (0, metadata_1.writeBuildMetadata)(portable.outputDir, {
             dmgPath: resolvedDmgPath,
             appVersion,

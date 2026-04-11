@@ -91,18 +91,21 @@ function preparePortableOutputDir(distDir, workDir, outputName) {
     }
     throw new Error(`Portable output directory is locked and no fallback path could be prepared. Primary: ${primary}`);
 }
-async function invokePortableBuild(distDir, electronExe, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
+async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
     const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const includeRuntimeMods = (0, args_1.isForgeProfileName)(profile);
     const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
+    const electronExe = runtime.executablePath;
     if (!(0, exec_1.fileExists)(electronExe))
         throw new Error("Electron runtime not found.");
-    const electronRuntimeDir = path.dirname(electronExe);
-    const isPackagedRuntime = path.basename(electronExe).toLowerCase() === "codex.exe";
+    const electronRuntimeDir = runtime.runtimeRoot;
+    const isPackagedRuntime = runtime.sourceKind === "packaged-runtime-cache" ||
+        runtime.sourceKind === "windows-runtime-donor-copy" ||
+        path.basename(electronExe).toLowerCase() === "codex.exe";
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
     const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
-    (0, exec_1.writeInfo)("Copying Electron runtime...");
+    (0, exec_1.writeInfo)(`Copying Electron runtime (${runtime.sourceKind})...`);
     if (isPackagedRuntime) {
         for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
             if (entry.name.toLowerCase() === "resources")
