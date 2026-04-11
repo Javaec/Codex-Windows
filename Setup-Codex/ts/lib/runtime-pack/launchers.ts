@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from "../args";
-import { fileExists, removePath, writeWarn } from "../exec";
+import { describePathLock, fileExists, isBusyFsError, removePath, writeWarn } from "../exec";
 
 type LauncherVariant = {
   fileName: string;
@@ -206,22 +206,36 @@ export function writeLatestPortableLaunchers(distDir: string, outputDir: string,
     ...(includeRuntimeMods ? [] : [path.join(distDir, "Launch-Codex-latest-with-mods.cmd")]),
   ];
   for (const staleLauncherPath of staleLatestLaunchers) {
-    removePath(staleLauncherPath);
+    try {
+      removePath(staleLauncherPath);
+    } catch (error) {
+      if (isBusyFsError(error)) {
+        throw new Error(describePathLock("update latest portable launchers", staleLauncherPath, error));
+      }
+      throw error;
+    }
   }
   for (const launcher of launchers) {
     if (!fileExists(launcher.targetPath)) {
       throw new Error(`Portable launcher missing: ${launcher.targetPath}`);
     }
     const relativeTarget = path.relative(distDir, launcher.targetPath).replace(/\//g, "\\");
-    fs.writeFileSync(
-      launcher.outputPath,
-      `@echo off\nsetlocal\ncall "%~dp0${relativeTarget}"\nexit /b %ERRORLEVEL%\n`,
-      "ascii",
-    );
+    try {
+      fs.writeFileSync(
+        launcher.outputPath,
+        `@echo off\nsetlocal\ncall "%~dp0${relativeTarget}"\nexit /b %ERRORLEVEL%\n`,
+        "ascii",
+      );
+    } catch (error) {
+      if (isBusyFsError(error)) {
+        throw new Error(describePathLock("write latest portable launcher", launcher.outputPath, error));
+      }
+      throw error;
+    }
   }
 }
 
-export function pruneStalePortableOutputs(distDir: string, outputName: string): void {
+export function pruneStalePortableOutputs(distDir: string, outputName: string, strict = false): void {
   const staleNames = [`${outputName}-work`, `${outputName}-next`];
   if (!fileExists(distDir)) return;
   for (const entry of fs.readdirSync(distDir, { withFileTypes: true })) {
@@ -233,6 +247,9 @@ export function pruneStalePortableOutputs(distDir: string, outputName: string): 
     try {
       removePath(targetPath);
     } catch (error) {
+      if (strict && isBusyFsError(error)) {
+        throw new Error(describePathLock("prune stale portable output", targetPath, error));
+      }
       const message = error instanceof Error ? error.message : String(error);
       writeWarn(`Stale portable output could not be removed: ${targetPath} (${message})`);
     }

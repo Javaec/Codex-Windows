@@ -53,6 +53,54 @@ function isRetryableFsError(error: unknown): boolean {
   return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY" || code === "EACCES";
 }
 
+export function isBusyFsError(error: unknown): boolean {
+  return isRetryableFsError(error);
+}
+
+function listLikelyLockingProcesses(targetPath: string): string[] {
+  const shellPath =
+    resolveCommand("pwsh.exe") ||
+    resolveCommand("pwsh") ||
+    resolveCommand("powershell.exe") ||
+    resolveCommand("powershell");
+  if (!shellPath) return [];
+
+  const escapedTargetPath = path.resolve(targetPath).replace(/'/g, "''");
+  const command =
+    `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` +
+    `$target='${escapedTargetPath}';` +
+    `if (Test-Path -LiteralPath $target -PathType Leaf) { $target = Split-Path -LiteralPath $target -Parent };` +
+    `Get-CimInstance Win32_Process | ` +
+    `Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like ($target + '*') } | ` +
+    `Select-Object -First 5 ProcessId, Name, ExecutablePath | ` +
+    `ForEach-Object { '{0}:{1}:{2}' -f $_.ProcessId, $_.Name, $_.ExecutablePath }`;
+
+  const result = spawnSync(shellPath, ["-NoProfile", "-Command", command], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: false,
+  });
+  if (result.error || result.status !== 0) return [];
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+export function describePathLock(stage: string, targetPath: string, error: unknown): string {
+  const resolvedTargetPath = path.resolve(targetPath);
+  const code = normalizeErrorCode(error) || "UNKNOWN";
+  const originalMessage = error instanceof Error ? error.message : String(error || "");
+  const likelyLockingProcesses = isRetryableFsError(error) ? listLikelyLockingProcesses(resolvedTargetPath) : [];
+  const processDetails =
+    likelyLockingProcesses.length > 0
+      ? ` Likely locking processes: ${likelyLockingProcesses.join("; ")}.`
+      : " Likely locking process: unavailable.";
+  const originalDetails = originalMessage ? ` Original error: ${originalMessage}` : "";
+  return `${stage} failed for ${resolvedTargetPath} (${code}). Close running Codex or Explorer windows using this path and rerun.${processDetails}${originalDetails}`;
+}
+
 function runFsOperation<T>(label: string, operation: () => T, maxAttempts = 6): T {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

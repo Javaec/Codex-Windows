@@ -24,6 +24,20 @@ function isWindowsRuntimeDonorExecutable(filePath: string): boolean {
   return normalized.includes("\\program files\\windowsapps\\openai.codex_");
 }
 
+function isStalePortableExecutable(filePath: string): boolean {
+  let currentDir = path.dirname(path.resolve(filePath));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const dirName = path.basename(currentDir).toLowerCase();
+    if (dirName.startsWith("codex-win32-") && (dirName.endsWith("-work") || dirName.includes("-next"))) {
+      return true;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  return false;
+}
+
 export function resolveCmdPath(): string | null {
   const systemRoot = process.env.SystemRoot || "C:\\Windows";
   for (const candidate of [
@@ -147,11 +161,12 @@ export function ensureWindowsEnvironment(): void {
 
 export async function ensureRipgrepInPath(workDir: string): Promise<RipgrepResult> {
   const existing = resolveCommand("rg.exe") ?? resolveCommand("rg");
-  if (existing && !isWindowsRuntimeDonorExecutable(existing)) {
+  if (existing && !isWindowsRuntimeDonorExecutable(existing) && !isStalePortableExecutable(existing)) {
     return { installed: false, path: existing, source: "path" };
   }
 
-  const donorRipgrep = existing && isWindowsRuntimeDonorExecutable(existing) ? existing : getWindowsRuntimeDonorRipgrepPath();
+  const donorRipgrep =
+    existing && isWindowsRuntimeDonorExecutable(existing) ? existing : getWindowsRuntimeDonorRipgrepPath();
   if (donorRipgrep) {
     const donorDir = path.dirname(donorRipgrep);
     process.env.PATH = mergePathEntries([donorDir, ...(process.env.PATH || "").split(";")]).join(";");

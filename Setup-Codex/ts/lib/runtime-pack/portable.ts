@@ -3,8 +3,10 @@ import * as path from "node:path";
 import {
   copyFileSafe,
   copyDirectory,
+  describePathLock,
   ensureDir,
   fileExists,
+  isBusyFsError,
   movePathSafe,
   removePath,
   writeInfo,
@@ -33,20 +35,22 @@ const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loade
 const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs");
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
 
-function isBusyDirectoryError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const code = String((error as { code?: unknown }).code || "").toUpperCase();
-  return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
-}
-
-function preparePortableOutputDir(distDir: string, workDir: string, outputName: string): string {
+function preparePortableOutputDir(
+  distDir: string,
+  workDir: string,
+  outputName: string,
+  allowWorkFallback: boolean,
+): string {
   const primary = path.join(distDir, outputName);
   try {
     removePath(primary);
     ensureDir(primary);
     return primary;
   } catch (error) {
-    if (!isBusyDirectoryError(error)) throw error;
+    if (!isBusyFsError(error)) throw error;
+    if (!allowWorkFallback) {
+      throw new Error(describePathLock("prepare canonical portable output", primary, error));
+    }
   }
 
   const fallbackRoot = ensureDir(path.join(workDir, "portable-output"));
@@ -64,7 +68,7 @@ function preparePortableOutputDir(distDir: string, workDir: string, outputName: 
       writeWarn(`Portable output directory is busy: ${primary}; using ${fallback} instead.`);
       return fallback;
     } catch (error) {
-      if (!isBusyDirectoryError(error)) throw error;
+      if (!isBusyFsError(error)) throw error;
     }
   }
 
@@ -98,7 +102,7 @@ export async function invokePortableBuild(
 
   const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
   const canonicalOutputDir = path.join(distDir, outputName);
-  const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
+  const outputDir = preparePortableOutputDir(distDir, workDir, outputName, !isDefault);
 
   writeInfo(`Copying Electron runtime (${runtime.sourceKind})...`);
   if (isPackagedRuntime) {
@@ -204,7 +208,7 @@ export async function invokePortableBuild(
   });
   let latestLaunchersReady = false;
   if (isDefault) {
-    pruneStalePortableOutputs(distDir, outputName);
+    pruneStalePortableOutputs(distDir, outputName, true);
     writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods);
     latestLaunchersReady = [
       path.join(distDir, "Launch-Codex-latest.cmd"),

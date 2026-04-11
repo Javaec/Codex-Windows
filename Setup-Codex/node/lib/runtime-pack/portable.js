@@ -53,12 +53,9 @@ const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loade
 const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs");
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
 function isBusyDirectoryError(error) {
-    if (!error || typeof error !== "object")
-        return false;
-    const code = String(error.code || "").toUpperCase();
-    return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
+    return (0, exec_1.isBusyFsError)(error);
 }
-function preparePortableOutputDir(distDir, workDir, outputName) {
+function preparePortableOutputDir(distDir, workDir, outputName, allowWorkFallback) {
     const primary = path.join(distDir, outputName);
     try {
         (0, exec_1.removePath)(primary);
@@ -68,6 +65,9 @@ function preparePortableOutputDir(distDir, workDir, outputName) {
     catch (error) {
         if (!isBusyDirectoryError(error))
             throw error;
+        if (!allowWorkFallback) {
+            throw new Error((0, exec_1.describePathLock)("prepare canonical portable output", primary, error));
+        }
     }
     const fallbackRoot = (0, exec_1.ensureDir)(path.join(workDir, "portable-output"));
     const suffix = Date.now();
@@ -105,7 +105,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         path.basename(electronExe).toLowerCase() === "codex.exe";
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
     const canonicalOutputDir = path.join(distDir, outputName);
-    const outputDir = preparePortableOutputDir(distDir, workDir, outputName);
+    const outputDir = preparePortableOutputDir(distDir, workDir, outputName, !isDefault);
     (0, exec_1.writeInfo)(`Copying Electron runtime (${runtime.sourceKind})...`);
     if (isPackagedRuntime) {
         for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
@@ -208,7 +208,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
     });
     let latestLaunchersReady = false;
     if (isDefault) {
-        (0, launchers_1.pruneStalePortableOutputs)(distDir, outputName);
+        (0, launchers_1.pruneStalePortableOutputs)(distDir, outputName, true);
         (0, launchers_1.writeLatestPortableLaunchers)(distDir, outputDir, includeRuntimeMods);
         latestLaunchersReady = [
             path.join(distDir, "Launch-Codex-latest.cmd"),

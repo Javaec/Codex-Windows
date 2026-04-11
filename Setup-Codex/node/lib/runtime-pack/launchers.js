@@ -214,17 +214,33 @@ function writeLatestPortableLaunchers(distDir, outputDir, includeRuntimeMods) {
         ...(includeRuntimeMods ? [] : [path.join(distDir, "Launch-Codex-latest-with-mods.cmd")]),
     ];
     for (const staleLauncherPath of staleLatestLaunchers) {
-        (0, exec_1.removePath)(staleLauncherPath);
+        try {
+            (0, exec_1.removePath)(staleLauncherPath);
+        }
+        catch (error) {
+            if ((0, exec_1.isBusyFsError)(error)) {
+                throw new Error((0, exec_1.describePathLock)("update latest portable launchers", staleLauncherPath, error));
+            }
+            throw error;
+        }
     }
     for (const launcher of launchers) {
         if (!(0, exec_1.fileExists)(launcher.targetPath)) {
             throw new Error(`Portable launcher missing: ${launcher.targetPath}`);
         }
         const relativeTarget = path.relative(distDir, launcher.targetPath).replace(/\//g, "\\");
-        fs.writeFileSync(launcher.outputPath, `@echo off\nsetlocal\ncall "%~dp0${relativeTarget}"\nexit /b %ERRORLEVEL%\n`, "ascii");
+        try {
+            fs.writeFileSync(launcher.outputPath, `@echo off\nsetlocal\ncall "%~dp0${relativeTarget}"\nexit /b %ERRORLEVEL%\n`, "ascii");
+        }
+        catch (error) {
+            if ((0, exec_1.isBusyFsError)(error)) {
+                throw new Error((0, exec_1.describePathLock)("write latest portable launcher", launcher.outputPath, error));
+            }
+            throw error;
+        }
     }
 }
-function pruneStalePortableOutputs(distDir, outputName) {
+function pruneStalePortableOutputs(distDir, outputName, strict = false) {
     const staleNames = [`${outputName}-work`, `${outputName}-next`];
     if (!(0, exec_1.fileExists)(distDir))
         return;
@@ -240,6 +256,9 @@ function pruneStalePortableOutputs(distDir, outputName) {
             (0, exec_1.removePath)(targetPath);
         }
         catch (error) {
+            if (strict && (0, exec_1.isBusyFsError)(error)) {
+                throw new Error((0, exec_1.describePathLock)("prune stale portable output", targetPath, error));
+            }
             const message = error instanceof Error ? error.message : String(error);
             (0, exec_1.writeWarn)(`Stale portable output could not be removed: ${targetPath} (${message})`);
         }
