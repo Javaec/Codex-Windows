@@ -593,6 +593,10 @@ function ensureElectronRuntime(
   return createRuntimeDescriptor("npm-fallback", electronExe, electronVersion, `electron@${electronVersion}`);
 }
 
+function shouldRunInteractiveNativeValidation(runtime: RuntimeDescriptor): boolean {
+  return runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy";
+}
+
 function tryRecoverNativeFromCandidateDirs(
   candidateDirs: string[],
   candidateKind: string,
@@ -600,11 +604,16 @@ function tryRecoverNativeFromCandidateDirs(
   nativeDir: string,
   arch: string,
   electronExe: string,
+  validateWithRuntime: boolean,
 ): boolean {
   for (const candidate of candidateDirs) {
     const copied = copyNativeArtifactsFromAppLayout(candidate, appDir, nativeDir, arch);
     if (!copied) continue;
     writeInfo(`Trying native ${candidateKind} artifacts from: ${candidate}`);
+    if (!validateWithRuntime) {
+      writeSuccess(`Recovered native modules from ${candidateKind} artifacts without packaged runtime smoke tests.`);
+      return true;
+    }
     const betterOk = testBetterSqlite3Usable(
       electronExe,
       appDir,
@@ -648,6 +657,7 @@ export function invokeNativeStage(
     uniqueExistingDirs(seedDirs),
   );
   const electronExe = runtime.executablePath;
+  const shouldValidateNativeWithRuntime = shouldRunInteractiveNativeValidation(runtime);
 
   const bsApp = path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
   const ptyAppPre = path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node");
@@ -656,28 +666,49 @@ export function invokeNativeStage(
 
   let appReady = false;
   if (appArtifactsPresent) {
-    const appBetterOk = testBetterSqlite3Usable(
-      electronExe,
-      appDir,
-      "App better-sqlite3 usability test (cache)",
-      "info",
-    );
-    const appPtyOk = testElectronRequire(
-      electronExe,
-      appDir,
-      "./node_modules/node-pty",
-      "App node-pty smoke test (cache)",
-      "info",
-    );
-    if (appBetterOk && appPtyOk) {
-      writeSuccess("Native cache hit: reusing validated app binaries.");
+    if (!shouldValidateNativeWithRuntime) {
+      writeSuccess("Native cache hit: reusing app binaries without packaged runtime smoke tests.");
       appReady = true;
+    } else {
+      const appBetterOk = testBetterSqlite3Usable(
+        electronExe,
+        appDir,
+        "App better-sqlite3 usability test (cache)",
+        "info",
+      );
+      const appPtyOk = testElectronRequire(
+        electronExe,
+        appDir,
+        "./node_modules/node-pty",
+        "App node-pty smoke test (cache)",
+        "info",
+      );
+      if (appBetterOk && appPtyOk) {
+        writeSuccess("Native cache hit: reusing validated app binaries.");
+        appReady = true;
+      }
     }
   }
 
   if (!appReady) {
-    const recoveredDonor = tryRecoverNativeFromCandidateDirs(donorDirs, "donor", appDir, nativeDir, arch, electronExe);
-    appReady = recoveredDonor || tryRecoverNativeFromCandidateDirs(seedDirs, "bundled seed", appDir, nativeDir, arch, electronExe);
+    const recoveredDonor = tryRecoverNativeFromCandidateDirs(
+      donorDirs,
+      "donor",
+      appDir,
+      nativeDir,
+      arch,
+      electronExe,
+      shouldValidateNativeWithRuntime,
+    );
+    appReady = recoveredDonor || tryRecoverNativeFromCandidateDirs(
+      seedDirs,
+      "bundled seed",
+      appDir,
+      nativeDir,
+      arch,
+      electronExe,
+      shouldValidateNativeWithRuntime,
+    );
   }
 
   if (!appReady) {
@@ -691,11 +722,15 @@ export function invokeNativeStage(
     );
   }
 
-  if (!testBetterSqlite3Usable(electronExe, appDir, "App better-sqlite3 usability validation")) {
-    throw new Error("better-sqlite3 failed final validation in app directory.");
-  }
-  if (!testElectronRequire(electronExe, appDir, "./node_modules/node-pty", "App node-pty validation")) {
-    throw new Error("node-pty failed final validation in app directory.");
+  if (shouldValidateNativeWithRuntime) {
+    if (!testBetterSqlite3Usable(electronExe, appDir, "App better-sqlite3 usability validation")) {
+      throw new Error("better-sqlite3 failed final validation in app directory.");
+    }
+    if (!testElectronRequire(electronExe, appDir, "./node_modules/node-pty", "App node-pty validation")) {
+      throw new Error("node-pty failed final validation in app directory.");
+    }
+  } else {
+    writeInfo("Skipping packaged runtime native validation to avoid interactive Codex launches.");
   }
 
   setManifestStepState(manifest, "native", nativeSignature, "ok", {
@@ -704,6 +739,7 @@ export function invokeNativeStage(
     nodePty: ptyVersion,
     arch,
     rebuildEnabled: allowNativeRebuild,
+    nativeValidationMode: shouldValidateNativeWithRuntime ? "runtime-smoke" : "file-presence",
     runtime,
   });
   writeStateManifest(manifestPath, manifest);
