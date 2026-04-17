@@ -99,6 +99,23 @@ export function resolveSshPath(): string | null {
   return null;
 }
 
+export function resolveNodePath(): string | null {
+  const candidates: string[] = [];
+  if (process.env.CODEX_NODE_PATH) candidates.push(process.env.CODEX_NODE_PATH);
+  if (process.env.NVM_SYMLINK) candidates.push(path.join(process.env.NVM_SYMLINK, "node.exe"));
+  if (process.env.ProgramFiles) candidates.push(path.join(process.env.ProgramFiles, "nodejs", "node.exe"));
+  if (process.env["ProgramFiles(x86)"]) {
+    candidates.push(path.join(process.env["ProgramFiles(x86)"], "nodejs", "node.exe"));
+  }
+  const whereNode = resolveCommand("node.exe") ?? resolveCommand("node");
+  if (whereNode) candidates.push(whereNode);
+
+  for (const candidate of candidates) {
+    if (candidate && fileExists(candidate)) return path.resolve(candidate);
+  }
+  return null;
+}
+
 function mergePathEntries(entries: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -157,6 +174,8 @@ export function ensureWindowsEnvironment(): void {
   if (cmdPath) process.env.COMSPEC = cmdPath;
   const pwsh = resolvePwshPath();
   if (pwsh) process.env.CODEX_PWSH_PATH = pwsh;
+  const node = resolveNodePath();
+  if (node) process.env.CODEX_NODE_PATH = node;
 }
 
 export async function ensureRipgrepInPath(workDir: string): Promise<RipgrepResult> {
@@ -205,7 +224,7 @@ export function invokeEnvironmentContractChecks(): ContractResult {
   const cmdPath = resolveCmdPath();
   checks.push(newContractCheck("cmd.exe available", Boolean(cmdPath), cmdPath || "cmd.exe not found"));
 
-  const nodePath = resolveCommand("node.exe") ?? resolveCommand("node");
+  const nodePath = resolveNodePath();
   checks.push(newContractCheck("node available in host process", Boolean(nodePath), nodePath || "node not found in current PATH"));
 
   const pwshPath = resolvePwshPath();
@@ -221,7 +240,20 @@ export function invokeEnvironmentContractChecks(): ContractResult {
     const whereNode = runCmdCheck(cmdPath, ["where", "node"]);
     checks.push(newContractCheck("cmd where node", whereNode === 0, `exit=${whereNode}`));
     const nodeV = runCmdCheck(cmdPath, ["node", "-v"]);
-    checks.push(newContractCheck("cmd node -v", nodeV === 0, `exit=${nodeV}`));
+    if (nodeV === 0) {
+      checks.push(newContractCheck("cmd node -v", true, "exit=0 via PATH"));
+    } else if (nodePath) {
+      const nodeVByPath = runCmdCheck(cmdPath, [nodePath, "-v"]);
+      checks.push(
+        newContractCheck(
+          "cmd node -v",
+          nodeVByPath === 0,
+          nodeVByPath === 0 ? `exit=0 via ${nodePath}` : `exit=${nodeV} via PATH; exit=${nodeVByPath} via ${nodePath}`,
+        ),
+      );
+    } else {
+      checks.push(newContractCheck("cmd node -v", false, `exit=${nodeV}`));
+    }
     const wherePwsh = runCmdCheck(cmdPath, ["where", "powershell"]);
     checks.push(newContractCheck("cmd where powershell", wherePwsh === 0, `exit=${wherePwsh}`));
     const whereSsh = runCmdCheck(cmdPath, ["where", "ssh"]);

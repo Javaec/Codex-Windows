@@ -3,8 +3,8 @@
     "target": "ES2022",
     "module": "commonjs",
     "moduleResolution": "node",
-    "rootDir": "scripts/ts",
-    "outDir": "scripts/node",
+    "rootDir": "Setup-Codex/ts",
+    "outDir": "Setup-Codex/node",
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -12,11 +12,5 @@
     "types": ["node"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["scripts/ts/**/*.ts"],
-  "exclude": [
-    "scripts/ts/reverse.ts",
-    "scripts/ts/reverse-engine.ts",
-    "scripts/ts/reverse-regression.ts",
-    "scripts/ts/reverse/**"
-  ]
+  "include": ["Setup-Codex/ts/**/*.ts"]
 }

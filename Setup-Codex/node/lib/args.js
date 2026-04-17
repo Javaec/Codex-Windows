@@ -136,21 +136,21 @@ function parseArgs(argv) {
 }
 function printUsage() {
     process.stdout.write("Usage:\n");
-    process.stdout.write("  node scripts/node/run.js run [options]\n");
-    process.stdout.write("  node scripts/node/run.js build [options]\n");
-    process.stdout.write("  node scripts/node/run.js verify [options]\n");
-    process.stdout.write("  node scripts/node/run.js smoke [options]\n");
-    process.stdout.write("  node scripts/node/run.js audit [options]\n");
-    process.stdout.write("  node scripts/node/run.js contention [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js run [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js build [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js verify [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js smoke [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js audit [options]\n");
+    process.stdout.write("  node Setup-Codex/node/run.js contention [options]\n");
     process.stdout.write("\n");
     process.stdout.write("Examples:\n");
-    process.stdout.write("  node scripts/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
-    process.stdout.write("  node scripts/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
-    process.stdout.write("  node scripts/node/run.js verify -DmgPath .\\Codex.dmg\n");
-    process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
-    process.stdout.write("  node scripts/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeAuthStage -SmokeUserDataSeed .\\dist\\Codex-win32-x64\\userdata -SmokeCodexHomeSeed %USERPROFILE%\\.codex\n");
-    process.stdout.write("  node scripts/node/run.js audit -CodexHomePath C:\\Users\\<user>\\.codex\n");
-    process.stdout.write("  node scripts/node/run.js contention -CodexHomePath C:\\Users\\<user>\\.codex -RuntimeLogsDir .\\dist\\Codex-win32-x64\\runtime-logs\n");
+    process.stdout.write("  node Setup-Codex/node/run.js run -DmgPath .\\Codex.dmg -Reuse\n");
+    process.stdout.write("  node Setup-Codex/node/run.js build -DmgPath .\\Codex.dmg -Reuse -NoLaunch\n");
+    process.stdout.write("  node Setup-Codex/node/run.js verify -DmgPath .\\Codex.dmg\n");
+    process.stdout.write("  node Setup-Codex/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeSeconds 25\n");
+    process.stdout.write("  node Setup-Codex/node/run.js smoke -DmgPath .\\Codex.dmg -Reuse -SmokeAuthStage -SmokeUserDataSeed .\\dist\\Codex-win32-x64\\userdata -SmokeCodexHomeSeed %USERPROFILE%\\.codex\n");
+    process.stdout.write("  node Setup-Codex/node/run.js audit -CodexHomePath C:\\Users\\<user>\\.codex\n");
+    process.stdout.write("  node Setup-Codex/node/run.js contention -CodexHomePath C:\\Users\\<user>\\.codex -RuntimeLogsDir .\\dist\\Codex-win32-x64\\runtime-logs\n");
     process.stdout.write("\n");
     process.stdout.write("Options:\n");
     process.stdout.write("  -DmgPath <path>\n");
@@ -160,7 +160,7 @@ function printUsage() {
     process.stdout.write("  -CodexCliChannel <alpha>\n");
     process.stdout.write("  -CodexHomePath <path>\n");
     process.stdout.write("  -RuntimeLogsDir <path>\n");
-    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|codex-11723|codex-11824|codex-12026|generic>\n");
+    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|codex-11723|codex-11824|codex-12026|codex-12128|generic>\n");
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
     process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");
