@@ -47,6 +47,7 @@ exports.invokeElectronChildEnvironmentContract = invokeElectronChildEnvironmentC
 const path = __importStar(require("node:path"));
 const exec_1 = require("./exec");
 const windows_apps_1 = require("./runtime-donor/windows-apps");
+const COMMAND_PROBE_CACHE = new Map();
 function isWindowsRuntimeDonorExecutable(filePath) {
     const normalized = path.resolve(filePath).replace(/\//g, "\\").toLowerCase();
     return normalized.includes("\\program files\\windowsapps\\openai.codex_");
@@ -91,6 +92,56 @@ function isStalePortableExecutable(filePath) {
         currentDir = parentDir;
     }
     return false;
+}
+function runCommandProbe(filePath, args) {
+    const resolvedPath = path.resolve(filePath);
+    const lowerPath = resolvedPath.toLowerCase();
+    if (lowerPath.endsWith(".cmd") || lowerPath.endsWith(".bat")) {
+        const cmdPath = resolveCmdPath();
+        if (!cmdPath)
+            return 1;
+        return (0, exec_1.runCommand)(cmdPath, ["/d", "/c", resolvedPath, ...args], {
+            capture: true,
+            allowNonZero: true,
+        }).status;
+    }
+    return (0, exec_1.runCommand)(resolvedPath, args, {
+        capture: true,
+        allowNonZero: true,
+    }).status;
+}
+function isUsableCommandPath(filePath, probeArgs) {
+    const resolvedPath = path.resolve(filePath);
+    const cacheKey = `${resolvedPath}\0${probeArgs.join("\0")}`;
+    const cached = COMMAND_PROBE_CACHE.get(cacheKey);
+    if (cached !== undefined)
+        return cached;
+    let usable = false;
+    try {
+        usable = runCommandProbe(resolvedPath, probeArgs) === 0;
+    }
+    catch {
+        usable = false;
+    }
+    COMMAND_PROBE_CACHE.set(cacheKey, usable);
+    return usable;
+}
+function firstUsableCommandPath(candidates, probeArgs) {
+    const seen = new Set();
+    for (const candidate of candidates) {
+        if (!candidate)
+            continue;
+        const resolvedPath = path.resolve(candidate);
+        const key = resolvedPath.toLowerCase();
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        if (!(0, exec_1.fileExists)(resolvedPath))
+            continue;
+        if (isUsableCommandPath(resolvedPath, probeArgs))
+            return resolvedPath;
+    }
+    return null;
 }
 function resolveCmdPath() {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
@@ -150,11 +201,7 @@ function resolveSshPath() {
         candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "usr", "bin", "ssh.exe"));
         candidates.push(path.join(process.env["ProgramFiles(x86)"], "Git", "bin", "ssh.exe"));
     }
-    for (const candidate of candidates) {
-        if (candidate && (0, exec_1.fileExists)(candidate))
-            return path.resolve(candidate);
-    }
-    return null;
+    return firstUsableCommandPath(candidates, ["-V"]);
 }
 function resolveNodePath() {
     const candidates = [];
@@ -170,11 +217,7 @@ function resolveNodePath() {
     const whereNode = (0, exec_1.resolveCommand)("node.exe") ?? (0, exec_1.resolveCommand)("node");
     if (whereNode)
         candidates.push(whereNode);
-    for (const candidate of candidates) {
-        if (candidate && (0, exec_1.fileExists)(candidate))
-            return path.resolve(candidate);
-    }
-    return null;
+    return firstUsableCommandPath(candidates, ["-v"]);
 }
 function mergePathEntries(entries) {
     const out = [];
@@ -250,21 +293,24 @@ function ensureWindowsEnvironment() {
 }
 async function ensureRipgrepInPath(workDir) {
     const toolBinRipgrep = resolveCodexToolBinPath("rg.exe");
-    if (toolBinRipgrep) {
+    if (toolBinRipgrep && isUsableCommandPath(toolBinRipgrep, ["--version"])) {
         const toolBinDir = path.dirname(toolBinRipgrep);
         process.env.PATH = mergePathEntries([toolBinDir, ...(process.env.PATH || "").split(";")]).join(";");
         process.env.Path = process.env.PATH;
         return { installed: false, path: toolBinRipgrep, source: "codex-tool-bin" };
     }
     const existing = (0, exec_1.resolveCommand)("rg.exe") ?? (0, exec_1.resolveCommand)("rg");
-    if (existing && isCodexToolBinExecutable(existing)) {
+    if (existing && isCodexToolBinExecutable(existing) && isUsableCommandPath(existing, ["--version"])) {
         return { installed: false, path: existing, source: "codex-tool-bin" };
     }
-    if (existing && !isWindowsRuntimeDonorExecutable(existing) && !isStalePortableExecutable(existing)) {
+    if (existing &&
+        !isWindowsRuntimeDonorExecutable(existing) &&
+        !isStalePortableExecutable(existing) &&
+        isUsableCommandPath(existing, ["--version"])) {
         return { installed: false, path: existing, source: "path" };
     }
     const donorRipgrep = existing && isWindowsRuntimeDonorExecutable(existing) ? existing : (0, windows_apps_1.getWindowsRuntimeDonorRipgrepPath)();
-    if (donorRipgrep) {
+    if (donorRipgrep && isUsableCommandPath(donorRipgrep, ["--version"])) {
         const donorDir = path.dirname(donorRipgrep);
         process.env.PATH = mergePathEntries([donorDir, ...(process.env.PATH || "").split(";")]).join(";");
         process.env.Path = process.env.PATH;
@@ -275,7 +321,7 @@ async function ensureRipgrepInPath(workDir) {
         path.join(workDir, "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
         path.join(repoRoot, "work", "tools", "ripgrep", "ripgrep-14.1.1-x86_64-pc-windows-msvc", "rg.exe"),
     ];
-    const rgExe = portableCandidates.find((candidate) => (0, exec_1.fileExists)(candidate)) || "";
+    const rgExe = firstUsableCommandPath(portableCandidates, ["--version"]) || "";
     if ((0, exec_1.fileExists)(rgExe)) {
         process.env.PATH = mergePathEntries([path.dirname(rgExe), ...(process.env.PATH || "").split(";")]).join(";");
         process.env.Path = process.env.PATH;
