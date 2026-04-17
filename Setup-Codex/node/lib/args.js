@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_PROFILE_NAME = void 0;
 exports.parseArgs = parseArgs;
@@ -7,7 +40,39 @@ exports.normalizeProfileName = normalizeProfileName;
 exports.isLiteProfileName = isLiteProfileName;
 exports.isForgeProfileName = isForgeProfileName;
 exports.isCanonicalProfileName = isCanonicalProfileName;
+const fs = __importStar(require("node:fs"));
+const path = __importStar(require("node:path"));
 exports.DEFAULT_PROFILE_NAME = "lite";
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const PATCH_PROFILES_DIR = path.join(REPO_ROOT, "shared", "patch-pack", "profiles");
+function comparePatchProfileIds(left, right) {
+    const rank = (profileId) => {
+        if (profileId === "generic")
+            return [2, Number.MAX_SAFE_INTEGER, profileId];
+        const numericMatch = profileId.match(/\d+/);
+        if (numericMatch)
+            return [0, Number.parseInt(numericMatch[0], 10) || 0, profileId];
+        return [1, Number.MAX_SAFE_INTEGER, profileId];
+    };
+    const leftRank = rank(left);
+    const rightRank = rank(right);
+    if (leftRank[0] !== rightRank[0])
+        return leftRank[0] - rightRank[0];
+    if (leftRank[1] !== rightRank[1])
+        return leftRank[1] - rightRank[1];
+    return leftRank[2].localeCompare(rightRank[2]);
+}
+function listPatchProfileIds() {
+    if (!fs.existsSync(PATCH_PROFILES_DIR))
+        return ["generic"];
+    const profileIds = fs.readdirSync(PATCH_PROFILES_DIR, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".json"))
+        .map((entry) => entry.name.slice(0, -5))
+        .filter((profileId) => profileId.length > 0);
+    if (profileIds.length < 1)
+        return ["generic"];
+    return [...new Set(profileIds)].sort(comparePatchProfileIds);
+}
 function parseArgs(argv) {
     const defaults = {
         reuse: false,
@@ -135,6 +200,7 @@ function parseArgs(argv) {
     return { mode, showHelp: false, options };
 }
 function printUsage() {
+    const patchProfiles = listPatchProfileIds().join("|");
     process.stdout.write("Usage:\n");
     process.stdout.write("  node Setup-Codex/node/run.js run [options]\n");
     process.stdout.write("  node Setup-Codex/node/run.js build [options]\n");
@@ -160,7 +226,7 @@ function printUsage() {
     process.stdout.write("  -CodexCliChannel <alpha>\n");
     process.stdout.write("  -CodexHomePath <path>\n");
     process.stdout.write("  -RuntimeLogsDir <path>\n");
-    process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|codex-11723|codex-11824|codex-12026|codex-12128|generic>\n");
+    process.stdout.write(`  -PatchProfile <${patchProfiles}>\n`);
     process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
     process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
     process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");

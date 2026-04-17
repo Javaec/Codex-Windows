@@ -5,7 +5,7 @@ import { getWindowsRuntimeDonorRipgrepPath } from "./runtime-donor/windows-apps"
 export interface RipgrepResult {
   installed: boolean;
   path: string;
-  source: "path" | "windows-runtime-donor" | "portable";
+  source: "path" | "codex-tool-bin" | "windows-runtime-donor" | "portable";
 }
 
 export interface ContractCheck {
@@ -22,6 +22,31 @@ export interface ContractResult {
 function isWindowsRuntimeDonorExecutable(filePath: string): boolean {
   const normalized = path.resolve(filePath).replace(/\//g, "\\").toLowerCase();
   return normalized.includes("\\program files\\windowsapps\\openai.codex_");
+}
+
+function resolveCodexToolBinDir(): string | null {
+  if (!process.env.LOCALAPPDATA) return null;
+  const candidate = path.join(process.env.LOCALAPPDATA, "OpenAI", "Codex", "bin");
+  return fileExists(candidate) ? path.resolve(candidate) : null;
+}
+
+function resolveCodexToolBinPath(...fileNames: string[]): string | null {
+  const toolBinDir = resolveCodexToolBinDir();
+  if (!toolBinDir) return null;
+  for (const fileName of fileNames) {
+    if (!fileName) continue;
+    const candidate = path.join(toolBinDir, fileName);
+    if (fileExists(candidate)) return path.resolve(candidate);
+  }
+  return null;
+}
+
+function isCodexToolBinExecutable(filePath: string): boolean {
+  const toolBinDir = resolveCodexToolBinDir();
+  if (!toolBinDir) return false;
+  const normalizedDir = `${toolBinDir.replace(/\//g, "\\").toLowerCase()}\\`;
+  const normalizedPath = path.resolve(filePath).replace(/\//g, "\\").toLowerCase();
+  return normalizedPath.startsWith(normalizedDir);
 }
 
 function isStalePortableExecutable(filePath: string): boolean {
@@ -77,6 +102,8 @@ export function resolvePwshPath(): string | null {
 export function resolveSshPath(): string | null {
   const candidates: string[] = [];
   if (process.env.CODEX_SSH_PATH) candidates.push(process.env.CODEX_SSH_PATH);
+  const toolBinSsh = resolveCodexToolBinPath("ssh.cmd", "ssh.exe");
+  if (toolBinSsh) candidates.push(toolBinSsh);
   const whereSsh = resolveCommand("ssh.exe") ?? resolveCommand("ssh");
   if (whereSsh) candidates.push(whereSsh);
 
@@ -133,8 +160,11 @@ function mergePathEntries(entries: string[]): string[] {
 
 export function ensureWindowsEnvironment(): void {
   const current = (process.env.PATH || process.env.Path || "").split(";");
+  const preferred: string[] = [];
   const defaults: string[] = [];
   const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const toolBinDir = resolveCodexToolBinDir();
+  if (toolBinDir) preferred.push(toolBinDir);
   defaults.push(systemRoot);
   defaults.push(path.join(systemRoot, "System32"));
   defaults.push(path.join(systemRoot, "System32", "Wbem"));
@@ -162,7 +192,7 @@ export function ensureWindowsEnvironment(): void {
   }
   if (process.env.NVM_SYMLINK) defaults.push(process.env.NVM_SYMLINK);
 
-  const existing = [...current, ...defaults].filter((entry) => entry && fileExists(entry));
+  const existing = [...preferred, ...current, ...defaults].filter((entry) => entry && fileExists(entry));
   const merged = mergePathEntries(existing);
   process.env.PATH = merged.join(";");
   process.env.Path = process.env.PATH;
@@ -176,10 +206,23 @@ export function ensureWindowsEnvironment(): void {
   if (pwsh) process.env.CODEX_PWSH_PATH = pwsh;
   const node = resolveNodePath();
   if (node) process.env.CODEX_NODE_PATH = node;
+  const ssh = resolveSshPath();
+  if (ssh) process.env.CODEX_SSH_PATH = ssh;
 }
 
 export async function ensureRipgrepInPath(workDir: string): Promise<RipgrepResult> {
+  const toolBinRipgrep = resolveCodexToolBinPath("rg.exe");
+  if (toolBinRipgrep) {
+    const toolBinDir = path.dirname(toolBinRipgrep);
+    process.env.PATH = mergePathEntries([toolBinDir, ...(process.env.PATH || "").split(";")]).join(";");
+    process.env.Path = process.env.PATH;
+    return { installed: false, path: toolBinRipgrep, source: "codex-tool-bin" };
+  }
+
   const existing = resolveCommand("rg.exe") ?? resolveCommand("rg");
+  if (existing && isCodexToolBinExecutable(existing)) {
+    return { installed: false, path: existing, source: "codex-tool-bin" };
+  }
   if (existing && !isWindowsRuntimeDonorExecutable(existing) && !isStalePortableExecutable(existing)) {
     return { installed: false, path: existing, source: "path" };
   }
@@ -233,7 +276,7 @@ export function invokeEnvironmentContractChecks(): ContractResult {
   const sshPath = resolveSshPath();
   checks.push(newContractCheck("ssh client available", Boolean(sshPath), sshPath || "ssh.exe not found in current PATH or known Windows locations"));
 
-  const rgPath = resolveCommand("rg.exe") ?? resolveCommand("rg");
+  const rgPath = resolveCodexToolBinPath("rg.exe") ?? resolveCommand("rg.exe") ?? resolveCommand("rg");
   checks.push(newContractCheck("rg (ripgrep) available", Boolean(rgPath), rgPath || "rg not found in current PATH"));
 
   if (cmdPath) {

@@ -6,7 +6,7 @@ export type PatchStepId =
   | "webview-sunset"
   | "webview-cwd"
   | "main-runtime-shim";
-export type PatchProfileSource = "forced" | "version-identity" | "selector-rule" | "default";
+export type PatchProfileSource = "forced" | "version-identity" | "snapshot-hint" | "selector-rule" | "default";
 
 export interface PatchStepPlan {
   id: PatchStepId;
@@ -163,6 +163,10 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PATCH_PACK_ROOT = path.join(REPO_ROOT, "shared", "patch-pack");
 const VERSION_IDENTITY = require(path.join(REPO_ROOT, "shared", "version-identity", "index.cjs")) as {
   findKnownBuildMatch: (input: { appVersion: string; buildNumber: string }) => {
+    matchedBuild: { patchProfileId: string } | null;
+    source: string;
+  };
+  findKnownBuildSnapshotMatch: (snapshotLabel: string) => {
     matchedBuild: { patchProfileId: string } | null;
     source: string;
   };
@@ -488,6 +492,13 @@ function resolveProfileId(input: ResolvePatchProfileInput, selector: PatchSelect
     return {
       profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
       source: "version-identity",
+    };
+  }
+  const snapshotHintMatch = VERSION_IDENTITY.findKnownBuildSnapshotMatch(input.snapshotLabel);
+  if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
+    return {
+      profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
+      source: "snapshot-hint",
     };
   }
   const snapshotLabel = input.snapshotLabel.trim().toLowerCase();

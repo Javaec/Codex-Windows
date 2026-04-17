@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 export type Mode = "run" | "build" | "verify" | "smoke" | "audit" | "contention";
 
 export interface PipelineOptions {
@@ -31,6 +34,32 @@ export interface ParsedArgs {
 }
 
 export const DEFAULT_PROFILE_NAME = "lite";
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const PATCH_PROFILES_DIR = path.join(REPO_ROOT, "shared", "patch-pack", "profiles");
+
+function comparePatchProfileIds(left: string, right: string): number {
+  const rank = (profileId: string): [number, number, string] => {
+    if (profileId === "generic") return [2, Number.MAX_SAFE_INTEGER, profileId];
+    const numericMatch = profileId.match(/\d+/);
+    if (numericMatch) return [0, Number.parseInt(numericMatch[0], 10) || 0, profileId];
+    return [1, Number.MAX_SAFE_INTEGER, profileId];
+  };
+  const leftRank = rank(left);
+  const rightRank = rank(right);
+  if (leftRank[0] !== rightRank[0]) return leftRank[0] - rightRank[0];
+  if (leftRank[1] !== rightRank[1]) return leftRank[1] - rightRank[1];
+  return leftRank[2].localeCompare(rightRank[2]);
+}
+
+function listPatchProfileIds(): string[] {
+  if (!fs.existsSync(PATCH_PROFILES_DIR)) return ["generic"];
+  const profileIds = fs.readdirSync(PATCH_PROFILES_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".json"))
+    .map((entry) => entry.name.slice(0, -5))
+    .filter((profileId) => profileId.length > 0);
+  if (profileIds.length < 1) return ["generic"];
+  return [...new Set(profileIds)].sort(comparePatchProfileIds);
+}
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const defaults: PipelineOptions = {
@@ -164,6 +193,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 export function printUsage(): void {
+  const patchProfiles = listPatchProfileIds().join("|");
   process.stdout.write("Usage:\n");
   process.stdout.write("  node Setup-Codex/node/run.js run [options]\n");
   process.stdout.write("  node Setup-Codex/node/run.js build [options]\n");
@@ -189,7 +219,7 @@ export function printUsage(): void {
   process.stdout.write("  -CodexCliChannel <alpha>\n");
   process.stdout.write("  -CodexHomePath <path>\n");
   process.stdout.write("  -RuntimeLogsDir <path>\n");
-  process.stdout.write("  -PatchProfile <codex-106x|codex-10711|codex-11012|codex-11413|codex-11414|codex-11516|codex-11517|codex-11618|codex-11619|codex-11621|codex-11722|codex-11723|codex-11824|codex-12026|codex-12128|generic>\n");
+  process.stdout.write(`  -PatchProfile <${patchProfiles}>\n`);
   process.stdout.write("  -Reuse  -NoLaunch  -BuildPortable  -SingleExe  -DevProfile\n");
   process.stdout.write("  -ProfileName <lite|forge|dev>  -StrictContract\n");
   process.stdout.write("  -SmokeSeconds <n>  -SmokeLanes <comma-separated>  -SmokeAuthStage\n");

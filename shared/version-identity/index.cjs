@@ -71,13 +71,17 @@ function findKnownBuildMatch(input, knownBuilds = readKnownBuilds()) {
         source: "app-version-build-number",
       };
     }
+    return {
+      matchedBuild: null,
+      source: "",
+    };
   }
 
   if (appVersion.length > 0) {
-    const appVersionMatch = knownBuilds.find((knownBuild) => knownBuild.appVersion === appVersion);
-    if (appVersionMatch) {
+    const appVersionMatches = knownBuilds.filter((knownBuild) => knownBuild.appVersion === appVersion);
+    if (appVersionMatches.length === 1) {
       return {
-        matchedBuild: appVersionMatch,
+        matchedBuild: appVersionMatches[0],
         source: "app-version",
       };
     }
@@ -89,6 +93,32 @@ function findKnownBuildMatch(input, knownBuilds = readKnownBuilds()) {
       return {
         matchedBuild: buildNumberMatches[0],
         source: "build-number",
+      };
+    }
+  }
+
+  return {
+    matchedBuild: null,
+    source: "",
+  };
+}
+
+function findKnownBuildSnapshotMatch(snapshotLabel, knownBuilds = readKnownBuilds()) {
+  const normalizedSnapshotLabel = String(snapshotLabel || "").trim();
+  if (!normalizedSnapshotLabel) {
+    return {
+      matchedBuild: null,
+      source: "",
+    };
+  }
+
+  for (const knownBuild of knownBuilds) {
+    const snapshotRegex = String(knownBuild.snapshotRegex || "").trim();
+    if (!snapshotRegex) continue;
+    if (new RegExp(snapshotRegex, "i").test(normalizedSnapshotLabel)) {
+      return {
+        matchedBuild: knownBuild,
+        source: "snapshot-regex",
       };
     }
   }
@@ -160,6 +190,7 @@ function resolveSnapshotVersionIdentity(input) {
 
 module.exports = {
   findKnownBuildMatch,
+  findKnownBuildSnapshotMatch,
   parseBuildHint,
   readKnownBuilds,
   resolveSnapshotVersionIdentity,

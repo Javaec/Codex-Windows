@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const require = createRequire(import.meta.url);
-const { findKnownBuildMatch, parseBuildHint } = require("../version-identity/index.cjs");
+const { findKnownBuildMatch, findKnownBuildSnapshotMatch, parseBuildHint } = require("../version-identity/index.cjs");
 const { loadModCatalog, resolveRuntimeModCompatibility } = require("../codex-mod-loader/compatibility.cjs");
 
 function parseArgs(argv) {
@@ -441,6 +441,14 @@ function resolveProfileId({ forcedProfile, selector, snapshotLabel, appVersion, 
     return {
       profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
       source: "version-identity",
+    };
+  }
+
+  const snapshotHintMatch = findKnownBuildSnapshotMatch(snapshotLabel);
+  if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
+    return {
+      profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
+      source: "snapshot-hint",
     };
   }
 

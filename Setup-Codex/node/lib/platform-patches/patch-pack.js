@@ -339,6 +339,13 @@ function resolveProfileId(input, selector, buildHint) {
             source: "version-identity",
         };
     }
+    const snapshotHintMatch = VERSION_IDENTITY.findKnownBuildSnapshotMatch(input.snapshotLabel);
+    if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
+        return {
+            profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
+            source: "snapshot-hint",
+        };
+    }
     const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
     const appVersion = input.appVersion.trim();
     for (const rule of selector.rules) {
