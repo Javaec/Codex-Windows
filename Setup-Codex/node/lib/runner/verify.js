@@ -81,10 +81,11 @@ function summarizePatchPackPreflight(output) {
     try {
         const parsed = JSON.parse(output);
         const profileId = parsed.selected?.profileId || "unknown";
+        const matchedBuildId = parsed.selected?.matchedBuildId || "unknown";
         const modCount = Number(parsed.selected?.modCount ?? 0);
         const stepCount = Number(parsed.selected?.stepCount ?? 0);
         const runtimeModCount = Number(parsed.runtimeModpack?.modCount ?? 0);
-        return `profile=${profileId} selectedMods=${modCount} patchSteps=${stepCount} runtimeMods=${runtimeModCount}`;
+        return `build=${matchedBuildId} profile=${profileId} selectedMods=${modCount} patchSteps=${stepCount} runtimeMods=${runtimeModCount}`;
     }
     catch {
         return takeLastLine(output) || "patch-pack is valid";
@@ -154,10 +155,14 @@ async function runVerify(options) {
             appVersion: dmgBuildMetadata?.appVersion || "",
             forcedProfileId: options.patchProfile || "",
         });
+        addVerifyItem(items, "build-identity", resolvedProfile.matchedBuildId ? "OK" : "WARN", resolvedProfile.matchedBuildId
+            ? `${resolvedProfile.matchedBuildId} (${resolvedProfile.matchedBuildSource || "known-build"})`
+            : "internal version not found in known-builds");
         addVerifyItem(items, "patch-profile", "OK", `${resolvedProfile.profile.profileId} (${resolvedProfile.source})`);
     }
     catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        addVerifyItem(items, "build-identity", "FAIL", message);
         addVerifyItem(items, "patch-profile", "FAIL", message);
     }
     const preflightArgs = [path.join(context_1.REPO_ROOT, "shared", "patch-pack", "preflight.mjs")];

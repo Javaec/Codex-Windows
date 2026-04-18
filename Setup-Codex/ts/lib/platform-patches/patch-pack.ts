@@ -69,6 +69,8 @@ export interface ResolvedPatchProfile {
   patchPackRootPath: string;
   snapshotLabel: string;
   buildHint: number;
+  matchedBuildId: string;
+  matchedBuildSource: string;
 }
 
 interface PatchCatalogStep {
@@ -162,12 +164,8 @@ const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PATCH_PACK_ROOT = path.join(REPO_ROOT, "shared", "patch-pack");
 const VERSION_IDENTITY = require(path.join(REPO_ROOT, "shared", "version-identity", "index.cjs")) as {
-  findKnownBuildMatch: (input: { appVersion: string; buildNumber: string }) => {
-    matchedBuild: { patchProfileId: string } | null;
-    source: string;
-  };
-  findKnownBuildSnapshotMatch: (snapshotLabel: string) => {
-    matchedBuild: { patchProfileId: string } | null;
+  resolveKnownBuildIdentity: (input: { snapshotLabel: string; appVersion: string; buildNumber: string }) => {
+    matchedBuild: { id: string; patchProfileId: string } | null;
     source: string;
   };
   parseBuildHint: (buildNumber: string, appVersion: string, snapshotLabel: string) => number;
@@ -479,26 +477,24 @@ function matchesRule(rule: PatchSelectorRule, snapshotLabel: string, appVersion:
 function resolveProfileId(input: ResolvePatchProfileInput, selector: PatchSelectorFile, buildHint: number): {
   profileId: string;
   source: PatchProfileSource;
+  matchedBuildId: string;
+  matchedBuildSource: string;
 } {
   const forced = input.forcedProfileId.trim().toLowerCase();
   if (forced.length > 0) {
-    return { profileId: forced, source: "forced" };
+    return { profileId: forced, source: "forced", matchedBuildId: "", matchedBuildSource: "" };
   }
-  const knownBuildMatch = VERSION_IDENTITY.findKnownBuildMatch({
+  const knownBuildMatch = VERSION_IDENTITY.resolveKnownBuildIdentity({
+    snapshotLabel: input.snapshotLabel,
     appVersion: input.appVersion,
     buildNumber: input.buildNumber,
   });
   if (knownBuildMatch.matchedBuild && knownBuildMatch.matchedBuild.patchProfileId) {
     return {
       profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
-      source: "version-identity",
-    };
-  }
-  const snapshotHintMatch = VERSION_IDENTITY.findKnownBuildSnapshotMatch(input.snapshotLabel);
-  if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
-    return {
-      profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
-      source: "snapshot-hint",
+      source: knownBuildMatch.source === "snapshot-regex" ? "snapshot-hint" : "version-identity",
+      matchedBuildId: String(knownBuildMatch.matchedBuild.id || "").trim(),
+      matchedBuildSource: String(knownBuildMatch.source || "").trim(),
     };
   }
   const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
@@ -508,9 +504,9 @@ function resolveProfileId(input: ResolvePatchProfileInput, selector: PatchSelect
       throw new Error("patch-pack: selector rule has invalid profileId");
     }
     if (!matchesRule(rule, snapshotLabel, appVersion, buildHint)) continue;
-    return { profileId: rule.profileId, source: "selector-rule" };
+    return { profileId: rule.profileId, source: "selector-rule", matchedBuildId: "", matchedBuildSource: "" };
   }
-  return { profileId: selector.defaultProfileId, source: "default" };
+  return { profileId: selector.defaultProfileId, source: "default", matchedBuildId: "", matchedBuildSource: "" };
 }
 
 function resolveModOrder(mods: PatchModPlan[], stageRegistry: StageRegistryModel): PatchModPlan[] {
@@ -626,6 +622,8 @@ export function resolvePatchProfile(input: ResolvePatchProfileInput): ResolvedPa
     patchPackRootPath: PATCH_PACK_ROOT,
     snapshotLabel,
     buildHint,
+    matchedBuildId: selected.matchedBuildId,
+    matchedBuildSource: selected.matchedBuildSource,
   };
 }
 

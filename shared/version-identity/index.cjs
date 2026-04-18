@@ -129,6 +129,26 @@ function findKnownBuildSnapshotMatch(snapshotLabel, knownBuilds = readKnownBuild
   };
 }
 
+function resolveKnownBuildIdentity(input, knownBuilds = readKnownBuilds()) {
+  const exactMatch = findKnownBuildMatch(input, knownBuilds);
+  if (exactMatch.matchedBuild) {
+    return exactMatch;
+  }
+
+  const snapshotMatch = findKnownBuildSnapshotMatch(
+    String(input && input.snapshotLabel ? input.snapshotLabel : ""),
+    knownBuilds,
+  );
+  if (snapshotMatch.matchedBuild) {
+    return snapshotMatch;
+  }
+
+  return {
+    matchedBuild: null,
+    source: "",
+  };
+}
+
 function resolveSnapshotVersionIdentity(input) {
   const snapshotPath = path.resolve(String(input && input.snapshotPath ? input.snapshotPath : ""));
   const explicitAppVersion = String(input && input.appVersion ? input.appVersion : "").trim();
@@ -193,5 +213,6 @@ module.exports = {
   findKnownBuildSnapshotMatch,
   parseBuildHint,
   readKnownBuilds,
+  resolveKnownBuildIdentity,
   resolveSnapshotVersionIdentity,
 };

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-04-18T09:05:32.475Z",
+  "generatedAtIso": "2026-04-18T10:12:36.234Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -28,7 +28,7 @@
       "appVersion": "26.415.32059",
       "buildNumber": "1789",
       "buildHint": 12130,
-      "patchProfileId": "codex-12130",
+      "patchProfileId": "codex-12129",
       "snapshotRegex": "codex[-_]?12130"
     },
     {
@@ -196,7 +196,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -378,7 +378,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -566,7 +566,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -754,7 +754,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -935,7 +935,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -1121,7 +1121,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -1304,7 +1304,7 @@
           "appVersion": "26.415.32059",
           "buildNumber": "1789",
           "buildHint": 12130,
-          "patchProfileId": "codex-12130",
+          "patchProfileId": "codex-12129",
           "compatible": true,
           "reason": ""
         },
@@ -1452,7 +1452,7 @@
       "appVersion": "26.415.32059",
       "buildNumber": "1789",
       "buildHint": 12130,
-      "patchProfileId": "codex-12130",
+      "patchProfileId": "codex-12129",
       "compatibleMods": [
         "auth-session-runtime",
         "renderer-logout-guard",

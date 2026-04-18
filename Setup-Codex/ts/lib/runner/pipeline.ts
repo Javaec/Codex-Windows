@@ -175,6 +175,8 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       profileName: effectiveProfile,
       runtimeFlavor: isForgeProfileName(effectiveProfile) ? "forge" : "lite",
       includeRuntimeMods: isForgeProfileName(effectiveProfile),
+      knownBuildId: patchReport.matchedBuildId,
+      knownBuildSource: patchReport.matchedBuildSource,
       patchProfileId: patchReport.profileId,
       patchReportPath: patchReport.reportPath,
       cliPath: cliResolution.path,

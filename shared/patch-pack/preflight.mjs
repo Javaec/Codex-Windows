@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 
 const REQUIRED_STAGE_IDS = ["extract", "deobf", "mods", "runtime-pack"];
 const require = createRequire(import.meta.url);
-const { findKnownBuildMatch, findKnownBuildSnapshotMatch, parseBuildHint } = require("../version-identity/index.cjs");
+const { parseBuildHint, resolveKnownBuildIdentity } = require("../version-identity/index.cjs");
 const { loadModCatalog, resolveRuntimeModCompatibility } = require("../codex-mod-loader/compatibility.cjs");
 
 function parseArgs(argv) {
@@ -430,25 +430,22 @@ function resolveProfileId({ forcedProfile, selector, snapshotLabel, appVersion, 
     return {
       profileId: forced,
       source: "forced",
+      matchedBuildId: "",
+      matchedBuildSource: "",
     };
   }
 
-  const knownBuildMatch = findKnownBuildMatch({
+  const knownBuildMatch = resolveKnownBuildIdentity({
+    snapshotLabel,
     appVersion,
     buildNumber,
   });
   if (knownBuildMatch.matchedBuild && knownBuildMatch.matchedBuild.patchProfileId) {
     return {
       profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
-      source: "version-identity",
-    };
-  }
-
-  const snapshotHintMatch = findKnownBuildSnapshotMatch(snapshotLabel);
-  if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
-    return {
-      profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
-      source: "snapshot-hint",
+      source: knownBuildMatch.source === "snapshot-regex" ? "snapshot-hint" : "version-identity",
+      matchedBuildId: String(knownBuildMatch.matchedBuild.id || "").trim(),
+      matchedBuildSource: String(knownBuildMatch.source || "").trim(),
     };
   }
 
@@ -461,12 +458,16 @@ function resolveProfileId({ forcedProfile, selector, snapshotLabel, appVersion, 
     return {
       profileId,
       source: "selector-rule",
+      matchedBuildId: "",
+      matchedBuildSource: "",
     };
   }
 
   return {
     profileId: selector.defaultProfileId,
     source: "default",
+    matchedBuildId: "",
+    matchedBuildSource: "",
   };
 }
 
@@ -628,6 +629,8 @@ function main() {
     selected: {
       profileId: selectedProfile.profileId,
       source: selected.source,
+      matchedBuildId: selected.matchedBuildId,
+      matchedBuildSource: selected.matchedBuildSource,
       snapshotLabel: args.snapshotLabel,
       appVersion: args.appVersion,
       buildNumber: args.buildNumber,

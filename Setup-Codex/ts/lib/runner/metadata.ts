@@ -23,6 +23,8 @@ const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared"
 function writeLiteContract(outputDir: string, payload: {
   appVersion: string;
   buildNumber: string;
+  knownBuildId: string;
+  knownBuildSource: string;
   patchProfileId: string;
   cliSource: string | null;
   runtimeFlavor: "lite" | "forge";
@@ -37,6 +39,8 @@ function writeLiteContract(outputDir: string, payload: {
     runtimeFlavor: payload.runtimeFlavor,
     appVersion: payload.appVersion,
     buildNumber: payload.buildNumber,
+    knownBuildId: payload.knownBuildId,
+    knownBuildSource: payload.knownBuildSource,
     patchProfileId: payload.patchProfileId,
     directExeReady: true,
     bundledTools: {
@@ -67,6 +71,8 @@ export function writeBuildMetadata(
     profileName: string;
     runtimeFlavor: "lite" | "forge";
     includeRuntimeMods: boolean;
+    knownBuildId: string;
+    knownBuildSource: string;
     patchProfileId: string;
     patchReportPath: string;
     cliPath: string | null;
@@ -103,6 +109,8 @@ export function writeBuildMetadata(
     buildFlavor: metadata.buildFlavor,
     profileName: metadata.profileName,
     runtimeFlavor: metadata.runtimeFlavor,
+    knownBuildId: metadata.knownBuildId,
+    knownBuildSource: metadata.knownBuildSource,
     patchProfileId: metadata.patchProfileId,
     patchReportPath: metadata.patchReportPath,
     codexCliPath: metadata.cliPath,
@@ -120,6 +128,8 @@ export function writeBuildMetadata(
   writeLiteContract(outputDir, {
     appVersion: metadata.appVersion,
     buildNumber: metadata.buildNumber,
+    knownBuildId: metadata.knownBuildId,
+    knownBuildSource: metadata.knownBuildSource,
     patchProfileId: metadata.patchProfileId,
     cliSource: metadata.cliSource,
     runtimeFlavor: metadata.runtimeFlavor,

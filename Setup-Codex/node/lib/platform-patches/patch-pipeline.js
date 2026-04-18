@@ -122,6 +122,8 @@ function runCodexPatchPipeline(input) {
         profileDescription: resolvedProfile.profile.description,
         profilePath: resolvedProfile.profile.profilePath,
         profileSource: resolvedProfile.source,
+        matchedBuildId: resolvedProfile.matchedBuildId,
+        matchedBuildSource: resolvedProfile.matchedBuildSource,
         selectorPath: resolvedProfile.selectorPath,
         patchPackRootPath: resolvedProfile.patchPackRootPath,
         stageRegistryPath: resolvedProfile.profile.stageRegistryPath,

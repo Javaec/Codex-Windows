@@ -327,23 +327,19 @@ function matchesRule(rule, snapshotLabel, appVersion, buildHint) {
 function resolveProfileId(input, selector, buildHint) {
     const forced = input.forcedProfileId.trim().toLowerCase();
     if (forced.length > 0) {
-        return { profileId: forced, source: "forced" };
+        return { profileId: forced, source: "forced", matchedBuildId: "", matchedBuildSource: "" };
     }
-    const knownBuildMatch = VERSION_IDENTITY.findKnownBuildMatch({
+    const knownBuildMatch = VERSION_IDENTITY.resolveKnownBuildIdentity({
+        snapshotLabel: input.snapshotLabel,
         appVersion: input.appVersion,
         buildNumber: input.buildNumber,
     });
     if (knownBuildMatch.matchedBuild && knownBuildMatch.matchedBuild.patchProfileId) {
         return {
             profileId: String(knownBuildMatch.matchedBuild.patchProfileId).trim(),
-            source: "version-identity",
-        };
-    }
-    const snapshotHintMatch = VERSION_IDENTITY.findKnownBuildSnapshotMatch(input.snapshotLabel);
-    if (snapshotHintMatch.matchedBuild && snapshotHintMatch.matchedBuild.patchProfileId) {
-        return {
-            profileId: String(snapshotHintMatch.matchedBuild.patchProfileId).trim(),
-            source: "snapshot-hint",
+            source: knownBuildMatch.source === "snapshot-regex" ? "snapshot-hint" : "version-identity",
+            matchedBuildId: String(knownBuildMatch.matchedBuild.id || "").trim(),
+            matchedBuildSource: String(knownBuildMatch.source || "").trim(),
         };
     }
     const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
@@ -354,9 +350,9 @@ function resolveProfileId(input, selector, buildHint) {
         }
         if (!matchesRule(rule, snapshotLabel, appVersion, buildHint))
             continue;
-        return { profileId: rule.profileId, source: "selector-rule" };
+        return { profileId: rule.profileId, source: "selector-rule", matchedBuildId: "", matchedBuildSource: "" };
     }
-    return { profileId: selector.defaultProfileId, source: "default" };
+    return { profileId: selector.defaultProfileId, source: "default", matchedBuildId: "", matchedBuildSource: "" };
 }
 function resolveModOrder(mods, stageRegistry) {
     return [...mods].sort((left, right) => {
@@ -463,6 +459,8 @@ function resolvePatchProfile(input) {
         patchPackRootPath: PATCH_PACK_ROOT,
         snapshotLabel,
         buildHint,
+        matchedBuildId: selected.matchedBuildId,
+        matchedBuildSource: selected.matchedBuildSource,
     };
 }
 function getPatchPackRootPath() {

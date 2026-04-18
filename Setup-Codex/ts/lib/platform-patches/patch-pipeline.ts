@@ -66,6 +66,8 @@ export type PatchPipelineReport = {
   profileDescription: string;
   profilePath: string;
   profileSource: "forced" | "version-identity" | "snapshot-hint" | "selector-rule" | "default";
+  matchedBuildId: string;
+  matchedBuildSource: string;
   selectorPath: string;
   patchPackRootPath: string;
   stageRegistryPath: string;
@@ -182,6 +184,8 @@ export function runCodexPatchPipeline(input: PatchPipelineInput): PatchPipelineR
     profileDescription: resolvedProfile.profile.description,
     profilePath: resolvedProfile.profile.profilePath,
     profileSource: resolvedProfile.source,
+    matchedBuildId: resolvedProfile.matchedBuildId,
+    matchedBuildSource: resolvedProfile.matchedBuildSource,
     selectorPath: resolvedProfile.selectorPath,
     patchPackRootPath: resolvedProfile.patchPackRootPath,
     stageRegistryPath: resolvedProfile.profile.stageRegistryPath,

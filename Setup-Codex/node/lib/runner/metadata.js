@@ -45,6 +45,8 @@ function writeLiteContract(outputDir, payload) {
         runtimeFlavor: payload.runtimeFlavor,
         appVersion: payload.appVersion,
         buildNumber: payload.buildNumber,
+        knownBuildId: payload.knownBuildId,
+        knownBuildSource: payload.knownBuildSource,
         patchProfileId: payload.patchProfileId,
         directExeReady: true,
         bundledTools: {
@@ -92,6 +94,8 @@ function writeBuildMetadata(outputDir, metadata) {
         buildFlavor: metadata.buildFlavor,
         profileName: metadata.profileName,
         runtimeFlavor: metadata.runtimeFlavor,
+        knownBuildId: metadata.knownBuildId,
+        knownBuildSource: metadata.knownBuildSource,
         patchProfileId: metadata.patchProfileId,
         patchReportPath: metadata.patchReportPath,
         codexCliPath: metadata.cliPath,
@@ -109,6 +113,8 @@ function writeBuildMetadata(outputDir, metadata) {
     writeLiteContract(outputDir, {
         appVersion: metadata.appVersion,
         buildNumber: metadata.buildNumber,
+        knownBuildId: metadata.knownBuildId,
+        knownBuildSource: metadata.knownBuildSource,
         patchProfileId: metadata.patchProfileId,
         cliSource: metadata.cliSource,
         runtimeFlavor: metadata.runtimeFlavor,

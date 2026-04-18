@@ -144,6 +144,8 @@ async function runPipelineDetailed(options) {
             profileName: effectiveProfile,
             runtimeFlavor: (0, args_1.isForgeProfileName)(effectiveProfile) ? "forge" : "lite",
             includeRuntimeMods: (0, args_1.isForgeProfileName)(effectiveProfile),
+            knownBuildId: patchReport.matchedBuildId,
+            knownBuildSource: patchReport.matchedBuildSource,
             patchProfileId: patchReport.profileId,
             patchReportPath: patchReport.reportPath,
             cliPath: cliResolution.path,
