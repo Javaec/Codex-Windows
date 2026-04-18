@@ -103,6 +103,179 @@ $endMarker
   Set-Content -LiteralPath $profilePath -Value $updated -Encoding Ascii
 }
 
+function Write-CmdShim {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ShimPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TargetPath
+  )
+
+  $shim = @"
+@echo off
+"$TargetPath" %*
+exit /b %ERRORLEVEL%
+"@
+  Set-Content -LiteralPath $ShimPath -Value $shim -Encoding Ascii
+}
+
+function Test-AuthenticodeSignedBy {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FilePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SubjectMatch
+  )
+
+  try {
+    $signature = Get-AuthenticodeSignature -FilePath $FilePath
+    if ($signature.Status -ne "Valid") {
+      return $false
+    }
+
+    $subject = $signature.SignerCertificate.Subject
+    return $subject -like "*$SubjectMatch*"
+  } catch {
+    return $false
+  }
+}
+
+function Get-UsablePuttyPair {
+  param(
+    [Parameter(Mandatory = $true)]
+    [object[]]$Candidates
+  )
+
+  foreach ($candidate in $Candidates) {
+    if (-not $candidate.Putty -or -not $candidate.Plink) {
+      continue
+    }
+
+    $puttyPath = Get-FirstExistingPath -Candidates @($candidate.Putty)
+    $plinkPath = Get-FirstExistingPath -Candidates @($candidate.Plink)
+    if (-not $puttyPath -or -not $plinkPath) {
+      continue
+    }
+
+    if (-not (Test-AuthenticodeSignedBy -FilePath $puttyPath -SubjectMatch "Simon Tatham")) {
+      continue
+    }
+
+    if (-not (Test-AuthenticodeSignedBy -FilePath $plinkPath -SubjectMatch "Simon Tatham")) {
+      continue
+    }
+
+    if (-not (Test-CommandWorks -CommandPath $plinkPath -Arguments @("-V"))) {
+      continue
+    }
+
+    return @{
+      Putty = $puttyPath
+      Plink = $plinkPath
+      Source = $candidate.Source
+    }
+  }
+
+  return $null
+}
+
+function Download-PuttyPortablePair {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$StageDir,
+
+    [Parameter(Mandatory = $true)]
+    [string]$CurlPath
+  )
+
+  $packagePath = Join-Path $StageDir "putty.portable.nupkg"
+  $extractRoot = Join-Path $StageDir "package"
+  $toolsDir = Join-Path $extractRoot "tools"
+  $portableDir = Join-Path $StageDir "portable"
+
+  if (Test-Path -LiteralPath $StageDir) {
+    Remove-Item -LiteralPath $StageDir -Recurse -Force
+  }
+  New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
+
+  & $CurlPath "-L" "https://community.chocolatey.org/api/v2/package/putty.portable" "-o" $packagePath
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $packagePath)) {
+    throw "Failed to download putty.portable package."
+  }
+
+  Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force
+  Expand-Archive -LiteralPath (Join-Path $toolsDir "putty_x64.zip") -DestinationPath $portableDir -Force
+
+  return @{
+    Putty = Join-Path $portableDir "PUTTY.EXE"
+    Plink = Join-Path $portableDir "PLINK.EXE"
+    Source = "download"
+  }
+}
+
+function Resolve-PuttyPair {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ToolBinDir,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ProgramFilesX86
+  )
+
+  $candidates = @(
+    @{
+      Putty = Join-Path $ToolBinDir "putty.exe"
+      Plink = Join-Path $ToolBinDir "plink.exe"
+      Source = "codex-tool-bin"
+    },
+    @{
+      Putty = $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles "PuTTY\putty.exe" })
+      Plink = $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles "PuTTY\plink.exe" })
+      Source = "program-files"
+    },
+    @{
+      Putty = $(if ($ProgramFilesX86) { Join-Path $ProgramFilesX86 "PuTTY\putty.exe" })
+      Plink = $(if ($ProgramFilesX86) { Join-Path $ProgramFilesX86 "PuTTY\plink.exe" })
+      Source = "program-files-x86"
+    },
+    @{
+      Putty = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Programs\PuTTY\putty.exe" })
+      Plink = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Programs\PuTTY\plink.exe" })
+      Source = "local-programs"
+    },
+    @{
+      Putty = Join-Path $HOME "scoop\apps\putty\current\putty.exe"
+      Plink = Join-Path $HOME "scoop\apps\putty\current\plink.exe"
+      Source = "scoop"
+    }
+  )
+
+  $existingPair = Get-UsablePuttyPair -Candidates $candidates
+  if ($existingPair) {
+    return $existingPair
+  }
+
+  $curlPath = Get-FirstExistingPath -Candidates @(
+    $(if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\curl.exe" }),
+    $(if ($env:SystemRoot) { Join-Path $env:SystemRoot "Sysnative\curl.exe" }),
+    (Get-Command curl.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
+  )
+
+  if (-not $curlPath) {
+    throw "curl.exe not found; required to download putty.portable package."
+  }
+
+  $downloadedPair = Download-PuttyPortablePair -StageDir (Join-Path $env:TEMP "codex-putty-portable") -CurlPath $curlPath
+  $usableDownloadedPair = Get-UsablePuttyPair -Candidates @($downloadedPair)
+  if ($usableDownloadedPair) {
+    return $usableDownloadedPair
+  }
+
+  throw "Failed to provision a working signed putty/plink pair."
+}
+
 $setupDir = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $setupDir
 
@@ -152,69 +325,35 @@ if (-not $sshSource) {
 }
 
 $sshWrapperPath = Join-Path $toolBinDir "ssh.cmd"
-$sshWrapper = @"
-@echo off
-"$sshSource" %*
-exit /b %ERRORLEVEL%
-"@
-Set-Content -LiteralPath $sshWrapperPath -Value $sshWrapper -Encoding Ascii
+Write-CmdShim -ShimPath $sshWrapperPath -TargetPath $sshSource
 
-$curlSource = Get-FirstExistingPath -Candidates @(
-  $(if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\curl.exe" }),
-  $(if ($env:SystemRoot) { Join-Path $env:SystemRoot "Sysnative\curl.exe" }),
-  (Get-Command curl.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
-)
-
-if (-not $curlSource) {
-  throw "curl.exe not found; required to download putty.portable package."
+$puttyPair = Resolve-PuttyPair -ToolBinDir $toolBinDir -ProgramFilesX86 $programFilesX86
+$puttyTarget = Join-Path $toolBinDir "putty.exe"
+$plinkTarget = Join-Path $toolBinDir "plink.exe"
+if (([IO.Path]::GetFullPath($puttyPair.Putty)) -ne ([IO.Path]::GetFullPath($puttyTarget))) {
+  Copy-Item -LiteralPath $puttyPair.Putty -Destination $puttyTarget -Force
 }
-
-$puttyPackageStage = Join-Path $env:TEMP "codex-putty-portable"
-$puttyPackagePath = Join-Path $puttyPackageStage "putty.portable.nupkg"
-$puttyExtractRoot = Join-Path $puttyPackageStage "package"
-$puttyToolsDir = Join-Path $puttyExtractRoot "tools"
-$puttyPortableDir = Join-Path $puttyPackageStage "portable"
-
-if (Test-Path -LiteralPath $puttyPackageStage) {
-  Remove-Item -LiteralPath $puttyPackageStage -Recurse -Force
+if (([IO.Path]::GetFullPath($puttyPair.Plink)) -ne ([IO.Path]::GetFullPath($plinkTarget))) {
+  Copy-Item -LiteralPath $puttyPair.Plink -Destination $plinkTarget -Force
 }
-New-Item -ItemType Directory -Path $puttyPackageStage -Force | Out-Null
-
-& $curlSource "-L" "https://community.chocolatey.org/api/v2/package/putty.portable" "-o" $puttyPackagePath
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $puttyPackagePath)) {
-  throw "Failed to download putty.portable package."
+if (-not (Test-AuthenticodeSignedBy -FilePath $puttyTarget -SubjectMatch "Simon Tatham")) {
+  throw "putty.exe signature validation failed."
 }
-
-Expand-Archive -LiteralPath $puttyPackagePath -DestinationPath $puttyExtractRoot -Force
-Expand-Archive -LiteralPath (Join-Path $puttyToolsDir "putty_x64.zip") -DestinationPath $puttyPortableDir -Force
-
-Copy-Item -LiteralPath (Join-Path $puttyPortableDir "PUTTY.EXE") -Destination (Join-Path $toolBinDir "putty.exe") -Force
-Copy-Item -LiteralPath (Join-Path $puttyPortableDir "PLINK.EXE") -Destination (Join-Path $toolBinDir "plink.exe") -Force
+if (-not (Test-CommandWorks -CommandPath $plinkTarget -Arguments @("-V"))) {
+  throw "plink.exe validation failed."
+}
 
 if ($env:APPDATA) {
   $pathShimDir = Join-Path $env:APPDATA "npm"
   New-Item -ItemType Directory -Path $pathShimDir -Force | Out-Null
 
-  $puttyShimPath = Join-Path $pathShimDir "putty.cmd"
-  $puttyShim = @"
-@echo off
-"$(Join-Path $toolBinDir 'putty.exe')" %*
-exit /b %ERRORLEVEL%
-"@
-  Set-Content -LiteralPath $puttyShimPath -Value $puttyShim -Encoding Ascii
-
-  $plinkShimPath = Join-Path $pathShimDir "plink.cmd"
-  $plinkShim = @"
-@echo off
-"$(Join-Path $toolBinDir 'plink.exe')" %*
-exit /b %ERRORLEVEL%
-"@
-  Set-Content -LiteralPath $plinkShimPath -Value $plinkShim -Encoding Ascii
+  Write-CmdShim -ShimPath (Join-Path $pathShimDir "putty.cmd") -TargetPath $puttyTarget
+  Write-CmdShim -ShimPath (Join-Path $pathShimDir "plink.cmd") -TargetPath $plinkTarget
 }
 
 Write-Host "Codex tool bin repaired."
 Write-Host "toolBin=$toolBinDir"
 Write-Host "rg=$rgTarget"
 Write-Host "ssh=$sshWrapperPath -> $sshSource"
-Write-Host "putty=$(Join-Path $toolBinDir 'putty.exe')"
-Write-Host "plink=$(Join-Path $toolBinDir 'plink.exe')"
+Write-Host "putty=$puttyTarget ($($puttyPair.Source))"
+Write-Host "plink=$plinkTarget ($($puttyPair.Source))"
