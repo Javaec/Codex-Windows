@@ -37,7 +37,6 @@ exports.startPortableDirectLaunch = void 0;
 exports.invokePortableBuild = invokePortableBuild;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const node_crypto_1 = require("node:crypto");
 const exec_1 = require("../exec");
 const branding_1 = require("../branding");
 const args_1 = require("../args");
@@ -54,41 +53,15 @@ const CODEX_MOD_API_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader",
 const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loader", "loader");
 const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs");
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
-function getFileSha256(targetPath) {
-    const hash = (0, node_crypto_1.createHash)("sha256");
-    const fd = fs.openSync(targetPath, "r");
-    try {
-        const buffer = Buffer.allocUnsafe(1024 * 1024);
-        let offset = 0;
-        while (true) {
-            const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, offset);
-            if (bytesRead <= 0)
-                break;
-            hash.update(bytesRead === buffer.length ? buffer : buffer.subarray(0, bytesRead));
-            offset += bytesRead;
-        }
-    }
-    finally {
-        fs.closeSync(fd);
-    }
-    return hash.digest("hex");
-}
 function resolvePortableShellRuntime(runtime) {
     if (runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy") {
         return runtime;
     }
     const nativeRoot = path.dirname(runtime.runtimeRoot);
     const electronArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
-    const electronRuntime = (0, native_1.ensureElectronDistCacheForPackaging)(nativeRoot, runtime.electronVersion, electronArch);
-    const electronRuntimeDir = electronRuntime.runtimeRoot;
-    const electronExe = electronRuntime.executablePath;
-    (0, exec_1.writeInfo)(`Using Electron dist cache for portable shell: ${electronExe}`);
-    return {
-        ...electronRuntime,
-        fingerprint: getFileSha256(electronExe),
-        runtimeRoot: electronRuntimeDir,
-        executablePath: electronExe,
-    };
+    const shellRuntime = (0, native_1.ensureElectronDistCacheForPackaging)(nativeRoot, runtime.electronVersion, electronArch);
+    (0, exec_1.writeInfo)(`Portable shell runtime switched from ${runtime.sourceKind} to ${shellRuntime.sourceKind}: ${shellRuntime.executablePath} (source=${shellRuntime.sourceLabel})`);
+    return shellRuntime;
 }
 function preparePortableOutputDir(distDir, workDir, outputName, allowWorkFallback) {
     const primary = path.join(distDir, outputName);
@@ -131,18 +104,19 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
     const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const includeRuntimeMods = (0, args_1.isForgeProfileName)(profile);
     const packagerArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "arm64" : "x64";
-    const portableRuntime = resolvePortableShellRuntime(runtime);
-    const electronExe = portableRuntime.executablePath;
+    const nativeRuntime = runtime;
+    const portableShellRuntime = resolvePortableShellRuntime(nativeRuntime);
+    const electronExe = portableShellRuntime.executablePath;
     if (!(0, exec_1.fileExists)(electronExe))
         throw new Error("Electron runtime not found.");
-    const electronRuntimeDir = portableRuntime.runtimeRoot;
-    const isPackagedRuntime = portableRuntime.sourceKind === "packaged-runtime-cache" ||
-        portableRuntime.sourceKind === "windows-runtime-donor-copy" ||
+    const electronRuntimeDir = portableShellRuntime.runtimeRoot;
+    const isPackagedRuntime = portableShellRuntime.sourceKind === "packaged-runtime-cache" ||
+        portableShellRuntime.sourceKind === "windows-runtime-donor-copy" ||
         path.basename(electronExe).toLowerCase() === "codex.exe";
     const outputName = isDefault ? `Codex-win32-${packagerArch}` : `Codex-win32-${packagerArch}-${profile}`;
     const canonicalOutputDir = path.join(distDir, outputName);
     const outputDir = preparePortableOutputDir(distDir, workDir, outputName, !isDefault);
-    (0, exec_1.writeInfo)(`Copying Electron runtime (${portableRuntime.sourceKind})...`);
+    (0, exec_1.writeInfo)(`Copying Electron runtime (${portableShellRuntime.sourceKind})...`);
     if (isPackagedRuntime) {
         for (const entry of fs.readdirSync(electronRuntimeDir, { withFileTypes: true })) {
             if (entry.name.toLowerCase() === "resources")
@@ -188,7 +162,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
     }
     (0, exec_1.writeInfo)("Copying app files...");
     const resourcesDir = (0, exec_1.ensureDir)(path.join(outputDir, "resources"));
-    const donorSupportResourcesDir = path.join(runtime.runtimeRoot, "resources");
+    const donorSupportResourcesDir = path.join(nativeRuntime.runtimeRoot, "resources");
     if ((0, exec_1.fileExists)(donorSupportResourcesDir)) {
         (0, codex_resources_1.bundlePackagedRuntimeSupportResources)(resourcesDir, donorSupportResourcesDir);
     }
@@ -264,6 +238,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         launcherPath,
         canonicalOutputReady: isDefault && path.resolve(outputDir) === path.resolve(canonicalOutputDir),
         latestLaunchersReady,
-        runtime: portableRuntime,
+        portableShellRuntime,
+        nativeRuntime,
     };
 }

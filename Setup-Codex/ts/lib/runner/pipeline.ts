@@ -181,7 +181,8 @@ export async function runPipelineDetailed(options: PipelineOptions): Promise<Pip
       patchReportPath: patchReport.reportPath,
       cliPath: cliResolution.path,
       cliSource: cliResolution.source,
-      runtime: portable.runtime,
+      portableShellRuntime: portable.portableShellRuntime,
+      nativeRuntime: portable.nativeRuntime,
       canonicalOutputReady: portable.canonicalOutputReady,
       latestLaunchersReady: portable.latestLaunchersReady,
     });

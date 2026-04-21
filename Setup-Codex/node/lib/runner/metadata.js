@@ -38,6 +38,17 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs"));
+function describeRuntime(runtime) {
+    return {
+        source: runtime.sourceKind,
+        sourceLabel: runtime.sourceLabel,
+        executablePath: runtime.executablePath,
+        runtimeRoot: runtime.runtimeRoot,
+        electronVersion: runtime.electronVersion,
+        fingerprint: runtime.fingerprint,
+        validationMode: runtime.validationMode,
+    };
+}
 function writeLiteContract(outputDir, payload) {
     const targetPath = path.join(outputDir, "lite-contract.json");
     const contract = {
@@ -59,7 +70,9 @@ function writeLiteContract(outputDir, payload) {
             "Launch-Codex.cmd",
             ...(payload.includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
         ],
-        electronRuntimeSource: payload.runtime.sourceKind,
+        electronRuntimeSource: payload.portableShellRuntime.sourceKind,
+        nativeElectronRuntimeSource: payload.nativeRuntime.sourceKind,
+        shellRuntimeMatchesNative: path.resolve(payload.portableShellRuntime.executablePath) === path.resolve(payload.nativeRuntime.executablePath),
         canonicalOutputReady: payload.canonicalOutputReady,
         latestLaunchersReady: payload.latestLaunchersReady,
         cliSource: payload.cliSource || "",
@@ -100,12 +113,18 @@ function writeBuildMetadata(outputDir, metadata) {
         patchReportPath: metadata.patchReportPath,
         codexCliPath: metadata.cliPath,
         codexCliSource: metadata.cliSource,
-        electronRuntimeSource: metadata.runtime.sourceKind,
-        electronRuntimePath: metadata.runtime.executablePath,
-        electronRuntimeVersion: metadata.runtime.electronVersion,
-        electronRuntimeFingerprint: metadata.runtime.fingerprint,
-        electronRuntimeValidationMode: metadata.runtime.validationMode,
-        packagedRuntimeCached: metadata.runtime.sourceKind === "packaged-runtime-cache",
+        electronRuntimeRole: "portable-shell",
+        electronRuntimeSource: metadata.portableShellRuntime.sourceKind,
+        electronRuntimeSourceLabel: metadata.portableShellRuntime.sourceLabel,
+        electronRuntimePath: metadata.portableShellRuntime.executablePath,
+        electronRuntimeVersion: metadata.portableShellRuntime.electronVersion,
+        electronRuntimeFingerprint: metadata.portableShellRuntime.fingerprint,
+        electronRuntimeValidationMode: metadata.portableShellRuntime.validationMode,
+        packagedRuntimeCached: metadata.portableShellRuntime.sourceKind === "packaged-runtime-cache",
+        nativePackagedRuntimeCached: metadata.nativeRuntime.sourceKind === "packaged-runtime-cache",
+        shellRuntimeMatchesNative: path.resolve(metadata.portableShellRuntime.executablePath) === path.resolve(metadata.nativeRuntime.executablePath),
+        portableShellRuntime: describeRuntime(metadata.portableShellRuntime),
+        nativeRuntime: describeRuntime(metadata.nativeRuntime),
         bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
         runtimeModCompatibility,
     };
@@ -119,7 +138,8 @@ function writeBuildMetadata(outputDir, metadata) {
         cliSource: metadata.cliSource,
         runtimeFlavor: metadata.runtimeFlavor,
         includeRuntimeMods: metadata.includeRuntimeMods,
-        runtime: metadata.runtime,
+        portableShellRuntime: metadata.portableShellRuntime,
+        nativeRuntime: metadata.nativeRuntime,
         canonicalOutputReady: metadata.canonicalOutputReady,
         latestLaunchersReady: metadata.latestLaunchersReady,
     });

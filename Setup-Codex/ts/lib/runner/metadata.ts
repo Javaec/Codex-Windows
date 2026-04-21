@@ -20,6 +20,26 @@ const { resolveRuntimeModCompatibility } = require(path.join(REPO_ROOT, "shared"
   };
 };
 
+function describeRuntime(runtime: RuntimeDescriptor): {
+  source: RuntimeDescriptor["sourceKind"];
+  sourceLabel: string;
+  executablePath: string;
+  runtimeRoot: string;
+  electronVersion: string;
+  fingerprint: string;
+  validationMode: RuntimeDescriptor["validationMode"];
+} {
+  return {
+    source: runtime.sourceKind,
+    sourceLabel: runtime.sourceLabel,
+    executablePath: runtime.executablePath,
+    runtimeRoot: runtime.runtimeRoot,
+    electronVersion: runtime.electronVersion,
+    fingerprint: runtime.fingerprint,
+    validationMode: runtime.validationMode,
+  };
+}
+
 function writeLiteContract(outputDir: string, payload: {
   appVersion: string;
   buildNumber: string;
@@ -29,7 +49,8 @@ function writeLiteContract(outputDir: string, payload: {
   cliSource: string | null;
   runtimeFlavor: "lite" | "forge";
   includeRuntimeMods: boolean;
-  runtime: RuntimeDescriptor;
+  portableShellRuntime: RuntimeDescriptor;
+  nativeRuntime: RuntimeDescriptor;
   canonicalOutputReady: boolean;
   latestLaunchersReady: boolean;
 }): void {
@@ -53,7 +74,10 @@ function writeLiteContract(outputDir: string, payload: {
       "Launch-Codex.cmd",
       ...(payload.includeRuntimeMods ? ["Launch-Codex-with-mods.cmd"] : []),
     ],
-    electronRuntimeSource: payload.runtime.sourceKind,
+    electronRuntimeSource: payload.portableShellRuntime.sourceKind,
+    nativeElectronRuntimeSource: payload.nativeRuntime.sourceKind,
+    shellRuntimeMatchesNative:
+      path.resolve(payload.portableShellRuntime.executablePath) === path.resolve(payload.nativeRuntime.executablePath),
     canonicalOutputReady: payload.canonicalOutputReady,
     latestLaunchersReady: payload.latestLaunchersReady,
     cliSource: payload.cliSource || "",
@@ -77,7 +101,8 @@ export function writeBuildMetadata(
     patchReportPath: string;
     cliPath: string | null;
     cliSource: string | null;
-    runtime: RuntimeDescriptor;
+    portableShellRuntime: RuntimeDescriptor;
+    nativeRuntime: RuntimeDescriptor;
     canonicalOutputReady: boolean;
     latestLaunchersReady: boolean;
   },
@@ -115,12 +140,19 @@ export function writeBuildMetadata(
     patchReportPath: metadata.patchReportPath,
     codexCliPath: metadata.cliPath,
     codexCliSource: metadata.cliSource,
-    electronRuntimeSource: metadata.runtime.sourceKind,
-    electronRuntimePath: metadata.runtime.executablePath,
-    electronRuntimeVersion: metadata.runtime.electronVersion,
-    electronRuntimeFingerprint: metadata.runtime.fingerprint,
-    electronRuntimeValidationMode: metadata.runtime.validationMode,
-    packagedRuntimeCached: metadata.runtime.sourceKind === "packaged-runtime-cache",
+    electronRuntimeRole: "portable-shell",
+    electronRuntimeSource: metadata.portableShellRuntime.sourceKind,
+    electronRuntimeSourceLabel: metadata.portableShellRuntime.sourceLabel,
+    electronRuntimePath: metadata.portableShellRuntime.executablePath,
+    electronRuntimeVersion: metadata.portableShellRuntime.electronVersion,
+    electronRuntimeFingerprint: metadata.portableShellRuntime.fingerprint,
+    electronRuntimeValidationMode: metadata.portableShellRuntime.validationMode,
+    packagedRuntimeCached: metadata.portableShellRuntime.sourceKind === "packaged-runtime-cache",
+    nativePackagedRuntimeCached: metadata.nativeRuntime.sourceKind === "packaged-runtime-cache",
+    shellRuntimeMatchesNative:
+      path.resolve(metadata.portableShellRuntime.executablePath) === path.resolve(metadata.nativeRuntime.executablePath),
+    portableShellRuntime: describeRuntime(metadata.portableShellRuntime),
+    nativeRuntime: describeRuntime(metadata.nativeRuntime),
     bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
     runtimeModCompatibility,
   };
@@ -134,7 +166,8 @@ export function writeBuildMetadata(
     cliSource: metadata.cliSource,
     runtimeFlavor: metadata.runtimeFlavor,
     includeRuntimeMods: metadata.includeRuntimeMods,
-    runtime: metadata.runtime,
+    portableShellRuntime: metadata.portableShellRuntime,
+    nativeRuntime: metadata.nativeRuntime,
     canonicalOutputReady: metadata.canonicalOutputReady,
     latestLaunchersReady: metadata.latestLaunchersReady,
   });
