@@ -42,6 +42,7 @@ const exec_1 = require("../exec");
 const branding_1 = require("../branding");
 const args_1 = require("../args");
 const bundle_patches_1 = require("../platform-patches/bundle-patches");
+const native_1 = require("../runtime-donor/native");
 const codex_resources_1 = require("./codex-resources");
 const direct_launch_1 = require("./direct-launch");
 Object.defineProperty(exports, "startPortableDirectLaunch", { enumerable: true, get: function () { return direct_launch_1.startPortableDirectLaunch; } });
@@ -77,20 +78,16 @@ function resolvePortableShellRuntime(runtime) {
         return runtime;
     }
     const nativeRoot = path.dirname(runtime.runtimeRoot);
-    const electronRuntimeDir = path.join(nativeRoot, "node_modules", "electron", "dist");
-    const electronExe = path.join(electronRuntimeDir, "electron.exe");
-    if (!(0, exec_1.fileExists)(electronExe)) {
-        throw new Error(`Portable packaging requires plain Electron dist because donor Codex.exe enforces upstream ASAR integrity: ${electronExe}`);
-    }
+    const electronArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+    const electronRuntime = (0, native_1.ensureElectronDistCacheForPackaging)(nativeRoot, runtime.electronVersion, electronArch);
+    const electronRuntimeDir = electronRuntime.runtimeRoot;
+    const electronExe = electronRuntime.executablePath;
     (0, exec_1.writeInfo)(`Using Electron dist cache for portable shell: ${electronExe}`);
     return {
-        sourceKind: "electron-dist-cache",
-        executablePath: electronExe,
-        runtimeRoot: electronRuntimeDir,
-        electronVersion: runtime.electronVersion,
-        sourceLabel: electronRuntimeDir,
+        ...electronRuntime,
         fingerprint: getFileSha256(electronExe),
-        validationMode: "electron-run-as-node",
+        runtimeRoot: electronRuntimeDir,
+        executablePath: electronExe,
     };
 }
 function preparePortableOutputDir(distDir, workDir, outputName, allowWorkFallback) {

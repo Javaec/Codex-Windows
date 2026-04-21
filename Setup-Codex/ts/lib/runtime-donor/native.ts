@@ -562,15 +562,12 @@ function tryRepairElectronRuntimeInPlace(
   return false;
 }
 
-function ensureElectronRuntime(
+function ensureElectronDistCache(
   nativeDir: string,
   electronVersion: string,
   donorAppDirs: string[],
   seedAppDirs: string[],
 ): RuntimeDescriptor {
-  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
-  if (packagedRuntime) return packagedRuntime;
-
   const electronRoot = path.join(nativeDir, "node_modules", "electron");
   const electronExe = path.join(electronRoot, "dist", "electron.exe");
   const installedVersion = readElectronPackageVersion(electronRoot);
@@ -633,6 +630,28 @@ function ensureElectronRuntime(
     throw new Error(`Electron runtime did not validate after npm fallback: ${electronExe}`);
   }
   return createRuntimeDescriptor("npm-fallback", electronExe, electronVersion, `electron@${electronVersion}`);
+}
+
+function ensureElectronRuntime(
+  nativeDir: string,
+  electronVersion: string,
+  donorAppDirs: string[],
+  seedAppDirs: string[],
+): RuntimeDescriptor {
+  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
+  if (packagedRuntime) return packagedRuntime;
+  return ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedAppDirs);
+}
+
+export function ensureElectronDistCacheForPackaging(
+  nativeDir: string,
+  electronVersion: string,
+  arch: string,
+): RuntimeDescriptor {
+  const workDir = path.dirname(nativeDir);
+  const donorDirs = uniqueExistingDirs(getNativeDonorAppDirs(workDir));
+  const seedDirs = uniqueExistingDirs(getNativeSeedAppDirs(workDir, arch));
+  return ensureElectronDistCache(nativeDir, electronVersion, donorDirs, seedDirs);
 }
 
 function shouldRunInteractiveNativeValidation(runtime: RuntimeDescriptor): boolean {

@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inspectRuntimePreflight = inspectRuntimePreflight;
+exports.ensureElectronDistCacheForPackaging = ensureElectronDistCacheForPackaging;
 exports.invokeNativeStage = invokeNativeStage;
 const crypto = __importStar(require("node:crypto"));
 const fs = __importStar(require("node:fs"));
@@ -460,10 +461,7 @@ function tryRepairElectronRuntimeInPlace(electronRoot, electronExe, electronVers
     (0, exec_1.writeInfo)(`In-place Electron runtime repair did not validate (exit code ${result.status}).`);
     return false;
 }
-function ensureElectronRuntime(nativeDir, electronVersion, donorAppDirs, seedAppDirs) {
-    const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
-    if (packagedRuntime)
-        return packagedRuntime;
+function ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedAppDirs) {
     const electronRoot = path.join(nativeDir, "node_modules", "electron");
     const electronExe = path.join(electronRoot, "dist", "electron.exe");
     const installedVersion = readElectronPackageVersion(electronRoot);
@@ -524,6 +522,18 @@ function ensureElectronRuntime(nativeDir, electronVersion, donorAppDirs, seedApp
         throw new Error(`Electron runtime did not validate after npm fallback: ${electronExe}`);
     }
     return createRuntimeDescriptor("npm-fallback", electronExe, electronVersion, `electron@${electronVersion}`);
+}
+function ensureElectronRuntime(nativeDir, electronVersion, donorAppDirs, seedAppDirs) {
+    const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
+    if (packagedRuntime)
+        return packagedRuntime;
+    return ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedAppDirs);
+}
+function ensureElectronDistCacheForPackaging(nativeDir, electronVersion, arch) {
+    const workDir = path.dirname(nativeDir);
+    const donorDirs = (0, exec_1.uniqueExistingDirs)(getNativeDonorAppDirs(workDir));
+    const seedDirs = (0, exec_1.uniqueExistingDirs)(getNativeSeedAppDirs(workDir, arch));
+    return ensureElectronDistCache(nativeDir, electronVersion, donorDirs, seedDirs);
 }
 function shouldRunInteractiveNativeValidation(runtime) {
     return runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy";

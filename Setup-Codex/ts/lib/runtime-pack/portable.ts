@@ -17,6 +17,7 @@ import { applyExecutableBranding, copyCodexIconToOutput, resolveDefaultCodexIcon
 import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from "../args";
 import { patchMainForWindowsEnvironment } from "../platform-patches/bundle-patches";
 import type { RuntimeDescriptor } from "../runtime-donor/native";
+import { ensureElectronDistCacheForPackaging } from "../runtime-donor/native";
 import { bundleCodexCliResources, bundlePackagedRuntimeSupportResources } from "./codex-resources";
 import { startPortableDirectLaunch } from "./direct-launch";
 import { pruneStalePortableOutputs, writeLatestPortableLaunchers, writePortableLauncher } from "./launchers";
@@ -61,23 +62,17 @@ function resolvePortableShellRuntime(runtime: RuntimeDescriptor): RuntimeDescrip
   }
 
   const nativeRoot = path.dirname(runtime.runtimeRoot);
-  const electronRuntimeDir = path.join(nativeRoot, "node_modules", "electron", "dist");
-  const electronExe = path.join(electronRuntimeDir, "electron.exe");
-  if (!fileExists(electronExe)) {
-    throw new Error(
-      `Portable packaging requires plain Electron dist because donor Codex.exe enforces upstream ASAR integrity: ${electronExe}`,
-    );
-  }
+  const electronArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+  const electronRuntime = ensureElectronDistCacheForPackaging(nativeRoot, runtime.electronVersion, electronArch);
+  const electronRuntimeDir = electronRuntime.runtimeRoot;
+  const electronExe = electronRuntime.executablePath;
 
   writeInfo(`Using Electron dist cache for portable shell: ${electronExe}`);
   return {
-    sourceKind: "electron-dist-cache",
-    executablePath: electronExe,
-    runtimeRoot: electronRuntimeDir,
-    electronVersion: runtime.electronVersion,
-    sourceLabel: electronRuntimeDir,
+    ...electronRuntime,
     fingerprint: getFileSha256(electronExe),
-    validationMode: "electron-run-as-node",
+    runtimeRoot: electronRuntimeDir,
+    executablePath: electronExe,
   };
 }
 
