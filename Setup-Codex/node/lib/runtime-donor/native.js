@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.inspectNativeSupport = inspectNativeSupport;
 exports.inspectRuntimePreflight = inspectRuntimePreflight;
 exports.ensureElectronDistCacheForPackaging = ensureElectronDistCacheForPackaging;
 exports.invokeNativeStage = invokeNativeStage;
@@ -202,34 +203,63 @@ function isUsableWindowsNativeAddon(filePath, arch) {
         return false;
     return expectedPeMachineTypes(arch).includes(readPeMachineType(filePath));
 }
+function getBetterSqlite3BinaryPath(appDir) {
+    return path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
+}
+function getNodePtyPrebuildDir(appDir, arch) {
+    return path.join(appDir, "node_modules", "node-pty", "prebuilds", arch);
+}
+function getNodePtyReleaseDir(appDir) {
+    return path.join(appDir, "node_modules", "node-pty", "build", "Release");
+}
+function hasUsableNodePtyPrebuildArtifacts(prebuildDir, arch) {
+    if (!isUsableWindowsNativeAddon(path.join(prebuildDir, "pty.node"), arch))
+        return false;
+    for (const addonName of ["conpty.node", "conpty_console_list.node"]) {
+        if (!isUsableWindowsNativeAddon(path.join(prebuildDir, addonName), arch))
+            return false;
+    }
+    for (const supportPath of [
+        "winpty-agent.exe",
+        "winpty.dll",
+        path.join("conpty", "conpty.dll"),
+        path.join("conpty", "OpenConsole.exe"),
+    ]) {
+        if (!(0, exec_1.fileExists)(path.join(prebuildDir, supportPath)))
+            return false;
+    }
+    return true;
+}
+function hasUsableNodePtyReleaseArtifacts(releaseDir, arch) {
+    return isUsableWindowsNativeAddon(path.join(releaseDir, "pty.node"), arch);
+}
+function hasUsableNodePtyArtifacts(appDir, arch) {
+    return (hasUsableNodePtyPrebuildArtifacts(getNodePtyPrebuildDir(appDir, arch), arch) ||
+        hasUsableNodePtyReleaseArtifacts(getNodePtyReleaseDir(appDir), arch));
+}
 function hasUsableAppNativeArtifacts(appDir, arch) {
-    const betterSqlite3Path = path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
-    const nodePtyCandidates = [
-        path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, "pty.node"),
-        path.join(appDir, "node_modules", "node-pty", "build", "Release", "pty.node"),
-    ];
-    return (isUsableWindowsNativeAddon(betterSqlite3Path, arch) &&
-        nodePtyCandidates.some((candidate) => isUsableWindowsNativeAddon(candidate, arch)));
+    return isUsableWindowsNativeAddon(getBetterSqlite3BinaryPath(appDir), arch) && hasUsableNodePtyArtifacts(appDir, arch);
 }
 function copyNativeArtifactsFromAppLayout(sourceAppDir, appDir, nativeDir, arch) {
-    const bsSrc = path.join(sourceAppDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
+    const bsSrc = getBetterSqlite3BinaryPath(sourceAppDir);
     if (!(0, exec_1.fileExists)(bsSrc))
         return false;
-    let ptySrcDir = path.join(sourceAppDir, "node_modules", "node-pty", "prebuilds", arch);
-    if (!(0, exec_1.fileExists)(path.join(ptySrcDir, "pty.node"))) {
-        ptySrcDir = path.join(sourceAppDir, "node_modules", "node-pty", "build", "Release");
-    }
-    if (!(0, exec_1.fileExists)(path.join(ptySrcDir, "pty.node")))
+    const ptyPrebuildDir = getNodePtyPrebuildDir(sourceAppDir, arch);
+    const ptyReleaseDir = getNodePtyReleaseDir(sourceAppDir);
+    const ptySrcDir = hasUsableNodePtyPrebuildArtifacts(ptyPrebuildDir, arch)
+        ? ptyPrebuildDir
+        : (hasUsableNodePtyReleaseArtifacts(ptyReleaseDir, arch) ? ptyReleaseDir : "");
+    if (!ptySrcDir)
         return false;
-    copyNativeFile(bsSrc, path.join(appDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"), "better-sqlite3 app artifact");
-    copyNativeFile(bsSrc, path.join(nativeDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"), "better-sqlite3 native cache artifact");
-    (0, exec_1.copyDirectory)(ptySrcDir, path.join(appDir, "node_modules", "node-pty", "prebuilds", arch));
-    (0, exec_1.copyDirectory)(ptySrcDir, path.join(nativeDir, "node_modules", "node-pty", "prebuilds", arch));
+    copyNativeFile(bsSrc, getBetterSqlite3BinaryPath(appDir), "better-sqlite3 app artifact");
+    copyNativeFile(bsSrc, getBetterSqlite3BinaryPath(nativeDir), "better-sqlite3 native cache artifact");
+    (0, exec_1.copyDirectory)(ptySrcDir, getNodePtyPrebuildDir(appDir, arch));
+    (0, exec_1.copyDirectory)(ptySrcDir, getNodePtyPrebuildDir(nativeDir, arch));
     for (const fileName of ["pty.node", "conpty.node", "conpty_console_list.node"]) {
         const src = path.join(ptySrcDir, fileName);
         if (!(0, exec_1.fileExists)(src))
             continue;
-        copyNativeFile(src, path.join(appDir, "node_modules", "node-pty", "build", "Release", fileName), "node-pty app release artifact");
+        copyNativeFile(src, path.join(getNodePtyReleaseDir(appDir), fileName), "node-pty app release artifact");
     }
     return true;
 }
@@ -284,6 +314,16 @@ function getNativeSeedAppDirs(workDir, arch) {
         candidates.push(path.join(repoRoot, "native-seeds", arch, "app"));
     }
     return (0, exec_1.uniqueExistingDirs)(candidates);
+}
+function inspectNativeSupport(workDir, arch) {
+    const donorAppDirs = (0, exec_1.uniqueExistingDirs)(getNativeDonorAppDirs(workDir));
+    const seedAppDirs = (0, exec_1.uniqueExistingDirs)(getNativeSeedAppDirs(workDir, arch));
+    return {
+        donorAppDirs,
+        usableDonorAppDirs: donorAppDirs.filter((candidate) => hasUsableAppNativeArtifacts(candidate, arch)),
+        seedAppDirs,
+        usableSeedAppDirs: seedAppDirs.filter((candidate) => hasUsableAppNativeArtifacts(candidate, arch)),
+    };
 }
 function readElectronPackageVersion(electronRoot) {
     const packageJsonPath = path.join(electronRoot, "package.json");
@@ -384,8 +424,9 @@ function findFirstElectronDistSource(appDirs) {
 }
 function inspectRuntimePreflight(workDir, electronVersion, arch) {
     const nativeDir = path.join(workDir, "native-builds");
-    const donorDirs = getNativeDonorAppDirs(workDir);
-    const seedDirs = getNativeSeedAppDirs(workDir, arch);
+    const nativeSupport = inspectNativeSupport(workDir, arch);
+    const donorDirs = nativeSupport.donorAppDirs;
+    const seedDirs = nativeSupport.seedAppDirs;
     const donorPackages = (0, windows_apps_1.listWindowsCodexPackages)().filter((runtimePackage) => (0, exec_1.fileExists)(path.join(runtimePackage.appDir, "Codex.exe")));
     const packagedRuntimeCacheAvailable = (0, exec_1.fileExists)(path.join(nativeDir, PACKAGED_RUNTIME_DIR_NAME, "Codex.exe"));
     const packagedRuntimeCacheValid = donorPackages.length > 0 && Boolean(tryReusePackagedRuntimeCache(nativeDir, donorPackages[0], electronVersion, true));
@@ -562,8 +603,9 @@ function tryRecoverNativeFromCandidateDirs(candidateDirs, candidateKind, appDir,
 function invokeNativeStage(appDir, nativeDir, electronVersion, betterVersion, ptyVersion, arch, manifest, manifestPath, nativeSignature) {
     const workDir = path.dirname(nativeDir);
     const allowNativeRebuild = process.env.CODEX_ENABLE_NATIVE_REBUILD === "1";
-    const donorDirs = getNativeDonorAppDirs(workDir);
-    const seedDirs = getNativeSeedAppDirs(workDir, arch);
+    const nativeSupport = inspectNativeSupport(workDir, arch);
+    const donorDirs = nativeSupport.donorAppDirs;
+    const seedDirs = nativeSupport.seedAppDirs;
     const runtime = ensureElectronRuntime(nativeDir, electronVersion, (0, exec_1.uniqueExistingDirs)(donorDirs), (0, exec_1.uniqueExistingDirs)(seedDirs));
     const electronExe = runtime.executablePath;
     const shouldValidateNativeWithRuntime = shouldRunInteractiveNativeValidation(runtime);
@@ -595,10 +637,12 @@ function invokeNativeStage(appDir, nativeDir, electronVersion, betterVersion, pt
         appReady = recoveredDonor || tryRecoverNativeFromCandidateDirs(seedDirs, "bundled seed", appDir, nativeDir, arch, electronExe, shouldValidateNativeWithRuntime);
     }
     if (!appReady) {
+        const supportSummary = `donorSupport=${nativeSupport.usableDonorAppDirs.length}/${nativeSupport.donorAppDirs.length} ` +
+            `seedSupport=${nativeSupport.usableSeedAppDirs.length}/${nativeSupport.seedAppDirs.length}`;
         if (allowNativeRebuild) {
-            throw new Error(`No usable native artifacts found. Rebuild path is explicitly enabled, but this script no longer performs node-gyp builds. Provide prebuilt artifacts in Setup-Codex/native-seeds/${arch}/app (or legacy scripts/native-seeds/${arch}/app) or donor install.`);
+            throw new Error(`No usable native artifacts found (${supportSummary}). Rebuild path is explicitly enabled, but this script no longer performs node-gyp builds. Provide prebuilt artifacts in Setup-Codex/native-seeds/${arch}/app (or legacy scripts/native-seeds/${arch}/app) or donor install.`);
         }
-        throw new Error("No usable native artifacts found for better-sqlite3/node-pty, and native rebuild is disabled by policy. Use a donor installation or provide bundled seeds under Setup-Codex/native-seeds/<arch>/app.");
+        throw new Error(`No usable native artifacts found for better-sqlite3/node-pty (${supportSummary}), and native rebuild is disabled by policy. Use a donor installation or provide bundled seeds under Setup-Codex/native-seeds/<arch>/app.`);
     }
     if (shouldValidateNativeWithRuntime) {
         if (!testBetterSqlite3Usable(electronExe, appDir, "App better-sqlite3 usability validation")) {

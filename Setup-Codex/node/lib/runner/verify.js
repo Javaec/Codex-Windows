@@ -62,18 +62,6 @@ function writeVerifySummary(items) {
     (0, exec_1.writeHeader)("Verify summary");
     (0, exec_1.writeSuccess)(`OK=${counts.OK} WARN=${counts.WARN} FAIL=${counts.FAIL}`);
 }
-function resolveNativeSupportCandidates() {
-    return (0, exec_1.uniqueExistingDirs)([
-        path.join(context_1.REPO_ROOT, "dist", "Codex-win32-x64", "resources", "app"),
-        path.join(context_1.REPO_ROOT, "dist", "Codex-win32-arm64", "resources", "app"),
-        path.join(context_1.REPO_ROOT, "Setup-Codex", "native-seeds", "win32-x64", "app"),
-        path.join(context_1.REPO_ROOT, "Setup-Codex", "native-seeds", "win32-arm64", "app"),
-        path.join(context_1.REPO_ROOT, "scripts", "native-seeds", "win32-x64", "app"),
-        path.join(context_1.REPO_ROOT, "scripts", "native-seeds", "win32-arm64", "app"),
-        path.join(context_1.REPO_ROOT, "native-seeds", "win32-x64", "app"),
-        path.join(context_1.REPO_ROOT, "native-seeds", "win32-arm64", "app"),
-    ]);
-}
 function takeLastLine(text) {
     const lines = String(text || "")
         .split(/\r?\n/)
@@ -199,12 +187,13 @@ async function runVerify(options) {
         const message = error instanceof Error ? error.message : String(error);
         addVerifyItem(items, "codex-cli", "FAIL", message);
     }
-    const nativeCandidates = resolveNativeSupportCandidates();
-    addVerifyItem(items, "native-support", nativeCandidates.length > 0 ? "OK" : "FAIL", nativeCandidates.length > 0
-        ? `${nativeCandidates.length} donor/seed path(s) available`
-        : "no donor/seed app directories found under dist/, Setup-Codex/native-seeds/, scripts/native-seeds/, or native-seeds/");
+    const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+    const nativeSupport = (0, native_1.inspectNativeSupport)(workDir, arch);
+    addVerifyItem(items, "native-support", nativeSupport.usableDonorAppDirs.length > 0 || nativeSupport.usableSeedAppDirs.length > 0 ? "OK" : "FAIL", `usableDonor=${nativeSupport.usableDonorAppDirs.length}/${nativeSupport.donorAppDirs.length} usableSeed=${nativeSupport.usableSeedAppDirs.length}/${nativeSupport.seedAppDirs.length}`);
+    addVerifyItem(items, "bundled-native-seeds", nativeSupport.usableSeedAppDirs.length > 0 ? "OK" : "FAIL", nativeSupport.usableSeedAppDirs.length > 0
+        ? nativeSupport.usableSeedAppDirs.join(", ")
+        : `no usable bundled seeds under Setup-Codex/native-seeds/${arch}/app`);
     if (dmgBuildMetadata?.electronVersion) {
-        const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
         const runtimePreflight = (0, native_1.inspectRuntimePreflight)(workDir, dmgBuildMetadata.electronVersion, arch);
         addVerifyItem(items, "runtime-preflight", runtimePreflight.fallbackRequired ? "WARN" : "OK", `selected=${runtimePreflight.selectedSourceKind} source=${runtimePreflight.sourceLabel} cacheAvailable=${runtimePreflight.packagedRuntimeCacheAvailable} cacheValid=${runtimePreflight.packagedRuntimeCacheValid} fallbackRequired=${runtimePreflight.fallbackRequired}`);
     }

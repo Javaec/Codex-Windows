@@ -10,7 +10,7 @@ import {
 import { mustResolveCommand, runCommand, uniqueExistingDirs, writeError, writeHeader, writeSuccess, writeWarn } from "../exec";
 import { getFileDescriptorWithCache, getStepSignature, readStateManifest, writeStateManifest } from "../manifest";
 import { resolvePatchProfile } from "../platform-patches/patch-pack";
-import { inspectRuntimePreflight } from "../runtime-donor/native";
+import { inspectNativeSupport, inspectRuntimePreflight } from "../runtime-donor/native";
 import { invokeExtractionStage, resolveDmgPath } from "../source-bundle/extract";
 import { REPO_ROOT, resolvePreferredCodexCliPath, sanitizeRunnerEnvironment } from "./context";
 
@@ -45,19 +45,6 @@ function writeVerifySummary(items: VerifyItem[]): void {
   }
   writeHeader("Verify summary");
   writeSuccess(`OK=${counts.OK} WARN=${counts.WARN} FAIL=${counts.FAIL}`);
-}
-
-function resolveNativeSupportCandidates(): string[] {
-  return uniqueExistingDirs([
-    path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "app"),
-    path.join(REPO_ROOT, "dist", "Codex-win32-arm64", "resources", "app"),
-    path.join(REPO_ROOT, "Setup-Codex", "native-seeds", "win32-x64", "app"),
-    path.join(REPO_ROOT, "Setup-Codex", "native-seeds", "win32-arm64", "app"),
-    path.join(REPO_ROOT, "scripts", "native-seeds", "win32-x64", "app"),
-    path.join(REPO_ROOT, "scripts", "native-seeds", "win32-arm64", "app"),
-    path.join(REPO_ROOT, "native-seeds", "win32-x64", "app"),
-    path.join(REPO_ROOT, "native-seeds", "win32-arm64", "app"),
-  ]);
 }
 
 function takeLastLine(text: string): string {
@@ -227,18 +214,24 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
     addVerifyItem(items, "codex-cli", "FAIL", message);
   }
 
-  const nativeCandidates = resolveNativeSupportCandidates();
+  const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
+  const nativeSupport = inspectNativeSupport(workDir, arch);
   addVerifyItem(
     items,
     "native-support",
-    nativeCandidates.length > 0 ? "OK" : "FAIL",
-    nativeCandidates.length > 0
-      ? `${nativeCandidates.length} donor/seed path(s) available`
-      : "no donor/seed app directories found under dist/, Setup-Codex/native-seeds/, scripts/native-seeds/, or native-seeds/",
+    nativeSupport.usableDonorAppDirs.length > 0 || nativeSupport.usableSeedAppDirs.length > 0 ? "OK" : "FAIL",
+    `usableDonor=${nativeSupport.usableDonorAppDirs.length}/${nativeSupport.donorAppDirs.length} usableSeed=${nativeSupport.usableSeedAppDirs.length}/${nativeSupport.seedAppDirs.length}`,
+  );
+  addVerifyItem(
+    items,
+    "bundled-native-seeds",
+    nativeSupport.usableSeedAppDirs.length > 0 ? "OK" : "FAIL",
+    nativeSupport.usableSeedAppDirs.length > 0
+      ? nativeSupport.usableSeedAppDirs.join(", ")
+      : `no usable bundled seeds under Setup-Codex/native-seeds/${arch}/app`,
   );
 
   if (dmgBuildMetadata?.electronVersion) {
-    const arch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
     const runtimePreflight = inspectRuntimePreflight(workDir, dmgBuildMetadata.electronVersion, arch);
     addVerifyItem(
       items,
