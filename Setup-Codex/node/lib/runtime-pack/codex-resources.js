@@ -70,11 +70,21 @@ const PACKAGED_RUNTIME_SUPPORT_NAMES = [
 ];
 function ensureBundledRipgrep(resourcesDir) {
     const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
+    const pathToolsDir = (0, exec_1.ensureDir)(path.join(resourcesDir, "path"));
+    const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
+    if (!(0, exec_1.fileExists)(bundledRipgrepPath)) {
+        const fallbackRipgrepPath = ((0, exec_1.fileExists)(pathRipgrepPath) ? pathRipgrepPath : "") ||
+            (0, exec_1.resolveCommand)("rg.exe") ||
+            (0, exec_1.resolveCommand)("rg") ||
+            "";
+        if (fallbackRipgrepPath && (0, exec_1.fileExists)(fallbackRipgrepPath)) {
+            (0, exec_1.writeInfo)(`Bundling ripgrep from: ${fallbackRipgrepPath}`);
+            (0, exec_1.copyFileSafe)(fallbackRipgrepPath, bundledRipgrepPath);
+        }
+    }
     if (!(0, exec_1.fileExists)(bundledRipgrepPath)) {
         throw new Error(`Portable build requires bundled rg.exe: ${bundledRipgrepPath}`);
     }
-    const pathToolsDir = (0, exec_1.ensureDir)(path.join(resourcesDir, "path"));
-    const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
     if (!(0, exec_1.fileExists)(pathRipgrepPath)) {
         (0, exec_1.copyFileSafe)(bundledRipgrepPath, pathRipgrepPath);
     }

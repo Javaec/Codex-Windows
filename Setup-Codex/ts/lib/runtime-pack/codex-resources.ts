@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { copyDirectory, copyFileSafe, ensureDir, fileExists, removePath, writeInfo } from "../exec";
+import { copyDirectory, copyFileSafe, ensureDir, fileExists, removePath, resolveCommand, writeInfo } from "../exec";
 import { getWindowsRuntimeDonorToolPaths } from "../runtime-donor/windows-apps";
 
 const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe"]);
@@ -36,12 +36,22 @@ const PACKAGED_RUNTIME_SUPPORT_NAMES = [
 
 function ensureBundledRipgrep(resourcesDir: string): void {
   const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
+  const pathToolsDir = ensureDir(path.join(resourcesDir, "path"));
+  const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
+  if (!fileExists(bundledRipgrepPath)) {
+    const fallbackRipgrepPath =
+      (fileExists(pathRipgrepPath) ? pathRipgrepPath : "") ||
+      resolveCommand("rg.exe") ||
+      resolveCommand("rg") ||
+      "";
+    if (fallbackRipgrepPath && fileExists(fallbackRipgrepPath)) {
+      writeInfo(`Bundling ripgrep from: ${fallbackRipgrepPath}`);
+      copyFileSafe(fallbackRipgrepPath, bundledRipgrepPath);
+    }
+  }
   if (!fileExists(bundledRipgrepPath)) {
     throw new Error(`Portable build requires bundled rg.exe: ${bundledRipgrepPath}`);
   }
-
-  const pathToolsDir = ensureDir(path.join(resourcesDir, "path"));
-  const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
   if (!fileExists(pathRipgrepPath)) {
     copyFileSafe(bundledRipgrepPath, pathRipgrepPath);
   }
