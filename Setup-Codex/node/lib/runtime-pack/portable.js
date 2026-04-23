@@ -99,7 +99,7 @@ function preparePortableOutputDir(distDir, workDir, outputName, allowWorkFallbac
     }
     throw new Error(`Portable output directory is locked and no fallback path could be prepared. Primary: ${primary}`);
 }
-async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildFlavor, bundledCliPath, profileName, workDir, appVersion) {
+async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildFlavor, bundledCliPath, preferredRipgrepPath, profileName, workDir, appVersion) {
     const profile = (0, args_1.normalizeProfileName)(profileName);
     const isDefault = (0, args_1.isCanonicalProfileName)(profile);
     const includeRuntimeMods = (0, args_1.isForgeProfileName)(profile);
@@ -207,7 +207,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         throw new Error("Portable build requires a valid codex.exe source path.");
     }
     (0, exec_1.writeInfo)("Bundling Codex CLI...");
-    (0, codex_resources_1.bundleCodexCliResources)(resourcesDir, bundledCliPath);
+    const bundledTools = (0, codex_resources_1.bundleCodexCliResources)(resourcesDir, bundledCliPath, preferredRipgrepPath);
     const launcherPath = (0, launchers_1.writePortableLauncher)(outputDir, profile);
     for (const requiredLauncher of [
         "Launch-Codex.cmd",
@@ -240,5 +240,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
         latestLaunchersReady,
         portableShellRuntime,
         nativeRuntime,
+        bundledRipgrepPath: bundledTools.bundledRipgrepPath,
+        bundledRipgrepSourcePath: bundledTools.bundledRipgrepSourcePath,
     };
 }

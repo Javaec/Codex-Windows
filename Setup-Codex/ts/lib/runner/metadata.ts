@@ -47,6 +47,7 @@ function writeLiteContract(outputDir: string, payload: {
   knownBuildSource: string;
   patchProfileId: string;
   cliSource: string | null;
+  ripgrepSource: string | null;
   runtimeFlavor: "lite" | "forge";
   includeRuntimeMods: boolean;
   portableShellRuntime: RuntimeDescriptor;
@@ -81,6 +82,7 @@ function writeLiteContract(outputDir: string, payload: {
     canonicalOutputReady: payload.canonicalOutputReady,
     latestLaunchersReady: payload.latestLaunchersReady,
     cliSource: payload.cliSource || "",
+    ripgrepSource: payload.ripgrepSource || "",
   };
   fs.writeFileSync(targetPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
 }
@@ -101,6 +103,9 @@ export function writeBuildMetadata(
     patchReportPath: string;
     cliPath: string | null;
     cliSource: string | null;
+    ripgrepSource: string | null;
+    bundledRipgrepPath: string;
+    bundledRipgrepSourcePath: string;
     portableShellRuntime: RuntimeDescriptor;
     nativeRuntime: RuntimeDescriptor;
     canonicalOutputReady: boolean;
@@ -140,6 +145,9 @@ export function writeBuildMetadata(
     patchReportPath: metadata.patchReportPath,
     codexCliPath: metadata.cliPath,
     codexCliSource: metadata.cliSource,
+    bundledRipgrepPath: metadata.bundledRipgrepPath,
+    bundledRipgrepSource: metadata.ripgrepSource,
+    bundledRipgrepSourcePath: metadata.bundledRipgrepSourcePath,
     electronRuntimeRole: "portable-shell",
     electronRuntimeSource: metadata.portableShellRuntime.sourceKind,
     electronRuntimeSourceLabel: metadata.portableShellRuntime.sourceLabel,
@@ -153,7 +161,6 @@ export function writeBuildMetadata(
       path.resolve(metadata.portableShellRuntime.executablePath) === path.resolve(metadata.nativeRuntime.executablePath),
     portableShellRuntime: describeRuntime(metadata.portableShellRuntime),
     nativeRuntime: describeRuntime(metadata.nativeRuntime),
-    bundledRipgrepPath: path.join(outputDir, "resources", "rg.exe"),
     runtimeModCompatibility,
   };
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -164,6 +171,7 @@ export function writeBuildMetadata(
     knownBuildSource: metadata.knownBuildSource,
     patchProfileId: metadata.patchProfileId,
     cliSource: metadata.cliSource,
+    ripgrepSource: metadata.ripgrepSource,
     runtimeFlavor: metadata.runtimeFlavor,
     includeRuntimeMods: metadata.includeRuntimeMods,
     portableShellRuntime: metadata.portableShellRuntime,

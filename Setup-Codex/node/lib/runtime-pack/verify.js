@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyPortableRuntimeContract = verifyPortableRuntimeContract;
+const node_crypto_1 = require("node:crypto");
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const asar_1 = require("../asar");
@@ -44,6 +45,9 @@ function assertExists(targetPath, label) {
     if (!(0, exec_1.fileExists)(targetPath)) {
         throw new Error(`Portable runtime contract failed: missing ${label}: ${targetPath}`);
     }
+}
+function getFileSha256(targetPath) {
+    return (0, node_crypto_1.createHash)("sha256").update(fs.readFileSync(targetPath)).digest("hex");
 }
 function verifyWebviewCwdPatch(resourcesAppDir) {
     const assetsDir = path.join(resourcesAppDir, "webview", "assets");
@@ -93,10 +97,15 @@ function resolvePackagedAppDir(outputDir, resourcesDir) {
 }
 function verifyPortableRuntimeContract(options) {
     const resourcesDir = path.join(options.outputDir, "resources");
+    const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
+    const bundledPathRipgrepPath = path.join(resourcesDir, "path", "rg.exe");
     assertExists(path.join(options.outputDir, "Codex.exe"), "portable executable");
     assertExists(path.join(resourcesDir, "codex.exe"), "bundled codex.exe");
-    assertExists(path.join(resourcesDir, "rg.exe"), "bundled rg.exe");
-    assertExists(path.join(resourcesDir, "path", "rg.exe"), "bundled path/rg.exe");
+    assertExists(bundledRipgrepPath, "bundled rg.exe");
+    assertExists(bundledPathRipgrepPath, "bundled path/rg.exe");
+    if (getFileSha256(bundledRipgrepPath) !== getFileSha256(bundledPathRipgrepPath)) {
+        throw new Error("Portable runtime contract failed: bundled rg.exe and path/rg.exe differ.");
+    }
     assertExists(path.join(options.outputDir, "Launch-Codex.cmd"), "default launcher");
     const { appDir, cleanup } = resolvePackagedAppDir(options.outputDir, resourcesDir);
     try {

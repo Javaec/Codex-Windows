@@ -29,6 +29,8 @@ export interface PortableBuildResult {
   latestLaunchersReady: boolean;
   portableShellRuntime: RuntimeDescriptor;
   nativeRuntime: RuntimeDescriptor;
+  bundledRipgrepPath: string;
+  bundledRipgrepSourcePath: string;
 }
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -101,6 +103,7 @@ export async function invokePortableBuild(
   buildNumber: string,
   buildFlavor: string,
   bundledCliPath: string | null,
+  preferredRipgrepPath: string | null,
   profileName: string,
   workDir: string,
   appVersion: string,
@@ -215,7 +218,7 @@ export async function invokePortableBuild(
     throw new Error("Portable build requires a valid codex.exe source path.");
   }
   writeInfo("Bundling Codex CLI...");
-  bundleCodexCliResources(resourcesDir, bundledCliPath);
+  const bundledTools = bundleCodexCliResources(resourcesDir, bundledCliPath, preferredRipgrepPath);
 
   const launcherPath = writePortableLauncher(outputDir, profile);
   for (const requiredLauncher of [
@@ -249,5 +252,7 @@ export async function invokePortableBuild(
     latestLaunchersReady,
     portableShellRuntime,
     nativeRuntime,
+    bundledRipgrepPath: bundledTools.bundledRipgrepPath,
+    bundledRipgrepSourcePath: bundledTools.bundledRipgrepSourcePath,
   };
 }

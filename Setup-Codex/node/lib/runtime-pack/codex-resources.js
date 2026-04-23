@@ -39,7 +39,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const windows_apps_1 = require("../runtime-donor/windows-apps");
-const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe"]);
+const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe"]);
 const CLI_RESOURCE_ALLOWLIST = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe", "notification.wav"]);
 const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
     "app",
@@ -68,26 +68,40 @@ const PACKAGED_RUNTIME_SUPPORT_NAMES = [
     "rg",
     "THIRD_PARTY_NOTICES.txt",
 ];
-function ensureBundledRipgrep(resourcesDir) {
+function resolveRipgrepSource(resourcesDir, preferredRipgrepPath) {
+    const pathRipgrepPath = path.join(resourcesDir, "path", "rg.exe");
+    const donorRipgrepPath = (0, windows_apps_1.getWindowsRuntimeDonorRipgrepPath)();
+    for (const candidate of [
+        preferredRipgrepPath || "",
+        (0, exec_1.fileExists)(pathRipgrepPath) ? pathRipgrepPath : "",
+        donorRipgrepPath,
+        (0, exec_1.resolveCommand)("rg.exe") || "",
+        (0, exec_1.resolveCommand)("rg") || "",
+    ]) {
+        if (candidate && (0, exec_1.fileExists)(candidate))
+            return path.resolve(candidate);
+    }
+    return "";
+}
+function installBundledRipgrep(resourcesDir, preferredRipgrepPath) {
     const bundledRipgrepPath = path.join(resourcesDir, "rg.exe");
     const pathToolsDir = (0, exec_1.ensureDir)(path.join(resourcesDir, "path"));
     const pathRipgrepPath = path.join(pathToolsDir, "rg.exe");
-    if (!(0, exec_1.fileExists)(bundledRipgrepPath)) {
-        const fallbackRipgrepPath = ((0, exec_1.fileExists)(pathRipgrepPath) ? pathRipgrepPath : "") ||
-            (0, exec_1.resolveCommand)("rg.exe") ||
-            (0, exec_1.resolveCommand)("rg") ||
-            "";
-        if (fallbackRipgrepPath && (0, exec_1.fileExists)(fallbackRipgrepPath)) {
-            (0, exec_1.writeInfo)(`Bundling ripgrep from: ${fallbackRipgrepPath}`);
-            (0, exec_1.copyFileSafe)(fallbackRipgrepPath, bundledRipgrepPath);
-        }
-    }
-    if (!(0, exec_1.fileExists)(bundledRipgrepPath)) {
+    const ripgrepSourcePath = resolveRipgrepSource(resourcesDir, preferredRipgrepPath);
+    if (!ripgrepSourcePath) {
         throw new Error(`Portable build requires bundled rg.exe: ${bundledRipgrepPath}`);
     }
-    if (!(0, exec_1.fileExists)(pathRipgrepPath)) {
-        (0, exec_1.copyFileSafe)(bundledRipgrepPath, pathRipgrepPath);
+    (0, exec_1.writeInfo)(`Bundling ripgrep from: ${ripgrepSourcePath}`);
+    if (path.resolve(ripgrepSourcePath) !== path.resolve(bundledRipgrepPath)) {
+        (0, exec_1.copyFileSafe)(ripgrepSourcePath, bundledRipgrepPath);
     }
+    if (path.resolve(ripgrepSourcePath) !== path.resolve(pathRipgrepPath)) {
+        (0, exec_1.copyFileSafe)(ripgrepSourcePath, pathRipgrepPath);
+    }
+    return {
+        bundledRipgrepPath,
+        bundledRipgrepSourcePath: ripgrepSourcePath,
+    };
 }
 function bundleVendorPathTools(resourcesDir, cliSrcDir) {
     const vendorArchDir = path.resolve(cliSrcDir, "..");
@@ -101,19 +115,15 @@ function bundleWindowsRuntimeDonorTools(resourcesDir) {
     const donorToolPaths = (0, windows_apps_1.getWindowsRuntimeDonorToolPaths)();
     if (donorToolPaths.length === 0)
         return;
-    const pathToolsDir = (0, exec_1.ensureDir)(path.join(resourcesDir, "path"));
     (0, exec_1.writeInfo)("Bundling Windows runtime donor tools...");
     for (const donorToolPath of donorToolPaths) {
         const fileName = path.basename(donorToolPath);
         if (!DONOR_TOOL_NAMES.has(fileName.toLowerCase()))
             continue;
         const destinationPath = path.join(resourcesDir, fileName);
-        if (fileName.toLowerCase() !== "rg.exe" && (0, exec_1.fileExists)(destinationPath))
+        if ((0, exec_1.fileExists)(destinationPath))
             continue;
         (0, exec_1.copyFileSafe)(donorToolPath, destinationPath);
-        if (fileName.toLowerCase() === "rg.exe") {
-            (0, exec_1.copyFileSafe)(donorToolPath, path.join(pathToolsDir, fileName));
-        }
     }
 }
 function trimPortableResourceRoot(resourcesDir) {
@@ -141,7 +151,7 @@ function bundlePackagedRuntimeSupportResources(resourcesDir, runtimeResourcesDir
         }
     }
 }
-function bundleCodexCliResources(resourcesDir, bundledCliPath) {
+function bundleCodexCliResources(resourcesDir, bundledCliPath, preferredRipgrepPath) {
     const cliSrcDir = path.dirname(bundledCliPath);
     (0, exec_1.copyFileSafe)(bundledCliPath, path.join(resourcesDir, "codex.exe"));
     for (const entry of fs.readdirSync(cliSrcDir, { withFileTypes: true })) {
@@ -156,6 +166,7 @@ function bundleCodexCliResources(resourcesDir, bundledCliPath) {
     }
     bundleVendorPathTools(resourcesDir, cliSrcDir);
     bundleWindowsRuntimeDonorTools(resourcesDir);
-    ensureBundledRipgrep(resourcesDir);
+    const bundledTools = installBundledRipgrep(resourcesDir, preferredRipgrepPath);
     trimPortableResourceRoot(resourcesDir);
+    return bundledTools;
 }

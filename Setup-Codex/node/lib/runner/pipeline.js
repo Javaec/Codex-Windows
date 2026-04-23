@@ -135,7 +135,7 @@ async function runPipelineDetailed(options) {
         (0, exec_1.writeHeader)("Resolving Codex CLI");
         const cliResolution = await (0, cli_resolution_1.resolveAndProbeCodexCli)(preferredCodexCliPath, true, cliTracePath, "Codex CLI preflight failed for portable packaging", undefined, { workDir, codexCliChannel: options.codexCliChannel });
         (0, exec_1.writeHeader)("Packaging portable app");
-        const portable = await (0, portable_1.invokePortableBuild)(distDir, runtime, appDir, buildNumber, buildFlavor, cliResolution.path, effectiveProfile, workDir, appVersion);
+        const portable = await (0, portable_1.invokePortableBuild)(distDir, runtime, appDir, buildNumber, buildFlavor, cliResolution.path, ripgrep.path, effectiveProfile, workDir, appVersion);
         const buildMetadataPath = (0, metadata_1.writeBuildMetadata)(portable.outputDir, {
             dmgPath: resolvedDmgPath,
             appVersion,
@@ -150,6 +150,9 @@ async function runPipelineDetailed(options) {
             patchReportPath: patchReport.reportPath,
             cliPath: cliResolution.path,
             cliSource: cliResolution.source,
+            ripgrepSource: ripgrep.source,
+            bundledRipgrepPath: portable.bundledRipgrepPath,
+            bundledRipgrepSourcePath: portable.bundledRipgrepSourcePath,
             portableShellRuntime: portable.portableShellRuntime,
             nativeRuntime: portable.nativeRuntime,
             canonicalOutputReady: portable.canonicalOutputReady,
