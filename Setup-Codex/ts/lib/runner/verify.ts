@@ -51,8 +51,12 @@ function resolveNativeSupportCandidates(): string[] {
   return uniqueExistingDirs([
     path.join(REPO_ROOT, "dist", "Codex-win32-x64", "resources", "app"),
     path.join(REPO_ROOT, "dist", "Codex-win32-arm64", "resources", "app"),
+    path.join(REPO_ROOT, "Setup-Codex", "native-seeds", "win32-x64", "app"),
+    path.join(REPO_ROOT, "Setup-Codex", "native-seeds", "win32-arm64", "app"),
     path.join(REPO_ROOT, "scripts", "native-seeds", "win32-x64", "app"),
     path.join(REPO_ROOT, "scripts", "native-seeds", "win32-arm64", "app"),
+    path.join(REPO_ROOT, "native-seeds", "win32-x64", "app"),
+    path.join(REPO_ROOT, "native-seeds", "win32-arm64", "app"),
   ]);
 }
 
@@ -230,7 +234,7 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
     nativeCandidates.length > 0 ? "OK" : "FAIL",
     nativeCandidates.length > 0
       ? `${nativeCandidates.length} donor/seed path(s) available`
-      : "no donor/seed app directories found under dist/ or scripts/native-seeds/",
+      : "no donor/seed app directories found under dist/, Setup-Codex/native-seeds/, scripts/native-seeds/, or native-seeds/",
   );
 
   if (dmgBuildMetadata?.electronVersion) {

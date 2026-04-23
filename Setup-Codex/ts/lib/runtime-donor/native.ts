@@ -53,6 +53,7 @@ const PACKAGED_RUNTIME_DIR_NAME = "packaged-runtime";
 const PACKAGED_RUNTIME_TMP_DIR_NAME = "packaged-runtime.tmp";
 const RUNTIME_DESCRIPTOR_FILE_NAME = "runtime-descriptor.json";
 const RUNTIME_VALIDATION_MODE = "electron-run-as-node";
+const SETUP_CODEX_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 function getFileSha256(filePath: string): string {
   const hash = crypto.createHash("sha256");
@@ -234,7 +235,7 @@ function readPeMachineType(filePath: string): number {
 }
 
 function expectedPeMachineTypes(arch: string): number[] {
-  if (arch === "arm64") return [0xaa64];
+  if (arch === "arm64" || arch === "win32-arm64") return [0xaa64];
   return [0x8664];
 }
 
@@ -276,12 +277,13 @@ function copyNativeArtifactsFromAppLayout(sourceAppDir: string, appDir: string, 
     "better-sqlite3 native cache artifact",
   );
 
+  copyDirectory(ptySrcDir, path.join(appDir, "node_modules", "node-pty", "prebuilds", arch));
+  copyDirectory(ptySrcDir, path.join(nativeDir, "node_modules", "node-pty", "prebuilds", arch));
+
   for (const fileName of ["pty.node", "conpty.node", "conpty_console_list.node"]) {
     const src = path.join(ptySrcDir, fileName);
     if (!fileExists(src)) continue;
-    copyNativeFile(src, path.join(appDir, "node_modules", "node-pty", "prebuilds", arch, fileName), "node-pty app prebuild artifact");
     copyNativeFile(src, path.join(appDir, "node_modules", "node-pty", "build", "Release", fileName), "node-pty app release artifact");
-    copyNativeFile(src, path.join(nativeDir, "node_modules", "node-pty", "prebuilds", arch, fileName), "node-pty native cache artifact");
   }
   return true;
 }
@@ -335,8 +337,9 @@ function getNativeDonorAppDirs(workDir: string): string[] {
 }
 
 function getNativeSeedAppDirs(workDir: string, arch: string): string[] {
-  const candidates: string[] = [];
+  const candidates: string[] = [path.join(SETUP_CODEX_ROOT, "native-seeds", arch, "app")];
   for (const repoRoot of getRepositoryRoots(workDir)) {
+    candidates.push(path.join(repoRoot, "Setup-Codex", "native-seeds", arch, "app"));
     candidates.push(path.join(repoRoot, "scripts", "native-seeds", arch, "app"));
     candidates.push(path.join(repoRoot, "native-seeds", arch, "app"));
   }
@@ -778,11 +781,11 @@ export function invokeNativeStage(
   if (!appReady) {
     if (allowNativeRebuild) {
       throw new Error(
-        `No usable native artifacts found. Rebuild path is explicitly enabled, but this script no longer performs node-gyp builds. Provide prebuilt artifacts in scripts/native-seeds/${arch}/app or donor install.`,
+        `No usable native artifacts found. Rebuild path is explicitly enabled, but this script no longer performs node-gyp builds. Provide prebuilt artifacts in Setup-Codex/native-seeds/${arch}/app (or legacy scripts/native-seeds/${arch}/app) or donor install.`,
       );
     }
     throw new Error(
-      "No usable native artifacts found for better-sqlite3/node-pty, and native rebuild is disabled by policy. Use a donor installation or provide bundled seeds under scripts/native-seeds/<arch>/app.",
+      "No usable native artifacts found for better-sqlite3/node-pty, and native rebuild is disabled by policy. Use a donor installation or provide bundled seeds under Setup-Codex/native-seeds/<arch>/app.",
     );
   }
 
