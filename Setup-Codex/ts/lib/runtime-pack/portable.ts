@@ -17,7 +17,7 @@ import { isCanonicalProfileName, isForgeProfileName, normalizeProfileName } from
 import { patchMainForWindowsEnvironment } from "../platform-patches/bundle-patches";
 import type { RuntimeDescriptor } from "../runtime-donor/native";
 import { ensureElectronDistCacheForPackaging } from "../runtime-donor/native";
-import { bundleCodexCliResources, bundlePackagedRuntimeSupportResources } from "./codex-resources";
+import { bundleCodexCliResources, bundlePackagedRuntimeSupportResources, ensureBundledNotificationSound } from "./codex-resources";
 import { startPortableDirectLaunch } from "./direct-launch";
 import { pruneStalePortableOutputs, writeLatestPortableLaunchers, writePortableLauncher } from "./launchers";
 import { verifyPortableRuntimeContract } from "./verify";
@@ -219,6 +219,7 @@ export async function invokePortableBuild(
   }
   writeInfo("Bundling Codex CLI...");
   const bundledTools = bundleCodexCliResources(resourcesDir, bundledCliPath, preferredRipgrepPath);
+  ensureBundledNotificationSound(resourcesDir, donorSupportResourcesDir);
 
   const launcherPath = writePortableLauncher(outputDir, profile);
   for (const requiredLauncher of [

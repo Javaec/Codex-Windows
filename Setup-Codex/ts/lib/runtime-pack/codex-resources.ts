@@ -26,17 +26,45 @@ const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
   "third_party_notices.txt",
 ]);
 
-const PACKAGED_RUNTIME_SUPPORT_NAMES = [
-  "native",
-  "codex",
-  "icon.ico",
-  "rg",
-  "THIRD_PARTY_NOTICES.txt",
+const PACKAGED_RUNTIME_SUPPORT_ENTRIES = [
+  { sourceName: "native", targetName: "native" },
+  { sourceName: "codex", targetName: "codex" },
+  { sourceName: "icon.ico", targetName: "icon.ico" },
+  { sourceName: "notification.wav", targetName: "notification.wav" },
+  { sourceName: "codex-notification.wav", targetName: "notification.wav" },
+  { sourceName: "rg", targetName: "rg" },
+  { sourceName: "THIRD_PARTY_NOTICES.txt", targetName: "THIRD_PARTY_NOTICES.txt" },
 ];
 
 export interface BundledCliResourceResult {
   bundledRipgrepPath: string;
   bundledRipgrepSourcePath: string;
+}
+
+function resolveNotificationSoundSource(resourcesDir: string, runtimeResourcesDir: string): string {
+  for (const candidate of [
+    path.join(resourcesDir, "notification.wav"),
+    path.join(resourcesDir, "codex-notification.wav"),
+    path.join(runtimeResourcesDir, "notification.wav"),
+    path.join(runtimeResourcesDir, "codex-notification.wav"),
+  ]) {
+    if (fileExists(candidate)) return path.resolve(candidate);
+  }
+  return "";
+}
+
+export function ensureBundledNotificationSound(resourcesDir: string, runtimeResourcesDir: string): string {
+  const bundledNotificationPath = path.join(resourcesDir, "notification.wav");
+  if (fileExists(bundledNotificationPath)) return bundledNotificationPath;
+
+  const sourcePath = resolveNotificationSoundSource(resourcesDir, runtimeResourcesDir);
+  if (!sourcePath) {
+    throw new Error(`Portable build requires bundled notification.wav: ${bundledNotificationPath}`);
+  }
+
+  writeInfo(`Bundling notification sound from: ${sourcePath}`);
+  copyFileSafe(sourcePath, bundledNotificationPath);
+  return bundledNotificationPath;
 }
 
 function resolveRipgrepSource(resourcesDir: string, preferredRipgrepPath: string | null): string {
@@ -107,10 +135,12 @@ function trimPortableResourceRoot(resourcesDir: string): void {
 
 export function bundlePackagedRuntimeSupportResources(resourcesDir: string, runtimeResourcesDir: string): void {
   if (!fileExists(runtimeResourcesDir)) return;
-  for (const entryName of PACKAGED_RUNTIME_SUPPORT_NAMES) {
-    const sourcePath = path.join(runtimeResourcesDir, entryName);
+  const copiedTargets = new Set<string>();
+  for (const entry of PACKAGED_RUNTIME_SUPPORT_ENTRIES) {
+    if (copiedTargets.has(entry.targetName.toLowerCase())) continue;
+    const sourcePath = path.join(runtimeResourcesDir, entry.sourceName);
     if (!fileExists(sourcePath)) continue;
-    const destinationPath = path.join(resourcesDir, entryName);
+    const destinationPath = path.join(resourcesDir, entry.targetName);
     removePath(destinationPath);
     const stat = fs.statSync(sourcePath);
     if (stat.isDirectory()) {
@@ -118,6 +148,7 @@ export function bundlePackagedRuntimeSupportResources(resourcesDir: string, runt
     } else {
       copyFileSafe(sourcePath, destinationPath);
     }
+    copiedTargets.add(entry.targetName.toLowerCase());
   }
 }
 

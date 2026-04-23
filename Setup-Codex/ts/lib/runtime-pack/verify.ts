@@ -81,6 +81,9 @@ export function verifyPortableRuntimeContract(options: PortableRuntimeContractOp
 
   assertExists(path.join(options.outputDir, "Codex.exe"), "portable executable");
   assertExists(path.join(resourcesDir, "codex.exe"), "bundled codex.exe");
+  assertExists(path.join(resourcesDir, "codex-command-runner.exe"), "bundled codex-command-runner.exe");
+  assertExists(path.join(resourcesDir, "codex-windows-sandbox-setup.exe"), "bundled codex-windows-sandbox-setup.exe");
+  assertExists(path.join(resourcesDir, "notification.wav"), "bundled notification.wav");
   assertExists(bundledRipgrepPath, "bundled rg.exe");
   assertExists(bundledPathRipgrepPath, "bundled path/rg.exe");
   if (getFileSha256(bundledRipgrepPath) !== getFileSha256(bundledPathRipgrepPath)) {

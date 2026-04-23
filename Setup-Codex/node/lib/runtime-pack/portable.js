@@ -208,6 +208,7 @@ async function invokePortableBuild(distDir, runtime, appDir, buildNumber, buildF
     }
     (0, exec_1.writeInfo)("Bundling Codex CLI...");
     const bundledTools = (0, codex_resources_1.bundleCodexCliResources)(resourcesDir, bundledCliPath, preferredRipgrepPath);
+    (0, codex_resources_1.ensureBundledNotificationSound)(resourcesDir, donorSupportResourcesDir);
     const launcherPath = (0, launchers_1.writePortableLauncher)(outputDir, profile);
     for (const requiredLauncher of [
         "Launch-Codex.cmd",

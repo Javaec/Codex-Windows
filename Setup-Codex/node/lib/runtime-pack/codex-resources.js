@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ensureBundledNotificationSound = ensureBundledNotificationSound;
 exports.bundlePackagedRuntimeSupportResources = bundlePackagedRuntimeSupportResources;
 exports.bundleCodexCliResources = bundleCodexCliResources;
 const fs = __importStar(require("node:fs"));
@@ -61,13 +62,39 @@ const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
     "rg.exe",
     "third_party_notices.txt",
 ]);
-const PACKAGED_RUNTIME_SUPPORT_NAMES = [
-    "native",
-    "codex",
-    "icon.ico",
-    "rg",
-    "THIRD_PARTY_NOTICES.txt",
+const PACKAGED_RUNTIME_SUPPORT_ENTRIES = [
+    { sourceName: "native", targetName: "native" },
+    { sourceName: "codex", targetName: "codex" },
+    { sourceName: "icon.ico", targetName: "icon.ico" },
+    { sourceName: "notification.wav", targetName: "notification.wav" },
+    { sourceName: "codex-notification.wav", targetName: "notification.wav" },
+    { sourceName: "rg", targetName: "rg" },
+    { sourceName: "THIRD_PARTY_NOTICES.txt", targetName: "THIRD_PARTY_NOTICES.txt" },
 ];
+function resolveNotificationSoundSource(resourcesDir, runtimeResourcesDir) {
+    for (const candidate of [
+        path.join(resourcesDir, "notification.wav"),
+        path.join(resourcesDir, "codex-notification.wav"),
+        path.join(runtimeResourcesDir, "notification.wav"),
+        path.join(runtimeResourcesDir, "codex-notification.wav"),
+    ]) {
+        if ((0, exec_1.fileExists)(candidate))
+            return path.resolve(candidate);
+    }
+    return "";
+}
+function ensureBundledNotificationSound(resourcesDir, runtimeResourcesDir) {
+    const bundledNotificationPath = path.join(resourcesDir, "notification.wav");
+    if ((0, exec_1.fileExists)(bundledNotificationPath))
+        return bundledNotificationPath;
+    const sourcePath = resolveNotificationSoundSource(resourcesDir, runtimeResourcesDir);
+    if (!sourcePath) {
+        throw new Error(`Portable build requires bundled notification.wav: ${bundledNotificationPath}`);
+    }
+    (0, exec_1.writeInfo)(`Bundling notification sound from: ${sourcePath}`);
+    (0, exec_1.copyFileSafe)(sourcePath, bundledNotificationPath);
+    return bundledNotificationPath;
+}
 function resolveRipgrepSource(resourcesDir, preferredRipgrepPath) {
     const pathRipgrepPath = path.join(resourcesDir, "path", "rg.exe");
     const donorRipgrepPath = (0, windows_apps_1.getWindowsRuntimeDonorRipgrepPath)();
@@ -136,11 +163,14 @@ function trimPortableResourceRoot(resourcesDir) {
 function bundlePackagedRuntimeSupportResources(resourcesDir, runtimeResourcesDir) {
     if (!(0, exec_1.fileExists)(runtimeResourcesDir))
         return;
-    for (const entryName of PACKAGED_RUNTIME_SUPPORT_NAMES) {
-        const sourcePath = path.join(runtimeResourcesDir, entryName);
+    const copiedTargets = new Set();
+    for (const entry of PACKAGED_RUNTIME_SUPPORT_ENTRIES) {
+        if (copiedTargets.has(entry.targetName.toLowerCase()))
+            continue;
+        const sourcePath = path.join(runtimeResourcesDir, entry.sourceName);
         if (!(0, exec_1.fileExists)(sourcePath))
             continue;
-        const destinationPath = path.join(resourcesDir, entryName);
+        const destinationPath = path.join(resourcesDir, entry.targetName);
         (0, exec_1.removePath)(destinationPath);
         const stat = fs.statSync(sourcePath);
         if (stat.isDirectory()) {
@@ -149,6 +179,7 @@ function bundlePackagedRuntimeSupportResources(resourcesDir, runtimeResourcesDir
         else {
             (0, exec_1.copyFileSafe)(sourcePath, destinationPath);
         }
+        copiedTargets.add(entry.targetName.toLowerCase());
     }
 }
 function bundleCodexCliResources(resourcesDir, bundledCliPath, preferredRipgrepPath) {
