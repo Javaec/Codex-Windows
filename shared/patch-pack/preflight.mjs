@@ -448,6 +448,12 @@ function resolveProfileId({ forcedProfile, selector, snapshotLabel, appVersion, 
       matchedBuildSource: String(knownBuildMatch.source || "").trim(),
     };
   }
+  if (String(appVersion || "").trim().length > 0 && String(buildNumber || "").trim().length > 0) {
+    throw new Error(
+      `patch-pack preflight: unknown Codex build identity appVersion=${appVersion} buildNumber=${buildNumber}. ` +
+      "Add it to shared/version-identity/known-builds.json or pass --patch-profile explicitly.",
+    );
+  }
 
   for (const rule of selector.rules) {
     const profileId = typeof rule.profileId === "string" ? rule.profileId : "";

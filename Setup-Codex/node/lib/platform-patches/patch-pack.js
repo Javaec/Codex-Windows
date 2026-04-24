@@ -342,6 +342,10 @@ function resolveProfileId(input, selector, buildHint) {
             matchedBuildSource: String(knownBuildMatch.source || "").trim(),
         };
     }
+    if (input.appVersion.trim().length > 0 && input.buildNumber.trim().length > 0) {
+        throw new Error(`patch-pack: unknown Codex build identity appVersion=${input.appVersion} buildNumber=${input.buildNumber}. ` +
+            "Add it to shared/version-identity/known-builds.json or pass -PatchProfile explicitly.");
+    }
     const snapshotLabel = input.snapshotLabel.trim().toLowerCase();
     const appVersion = input.appVersion.trim();
     for (const rule of selector.rules) {
