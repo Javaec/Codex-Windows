@@ -55,6 +55,17 @@ function takeLastLine(text: string): string {
   return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
+function summarizeCommandFailure(output: string): string {
+  const lines = String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const errorLine = lines.find((line) => line.startsWith("Error: "));
+  if (errorLine) return errorLine.slice("Error: ".length);
+  const usefulLine = [...lines].reverse().find((line) => !line.startsWith("at ") && !line.startsWith("Node.js "));
+  return usefulLine || "";
+}
+
 function summarizePatchPackPreflight(output: string): string {
   try {
     const parsed = JSON.parse(output) as {
@@ -190,7 +201,7 @@ export async function runVerify(options: PipelineOptions): Promise<number> {
     preflight.status === 0 ? "OK" : "FAIL",
     preflight.status === 0
       ? summarizePatchPackPreflight(preflight.stdout)
-      : takeLastLine(preflight.stderr || preflight.stdout) || `exit=${preflight.status}`,
+      : summarizeCommandFailure(preflight.stderr || preflight.stdout) || `exit=${preflight.status}`,
   );
 
   const preferredCodexCliPath = resolvePreferredCodexCliPath(options.codexCliPath);
