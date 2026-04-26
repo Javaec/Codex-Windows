@@ -128,6 +128,7 @@ const MESSAGES = {
     endpointEmpty: 'Endpoint cannot be empty.',
     invalidEndpoint: (value) => `Invalid endpoint: ${value}`,
     invalidApiKeyBoundary: 'API key must start and end with a letter or digit.',
+    invalidEnvKey: (value) => `Invalid environment variable name: ${value}`,
     descriptionNotFound: (description, filePath) => `${description} not found: ${filePath}`,
     setupConfigLabel: 'Setup config',
     codexHomeLabel: 'Codex home',
@@ -234,6 +235,7 @@ const MESSAGES = {
     endpointEmpty: 'Endpoint не может быть пустым.',
     invalidEndpoint: (value) => `Некорректный endpoint: ${value}`,
     invalidApiKeyBoundary: 'API key должен начинаться и заканчиваться буквой или цифрой.',
+    invalidEnvKey: (value) => `Некорректное имя переменной окружения: ${value}`,
     descriptionNotFound: (description, filePath) => `${description} не найден: ${filePath}`,
     setupConfigLabel: 'Конфиг мастера',
     codexHomeLabel: 'Папка Codex',
@@ -678,12 +680,19 @@ function quotePowerShellString(value) {
 }
 
 function validateApiKey(apiKey, locale = CURRENT_LOCALE) {
-  if (!/^[A-Za-z0-9](?:[\s\S]*[A-Za-z0-9])?$/u.test(apiKey)) {
+  if (!/^[A-Za-z0-9](?:[^\s]*[A-Za-z0-9])?$/u.test(apiKey)) {
     throw new Error(t(locale, 'invalidApiKeyBoundary'));
   }
 }
 
+function validateEnvKeyName(name, locale = CURRENT_LOCALE) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(String(name || ''))) {
+    throw new Error(t(locale, 'invalidEnvKey', name));
+  }
+}
+
 function setUserEnvironmentVariable(name, value) {
+  validateEnvKeyName(name);
   const powershell = findPowerShell7ExecutableInPath() || findExecutableInPath(['powershell.exe', 'powershell']);
   if (!powershell) {
     throw new Error('PowerShell is not available');
@@ -1700,6 +1709,7 @@ function parseArgs(argv) {
     codexHome: process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex'),
     backupDir: DEFAULT_BACKUP_DIR,
     checkDependencies: false,
+    checkProviderConfig: false,
     locale: CURRENT_LOCALE,
   };
 
@@ -1707,6 +1717,11 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--check-dependencies') {
       options.checkDependencies = true;
+      continue;
+    }
+
+    if (arg === '--check-provider-config') {
+      options.checkProviderConfig = true;
       continue;
     }
 
@@ -1779,6 +1794,7 @@ function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
   if (provider.envKey != null && typeof provider.envKey !== 'string') {
     throw new Error(t(locale, 'setupConfigFieldString', 'provider.envKey'));
   }
+  validateEnvKeyName(provider.envKey || 'CODEX_LB_API_KEY', locale);
 
   if (provider.requiresOpenaiAuth != null && typeof provider.requiresOpenaiAuth !== 'boolean') {
     throw new Error(t(locale, 'setupConfigMissingBoolean', 'provider.requiresOpenaiAuth'));
@@ -2128,6 +2144,46 @@ function updateConfigToml(configPath, setupConfig) {
   const lineEnding = originalText ? detectLineEnding(originalText) : '\r\n';
   const nextText = buildConfigTomlText(setupConfig, lineEnding);
   return writeFileWithSidecarBackup(configPath, nextText);
+}
+
+function assertProviderConfigSmoke(setupConfig, locale = CURRENT_LOCALE) {
+  const configText = buildConfigTomlText({
+    ...setupConfig,
+    provider: {
+      ...setupConfig.provider,
+      baseUrl: setupConfig.defaultEndpoint,
+    },
+  }, '\n');
+  const requiredLines = [
+    `model_provider = ${serializeTomlValue(setupConfig.provider.id, locale)}`,
+    `[model_providers.${setupConfig.provider.id}]`,
+    `base_url = ${serializeTomlValue(setupConfig.defaultEndpoint, locale)}`,
+    `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi, locale)}`,
+    `env_key = ${serializeTomlValue(setupConfig.provider.envKey, locale)}`,
+    `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets, locale)}`,
+    `requires_openai_auth = ${serializeTomlValue(setupConfig.provider.requiresOpenaiAuth, locale)} # required for codex app`,
+  ];
+
+  for (const line of requiredLines) {
+    if (!configText.includes(line)) {
+      throw new Error(`Provider config smoke failed: missing ${line}`);
+    }
+  }
+
+  validateApiKey('sk-omni-v2-clb-1db625538245-d569315a.0afb8ff473860de2ff1e805f156', locale);
+  for (const badKey of ['-sk-example', 'sk-example.', '.']) {
+    let rejected = false;
+    try {
+      validateApiKey(badKey, locale);
+    } catch (error) {
+      rejected = true;
+    }
+    if (!rejected) {
+      throw new Error(`Provider config smoke failed: invalid API key accepted: ${badKey}`);
+    }
+  }
+
+  return configText;
 }
 
 async function scanSessions(sessionsRoot) {
@@ -2493,6 +2549,18 @@ async function main() {
     const dependencyMap = buildDependencyMap(options.locale);
     printDependencyMap(options.locale, dependencyMap);
     ensureCriticalDependencies(dependencyMap, options.locale);
+    return;
+  }
+
+  if (options.checkProviderConfig) {
+    CURRENT_LOCALE = options.locale;
+    if (!options.configPath) {
+      throw new Error(t(CURRENT_LOCALE, 'missingConfigArg'));
+    }
+
+    const setupConfig = readSetupConfig(options.configPath, options.locale);
+    const configText = assertProviderConfigSmoke(setupConfig, options.locale);
+    console.log(configText.trimEnd());
     return;
   }
 
