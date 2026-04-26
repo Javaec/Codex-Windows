@@ -35,6 +35,10 @@ const DEFAULTS_KEY_ORDER = [
   'approval_policy',
   'sandbox_mode',
 ];
+const CODEX_PROVIDER_COMMENTED_BASE_URLS = [
+  'http://127.0.0.1:2455/backend-api/codex',
+  'http://185.176.94.28:2455/backend-api/codex',
+];
 
 let CURRENT_LOCALE = 'ru';
 
@@ -1800,19 +1804,6 @@ function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
     throw new Error(t(locale, 'setupConfigMissingBoolean', 'provider.requiresOpenaiAuth'));
   }
 
-  if (provider.commentedBaseUrls != null && !Array.isArray(provider.commentedBaseUrls)) {
-    throw new Error(t(locale, 'setupConfigMissingObject', 'provider.commentedBaseUrls'));
-  }
-
-  const commentedBaseUrls = Array.isArray(provider.commentedBaseUrls)
-    ? provider.commentedBaseUrls.map((value) => {
-      if (typeof value !== 'string') {
-        throw new Error(t(locale, 'setupConfigFieldString', 'provider.commentedBaseUrls[]'));
-      }
-      return value;
-    })
-    : [];
-
   if (!defaults || typeof defaults !== 'object') {
     throw new Error(t(locale, 'setupConfigMissingObject', 'defaults'));
   }
@@ -1836,7 +1827,6 @@ function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
       envKey: provider.envKey || 'CODEX_LB_API_KEY',
       supportsWebsockets: provider.supportsWebsockets,
       requiresOpenaiAuth: provider.requiresOpenaiAuth === true,
-      commentedBaseUrls,
     },
     defaults,
   };
@@ -2126,7 +2116,7 @@ function buildConfigTomlText(setupConfig, lineEnding = '\r\n') {
     `[model_providers.${provider.id}]`,
     `name = ${serializeTomlValue(provider.name, CURRENT_LOCALE)}`,
     `base_url = ${serializeTomlValue(provider.baseUrl, CURRENT_LOCALE)}`,
-    ...provider.commentedBaseUrls.map((baseUrl) => `#base_url = ${serializeTomlValue(baseUrl, CURRENT_LOCALE)}`),
+    ...CODEX_PROVIDER_COMMENTED_BASE_URLS.map((baseUrl) => `#base_url = ${serializeTomlValue(baseUrl, CURRENT_LOCALE)}`),
     `wire_api = ${serializeTomlValue(provider.wireApi, CURRENT_LOCALE)}`,
     `env_key = ${serializeTomlValue(provider.envKey, CURRENT_LOCALE)}`,
     `supports_websockets = ${serializeTomlValue(provider.supportsWebsockets, CURRENT_LOCALE)}`,

@@ -6,11 +6,7 @@
     "wireApi": "responses",
     "envKey": "CODEX_LB_API_KEY",
     "supportsWebsockets": true,
-    "requiresOpenaiAuth": true,
-    "commentedBaseUrls": [
-      "http://127.0.0.1:2455/backend-api/codex",
-      "http://185.176.94.28:2455/backend-api/codex"
-    ]
+    "requiresOpenaiAuth": true
   },
   "defaults": {
     "model": "gpt-5.4",
