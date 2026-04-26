@@ -47,10 +47,6 @@ const MESSAGES = {
     baseUrl: (value) => `Base URL: ${value}`,
     enterEndpoint: (value) => `Enter endpoint (default: ${value}): `,
     enterApiKey: 'Enter API key: ',
-    emptyKeyMenuTitle: 'API key is empty. Select an option:',
-    clearApiKey: 'Throw current API key overboard',
-    keepApiKey: 'Let the current API key live for now',
-    emptyKeyPrompt: 'API key is empty. Select an option: ',
     sessionsIntro: (provider) => `Existing chats can be retagged to ${provider} so they appear in Codex history.`,
     sessionsNoDefault: 'No, leave existing chat providers unchanged (default)',
     sessionsYes: (provider) => `Yes, update existing chats to ${provider}`,
@@ -75,11 +71,10 @@ const MESSAGES = {
     updateJsonlProgress: 'Updating sessions',
     updateSqliteBanner: 'Updating SQLite state',
     updateSqliteProgress: 'Updating sqlite',
-    writeConfigBanner: 'Writing auth.json and config.toml',
+    writeConfigBanner: 'Writing provider config',
     summaryBanner: 'Summary',
-    updatedAuth: (pathValue) => `Updated auth.json: ${pathValue}`,
-    clearedAuth: (pathValue) => `Cleared OPENAI_API_KEY in auth.json: ${pathValue}`,
-    keptAuth: (pathValue) => `Kept existing auth.json unchanged: ${pathValue}`,
+    updatedEnvKey: (name, scope) => `Updated ${name} environment variable (${scope})`,
+    keptEnvKey: (name) => `Kept ${name} environment variable unchanged`,
     updatedConfig: (pathValue) => `Updated config.toml: ${pathValue}`,
     keptConfig: (pathValue) => `Kept existing config.toml unchanged: ${pathValue}`,
     sidecarBackup: (originalName, backupPath) => `Backup created for ${originalName}: ${backupPath}`,
@@ -115,6 +110,7 @@ const MESSAGES = {
     pathAutoAdded: (label, dirPath) => `Added ${label} to PATH: ${dirPath}`,
     pathAutoAddedSessionOnly: (label, dirPath, details) => `Added ${label} to current PATH only: ${dirPath} (${details})`,
     pathPersistFailed: (label, details) => `Failed to persist PATH update for ${label}: ${details}`,
+    dependencyFoundOutsidePath: (source) => `Found via ${source}, but not visible from PATH`,
     dependencyCriticalTitle: 'Critical requirements',
     dependencyHelpfulTitle: 'Helpful but optional',
     dependencyUsefulTitle: 'Sometimes useful',
@@ -131,6 +127,7 @@ const MESSAGES = {
     oldRefsRemain: 'Some old provider references still remain after conversion.',
     endpointEmpty: 'Endpoint cannot be empty.',
     invalidEndpoint: (value) => `Invalid endpoint: ${value}`,
+    invalidApiKeyBoundary: 'API key must start and end with a letter or digit.',
     descriptionNotFound: (description, filePath) => `${description} not found: ${filePath}`,
     setupConfigLabel: 'Setup config',
     codexHomeLabel: 'Codex home',
@@ -156,10 +153,6 @@ const MESSAGES = {
     baseUrl: (value) => `Базовый URL: ${value}`,
     enterEndpoint: (value) => `Введите endpoint (по умолчанию: ${value}): `,
     enterApiKey: 'Введите API key: ',
-    emptyKeyMenuTitle: 'API key пустой. Выберите действие:',
-    clearApiKey: 'Текущий API key за борт!',
-    keepApiKey: 'Пусть текущий API key живёт пока что',
-    emptyKeyPrompt: 'API key пустой. Выберите действие: ',
     sessionsIntro: (provider) => `Старые чаты можно перетегать в ${provider}, чтобы они появились в истории Codex.`,
     sessionsNoDefault: 'Нет, не менять провайдеры старых чатов (по умолчанию)',
     sessionsYes: (provider) => `Да, обновить старые чаты на ${provider}`,
@@ -184,11 +177,10 @@ const MESSAGES = {
     updateJsonlProgress: 'Обновление сессий',
     updateSqliteBanner: 'Обновление SQLite state',
     updateSqliteProgress: 'Обновление sqlite',
-    writeConfigBanner: 'Запись auth.json и config.toml',
+    writeConfigBanner: 'Запись настройки провайдера',
     summaryBanner: 'Итог',
-    updatedAuth: (pathValue) => `Обновлён auth.json: ${pathValue}`,
-    clearedAuth: (pathValue) => `OPENAI_API_KEY очищен в auth.json: ${pathValue}`,
-    keptAuth: (pathValue) => `Текущий auth.json оставлен без изменений: ${pathValue}`,
+    updatedEnvKey: (name, scope) => `Обновлена переменная окружения ${name} (${scope})`,
+    keptEnvKey: (name) => `Переменная окружения ${name} оставлена без изменений`,
     updatedConfig: (pathValue) => `Обновлён config.toml: ${pathValue}`,
     keptConfig: (pathValue) => `Текущий config.toml оставлен без изменений: ${pathValue}`,
     sidecarBackup: (originalName, backupPath) => `Создан backup для ${originalName}: ${backupPath}`,
@@ -224,6 +216,7 @@ const MESSAGES = {
     pathAutoAdded: (label, dirPath) => `Добавил ${label} в PATH: ${dirPath}`,
     pathAutoAddedSessionOnly: (label, dirPath, details) => `Добавил ${label} только в текущий PATH: ${dirPath} (${details})`,
     pathPersistFailed: (label, details) => `Не удалось сохранить PATH для ${label}: ${details}`,
+    dependencyFoundOutsidePath: (source) => `Найдена через ${source}, но не видна из PATH`,
     dependencyCriticalTitle: 'Смертельно важно',
     dependencyHelpfulTitle: 'Облегчит приключение',
     dependencyUsefulTitle: 'Бывает полезно',
@@ -240,6 +233,7 @@ const MESSAGES = {
     oldRefsRemain: 'После конвертации ещё остались ссылки на старых провайдеров.',
     endpointEmpty: 'Endpoint не может быть пустым.',
     invalidEndpoint: (value) => `Некорректный endpoint: ${value}`,
+    invalidApiKeyBoundary: 'API key должен начинаться и заканчиваться буквой или цифрой.',
     descriptionNotFound: (description, filePath) => `${description} не найден: ${filePath}`,
     setupConfigLabel: 'Конфиг мастера',
     codexHomeLabel: 'Папка Codex',
@@ -520,7 +514,7 @@ function listAppxPackages(packageQuery) {
     return APPX_PACKAGE_CACHE.get(cacheKey);
   }
 
-  const shellPath = findExecutableInPath(['pwsh.exe', 'pwsh', 'powershell.exe', 'powershell']);
+  const shellPath = findPowerShell7ExecutableInPath() || findExecutableInPath(['powershell.exe', 'powershell']);
   if (!shellPath) {
     APPX_PACKAGE_CACHE.set(cacheKey, []);
     return [];
@@ -683,6 +677,33 @@ function quotePowerShellString(value) {
   return `'${String(value || '').replace(/'/g, "''")}'`;
 }
 
+function validateApiKey(apiKey, locale = CURRENT_LOCALE) {
+  if (!/^[A-Za-z0-9](?:[\s\S]*[A-Za-z0-9])?$/u.test(apiKey)) {
+    throw new Error(t(locale, 'invalidApiKeyBoundary'));
+  }
+}
+
+function setUserEnvironmentVariable(name, value) {
+  const powershell = findPowerShell7ExecutableInPath() || findExecutableInPath(['powershell.exe', 'powershell']);
+  if (!powershell) {
+    throw new Error('PowerShell is not available');
+  }
+
+  const command = `[Environment]::SetEnvironmentVariable(${quotePowerShellString(name)}, ${quotePowerShellString(value)}, 'User')`;
+  const result = spawnSync(powershell, ['-NoProfile', '-Command', command], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 5000,
+  });
+
+  if (result.error || result.status !== 0) {
+    throw new Error(firstNonEmptyLine(result.stderr) || firstNonEmptyLine(result.stdout) || `exit ${result.status ?? -1}`);
+  }
+
+  process.env[name] = value;
+  return { name, scope: 'User' };
+}
+
 function persistUserPathEntries(entries) {
   const powershell = findPowerShell7ExecutableInPath() || findExecutableInPath(['powershell.exe', 'powershell']);
   if (!powershell) {
@@ -759,6 +780,55 @@ function getSshExecutableCandidates() {
     process.env.WINDIR ? path.join(process.env.WINDIR, 'System32', 'OpenSSH', 'ssh.exe') : '',
     getProgramFilesCandidate(path.join('Git', 'usr', 'bin', 'ssh.exe')),
     getProgramFilesCandidate(path.join('Git', 'bin', 'ssh.exe')),
+  ]);
+}
+
+function getPythonExecutableCandidates() {
+  const candidates = [];
+  const pythonRoot = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Python') : '';
+  if (pythonRoot && fs.existsSync(pythonRoot)) {
+    const entries = fs.readdirSync(pythonRoot, { withFileTypes: true })
+      .sort((left, right) => right.name.localeCompare(left.name, undefined, { numeric: true, sensitivity: 'base' }));
+    for (const entry of entries) {
+      if (entry.isDirectory() && /^Python\d+/i.test(entry.name)) {
+        candidates.push(path.join(pythonRoot, entry.name, 'python.exe'));
+      }
+    }
+  }
+
+  return uniquePaths(candidates);
+}
+
+function getJavaExecutableCandidates() {
+  const candidates = [];
+  const roots = [
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Zulu') : '',
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Eclipse Adoptium') : '',
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Java') : '',
+  ];
+
+  for (const root of roots) {
+    if (!root || !fs.existsSync(root)) {
+      continue;
+    }
+
+    const entries = fs.readdirSync(root, { withFileTypes: true })
+      .sort((left, right) => right.name.localeCompare(left.name, undefined, { numeric: true, sensitivity: 'base' }));
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        candidates.push(path.join(root, entry.name, 'bin', 'java.exe'));
+      }
+    }
+  }
+
+  return uniquePaths(candidates);
+}
+
+function getSevenZipExecutableCandidates() {
+  return uniquePaths([
+    getProgramFilesCandidate(path.join('7-Zip', '7z.exe')),
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'scoop', 'shims', '7z.exe') : '',
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', '7-Zip', '7z.exe') : '',
   ]);
 }
 
@@ -917,19 +987,23 @@ function sanitizeVersionText(label, text) {
   }
 }
 
-function makeDependency(label, state, pathValue, detail, hint = '') {
+function makeDependency(label, state, pathValue, detail, hint = '', source = '', visibleFromPath = true) {
   return {
     label,
     state,
     path: pathValue || '',
     detail: sanitizeVersionText(label, detail),
     hint,
+    source,
+    visibleFromPath,
   };
 }
 
 function resolveRunnableDependency(commandNames, candidates, args) {
+  const pathExecutable = findExecutableInPath(commandNames);
+  const pathExecutableKey = pathExecutable ? normalizePathKey(pathExecutable) : '';
   const allCandidates = uniquePaths([
-    findExecutableInPath(commandNames),
+    pathExecutable,
     ...candidates,
   ]);
   let firstExisting = '';
@@ -946,7 +1020,14 @@ function resolveRunnableDependency(commandNames, candidates, args) {
 
     const result = runExecutable(executablePath, args);
     if (result.ok) {
-      return { ok: true, path: executablePath, result };
+      const visibleFromPath = normalizePathKey(executablePath) === pathExecutableKey;
+      return {
+        ok: true,
+        path: executablePath,
+        result,
+        source: visibleFromPath ? 'PATH' : describeExecutableSource(executablePath),
+        visibleFromPath,
+      };
     }
   }
 
@@ -954,7 +1035,45 @@ function resolveRunnableDependency(commandNames, candidates, args) {
     ok: false,
     path: firstExisting,
     result: { ok: false, stdout: '', stderr: '', code: -1 },
+    source: firstExisting ? describeExecutableSource(firstExisting) : '',
+    visibleFromPath: Boolean(pathExecutableKey && normalizePathKey(firstExisting) === pathExecutableKey),
   };
+}
+
+function describeExecutableSource(executablePath) {
+  const normalized = path.normalize(String(executablePath || '')).toLowerCase();
+  const localAppData = path.normalize(process.env.LOCALAPPDATA || '').toLowerCase();
+  const appData = path.normalize(process.env.APPDATA || '').toLowerCase();
+  const userProfile = path.normalize(process.env.USERPROFILE || '').toLowerCase();
+  const programFiles = path.normalize(process.env.ProgramFiles || '').toLowerCase();
+  const programFilesX86 = path.normalize(process.env['ProgramFiles(x86)'] || '').toLowerCase();
+
+  if (normalized.includes(path.normalize('\\WindowsApps\\OpenAI.Codex_').toLowerCase())) {
+    return 'Codex App resources';
+  }
+  if (localAppData && normalized.startsWith(path.join(localAppData, 'openai', 'codex', 'bin'))) {
+    return 'Codex tool bin';
+  }
+  if (appData && normalized.startsWith(path.join(appData, 'npm'))) {
+    return 'npm user bin';
+  }
+  if (localAppData && normalized.startsWith(path.join(localAppData, 'programs', 'python'))) {
+    return 'Python user install';
+  }
+  if (userProfile && normalized.startsWith(path.join(userProfile, 'scoop', 'shims'))) {
+    return 'Scoop shims';
+  }
+  if (programFiles && normalized.startsWith(programFiles)) {
+    return 'Program Files';
+  }
+  if (programFilesX86 && normalized.startsWith(programFilesX86)) {
+    return 'Program Files (x86)';
+  }
+  if (normalized.startsWith(path.normalize(path.resolve(__dirname, '..', '..')).toLowerCase())) {
+    return 'repository candidate';
+  }
+
+  return 'known location';
 }
 
 function getNpmVersion(npmPath) {
@@ -1039,9 +1158,9 @@ function buildDependencyMap(locale) {
   const npmProbe = resolveRunnableDependency(['npm.cmd', 'npm.exe', 'npm'], getNpmExecutableCandidates(), ['-v']);
   const pwshProbe = resolveRunnableDependency(['pwsh.exe', 'pwsh'], [findPowerShell7ExecutableInPath()], ['-v']);
   const gitProbe = resolveRunnableDependency(['git.exe', 'git.cmd', 'git'], getGitExecutableCandidates(), ['--version']);
-  const pythonProbe = resolveRunnableDependency(['python.exe', 'python', 'py.exe', 'py'], [], ['--version']);
-  const javaProbe = resolveRunnableDependency(['java.exe', 'java'], [], ['-version']);
-  const sevenZipProbe = resolveRunnableDependency(['7z.exe', '7za.exe', '7z'], [getProgramFilesCandidate(path.join('7-Zip', '7z.exe'))], []);
+  const pythonProbe = resolveRunnableDependency(['python.exe', 'python', 'py.exe', 'py'], getPythonExecutableCandidates(), ['--version']);
+  const javaProbe = resolveRunnableDependency(['java.exe', 'java'], getJavaExecutableCandidates(), ['-version']);
+  const sevenZipProbe = resolveRunnableDependency(['7z.exe', '7za.exe', '7z'], getSevenZipExecutableCandidates(), []);
   const sshProbe = resolveRunnableDependency(['ssh.exe', 'ssh'], getSshExecutableCandidates(), ['-V']);
   const rgProbe = resolveRunnableDependency(['rg.exe', 'rg'], getRipgrepExecutableCandidates(), ['--version']);
   const wtPath = findFirstExistingCandidate([
@@ -1059,23 +1178,23 @@ function buildDependencyMap(locale) {
 
   return {
     critical: [
-      makeDependency('Node.js', nodeProbe.ok ? 'ok' : 'missing', nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : '', 'https://nodejs.org/'),
-      makeDependency('npm', npmProbe.ok ? 'ok' : 'missing', npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : '', 'https://nodejs.org/'),
-      makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing', pwshProbe.path || '', pwshProbe.ok ? pwshVersion : '', 'https://aka.ms/powershell-release?tag=stable'),
+      makeDependency('Node.js', nodeProbe.ok ? 'ok' : 'missing', nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : '', 'https://nodejs.org/', nodeProbe.source, nodeProbe.visibleFromPath),
+      makeDependency('npm', npmProbe.ok ? 'ok' : 'missing', npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : '', 'https://nodejs.org/', npmProbe.source, npmProbe.visibleFromPath),
+      makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing', pwshProbe.path || '', pwshProbe.ok ? pwshVersion : '', 'https://aka.ms/powershell-release?tag=stable', pwshProbe.source, pwshProbe.visibleFromPath),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
-      makeDependency('rg', rgProbe.ok ? 'ok' : 'missing', rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : '', 'https://ripgrep.dev/download/'),
+      makeDependency('rg', rgProbe.ok ? 'ok' : 'missing', rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : '', 'https://ripgrep.dev/download/', rgProbe.source, rgProbe.visibleFromPath),
     ],
     important: [
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
-      makeDependency('git (Git for Windows)', gitProbe.ok ? 'ok' : 'missing', gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : '', 'https://git-scm.com/download/win'),
+      makeDependency('git (Git for Windows)', gitProbe.ok ? 'ok' : 'missing', gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : '', 'https://git-scm.com/download/win', gitProbe.source, gitProbe.visibleFromPath),
     ],
     optional: [
-      makeDependency('python', pythonProbe.ok ? 'ok' : 'missing', pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : '', 'https://www.python.org/downloads/windows/'),
-      makeDependency('java', javaProbe.ok ? 'ok' : 'missing', javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : '', 'https://adoptium.net/'),
-      makeDependency('7zip', sevenZipProbe.ok ? 'ok' : 'missing', sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : '', 'https://www.7-zip.org/download.html'),
-      makeDependency('ssh', sshProbe.ok ? 'ok' : 'missing', sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : '', t(locale, 'sshHint')),
+      makeDependency('python', pythonProbe.ok ? 'ok' : 'missing', pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : '', 'https://www.python.org/downloads/windows/', pythonProbe.source, pythonProbe.visibleFromPath),
+      makeDependency('java', javaProbe.ok ? 'ok' : 'missing', javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : '', 'https://adoptium.net/', javaProbe.source, javaProbe.visibleFromPath),
+      makeDependency('7zip', sevenZipProbe.ok ? 'ok' : 'missing', sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : '', 'https://www.7-zip.org/download.html', sevenZipProbe.source, sevenZipProbe.visibleFromPath),
+      makeDependency('ssh', sshProbe.ok ? 'ok' : 'missing', sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : '', t(locale, 'sshHint'), sshProbe.source, sshProbe.visibleFromPath),
     ],
   };
 }
@@ -1091,6 +1210,9 @@ function printDependencyGroup(locale, titleEn, titleRu, dependencies) {
     console.log(`  ${stateText} ${color(dependency.label.padEnd(28), ANSI.bold)} ${summary}`.trimEnd());
     if (dependency.path) {
       console.log(color(`      ${dependency.path}`, ANSI.gray));
+    }
+    if (dependency.state === 'ok' && dependency.visibleFromPath === false) {
+      console.log(color(`      ${t(locale, 'dependencyFoundOutsidePath', dependency.source || 'known location')}`, ANSI.yellow));
     }
     if (dependency.state !== 'ok' && dependency.hint) {
       console.log(color(`      ${dependency.hint}`, ANSI.cyan));
@@ -1654,6 +1776,27 @@ function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
     throw new Error(t(locale, 'setupConfigMissingBoolean', 'provider.supportsWebsockets'));
   }
 
+  if (provider.envKey != null && typeof provider.envKey !== 'string') {
+    throw new Error(t(locale, 'setupConfigFieldString', 'provider.envKey'));
+  }
+
+  if (provider.requiresOpenaiAuth != null && typeof provider.requiresOpenaiAuth !== 'boolean') {
+    throw new Error(t(locale, 'setupConfigMissingBoolean', 'provider.requiresOpenaiAuth'));
+  }
+
+  if (provider.commentedBaseUrls != null && !Array.isArray(provider.commentedBaseUrls)) {
+    throw new Error(t(locale, 'setupConfigMissingObject', 'provider.commentedBaseUrls'));
+  }
+
+  const commentedBaseUrls = Array.isArray(provider.commentedBaseUrls)
+    ? provider.commentedBaseUrls.map((value) => {
+      if (typeof value !== 'string') {
+        throw new Error(t(locale, 'setupConfigFieldString', 'provider.commentedBaseUrls[]'));
+      }
+      return value;
+    })
+    : [];
+
   if (!defaults || typeof defaults !== 'object') {
     throw new Error(t(locale, 'setupConfigMissingObject', 'defaults'));
   }
@@ -1669,12 +1812,15 @@ function readSetupConfig(configPath, locale = CURRENT_LOCALE) {
   }
 
   return {
-    defaultEndpoint: defaultEndpoint || 'http://144.31.220.80:20300/v1',
+    defaultEndpoint: defaultEndpoint || 'http://144.31.220.80:2455/backend-api/codex',
     provider: {
       id: provider.id,
       name: provider.name,
       wireApi: provider.wireApi,
+      envKey: provider.envKey || 'CODEX_LB_API_KEY',
       supportsWebsockets: provider.supportsWebsockets,
+      requiresOpenaiAuth: provider.requiresOpenaiAuth === true,
+      commentedBaseUrls,
     },
     defaults,
   };
@@ -1872,23 +2018,6 @@ async function createBackupArchive(codexHome, backupDir, locale = 'en') {
   }
 }
 
-function readExistingAuthJson(authPath) {
-  if (!fs.existsSync(authPath)) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch (error) {
-    return {};
-  }
-
-  return {};
-}
-
 function normalizeTextForComparison(text) {
   return normalizeNewlines(String(text || '')).replace(/\n*$/, '\n');
 }
@@ -1929,31 +2058,6 @@ function writeFileWithSidecarBackup(filePath, nextText) {
     changed: true,
     created: !existed,
     backupPath,
-  };
-}
-
-function buildAuthJsonText(authAction, existingAuthJson) {
-  const nextAuthJson = {};
-
-  if (authAction.mode === 'set') {
-    nextAuthJson.OPENAI_API_KEY = authAction.apiKey;
-  } else if (authAction.mode === 'keep' && typeof existingAuthJson.OPENAI_API_KEY === 'string' && existingAuthJson.OPENAI_API_KEY) {
-    nextAuthJson.OPENAI_API_KEY = existingAuthJson.OPENAI_API_KEY;
-  }
-
-  return `${JSON.stringify(nextAuthJson, null, 2)}\n`;
-}
-
-function updateAuthJson(authPath, authAction) {
-  const existingAuthJson = readExistingAuthJson(authPath);
-  const nextText = buildAuthJsonText(authAction, existingAuthJson);
-  const writeResult = writeFileWithSidecarBackup(authPath, nextText);
-
-  return {
-    mode: writeResult.changed
-      ? (authAction.mode === 'clear' ? 'cleared' : 'updated')
-      : 'kept',
-    backupPath: writeResult.backupPath,
   };
 }
 
@@ -1998,15 +2102,19 @@ function buildDefaultsBlock(defaults, locale = CURRENT_LOCALE) {
 }
 
 function buildConfigTomlText(setupConfig, lineEnding = '\r\n') {
+  const provider = setupConfig.provider;
   const lines = [
     ...buildDefaultsBlock(setupConfig.defaults, CURRENT_LOCALE).split('\n'),
-    `model_provider = ${serializeTomlValue(setupConfig.provider.id, CURRENT_LOCALE)}`,
+    `model_provider = ${serializeTomlValue(provider.id, CURRENT_LOCALE)}`,
     '',
-    `[model_providers.${setupConfig.provider.id}]`,
-    `name = ${serializeTomlValue(setupConfig.provider.name, CURRENT_LOCALE)}`,
-    `base_url = ${serializeTomlValue(setupConfig.provider.baseUrl, CURRENT_LOCALE)}`,
-    `wire_api = ${serializeTomlValue(setupConfig.provider.wireApi, CURRENT_LOCALE)}`,
-    `supports_websockets = ${serializeTomlValue(setupConfig.provider.supportsWebsockets, CURRENT_LOCALE)}`,
+    `[model_providers.${provider.id}]`,
+    `name = ${serializeTomlValue(provider.name, CURRENT_LOCALE)}`,
+    `base_url = ${serializeTomlValue(provider.baseUrl, CURRENT_LOCALE)}`,
+    ...provider.commentedBaseUrls.map((baseUrl) => `#base_url = ${serializeTomlValue(baseUrl, CURRENT_LOCALE)}`),
+    `wire_api = ${serializeTomlValue(provider.wireApi, CURRENT_LOCALE)}`,
+    `env_key = ${serializeTomlValue(provider.envKey, CURRENT_LOCALE)}`,
+    `supports_websockets = ${serializeTomlValue(provider.supportsWebsockets, CURRENT_LOCALE)}`,
+    `requires_openai_auth = ${serializeTomlValue(provider.requiresOpenaiAuth, CURRENT_LOCALE)} # required for codex app`,
     '',
   ];
 
@@ -2187,31 +2295,12 @@ async function promptConnectionDetails(prompt, setupConfig) {
   const baseUrl = normalizeEndpointInput(endpointInput, locale);
   const apiKey = String(apiKeyAnswer || '').trim();
 
-  let authAction;
-  if (!apiKey) {
-    console.log('');
-    console.log(color(t(locale, 'emptyKeyMenuTitle'), ANSI.yellow));
-    console.log(`  1. ${t(locale, 'clearApiKey')}`);
-    console.log(`  2. ${t(locale, 'keepApiKey')}`);
-    const emptyKeyChoice = await askMenuChoice(
-      prompt,
-      color(t(locale, 'emptyKeyPrompt'), ANSI.cyan),
-      ['1', '2'],
-      {
-        locale,
-        invalidMessage: locale === 'ru'
-          ? 'Неизвестный вариант для API key. Попробуйте снова.'
-          : 'Unknown API key option. Try again.',
-      },
-    );
-    if (emptyKeyChoice === '1') {
-      authAction = { mode: 'clear' };
-    } else {
-      authAction = { mode: 'keep' };
-    }
-  } else {
-    authAction = {
+  let envAction = { mode: 'keep', name: setupConfig.provider.envKey };
+  if (apiKey) {
+    validateApiKey(apiKey, locale);
+    envAction = {
       mode: 'set',
+      name: setupConfig.provider.envKey,
       apiKey,
     };
   }
@@ -2254,7 +2343,7 @@ async function promptConnectionDetails(prompt, setupConfig) {
 
   return {
     ...setupConfig,
-    authAction,
+    envAction,
     updateSessions,
     createBackup,
     provider: {
@@ -2412,7 +2501,6 @@ async function main() {
   }
 
   const codexHome = options.codexHome;
-  const authPath = path.join(codexHome, 'auth.json');
   const configPath = path.join(codexHome, 'config.toml');
   const sessionsRoot = path.join(codexHome, 'sessions');
 
@@ -2457,17 +2545,12 @@ async function main() {
     }
 
     banner(t(locale, 'writeConfigBanner'), ANSI.cyan);
-    const authUpdate = updateAuthJson(authPath, setupConfig.authAction);
     const configUpdate = updateConfigToml(configPath, setupConfig);
-    if (authUpdate.backupPath) {
-      status('INFO', t(locale, 'sidecarBackup', 'auth.json', authUpdate.backupPath));
-    }
-    if (authUpdate.mode === 'updated') {
-      status('OK', t(locale, 'updatedAuth', authPath));
-    } else if (authUpdate.mode === 'cleared') {
-      status('OK', t(locale, 'clearedAuth', authPath));
+    if (setupConfig.envAction.mode === 'set') {
+      const envUpdate = setUserEnvironmentVariable(setupConfig.envAction.name, setupConfig.envAction.apiKey);
+      status('OK', t(locale, 'updatedEnvKey', envUpdate.name, envUpdate.scope));
     } else {
-      status('OK', t(locale, 'keptAuth', authPath));
+      status('OK', t(locale, 'keptEnvKey', setupConfig.envAction.name));
     }
     if (configUpdate.backupPath) {
       status('INFO', t(locale, 'sidecarBackup', 'config.toml', configUpdate.backupPath));
