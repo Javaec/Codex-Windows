@@ -9,6 +9,7 @@
     "verify:lite": "node Setup-Codex/node/run.js verify",
     "smoke:lite": "node Setup-Codex/node/run.js smoke -ProfileName lite",
     "build:single-exe": "node Setup-Codex/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse",
+    "test:setup-dependencies": "node Setup-Codex/node/CodexSetupWizard.cjs --check-dependencies --locale ru",
     "provider-retag": "node scripts/node/CodexProviderRetag.cjs",
     "provider-retag:prepare": "powershell -ExecutionPolicy Bypass -File scripts/Prepare-CodexProviderRetag.ps1"
   },

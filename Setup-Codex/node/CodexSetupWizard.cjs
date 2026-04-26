@@ -8,7 +8,6 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const { spawnSync } = require('node:child_process');
-const { DatabaseSync } = require('node:sqlite');
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -1568,15 +1567,36 @@ function ensureExists(filePath, description, locale = CURRENT_LOCALE) {
   }
 }
 
+function openSqliteDatabase(dbPath) {
+  const { DatabaseSync } = require('node:sqlite');
+  return new DatabaseSync(dbPath, { timeout: 5000 });
+}
+
 function parseArgs(argv) {
   const options = {
     configPath: '',
     codexHome: process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex'),
     backupDir: DEFAULT_BACKUP_DIR,
+    checkDependencies: false,
+    locale: CURRENT_LOCALE,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === '--check-dependencies') {
+      options.checkDependencies = true;
+      continue;
+    }
+
+    if (arg === '--locale') {
+      index += 1;
+      const locale = String(argv[index] || '').trim().toLowerCase();
+      if (locale === 'en' || locale === 'ru') {
+        options.locale = locale;
+      }
+      continue;
+    }
+
     if (arg === '--config') {
       index += 1;
       options.configPath = path.resolve(String(argv[index] || ''));
@@ -2052,7 +2072,7 @@ function collectProviderCountsFromSqlite(dbPaths) {
   const counts = new Map();
 
   for (const dbPath of dbPaths) {
-    const db = new DatabaseSync(dbPath, { timeout: 5000 });
+    const db = openSqliteDatabase(dbPath);
     try {
       const rows = db.prepare('SELECT COALESCE(model_provider, \'\') AS provider, COUNT(*) AS count FROM threads GROUP BY model_provider').all();
       for (const row of rows) {
@@ -2344,7 +2364,7 @@ function retagSqliteFiles(dbPaths, fromProviders, toProvider) {
   banner(t(locale, 'updateSqliteBanner'), ANSI.cyan);
   for (let index = 0; index < dbPaths.length; index += 1) {
     const dbPath = dbPaths[index];
-    const db = new DatabaseSync(dbPath, { timeout: 5000 });
+    const db = openSqliteDatabase(dbPath);
     let before = 0;
     let after = 0;
     let changed = 0;
@@ -2379,6 +2399,14 @@ function retagSqliteFiles(dbPaths, fromProviders, toProvider) {
 async function main() {
   const startedAt = Date.now();
   const options = parseArgs(process.argv.slice(2));
+  if (options.checkDependencies) {
+    CURRENT_LOCALE = options.locale;
+    const dependencyMap = buildDependencyMap(options.locale);
+    printDependencyMap(options.locale, dependencyMap);
+    ensureCriticalDependencies(dependencyMap, options.locale);
+    return;
+  }
+
   if (!options.configPath) {
     throw new Error(t(CURRENT_LOCALE, 'missingConfigArg'));
   }
@@ -2501,7 +2529,7 @@ async function main() {
 
     let remainingRows = 0;
     for (const dbPath of sqliteFiles) {
-      const db = new DatabaseSync(dbPath, { timeout: 5000 });
+      const db = openSqliteDatabase(dbPath);
       try {
         const stmt = db.prepare('SELECT COUNT(*) AS count FROM threads WHERE model_provider = ?');
         for (const provider of availableLegacyProviders) {
