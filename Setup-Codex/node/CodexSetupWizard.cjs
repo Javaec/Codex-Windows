@@ -293,7 +293,7 @@ function icon(name) {
 }
 
 function getPathEntries() {
-  return String(process.env.PATH || '')
+  return String(process.env.PATH || process.env.Path || '')
     .split(path.delimiter)
     .map((entry) => entry.trim())
     .filter(Boolean);
@@ -411,13 +411,53 @@ function runCommandFromPath(commandName, args) {
     return { ok: false, stdout: '', stderr: 'missing command name', code: -1 };
   }
 
-  const commandLine = [`"${commandName}"`, ...args.map((arg) => quoteCmdArg(arg))].join(' ');
+  const commandLine = [quoteCmdArg(commandName), ...args.map((arg) => quoteCmdArg(arg))].join(' ');
   try {
-    const result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', commandLine], {
+    const result = spawnSync(commandLine, {
+      shell: process.env.ComSpec || process.env.COMSPEC || 'cmd.exe',
       encoding: 'utf8',
       windowsHide: true,
       timeout: 5000,
     });
+
+    return {
+      ok: !result.error && result.status === 0,
+      stdout: String(result.stdout || ''),
+      stderr: String(result.stderr || ''),
+      code: result.status ?? -1,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      stdout: '',
+      stderr: error instanceof Error ? error.message : String(error),
+      code: -1,
+    };
+  }
+}
+
+function runExecutable(executablePath, args) {
+  if (!executablePath) {
+    return { ok: false, stdout: '', stderr: 'missing executable path', code: -1 };
+  }
+
+  try {
+    let result;
+    if (/\.(cmd|bat)$/i.test(executablePath)) {
+      const commandLine = [quoteCmdArg(executablePath), ...args.map((arg) => quoteCmdArg(arg))].join(' ');
+      result = spawnSync(commandLine, {
+        shell: process.env.ComSpec || process.env.COMSPEC || 'cmd.exe',
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+      });
+    } else {
+      result = spawnSync(executablePath, args, {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+      });
+    }
 
     return {
       ok: !result.error && result.status === 0,
@@ -560,8 +600,9 @@ function runVersionCommand(executablePath, args) {
   try {
     let result;
     if (/\.(cmd|bat)$/i.test(executablePath)) {
-      const commandLine = [`"${executablePath}"`, ...args].join(' ');
-      result = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
+      const commandLine = [quoteCmdArg(executablePath), ...args.map((arg) => quoteCmdArg(arg))].join(' ');
+      result = spawnSync(commandLine, {
+        shell: process.env.ComSpec || process.env.COMSPEC || 'cmd.exe',
         encoding: 'utf8',
         windowsHide: true,
         timeout: 4000,
@@ -682,6 +723,7 @@ function prependProcessPathEntries(entries) {
   }
 
   process.env.PATH = [...additions, ...currentEntries].join(path.delimiter);
+  process.env.Path = process.env.PATH;
 }
 
 function getNodeExecutableCandidates() {
@@ -697,6 +739,8 @@ function getNpmExecutableCandidates() {
   return uniquePaths([
     nodeDir ? path.join(nodeDir, 'npm.cmd') : '',
     nodeDir ? path.join(nodeDir, 'npm.exe') : '',
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm', 'npm.cmd') : '',
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm', 'npm.exe') : '',
     getProgramFilesCandidate(path.join('nodejs', 'npm.cmd')),
     getProgramFilesCandidate(path.join('nodejs', 'npm.exe')),
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'nodejs', 'npm.cmd') : '',
@@ -721,9 +765,11 @@ function getSshExecutableCandidates() {
 
 function getRipgrepExecutableCandidates() {
   const codexPath = findFirstExistingCandidate(getCodexExecutableCandidates());
+  const repoRoot = path.resolve(__dirname, '..', '..');
   return uniquePaths([
     ...listCodexWindowsAppsResourceDirs().map((resourceDir) => path.join(resourceDir, 'rg.exe')),
     ...getToolCandidatesNearCodex(codexPath, 'rg.exe'),
+    path.join(repoRoot, 'work', 'tools', 'ripgrep', 'ripgrep-14.1.1-x86_64-pc-windows-msvc', 'rg.exe'),
   ]);
 }
 
@@ -882,6 +928,36 @@ function makeDependency(label, state, pathValue, detail, hint = '') {
   };
 }
 
+function resolveRunnableDependency(commandNames, candidates, args) {
+  const allCandidates = uniquePaths([
+    findExecutableInPath(commandNames),
+    ...candidates,
+  ]);
+  let firstExisting = '';
+
+  for (const candidate of allCandidates) {
+    const executablePath = resolveExistingFile(candidate);
+    if (!executablePath) {
+      continue;
+    }
+
+    if (!firstExisting) {
+      firstExisting = executablePath;
+    }
+
+    const result = runExecutable(executablePath, args);
+    if (result.ok) {
+      return { ok: true, path: executablePath, result };
+    }
+  }
+
+  return {
+    ok: false,
+    path: firstExisting,
+    result: { ok: false, stdout: '', stderr: '', code: -1 },
+  };
+}
+
 function getNpmVersion(npmPath) {
   const direct = runVersionCommand(npmPath, ['--version']);
   if (direct) {
@@ -960,22 +1036,15 @@ function buildDependencyMap(locale) {
   const codexAppPackage = getLatestCodexAppPackage();
   const windowsTerminalPackage = listAppxPackages('Microsoft.WindowsTerminal')[0] || null;
   const codexPath = findFirstExistingCandidate(getCodexExecutableCandidates());
-  const nodeResult = canRunFromPath(['node.exe', 'node'], ['-v']);
-  const npmResult = canRunFromPath(['npm.cmd', 'npm.exe', 'npm'], ['-v']);
-  const pwshResult = canRunFromPath(['pwsh.exe', 'pwsh'], ['-v']);
-  const gitResult = canRunFromPath(['git.exe', 'git.cmd', 'git'], ['--version']);
-  const pythonResult = canRunFromPath(['python.exe', 'python', 'py.exe', 'py'], ['--version']);
-  const javaResult = canRunFromPath(['java.exe', 'java'], ['-version']);
-  const sevenZipResult = canRunFromPath(['7z.exe', '7za.exe', '7z'], []);
-  const sshResult = canRunFromPath(['ssh.exe', 'ssh'], ['-V']);
-  const rgResult = canRunFromPath(['rg.exe', 'rg'], ['--version']);
-  const nodePath = findExecutableInPath(['node.exe', 'node']) || process.execPath || '';
-  const rgPath = findExecutableInPath(['rg.exe', 'rg']) || findFirstExistingCandidate([
-    ...(codexAppPackage ? [path.join(codexAppPackage.resourcesDir, 'rg.exe')] : []),
-    ...getToolCandidatesNearCodex(codexPath, 'rg.exe'),
-  ]);
-  const npmPath = findExecutableInPath(['npm.cmd', 'npm.exe', 'npm']);
-  const pwshPath = findExecutableInPath(['pwsh.exe', 'pwsh']) || findPowerShell7ExecutableInPath();
+  const nodeProbe = resolveRunnableDependency(['node.exe', 'node'], getNodeExecutableCandidates(), ['-v']);
+  const npmProbe = resolveRunnableDependency(['npm.cmd', 'npm.exe', 'npm'], getNpmExecutableCandidates(), ['-v']);
+  const pwshProbe = resolveRunnableDependency(['pwsh.exe', 'pwsh'], [findPowerShell7ExecutableInPath()], ['-v']);
+  const gitProbe = resolveRunnableDependency(['git.exe', 'git.cmd', 'git'], getGitExecutableCandidates(), ['--version']);
+  const pythonProbe = resolveRunnableDependency(['python.exe', 'python', 'py.exe', 'py'], [], ['--version']);
+  const javaProbe = resolveRunnableDependency(['java.exe', 'java'], [], ['-version']);
+  const sevenZipProbe = resolveRunnableDependency(['7z.exe', '7za.exe', '7z'], [getProgramFilesCandidate(path.join('7-Zip', '7z.exe'))], []);
+  const sshProbe = resolveRunnableDependency(['ssh.exe', 'ssh'], getSshExecutableCandidates(), ['-V']);
+  const rgProbe = resolveRunnableDependency(['rg.exe', 'rg'], getRipgrepExecutableCandidates(), ['--version']);
   const wtPath = findFirstExistingCandidate([
     findExecutableInPath(['wt.exe', 'wt']),
     process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'WindowsApps', 'wt.exe') : '',
@@ -983,44 +1052,31 @@ function buildDependencyMap(locale) {
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'wt.exe') : '',
     ...(windowsTerminalPackage ? [windowsTerminalPackage.installLocation] : []),
   ]);
-  const gitPath = findExecutableInPath(['git.exe', 'git.cmd', 'git']);
-  const pythonPath = findExecutableInPath(['python.exe', 'python', 'py.exe', 'py']);
-  const javaPath = findExecutableInPath(['java.exe', 'java']);
-  const sevenZipPath = findFirstExistingCandidate([
-    findExecutableInPath(['7z.exe', '7za.exe', '7z']),
-    getProgramFilesCandidate(path.join('7-Zip', '7z.exe')),
-  ]);
-  const sshPath = findFirstExistingCandidate([
-    findExecutableInPath(['ssh.exe', 'ssh']),
-    process.env.WINDIR ? path.join(process.env.WINDIR, 'System32', 'OpenSSH', 'ssh.exe') : '',
-    gitPath ? path.resolve(path.dirname(gitPath), '..', 'usr', 'bin', 'ssh.exe') : '',
-    gitPath ? path.resolve(path.dirname(gitPath), '..', 'bin', 'ssh.exe') : '',
-  ]);
 
-  const pwshVersion = pwshPath ? runVersionCommand(pwshPath, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()']) : '';
+  const pwshVersion = pwshProbe.path ? runVersionCommand(pwshProbe.path, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()']) : '';
   const pwshMajor = parseMajorVersion(pwshVersion);
   const executionPolicy = runPowerShellQuery('Get-ExecutionPolicy');
   const executionPolicyOk = executionPolicy && !/^Restricted$/i.test(executionPolicy);
 
   return {
     critical: [
-      makeDependency('Node.js', nodeResult.ok ? 'ok' : 'missing', nodePath || '', nodeResult.ok ? firstNonEmptyLine(nodeResult.stdout || nodeResult.stderr) : '', 'https://nodejs.org/'),
-      makeDependency('npm', npmResult.ok ? 'ok' : 'missing', npmPath || '', npmResult.ok ? getNpmVersion(npmPath) : '', 'https://nodejs.org/'),
-      makeDependency('PowerShell 7+', pwshResult.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing', pwshPath || '', pwshResult.ok ? pwshVersion : '', 'https://aka.ms/powershell-release?tag=stable'),
+      makeDependency('Node.js', nodeProbe.ok ? 'ok' : 'missing', nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : '', 'https://nodejs.org/'),
+      makeDependency('npm', npmProbe.ok ? 'ok' : 'missing', npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : '', 'https://nodejs.org/'),
+      makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing', pwshProbe.path || '', pwshProbe.ok ? pwshVersion : '', 'https://aka.ms/powershell-release?tag=stable'),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
-      makeDependency('rg', rgResult.ok ? 'ok' : 'missing', rgPath || '', rgResult.ok ? firstNonEmptyLine(rgResult.stdout || rgResult.stderr) : '', 'https://ripgrep.dev/download/'),
+      makeDependency('rg', rgProbe.ok ? 'ok' : 'missing', rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : '', 'https://ripgrep.dev/download/'),
     ],
     important: [
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
-      makeDependency('git (Git for Windows)', gitResult.ok ? 'ok' : 'missing', gitPath || '', gitResult.ok ? firstNonEmptyLine(gitResult.stdout || gitResult.stderr) : '', 'https://git-scm.com/download/win'),
+      makeDependency('git (Git for Windows)', gitProbe.ok ? 'ok' : 'missing', gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : '', 'https://git-scm.com/download/win'),
     ],
     optional: [
-      makeDependency('python', pythonResult.ok ? 'ok' : 'missing', pythonPath || '', pythonResult.ok ? firstNonEmptyLine(pythonResult.stdout || pythonResult.stderr) : '', 'https://www.python.org/downloads/windows/'),
-      makeDependency('java', javaResult.ok ? 'ok' : 'missing', javaPath || '', javaResult.ok ? firstNonEmptyLine(javaResult.stdout || javaResult.stderr) : '', 'https://adoptium.net/'),
-      makeDependency('7zip', sevenZipResult.ok ? 'ok' : 'missing', sevenZipPath || '', sevenZipResult.ok ? firstNonEmptyLine(sevenZipResult.stdout || sevenZipResult.stderr) : '', 'https://www.7-zip.org/download.html'),
-      makeDependency('ssh', sshResult.ok ? 'ok' : 'missing', sshPath || '', sshResult.ok ? firstNonEmptyLine(sshResult.stdout || sshResult.stderr) : '', t(locale, 'sshHint')),
+      makeDependency('python', pythonProbe.ok ? 'ok' : 'missing', pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : '', 'https://www.python.org/downloads/windows/'),
+      makeDependency('java', javaProbe.ok ? 'ok' : 'missing', javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : '', 'https://adoptium.net/'),
+      makeDependency('7zip', sevenZipProbe.ok ? 'ok' : 'missing', sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : '', 'https://www.7-zip.org/download.html'),
+      makeDependency('ssh', sshProbe.ok ? 'ok' : 'missing', sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : '', t(locale, 'sshHint')),
     ],
   };
 }
