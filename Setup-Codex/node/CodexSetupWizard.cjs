@@ -1077,6 +1077,18 @@ function dependencyDetailFromProbe(probe) {
     || (probe.result.code >= 0 ? `exit ${probe.result.code}` : 'spawn failed');
 }
 
+function makeProbeDependency(label, probe, hint = '', detail = '') {
+  return makeDependency(
+    label,
+    dependencyStateFromProbe(probe),
+    probe.path || '',
+    probe.ok ? (detail || firstNonEmptyLine(probe.result.stdout || probe.result.stderr)) : dependencyDetailFromProbe(probe),
+    hint,
+    probe.source,
+    probe.visibleFromPath,
+  );
+}
+
 function describeExecutableSource(executablePath) {
   const normalized = path.normalize(String(executablePath || '')).toLowerCase();
   const localAppData = path.normalize(process.env.LOCALAPPDATA || '').toLowerCase();
@@ -1215,23 +1227,23 @@ function buildDependencyMap(locale) {
 
   return {
     critical: [
-      makeDependency('Node.js', dependencyStateFromProbe(nodeProbe), nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : dependencyDetailFromProbe(nodeProbe), 'https://nodejs.org/', nodeProbe.source, nodeProbe.visibleFromPath),
-      makeDependency('npm', dependencyStateFromProbe(npmProbe), npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : dependencyDetailFromProbe(npmProbe), 'https://nodejs.org/', npmProbe.source, npmProbe.visibleFromPath),
+      makeProbeDependency('Node.js', nodeProbe, 'https://nodejs.org/'),
+      makeProbeDependency('npm', npmProbe, 'https://nodejs.org/', npmProbe.ok ? getNpmVersion(npmProbe.path) : ''),
       makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : dependencyStateFromProbe(pwshProbe), pwshProbe.path || '', pwshProbe.ok ? pwshVersion : dependencyDetailFromProbe(pwshProbe), 'https://aka.ms/powershell-release?tag=stable', pwshProbe.source, pwshProbe.visibleFromPath),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
-      makeDependency('rg', dependencyStateFromProbe(rgProbe), rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : dependencyDetailFromProbe(rgProbe), 'https://ripgrep.dev/download/', rgProbe.source, rgProbe.visibleFromPath),
+      makeProbeDependency('rg', rgProbe, 'https://ripgrep.dev/download/'),
     ],
     important: [
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
-      makeDependency('git (Git for Windows)', dependencyStateFromProbe(gitProbe), gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : dependencyDetailFromProbe(gitProbe), 'https://git-scm.com/download/win', gitProbe.source, gitProbe.visibleFromPath),
+      makeProbeDependency('git (Git for Windows)', gitProbe, 'https://git-scm.com/download/win'),
     ],
     optional: [
-      makeDependency('python', dependencyStateFromProbe(pythonProbe), pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : dependencyDetailFromProbe(pythonProbe), 'https://www.python.org/downloads/windows/', pythonProbe.source, pythonProbe.visibleFromPath),
-      makeDependency('java', dependencyStateFromProbe(javaProbe), javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : dependencyDetailFromProbe(javaProbe), 'https://adoptium.net/', javaProbe.source, javaProbe.visibleFromPath),
-      makeDependency('7zip', dependencyStateFromProbe(sevenZipProbe), sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : dependencyDetailFromProbe(sevenZipProbe), 'https://www.7-zip.org/download.html', sevenZipProbe.source, sevenZipProbe.visibleFromPath),
-      makeDependency('ssh', dependencyStateFromProbe(sshProbe), sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : dependencyDetailFromProbe(sshProbe), t(locale, 'sshHint'), sshProbe.source, sshProbe.visibleFromPath),
+      makeProbeDependency('python', pythonProbe, 'https://www.python.org/downloads/windows/'),
+      makeProbeDependency('java', javaProbe, 'https://adoptium.net/'),
+      makeProbeDependency('7zip', sevenZipProbe, 'https://www.7-zip.org/download.html'),
+      makeProbeDependency('ssh', sshProbe, t(locale, 'sshHint')),
     ],
   };
 }
@@ -1275,6 +1287,26 @@ function ensureCriticalDependencies(dependencyMap, locale) {
 
   const labels = missing.map((dependency) => dependency.label).join(', ');
   throw new Error(t(locale, 'missingCritical', labels));
+}
+
+async function runDependencyWarnSelfTest(locale = CURRENT_LOCALE) {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'codex-dependency-warn-'));
+  const badToolPath = path.join(tempRoot, 'bad-tool.cmd');
+
+  try {
+    await fsp.writeFile(badToolPath, ['@echo off', 'echo bad tool probe 1>&2', 'exit /b 9', ''].join('\r\n'), 'ascii');
+    const probe = resolveRunnableDependency([], [badToolPath], ['--version']);
+    const dependency = makeProbeDependency('rg', probe);
+
+    if (dependency.state !== 'warn') {
+      throw new Error(`Dependency warn self-test failed: expected warn, got ${dependency.state}`);
+    }
+
+    ensureCriticalDependencies({ critical: [dependency] }, locale);
+    status('OK', `Dependency warn self-test: ${dependency.detail}`);
+  } finally {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  }
 }
 
 async function askMenuChoice(prompt, question, validChoices, { defaultChoice = '', locale = 'en', invalidMessage } = {}) {
@@ -1741,6 +1773,7 @@ function parseArgs(argv) {
     backupDir: DEFAULT_BACKUP_DIR,
     checkDependencies: false,
     checkProviderConfig: false,
+    selfTestDependencyWarn: false,
     locale: CURRENT_LOCALE,
   };
 
@@ -1753,6 +1786,11 @@ function parseArgs(argv) {
 
     if (arg === '--check-provider-config') {
       options.checkProviderConfig = true;
+      continue;
+    }
+
+    if (arg === '--self-test-dependency-warn') {
+      options.selfTestDependencyWarn = true;
       continue;
     }
 
@@ -2578,6 +2616,12 @@ async function main() {
     const setupConfig = readSetupConfig(options.configPath, options.locale);
     const configText = assertProviderConfigSmoke(setupConfig, options.locale);
     console.log(configText.trimEnd());
+    return;
+  }
+
+  if (options.selfTestDependencyWarn) {
+    CURRENT_LOCALE = options.locale;
+    await runDependencyWarnSelfTest(options.locale);
     return;
   }
 

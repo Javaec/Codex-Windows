@@ -11,6 +11,7 @@
     "build:single-exe": "node Setup-Codex/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse",
     "test:version-identity": "node shared/version-identity/validate-known-builds.mjs",
     "test:setup-dependencies": "node Setup-Codex/node/CodexSetupWizard.cjs --check-dependencies --locale ru",
+    "test:setup-dependency-warn": "node Setup-Codex/node/CodexSetupWizard.cjs --self-test-dependency-warn --locale ru",
     "test:setup-provider": "node Setup-Codex/node/CodexSetupWizard.cjs --check-provider-config --config Setup-Codex/provider-config.json --locale ru",
     "provider-retag": "node scripts/node/CodexProviderRetag.cjs",
     "provider-retag:prepare": "powershell -ExecutionPolicy Bypass -File scripts/Prepare-CodexProviderRetag.ps1"
