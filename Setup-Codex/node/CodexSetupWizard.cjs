@@ -115,6 +115,7 @@ const MESSAGES = {
     pathAutoAddedSessionOnly: (label, dirPath, details) => `Added ${label} to current PATH only: ${dirPath} (${details})`,
     pathPersistFailed: (label, details) => `Failed to persist PATH update for ${label}: ${details}`,
     dependencyFoundOutsidePath: (source) => `Found via ${source}, but not visible from PATH`,
+    dependencyProbeFailed: (details) => `Found, but version check failed: ${details}`,
     dependencyCriticalTitle: 'Critical requirements',
     dependencyHelpfulTitle: 'Helpful but optional',
     dependencyUsefulTitle: 'Sometimes useful',
@@ -222,6 +223,7 @@ const MESSAGES = {
     pathAutoAddedSessionOnly: (label, dirPath, details) => `Добавил ${label} только в текущий PATH: ${dirPath} (${details})`,
     pathPersistFailed: (label, details) => `Не удалось сохранить PATH для ${label}: ${details}`,
     dependencyFoundOutsidePath: (source) => `Найдена через ${source}, но не видна из PATH`,
+    dependencyProbeFailed: (details) => `Найдена, но проверка версии не прошла: ${details}`,
     dependencyCriticalTitle: 'Смертельно важно',
     dependencyHelpfulTitle: 'Облегчит приключение',
     dependencyUsefulTitle: 'Бывает полезно',
@@ -422,7 +424,7 @@ function runCommandFromPath(commandName, args) {
     return {
       ok: !result.error && result.status === 0,
       stdout: String(result.stdout || ''),
-      stderr: String(result.stderr || ''),
+      stderr: result.error ? result.error.message : String(result.stderr || ''),
       code: result.status ?? -1,
     };
   } catch (error) {
@@ -461,7 +463,7 @@ function runExecutable(executablePath, args) {
     return {
       ok: !result.error && result.status === 0,
       stdout: String(result.stdout || ''),
-      stderr: String(result.stderr || ''),
+      stderr: result.error ? result.error.message : String(result.stderr || ''),
       code: result.status ?? -1,
     };
   } catch (error) {
@@ -1020,6 +1022,7 @@ function resolveRunnableDependency(commandNames, candidates, args) {
     ...candidates,
   ]);
   let firstExisting = '';
+  let firstFailure = null;
 
   for (const candidate of allCandidates) {
     const executablePath = resolveExistingFile(candidate);
@@ -1042,15 +1045,36 @@ function resolveRunnableDependency(commandNames, candidates, args) {
         visibleFromPath,
       };
     }
+
+    if (!firstFailure) {
+      firstFailure = result;
+    }
   }
 
   return {
     ok: false,
     path: firstExisting,
-    result: { ok: false, stdout: '', stderr: '', code: -1 },
+    result: firstFailure || { ok: false, stdout: '', stderr: '', code: -1 },
     source: firstExisting ? describeExecutableSource(firstExisting) : '',
     visibleFromPath: Boolean(pathExecutableKey && normalizePathKey(firstExisting) === pathExecutableKey),
   };
+}
+
+function dependencyStateFromProbe(probe) {
+  if (probe.ok) {
+    return 'ok';
+  }
+
+  return probe.path ? 'warn' : 'missing';
+}
+
+function dependencyDetailFromProbe(probe) {
+  if (!probe.path) {
+    return '';
+  }
+
+  return firstNonEmptyLine(probe.result.stdout || probe.result.stderr)
+    || (probe.result.code >= 0 ? `exit ${probe.result.code}` : 'spawn failed');
 }
 
 function describeExecutableSource(executablePath) {
@@ -1191,23 +1215,23 @@ function buildDependencyMap(locale) {
 
   return {
     critical: [
-      makeDependency('Node.js', nodeProbe.ok ? 'ok' : 'missing', nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : '', 'https://nodejs.org/', nodeProbe.source, nodeProbe.visibleFromPath),
-      makeDependency('npm', npmProbe.ok ? 'ok' : 'missing', npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : '', 'https://nodejs.org/', npmProbe.source, npmProbe.visibleFromPath),
-      makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : 'missing', pwshProbe.path || '', pwshProbe.ok ? pwshVersion : '', 'https://aka.ms/powershell-release?tag=stable', pwshProbe.source, pwshProbe.visibleFromPath),
+      makeDependency('Node.js', dependencyStateFromProbe(nodeProbe), nodeProbe.path || '', nodeProbe.ok ? firstNonEmptyLine(nodeProbe.result.stdout || nodeProbe.result.stderr) : dependencyDetailFromProbe(nodeProbe), 'https://nodejs.org/', nodeProbe.source, nodeProbe.visibleFromPath),
+      makeDependency('npm', dependencyStateFromProbe(npmProbe), npmProbe.path || '', npmProbe.ok ? getNpmVersion(npmProbe.path) : dependencyDetailFromProbe(npmProbe), 'https://nodejs.org/', npmProbe.source, npmProbe.visibleFromPath),
+      makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : dependencyStateFromProbe(pwshProbe), pwshProbe.path || '', pwshProbe.ok ? pwshVersion : dependencyDetailFromProbe(pwshProbe), 'https://aka.ms/powershell-release?tag=stable', pwshProbe.source, pwshProbe.visibleFromPath),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
-      makeDependency('rg', rgProbe.ok ? 'ok' : 'missing', rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : '', 'https://ripgrep.dev/download/', rgProbe.source, rgProbe.visibleFromPath),
+      makeDependency('rg', dependencyStateFromProbe(rgProbe), rgProbe.path || '', rgProbe.ok ? firstNonEmptyLine(rgProbe.result.stdout || rgProbe.result.stderr) : dependencyDetailFromProbe(rgProbe), 'https://ripgrep.dev/download/', rgProbe.source, rgProbe.visibleFromPath),
     ],
     important: [
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
-      makeDependency('git (Git for Windows)', gitProbe.ok ? 'ok' : 'missing', gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : '', 'https://git-scm.com/download/win', gitProbe.source, gitProbe.visibleFromPath),
+      makeDependency('git (Git for Windows)', dependencyStateFromProbe(gitProbe), gitProbe.path || '', gitProbe.ok ? firstNonEmptyLine(gitProbe.result.stdout || gitProbe.result.stderr) : dependencyDetailFromProbe(gitProbe), 'https://git-scm.com/download/win', gitProbe.source, gitProbe.visibleFromPath),
     ],
     optional: [
-      makeDependency('python', pythonProbe.ok ? 'ok' : 'missing', pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : '', 'https://www.python.org/downloads/windows/', pythonProbe.source, pythonProbe.visibleFromPath),
-      makeDependency('java', javaProbe.ok ? 'ok' : 'missing', javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : '', 'https://adoptium.net/', javaProbe.source, javaProbe.visibleFromPath),
-      makeDependency('7zip', sevenZipProbe.ok ? 'ok' : 'missing', sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : '', 'https://www.7-zip.org/download.html', sevenZipProbe.source, sevenZipProbe.visibleFromPath),
-      makeDependency('ssh', sshProbe.ok ? 'ok' : 'missing', sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : '', t(locale, 'sshHint'), sshProbe.source, sshProbe.visibleFromPath),
+      makeDependency('python', dependencyStateFromProbe(pythonProbe), pythonProbe.path || '', pythonProbe.ok ? firstNonEmptyLine(pythonProbe.result.stdout || pythonProbe.result.stderr) : dependencyDetailFromProbe(pythonProbe), 'https://www.python.org/downloads/windows/', pythonProbe.source, pythonProbe.visibleFromPath),
+      makeDependency('java', dependencyStateFromProbe(javaProbe), javaProbe.path || '', javaProbe.ok ? firstNonEmptyLine(javaProbe.result.stdout || javaProbe.result.stderr) : dependencyDetailFromProbe(javaProbe), 'https://adoptium.net/', javaProbe.source, javaProbe.visibleFromPath),
+      makeDependency('7zip', dependencyStateFromProbe(sevenZipProbe), sevenZipProbe.path || '', sevenZipProbe.ok ? firstNonEmptyLine(sevenZipProbe.result.stdout || sevenZipProbe.result.stderr) : dependencyDetailFromProbe(sevenZipProbe), 'https://www.7-zip.org/download.html', sevenZipProbe.source, sevenZipProbe.visibleFromPath),
+      makeDependency('ssh', dependencyStateFromProbe(sshProbe), sshProbe.path || '', sshProbe.ok ? firstNonEmptyLine(sshProbe.result.stdout || sshProbe.result.stderr) : dependencyDetailFromProbe(sshProbe), t(locale, 'sshHint'), sshProbe.source, sshProbe.visibleFromPath),
     ],
   };
 }
@@ -1224,10 +1248,13 @@ function printDependencyGroup(locale, titleEn, titleRu, dependencies) {
     if (dependency.path) {
       console.log(color(`      ${dependency.path}`, ANSI.gray));
     }
+    if (dependency.state === 'warn' && dependency.path) {
+      console.log(color(`      ${t(locale, 'dependencyProbeFailed', dependency.detail || 'unknown error')}`, ANSI.yellow));
+    }
     if (dependency.state === 'ok' && dependency.visibleFromPath === false) {
       console.log(color(`      ${t(locale, 'dependencyFoundOutsidePath', dependency.source || 'known location')}`, ANSI.yellow));
     }
-    if (dependency.state !== 'ok' && dependency.hint) {
+    if (dependency.state === 'missing' && dependency.hint) {
       console.log(color(`      ${dependency.hint}`, ANSI.cyan));
     }
   }
@@ -1241,7 +1268,7 @@ function printDependencyMap(locale, dependencyMap) {
 }
 
 function ensureCriticalDependencies(dependencyMap, locale) {
-  const missing = dependencyMap.critical.filter((dependency) => dependency.state !== 'ok');
+  const missing = dependencyMap.critical.filter((dependency) => dependency.state === 'missing');
   if (missing.length === 0) {
     return;
   }
