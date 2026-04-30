@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtIso": "2026-04-28T08:30:07.468Z",
+  "generatedAtIso": "2026-04-30T06:05:20.052Z",
   "capabilityRegistry": {
     "renderer": [
       "renderer-ready",
@@ -23,6 +23,14 @@
     ]
   },
   "knownBuilds": [
+    {
+      "id": "codex-12540",
+      "appVersion": "26.422.71525",
+      "buildNumber": "2210",
+      "buildHint": 12540,
+      "patchProfileId": "codex-12129",
+      "snapshotRegex": "codex[-_]?12540"
+    },
     {
       "id": "codex-12538",
       "appVersion": "26.422.62136",
@@ -231,6 +239,15 @@
         "workspace-root-pruner"
       ],
       "knownBuilds": [
+        {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
         {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
@@ -458,6 +475,15 @@
       "loadAfter": [],
       "loadBefore": [],
       "knownBuilds": [
+        {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
         {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
@@ -692,6 +718,15 @@
       "loadBefore": [],
       "knownBuilds": [
         {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
+        {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
           "buildNumber": "2176",
@@ -925,6 +960,15 @@
       "loadBefore": [],
       "knownBuilds": [
         {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
+        {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
           "buildNumber": "2176",
@@ -1150,6 +1194,15 @@
       "loadAfter": [],
       "loadBefore": [],
       "knownBuilds": [
+        {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
         {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
@@ -1382,6 +1435,15 @@
       "loadBefore": [],
       "knownBuilds": [
         {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
+        {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
           "buildNumber": "2176",
@@ -1610,6 +1672,15 @@
       ],
       "knownBuilds": [
         {
+          "id": "codex-12540",
+          "appVersion": "26.422.71525",
+          "buildNumber": "2210",
+          "buildHint": 12540,
+          "patchProfileId": "codex-12129",
+          "compatible": true,
+          "reason": ""
+        },
+        {
           "id": "codex-12538",
           "appVersion": "26.422.62136",
           "buildNumber": "2176",
@@ -1802,6 +1873,34 @@
     }
   ],
   "builds": [
+    {
+      "id": "codex-12540",
+      "appVersion": "26.422.71525",
+      "buildNumber": "2210",
+      "buildHint": 12540,
+      "patchProfileId": "codex-12129",
+      "compatibleMods": [
+        "auth-session-runtime",
+        "renderer-logout-guard",
+        "renderer-thread-groups",
+        "renderer-usage-limits",
+        "session-request-guard",
+        "thread-status-bridge",
+        "workspace-root-pruner"
+      ],
+      "incompatibleMods": [],
+      "loadOrder": [
+        "auth-session-runtime",
+        "workspace-root-pruner",
+        "thread-status-bridge",
+        "session-request-guard",
+        "renderer-usage-limits",
+        "renderer-logout-guard",
+        "renderer-thread-groups"
+      ],
+      "softIncompatibilities": [],
+      "recommendedDisabledMods": []
+    },
     {
       "id": "codex-12538",
       "appVersion": "26.422.62136",
