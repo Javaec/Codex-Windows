@@ -10,9 +10,9 @@
   },
   "defaults": {
     "model": "gpt-5.4",
-    "model_context_window": 270000,
+    "model_context_window": 290000,
     "model_auto_compact_token_limit": 200000,
-    "model_reasoning_effort": "high",
+    "model_reasoning_effort": "medium",
     "personality": "pragmatic",
     "approval_policy": "never",
     "sandbox_mode": "danger-full-access"
