@@ -511,6 +511,7 @@ function findFirstExistingCandidate(candidates) {
 }
 
 const APPX_PACKAGE_CACHE = new Map();
+let CODEX_WINDOWS_APPS_PACKAGES_CACHE = null;
 
 function parseAppxPackageJson(jsonText) {
   const trimmed = String(jsonText || '').trim();
@@ -551,9 +552,8 @@ function listAppxPackages(packageQuery) {
   const command =
     `$ErrorActionPreference='SilentlyContinue';` +
     `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` +
-    `$packages=@();` +
-    `$packages+=@(Get-AppxPackage -Name ${packageName});` +
-    `try { $packages+=@(Get-AppxPackage -AllUsers -Name ${packageName}); } catch {};` +
+    `$packages=@(Get-AppxPackage -Name ${packageName});` +
+    `if ($packages.Count -eq 0) { try { $packages=@(Get-AppxPackage -AllUsers -Name ${packageName}); } catch {} };` +
     `$packages | ` +
     `Sort-Object PackageFullName -Unique | ` +
     `Sort-Object Version -Descending | ` +
@@ -589,13 +589,16 @@ function addCodexWindowsAppPaths(pkg) {
     ...pkg,
     resourcesDir,
     resourcesAvailable: Boolean(resourcesDir && fs.existsSync(resourcesDir)),
-    appAsarUnpackedDir: resourcesDir ? path.join(resourcesDir, 'app.asar.unpacked') : '',
   };
 }
 
 function listCodexWindowsAppsPackages() {
-  return listAppxPackages('OpenAI.Codex*')
-    .map(addCodexWindowsAppPaths);
+  if (!CODEX_WINDOWS_APPS_PACKAGES_CACHE) {
+    CODEX_WINDOWS_APPS_PACKAGES_CACHE = listAppxPackages('OpenAI.Codex*')
+      .map(addCodexWindowsAppPaths);
+  }
+
+  return CODEX_WINDOWS_APPS_PACKAGES_CACHE;
 }
 
 function listCodexWindowsAppsResourceDirs() {
@@ -1336,7 +1339,7 @@ function runStoreAppDetectionSelfTest() {
     Name: 'OpenAI.Codex',
     Version: '26.429.3425.0',
     PackageFullName: 'OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0',
-    InstallLocation: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0',
+    InstallLocation: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_Test',
   });
   const packages = parseAppxPackageJson(appxJson).map(addCodexWindowsAppPaths);
   const packageInfo = packages[0];
@@ -1347,9 +1350,9 @@ function runStoreAppDetectionSelfTest() {
 
   const dependency = makeDependency(
     'Codex App',
-    packageInfo ? 'ok' : 'missing',
-    packageInfo ? packageInfo.installLocation : '',
-    packageInfo ? packageInfo.version : '',
+    'ok',
+    packageInfo.installLocation,
+    packageInfo.version,
   );
 
   if (dependency.state !== 'ok') {
@@ -1358,6 +1361,10 @@ function runStoreAppDetectionSelfTest() {
 
   if (!packageInfo.resourcesDir.endsWith(path.join('app', 'resources'))) {
     throw new Error(`Store app detection self-test failed: bad resources path ${packageInfo.resourcesDir}`);
+  }
+
+  if (packageInfo.resourcesAvailable) {
+    throw new Error('Store app detection self-test failed: package resources should not be required');
   }
 
   status('OK', 'Store app detection self-test');
