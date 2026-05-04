@@ -510,11 +510,30 @@ function findFirstExistingCandidate(candidates) {
   return null;
 }
 
-function listCodexWindowsAppsResourceDirs() {
-  return listCodexWindowsAppsPackages().map((pkg) => pkg.resourcesDir).filter(Boolean);
-}
-
 const APPX_PACKAGE_CACHE = new Map();
+
+function parseAppxPackageJson(jsonText) {
+  const trimmed = String(jsonText || '').trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    return [];
+  }
+
+  return (Array.isArray(parsed) ? parsed : [parsed])
+    .map((entry) => ({
+      name: String(entry.Name || entry.name || '').trim(),
+      version: String(entry.Version || entry.version || '').trim(),
+      packageFullName: String(entry.PackageFullName || entry.packageFullName || '').trim(),
+      installLocation: String(entry.InstallLocation || entry.installLocation || '').trim(),
+    }))
+    .filter((pkg) => pkg.name || pkg.packageFullName);
+}
 
 function listAppxPackages(packageQuery) {
   const cacheKey = String(packageQuery || '').trim();
@@ -528,11 +547,18 @@ function listAppxPackages(packageQuery) {
     return [];
   }
 
+  const packageName = quotePowerShellString(cacheKey);
   const command =
+    `$ErrorActionPreference='SilentlyContinue';` +
     `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` +
-    `Get-AppxPackage '${cacheKey}' | ` +
+    `$packages=@();` +
+    `$packages+=@(Get-AppxPackage -Name ${packageName});` +
+    `try { $packages+=@(Get-AppxPackage -AllUsers -Name ${packageName}); } catch {};` +
+    `$packages | ` +
+    `Sort-Object PackageFullName -Unique | ` +
     `Sort-Object Version -Descending | ` +
-    `ForEach-Object { '{0}|{1}|{2}' -f $_.Name, $_.Version, $_.InstallLocation }`;
+    `Select-Object Name,Version,PackageFullName,InstallLocation | ` +
+    `ConvertTo-Json -Depth 3`;
 
   let result;
   try {
@@ -551,35 +577,31 @@ function listAppxPackages(packageQuery) {
     return [];
   }
 
-  const packages = String(result.stdout || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split('|');
-      const name = String(parts[0] || '').trim();
-      const version = String(parts[1] || '').trim();
-      const installLocation = String(parts.slice(2).join('|') || '').trim();
-      return {
-        name,
-        version,
-        installLocation,
-      };
-    })
-    .filter((pkg) => pkg.name && pkg.installLocation);
+  const packages = parseAppxPackageJson(result.stdout);
 
   APPX_PACKAGE_CACHE.set(cacheKey, packages);
   return packages;
 }
 
+function addCodexWindowsAppPaths(pkg) {
+  const resourcesDir = pkg.installLocation ? path.join(pkg.installLocation, 'app', 'resources') : '';
+  return {
+    ...pkg,
+    resourcesDir,
+    resourcesAvailable: Boolean(resourcesDir && fs.existsSync(resourcesDir)),
+    appAsarUnpackedDir: resourcesDir ? path.join(resourcesDir, 'app.asar.unpacked') : '',
+  };
+}
+
 function listCodexWindowsAppsPackages() {
   return listAppxPackages('OpenAI.Codex*')
-    .map((pkg) => ({
-      ...pkg,
-      resourcesDir: path.join(pkg.installLocation, 'app', 'resources'),
-      appAsarUnpackedDir: path.join(pkg.installLocation, 'app', 'resources', 'app.asar.unpacked'),
-    }))
-    .filter((pkg) => fs.existsSync(pkg.resourcesDir));
+    .map(addCodexWindowsAppPaths);
+}
+
+function listCodexWindowsAppsResourceDirs() {
+  return listCodexWindowsAppsPackages()
+    .filter((pkg) => pkg.resourcesAvailable)
+    .map((pkg) => pkg.resourcesDir);
 }
 
 function getLatestCodexAppPackage() {
@@ -1232,9 +1254,9 @@ function buildDependencyMap(locale) {
       makeDependency('PowerShell 7+', pwshProbe.ok && pwshMajor !== null && pwshMajor >= 7 ? 'ok' : dependencyStateFromProbe(pwshProbe), pwshProbe.path || '', pwshProbe.ok ? pwshVersion : dependencyDetailFromProbe(pwshProbe), 'https://aka.ms/powershell-release?tag=stable', pwshProbe.source, pwshProbe.visibleFromPath),
       makeDependency('Codex CLI', codexPath ? 'ok' : 'missing', codexPath || '', codexPath ? getCodexCliVersion(codexPath) : '', t(locale, 'codexCliInstallHint')),
       makeDependency('Codex App', codexAppPackage ? 'ok' : 'missing', codexAppPackage ? codexAppPackage.installLocation : '', codexAppPackage ? codexAppPackage.version : '', t(locale, 'codexAppInstallHint')),
-      makeProbeDependency('rg', rgProbe, 'https://ripgrep.dev/download/'),
     ],
     important: [
+      makeProbeDependency('rg', rgProbe, 'https://ripgrep.dev/download/'),
       makeDependency('Windows Terminal', wtPath ? 'ok' : 'missing', wtPath || '', windowsTerminalPackage ? windowsTerminalPackage.version : '', 'https://aka.ms/terminal'),
       makeDependency('PowerShell script execution', executionPolicyOk ? 'ok' : 'warn', '', executionPolicy || 'Restricted or unavailable', 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'),
       makeProbeDependency('git (Git for Windows)', gitProbe, 'https://git-scm.com/download/win'),
@@ -1307,6 +1329,38 @@ async function runDependencyWarnSelfTest(locale = CURRENT_LOCALE) {
   } finally {
     await fsp.rm(tempRoot, { recursive: true, force: true });
   }
+}
+
+function runStoreAppDetectionSelfTest() {
+  const appxJson = JSON.stringify({
+    Name: 'OpenAI.Codex',
+    Version: '26.429.3425.0',
+    PackageFullName: 'OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0',
+    InstallLocation: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.429.3425.0_x64__2p2nqsd0c76g0',
+  });
+  const packages = parseAppxPackageJson(appxJson).map(addCodexWindowsAppPaths);
+  const packageInfo = packages[0];
+
+  if (!packageInfo) {
+    throw new Error('Store app detection self-test failed: AppX JSON was not parsed');
+  }
+
+  const dependency = makeDependency(
+    'Codex App',
+    packageInfo ? 'ok' : 'missing',
+    packageInfo ? packageInfo.installLocation : '',
+    packageInfo ? packageInfo.version : '',
+  );
+
+  if (dependency.state !== 'ok') {
+    throw new Error(`Store app detection self-test failed: expected ok, got ${dependency.state}`);
+  }
+
+  if (!packageInfo.resourcesDir.endsWith(path.join('app', 'resources'))) {
+    throw new Error(`Store app detection self-test failed: bad resources path ${packageInfo.resourcesDir}`);
+  }
+
+  status('OK', 'Store app detection self-test');
 }
 
 async function askMenuChoice(prompt, question, validChoices, { defaultChoice = '', locale = 'en', invalidMessage } = {}) {
@@ -1774,6 +1828,7 @@ function parseArgs(argv) {
     checkDependencies: false,
     checkProviderConfig: false,
     selfTestDependencyWarn: false,
+    selfTestStoreAppDetection: false,
     locale: CURRENT_LOCALE,
   };
 
@@ -1791,6 +1846,11 @@ function parseArgs(argv) {
 
     if (arg === '--self-test-dependency-warn') {
       options.selfTestDependencyWarn = true;
+      continue;
+    }
+
+    if (arg === '--self-test-store-app-detection') {
+      options.selfTestStoreAppDetection = true;
       continue;
     }
 
@@ -2622,6 +2682,12 @@ async function main() {
   if (options.selfTestDependencyWarn) {
     CURRENT_LOCALE = options.locale;
     await runDependencyWarnSelfTest(options.locale);
+    return;
+  }
+
+  if (options.selfTestStoreAppDetection) {
+    CURRENT_LOCALE = options.locale;
+    runStoreAppDetectionSelfTest(options.locale);
     return;
   }
 
