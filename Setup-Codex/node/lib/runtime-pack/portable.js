@@ -54,14 +54,7 @@ const CODEX_MOD_LOADER_SRC_DIR = path.join(REPO_ROOT, "shared", "codex-mod-loade
 const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-mod-loader", "compatibility.cjs");
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
 function resolvePortableShellRuntime(runtime) {
-    if (runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy") {
-        return runtime;
-    }
-    const nativeRoot = path.dirname(runtime.runtimeRoot);
-    const electronArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
-    const shellRuntime = (0, native_1.ensureElectronDistCacheForPackaging)(nativeRoot, runtime.electronVersion, electronArch);
-    (0, exec_1.writeInfo)(`Portable shell runtime switched from ${runtime.sourceKind} to ${shellRuntime.sourceKind}: ${shellRuntime.executablePath} (source=${shellRuntime.sourceLabel})`);
-    return shellRuntime;
+    return runtime;
 }
 function preparePortableOutputDir(distDir, workDir, outputName, allowWorkFallback) {
     const primary = path.join(distDir, outputName);

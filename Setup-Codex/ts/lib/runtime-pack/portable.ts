@@ -41,17 +41,7 @@ const CODEX_MOD_COMPATIBILITY_SRC_PATH = path.join(REPO_ROOT, "shared", "codex-m
 const CODEX_VERSION_IDENTITY_SRC_DIR = path.join(REPO_ROOT, "shared", "version-identity");
 
 function resolvePortableShellRuntime(runtime: RuntimeDescriptor): RuntimeDescriptor {
-  if (runtime.sourceKind !== "packaged-runtime-cache" && runtime.sourceKind !== "windows-runtime-donor-copy") {
-    return runtime;
-  }
-
-  const nativeRoot = path.dirname(runtime.runtimeRoot);
-  const electronArch = process.env.PROCESSOR_ARCHITECTURE === "ARM64" ? "win32-arm64" : "win32-x64";
-  const shellRuntime = ensureElectronDistCacheForPackaging(nativeRoot, runtime.electronVersion, electronArch);
-  writeInfo(
-    `Portable shell runtime switched from ${runtime.sourceKind} to ${shellRuntime.sourceKind}: ${shellRuntime.executablePath} (source=${shellRuntime.sourceLabel})`,
-  );
-  return shellRuntime;
+  return runtime;
 }
 
 function preparePortableOutputDir(

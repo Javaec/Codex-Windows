@@ -21,6 +21,10 @@ if not defined PS_EXE (
   exit /b 1
 )
 
+for %%I in ("%USERPROFILE%\scoop\shims" "%LOCALAPPDATA%\Microsoft\WinGet\Links") do (
+  if exist "%%~I\7z.exe" set "PATH=%%~I;%PATH%"
+)
+
 "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite %*
 exit /b %ERRORLEVEL%
 
