@@ -79,3 +79,17 @@ Try again
   - existing malformed `cwd` and `rollout_path` rows normalized;
   - all four triggers created;
   - later INSERT/UPDATE writes with `\\?\...` were normalized by triggers.
+
+## 2026-05-16 09:30 MSK - Final Verification
+
+- Ran `Repair-Codex-Chats.cmd -NoBackup` against the live Codex home:
+  - `before=0`
+  - `after=0`
+  - `normalized=0`
+- Live DB verification:
+  - `cwd_prefixed = 0`
+  - `rollout_prefixed = 0`
+  - normalization trigger count = `4`
+- Ran project verification:
+  - `verify.cmd`
+  - result: `OK=19 WARN=0 FAIL=0`
