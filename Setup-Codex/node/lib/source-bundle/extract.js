@@ -41,20 +41,30 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const asar_1 = require("../asar");
 const manifest_1 = require("../manifest");
+function isSupportedSnapshotArchive(filePath) {
+    const extension = path.extname(filePath).toLowerCase();
+    return extension === ".dmg" || extension === ".zip";
+}
 function resolveDmgPath(explicit, repoRoot) {
     if (explicit) {
         const resolved = path.resolve(explicit);
         if (!(0, exec_1.fileExists)(resolved))
-            throw new Error(`DMG not found: ${resolved}`);
+            throw new Error(`Snapshot archive not found: ${resolved}`);
+        if (!isSupportedSnapshotArchive(resolved)) {
+            throw new Error(`Unsupported snapshot archive extension: ${resolved}`);
+        }
         return resolved;
     }
+    const defaultZip = path.join(repoRoot, "codex-26-506-31421.zip");
+    if ((0, exec_1.fileExists)(defaultZip))
+        return defaultZip;
     const defaultDmg = path.join(repoRoot, "Codex.dmg");
     if ((0, exec_1.fileExists)(defaultDmg))
         return defaultDmg;
-    const candidate = fs.readdirSync(repoRoot).find((entry) => entry.toLowerCase().endsWith(".dmg"));
+    const candidate = fs.readdirSync(repoRoot).find((entry) => isSupportedSnapshotArchive(entry));
     if (candidate)
         return path.join(repoRoot, candidate);
-    throw new Error(`No DMG found in [${repoRoot}].`);
+    throw new Error(`No supported snapshot archive (.dmg/.zip) found in [${repoRoot}].`);
 }
 function resolve7z(workDir) {
     const fromPath = (0, exec_1.resolveCommand)("7z.exe") ?? (0, exec_1.resolveCommand)("7z");
@@ -95,12 +105,12 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     const canReuse = reuse && (0, exec_1.fileExists)(appPackage) && (extractCurrent || allowFallbackReuse);
     if (canReuse) {
         if (extractCurrent)
-            (0, exec_1.writeSuccess)("Extraction cache hit: DMG signature unchanged. Reusing app payload.");
+            (0, exec_1.writeSuccess)("Extraction cache hit: snapshot archive signature unchanged. Reusing app payload.");
         else
             (0, exec_1.writeInfo)("Extraction reuse fallback applied from legacy manifest state.");
         return { sevenZip, extractedDir, electronDir, appDir, performed: false };
     }
-    (0, exec_1.writeHeader)("Extracting DMG");
+    (0, exec_1.writeHeader)("Extracting snapshot archive");
     for (const dir of [extractedDir, electronDir, appDir]) {
         (0, exec_1.removePath)(dir);
         (0, exec_1.ensureDir)(dir);
@@ -118,10 +128,10 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     const directResourceRoot = appResourceRoots.find((root) => (0, exec_1.fileExists)(path.join(extractedDir, root, "app.asar")));
     const directApp = directResourceRoot ? path.join(extractedDir, directResourceRoot, "app.asar") : "";
     if (!diskImage && !directApp) {
-        throw new Error(`DMG extraction did not produce expected payload (4.hfs/4.apfs/app.asar). 7z exit=${dmgExtract.status}\n${dmgExtract.stderr || dmgExtract.stdout}`);
+        throw new Error(`Snapshot extraction did not produce expected payload (4.hfs/4.apfs/app.asar). 7z exit=${dmgExtract.status}\n${dmgExtract.stderr || dmgExtract.stdout}`);
     }
     if (dmgExtract.status !== 0) {
-        (0, exec_1.writeInfo)(`7z returned exit=${dmgExtract.status} while extracting DMG; required files are present, continuing.`);
+        (0, exec_1.writeInfo)(`7z returned exit=${dmgExtract.status} while extracting snapshot archive; required files are present, continuing.`);
     }
     if (diskImage) {
         const archiveResourceRoot = appResourceRoots.find((root) => {
@@ -189,8 +199,10 @@ function invokeExtractionStage(dmgPath, workDir, reuse, allowFallbackReuse, mani
     (0, exec_1.writeSuccess)("app.asar unpacked via native Node extractor.");
     (0, exec_1.writeHeader)("Syncing app.asar.unpacked");
     const unpacked = path.join(electronDir, "Codex Installer", "Codex.app", "Contents", "Resources", "app.asar.unpacked");
-    if ((0, exec_1.fileExists)(unpacked)) {
-        (0, exec_1.copyDirectory)(unpacked, appDir);
+    const directUnpacked = path.join(electronDir, "Codex.app", "Contents", "Resources", "app.asar.unpacked");
+    const unpackedSource = [unpacked, directUnpacked].find(exec_1.fileExists);
+    if (unpackedSource) {
+        (0, exec_1.copyDirectory)(unpackedSource, appDir);
     }
     (0, manifest_1.setManifestStepState)(manifest, "extract", extractSignature, "ok", { dmgPath });
     (0, manifest_1.writeStateManifest)(manifestPath, manifest);

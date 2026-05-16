@@ -10,6 +10,14 @@
       "snapshotRegex": "codex[-_]?(?:13049|13949)"
     },
     {
+      "id": "codex-13506",
+      "appVersion": "26.506.31421",
+      "buildNumber": "2620",
+      "buildHint": 13506,
+      "patchProfileId": "codex-12129",
+      "snapshotRegex": "codex[-_]?(?:13506|26[-_]?506[-_]?31421)"
+    },
+    {
       "id": "codex-12843",
       "appVersion": "26.429.61741",
       "buildNumber": "2429",

@@ -25,6 +25,11 @@ for %%I in ("%USERPROFILE%\scoop\shims" "%LOCALAPPDATA%\Microsoft\WinGet\Links")
   if exist "%%~I\7z.exe" set "PATH=%%~I;%PATH%"
 )
 
+if "%~1"=="" if exist "%~dp0codex-26-506-31421.zip" (
+  "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite -DmgPath "%~dp0codex-26-506-31421.zip"
+  exit /b %ERRORLEVEL%
+)
+
 "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite %*
 exit /b %ERRORLEVEL%
 
@@ -32,6 +37,7 @@ exit /b %ERRORLEVEL%
 echo Usage:
 echo   build.cmd
 echo   build.cmd -DmgPath .\Codex.dmg
+echo   build.cmd -DmgPath .\codex-26-506-31421.zip
 echo Optional:
 echo   -WorkDir .\work  -DistDir .\dist  -Reuse  -NoLaunch  -CodexCliPath C:\path\to\codex.exe
 echo   -CodexCliChannel alpha
@@ -39,11 +45,12 @@ echo   -SingleExe
 echo   -ProfileName lite ^| forge ^| dev
 echo.
 echo Patch profile selection:
-echo   The runner extracts app metadata from the DMG and prefers internal version identity
-echo   ^(package.json version + codexBuildNumber^) over the DMG file name.
+echo   The runner extracts app metadata from the source archive and prefers internal version identity
+echo   ^(package.json version + codexBuildNumber^) over the archive file name.
 echo   Snapshot file names remain fallback-only for unknown builds.
 echo.
 echo Default behavior:
 echo   build.cmd builds Codex Lite.
+echo   If codex-26-506-31421.zip exists and no source archive is passed, it is used by default.
 echo   Codex Lite = Codex Repack: minimal Windows repack with bundled rg.exe, required path fixes, and no Forge mod runtime.
 exit /b 0
