@@ -567,9 +567,15 @@ function ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedA
     return createRuntimeDescriptor("npm-fallback", electronExe, electronVersion, `electron@${electronVersion}`);
 }
 function ensureElectronRuntime(nativeDir, electronVersion, donorAppDirs, seedAppDirs) {
-    const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
-    if (packagedRuntime)
-        return packagedRuntime;
+    const useElectronDistRuntime = process.env.CODEX_WINDOWS_USE_ELECTRON_DIST_RUNTIME === "1";
+    if (!useElectronDistRuntime) {
+        const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
+        if (packagedRuntime)
+            return packagedRuntime;
+    }
+    else {
+        (0, exec_1.writeInfo)("Skipping packaged Codex runtime donor; using Electron dist runtime.");
+    }
     return ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedAppDirs);
 }
 function ensureElectronDistCacheForPackaging(nativeDir, electronVersion, arch) {

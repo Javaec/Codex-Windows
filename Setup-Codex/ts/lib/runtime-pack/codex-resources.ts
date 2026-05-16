@@ -4,7 +4,13 @@ import { copyDirectory, copyFileSafe, ensureDir, fileExists, removePath, resolve
 import { getWindowsRuntimeDonorRipgrepPath, getWindowsRuntimeDonorToolPaths } from "../runtime-donor/windows-apps";
 
 const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe"]);
-const CLI_RESOURCE_ALLOWLIST = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe", "notification.wav"]);
+const CLI_RESOURCE_ALLOWLIST = new Set([
+  "codex-command-runner.exe",
+  "codex-windows-sandbox-setup.exe",
+  "rg.exe",
+  "notification.wav",
+  "codex-notification.wav",
+]);
 const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
   "app",
   "app.asar.unpacked",
@@ -165,7 +171,8 @@ export function bundleCodexCliResources(
     const fileName = entry.name.toLowerCase();
     if (fileName === path.basename(bundledCliPath).toLowerCase()) continue;
     if (!CLI_RESOURCE_ALLOWLIST.has(fileName)) continue;
-    copyFileSafe(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+    const destinationName = fileName === "codex-notification.wav" ? "notification.wav" : entry.name;
+    copyFileSafe(path.join(cliSrcDir, entry.name), path.join(resourcesDir, destinationName));
   }
 
   bundleVendorPathTools(resourcesDir, cliSrcDir);

@@ -692,8 +692,13 @@ function ensureElectronRuntime(
   donorAppDirs: string[],
   seedAppDirs: string[],
 ): RuntimeDescriptor {
-  const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
-  if (packagedRuntime) return packagedRuntime;
+  const useElectronDistRuntime = process.env.CODEX_WINDOWS_USE_ELECTRON_DIST_RUNTIME === "1";
+  if (!useElectronDistRuntime) {
+    const packagedRuntime = preparePackagedElectronRuntime(nativeDir, electronVersion);
+    if (packagedRuntime) return packagedRuntime;
+  } else {
+    writeInfo("Skipping packaged Codex runtime donor; using Electron dist runtime.");
+  }
   return ensureElectronDistCache(nativeDir, electronVersion, donorAppDirs, seedAppDirs);
 }
 

@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+set "DEFAULT_SNAPSHOT=%~dp0codex-26-506-31421.zip"
+set "CODEX_WINDOWS_USE_ELECTRON_DIST_RUNTIME=1"
+
 set "ENTRY=%~dp0Setup-Codex\internal\Run-Setup-Codex-Internal.ps1"
 if not exist "%ENTRY%" (
   echo Missing %ENTRY%
@@ -25,8 +28,8 @@ for %%I in ("%USERPROFILE%\scoop\shims" "%LOCALAPPDATA%\Microsoft\WinGet\Links")
   if exist "%%~I\7z.exe" set "PATH=%%~I;%PATH%"
 )
 
-if "%~1"=="" if exist "%~dp0codex-26-506-31421.zip" (
-  "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite -DmgPath "%~dp0codex-26-506-31421.zip"
+if "%~1"=="" if exist "%DEFAULT_SNAPSHOT%" (
+  "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%ENTRY%" -BuildPortable -NoLaunch -ProfileName lite -DmgPath "%DEFAULT_SNAPSHOT%"
   exit /b %ERRORLEVEL%
 )
 
@@ -52,5 +55,6 @@ echo.
 echo Default behavior:
 echo   build.cmd builds Codex Lite.
 echo   If codex-26-506-31421.zip exists and no source archive is passed, it is used by default.
+echo   build.cmd uses a plain Electron runtime shell for this ZIP so the latest installed Codex.exe cannot reject resources\app before startup.
 echo   Codex Lite = Codex Repack: minimal Windows repack with bundled rg.exe, required path fixes, and no Forge mod runtime.
 exit /b 0

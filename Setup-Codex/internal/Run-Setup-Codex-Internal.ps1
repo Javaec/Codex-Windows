@@ -11,11 +11,14 @@ if (-not $node) {
   throw "node is required but not found in PATH."
 }
 
-$rootDir = Split-Path -Parent $PSScriptRoot
-$tsConfig = Join-Path $rootDir "tsconfig.json"
-$tsCompiler = Join-Path $rootDir "node_modules\typescript\bin\tsc"
-$tsRoot = Join-Path $rootDir "ts"
-$compiledRoot = Join-Path $rootDir "node"
+$setupDir = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $setupDir
+$tsConfig = Join-Path $repoRoot "tsconfig.json"
+$setupTsCompiler = Join-Path $setupDir "node_modules\typescript\bin\tsc"
+$repoTsCompiler = Join-Path $repoRoot "node_modules\typescript\bin\tsc"
+$tsCompiler = if (Test-Path $setupTsCompiler) { $setupTsCompiler } else { $repoTsCompiler }
+$tsRoot = Join-Path $setupDir "ts"
+$compiledRoot = Join-Path $setupDir "node"
 $compiledEntry = Join-Path $compiledRoot "run.js"
 
 $shouldCompile = -not (Test-Path $compiledEntry)

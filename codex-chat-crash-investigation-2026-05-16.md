@@ -93,3 +93,30 @@ Try again
 - Ran project verification:
   - `verify.cmd`
   - result: `OK=19 WARN=0 FAIL=0`
+
+## 2026-05-16 09:44 MSK - Alternative 26.506 Build Path
+
+- Rebuilt `build.cmd` path for `codex-26-506-31421.zip`.
+- Found that the latest installed Windows `Codex.exe` (`26.513.3673.0`) can exit before loading `resources/app`; the runtime shim log is never created in that lane.
+- Added `CODEX_WINDOWS_USE_ELECTRON_DIST_RUNTIME=1` for `build.cmd`, so the portable build uses plain Electron `41.2.0` instead of the latest packaged Codex shell.
+- Fixed the internal setup runner compiler path so TypeScript changes compile through the repo-root `node_modules`.
+- Fixed portable notification bundling for donor `codex-notification.wav`.
+- Built canonical portable output:
+  - `C:\Codex-Windows\dist\Codex-win32-x64`
+  - app version `26.506.31421`
+  - Electron runtime source `electron-dist-cache`
+  - bundled notification sound present
+- Smoke improved from "no app startup" to live app startup:
+  - `cli_initialized=1`
+  - `dom_ready=3`
+  - `thread_list=2`
+  - `app_list=2`
+  - remaining smoke failures are extra usability/render-process counters, not a failure to load the main app.
+- Launched the alternative Codex from:
+  - `C:\Codex-Windows\dist\Launch-Codex-latest.cmd`
+- Verified live launched process and shim:
+  - `C:\Codex-Windows\dist\Codex-win32-x64\Codex.exe`
+  - `C:\Codex-Windows\dist\Codex-win32-x64\resources\codex.exe`
+  - `shim-startup.log` shows `disable-single-instance 1`.
+- Ran `verify.cmd` after the change:
+  - result: `OK=19 WARN=0 FAIL=0`

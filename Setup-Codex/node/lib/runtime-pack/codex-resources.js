@@ -41,7 +41,13 @@ const path = __importStar(require("node:path"));
 const exec_1 = require("../exec");
 const windows_apps_1 = require("../runtime-donor/windows-apps");
 const DONOR_TOOL_NAMES = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe"]);
-const CLI_RESOURCE_ALLOWLIST = new Set(["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "rg.exe", "notification.wav"]);
+const CLI_RESOURCE_ALLOWLIST = new Set([
+    "codex-command-runner.exe",
+    "codex-windows-sandbox-setup.exe",
+    "rg.exe",
+    "notification.wav",
+    "codex-notification.wav",
+]);
 const PORTABLE_RESOURCE_ROOT_ALLOWLIST = new Set([
     "app",
     "app.asar.unpacked",
@@ -193,7 +199,8 @@ function bundleCodexCliResources(resourcesDir, bundledCliPath, preferredRipgrepP
             continue;
         if (!CLI_RESOURCE_ALLOWLIST.has(fileName))
             continue;
-        (0, exec_1.copyFileSafe)(path.join(cliSrcDir, entry.name), path.join(resourcesDir, entry.name));
+        const destinationName = fileName === "codex-notification.wav" ? "notification.wav" : entry.name;
+        (0, exec_1.copyFileSafe)(path.join(cliSrcDir, entry.name), path.join(resourcesDir, destinationName));
     }
     bundleVendorPathTools(resourcesDir, cliSrcDir);
     bundleWindowsRuntimeDonorTools(resourcesDir);
