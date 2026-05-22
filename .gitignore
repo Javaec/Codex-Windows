@@ -16,6 +16,9 @@
 *.log
 *.tmp
 *.dmg
+Disk-report*.txt
+Disk-report*-summary.md
+Disk-report*-large-folders.csv
 
 # Keep local references out of default commits.
 /reference/

@@ -15,6 +15,8 @@
     "test:setup-store-app-detection": "node Setup-Codex/node/CodexSetupWizard.cjs --self-test-store-app-detection --locale ru",
     "test:setup-provider": "node Setup-Codex/node/CodexSetupWizard.cjs --check-provider-config --config Setup-Codex/provider-config.json --locale ru",
     "provider-retag": "node scripts/node/CodexProviderRetag.cjs",
+    "disk:summary": "node scripts/node/summarize-disk-report.cjs",
+    "test:disk-summary": "node scripts/node/summarize-disk-report.cjs --self-test",
     "provider-retag:prepare": "powershell -ExecutionPolicy Bypass -File scripts/Prepare-CodexProviderRetag.ps1"
   },
   "devDependencies": {
