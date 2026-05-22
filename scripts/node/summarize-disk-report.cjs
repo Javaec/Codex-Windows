@@ -106,6 +106,10 @@ function classifyCleanup(rawPath) {
     return ignore("Browser profile; may include saved passwords, sessions, tabs, extensions, and local site data.");
   }
 
+  if (/\\windows\\(winsxs|system32|installer|servicing)(\\|$)|\\program files( \(x86\))?(\\|$)/i.test(p)) {
+    return ignore("System or installed application folder. Do not delete directly.");
+  }
+
   if (/\\(\$recycle\.bin)(\\|$)/i.test(p)) {
     return safe("Recycle Bin content. Emptying it only removes files already deleted by the user.");
   }
@@ -132,6 +136,10 @@ function classifyCleanup(rawPath) {
 
   if (/\\(npm-cache|pnpm\\store|yarn\\cache|pip\\cache|\.gradle\\caches|\.nuget\\packages|\.cargo\\registry|\.cache)(\\|$)/i.test(p)) {
     return ask(90, "Package manager cache. Usually safe, but future installs/builds will redownload data.");
+  }
+
+  if (/^c:\\codex-windows\\work(\\|$)/i.test(p)) {
+    return ask(90, "Generated workspace output for this repo. Safe if no active run is using it.");
   }
 
   if (/\\(downloads|desktop|documents|pictures|videos|music)(\\|$)/i.test(p)) {
@@ -281,6 +289,8 @@ function runSelfTest() {
   assert(classifyCleanup("C:\\Users\\lensm\\AppData\\Local\\Temp").category === "safe", "classifies temp as safe");
   assert(classifyCleanup("C:\\Users\\lensm\\AppData\\Local\\Google\\Chrome\\User Data").category === "ignore", "protects browser profiles");
   assert(classifyCleanup("C:\\").category === "ignore", "ignores drive roots");
+  assert(classifyCleanup("C:\\Windows\\WinSxS\\Temp\\PendingDeletes").category === "ignore", "protects WinSxS temp paths");
+  assert(classifyCleanup("C:\\Codex-Windows\\work").confidence === 90, "marks repo work output as ask-first generated output");
   assert(collapseNestedRows([
     { path: "C:\\A", bytes: 10 },
     { path: "C:\\A\\B", bytes: 9 },
