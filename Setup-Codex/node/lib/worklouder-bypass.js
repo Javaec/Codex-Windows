@@ -453,11 +453,20 @@ async function runWorkLouderBypass(options = {}) {
     process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
 }
 async function main(argv = process.argv.slice(2)) {
+    if (argv.length === 0)
+        argv = ["--install-persistent"];
     if (argv.includes("--help")) {
-        process.stdout.write("Usage: worklouder-bypass.js [--dry-run | --install-persistent | --restore-persistent | --patch-status]\n");
+        process.stdout.write("Usage: worklouder-bypass.js [--install-persistent | --launch-once | --dry-run | --restore-persistent | --patch-status]\n" +
+            "Default: --install-persistent\n");
         return 0;
     }
-    const supported = new Set(["--dry-run", "--install-persistent", "--restore-persistent", "--patch-status"]);
+    const supported = new Set([
+        "--install-persistent",
+        "--launch-once",
+        "--dry-run",
+        "--restore-persistent",
+        "--patch-status",
+    ]);
     const unknown = argv.filter((arg) => !supported.has(arg));
     if (unknown.length > 0)
         throw new Error(`Unknown option: ${unknown[0]}`);

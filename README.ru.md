@@ -71,22 +71,23 @@ run.cmd / build.cmd
 npm i -g @openai/codex
 ```
 
-### Временный workaround для лагов Windows Codex
+### Workaround для лагов Windows Codex
 
-Если Microsoft Store-сборка Codex вызывает системные зависания и события `0xc06d007f`, можно запустить текущую закреплённую сборку через:
+Если Microsoft Store-сборка Codex вызывает системные зависания и события `0xc06d007f`, установите persistent patch:
 
 ```cmd
 Launch-Codex-WorkLouder-Bypass.cmd
 ```
 
-Launcher не изменяет Store-пакет или пользовательские данные. Он автоматически находит актуальный `OpenAI.Codex` через AppX, использует его текущий путь и версию, проверяет структуру `@worklouder/device-kit-oai`, затем временно подменяет только этот модуль, чтобы `findWLDevices()` возвращал пустой список. Work Louder / Codex Micro при этом не работает.
+Запуск без аргументов по умолчанию устанавливает patch и завершается. После этого обычные `ChatGPT.exe` и `Codex.exe` используют пропатченный Store-пакет.
+
+Persistent patch изменяет только packed `codex-micro-service` entry; пользовательские данные, чаты, токены и MCP не затрагиваются. Work Louder / Codex Micro при этом не работает.
+
+Для разового inspector-запуска без изменения Store-пакета используйте `--launch-once`. `--dry-run` только проверяет пакет.
 
 Перед запуском полностью закройте Codex/ChatGPT: launcher намеренно не подключается к уже работающему `ChatGPT.exe` и не завершает чужую сессию.
 
-Для установки persistent patch из репозитория:
-
 ```cmd
-Launch-Codex-WorkLouder-Bypass.cmd --install-persistent
 Launch-Codex-WorkLouder-Bypass.cmd --patch-status
 Launch-Codex-WorkLouder-Bypass.cmd --restore-persistent
 ```

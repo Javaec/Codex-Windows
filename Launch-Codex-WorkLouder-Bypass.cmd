@@ -19,6 +19,10 @@ if errorlevel 1 (
 set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%work\worklouder-bypass"
 if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
 
+if "%~1"=="" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
+  exit /b !ERRORLEVEL!
+)
 if /I "%~1"=="--install-persistent" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
   exit /b !ERRORLEVEL!

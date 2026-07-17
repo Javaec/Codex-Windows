@@ -54,6 +54,10 @@ if errorlevel 1 (
 
 set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%logs"
 if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
+if "%~1"=="" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
+  exit /b !ERRORLEVEL!
+)
 if /I "%~1"=="--install-persistent" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
   exit /b !ERRORLEVEL!
@@ -106,14 +110,15 @@ Usage
 -----
 
 1. Exit every ChatGPT.exe / Codex window.
-2. Run Install-Persistent-Patch.cmd once and approve the Windows UAC prompt.
+2. Run Launch-Codex-WorkLouder-Bypass.cmd without arguments (or use
+   Install-Persistent-Patch.cmd) and approve the Windows UAC prompt.
 3. Start Codex normally from Start menu, ChatGPT.exe, or Codex.exe.
 
 Use Check-Persistent-Patch.cmd to inspect the current state and
 Restore-Persistent-Patch.cmd to restore the original ASAR bytes.
 
-Launch-Codex-WorkLouder-Bypass.cmd remains the non-persistent alternative. Use
---dry-run with it to validate the installed package without launching Codex.
+Use Launch-Codex-WorkLouder-Bypass.cmd --launch-once for the non-persistent
+inspector alternative. Use --dry-run to validate without launching Codex.
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
 It intercepts only ${"@worklouder/device-kit-oai"} during the new process bootstrap and

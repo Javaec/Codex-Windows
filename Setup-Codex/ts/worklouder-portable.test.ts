@@ -32,4 +32,11 @@ test("portable archive contains only shareable launcher files", () => {
     "worklouder-persistent-patch.js",
   ]);
   assert.equal(files.some((file) => /Codex-Windows|node_modules|\.codex/i.test(file)), false);
+
+  const launcher = fs.readFileSync(
+    `${result.stagingDir}\\Launch-Codex-WorkLouder-Bypass.cmd`,
+    "ascii",
+  );
+  assert.match(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
+  assert.match(launcher, /node "%NODE_SCRIPT%" %\*/);
 });

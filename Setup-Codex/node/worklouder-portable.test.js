@@ -68,4 +68,7 @@ const worklouder_portable_1 = require("./worklouder-portable");
         "worklouder-persistent-patch.js",
     ]);
     strict_1.default.equal(files.some((file) => /Codex-Windows|node_modules|\.codex/i.test(file)), false);
+    const launcher = fs.readFileSync(`${result.stagingDir}\\Launch-Codex-WorkLouder-Bypass.cmd`, "ascii");
+    strict_1.default.match(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
+    strict_1.default.match(launcher, /node "%NODE_SCRIPT%" %\*/);
 });
