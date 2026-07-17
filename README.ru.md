@@ -85,6 +85,16 @@ Launcher не изменяет Store-пакет или пользователь�
 
 После обновления приложения launcher повторно проверит новый пакет автоматически. Если OpenAI изменит контракт Work Louder-модуля или его структуру, launcher намеренно завершится до запуска с сообщением о необходимости обновить адаптер.
 
+### Portable ZIP для других разработчиков
+
+Собрать самодостаточный набор файлов для передачи можно командой:
+
+```powershell
+npm run package:worklouder-bypass
+```
+
+Архив появится в `work\portable-output\Codex-WorkLouder-Bypass.zip`. Внутри только launcher, compiled JS, README, metadata и SHA-256 checksums; исходники проекта, `node_modules`, чаты и логи текущей машины туда не попадают.
+
 2. Прямой запуск:
 
 ```cmd

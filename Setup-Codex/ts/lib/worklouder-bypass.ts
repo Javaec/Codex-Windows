@@ -37,8 +37,11 @@ interface InspectorConnection {
   close(): void;
 }
 
-function writeLauncherLog(repoRoot: string, message: string): void {
-  const logDir = path.join(repoRoot, "work", "worklouder-bypass");
+function writeLauncherLog(message: string): void {
+  const configuredLogDir = String(process.env.CODEX_WORKLOUDER_LOG_DIR || "").trim();
+  const logDir = configuredLogDir
+    ? path.resolve(configuredLogDir)
+    : path.join(path.resolve(__dirname, "../.."), "work", "worklouder-bypass");
   fs.mkdirSync(logDir, { recursive: true });
   fs.appendFileSync(
     path.join(logDir, "launcher.log"),
@@ -450,22 +453,21 @@ async function injectWorkLouderBypass(target: ValidatedCodexTarget): Promise<Chi
 }
 
 export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): Promise<void> {
-  const repoRoot = path.resolve(__dirname, "../..");
   if (!options.dryRun && hasRunningChatGPTProcess()) {
     throw new Error("ChatGPT/Codex is already running. Exit it completely, then run this launcher.");
   }
   const installedPackage = findInstalledCodexPackage();
   if (options.dryRun) {
     const target = validateCodexTarget(installedPackage);
-    writeLauncherLog(repoRoot, `validated version=${target.version}`);
+    writeLauncherLog(`validated version=${target.version}`);
     process.stdout.write(`Validated adaptive Codex ${target.version}.\n`);
     return;
   }
   const target = validateCodexTarget(installedPackage);
-  writeLauncherLog(repoRoot, `validated version=${target.version}`);
+  writeLauncherLog(`validated version=${target.version}`);
   const child = await injectWorkLouderBypass(target);
   child.unref();
-  writeLauncherLog(repoRoot, `started version=${target.version}`);
+  writeLauncherLog(`started version=${target.version}`);
   process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
 }
 
