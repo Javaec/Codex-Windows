@@ -10,6 +10,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"
+if errorlevel 1 (
+  echo [ERROR] Node.js 22 or newer is required for the Inspector WebSocket client.
+  exit /b 1
+)
+
+set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%work\worklouder-bypass"
+if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
+
 if /I "%~1"=="--install-persistent" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
   exit /b !ERRORLEVEL!
