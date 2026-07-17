@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -6,11 +5,6 @@ import * as net from "node:net";
 import * as path from "node:path";
 
 export const CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
-export const CODEX_PINNED_VERSION = "26.715.2305.0";
-export const CODEX_PINNED_CHATGPT_SHA256 =
-  "305B25FA057C35241C2C27BCB1112450F35EEE12C1D4B1E4D74C073454914346";
-export const CODEX_PINNED_ASAR_SHA256 =
-  "D909924D6AE7A160AC78B88F01F9B16F079E6ABBE3F677427B752A411C6A3449";
 export const INJECTION_TIMEOUT_MS = 10_000;
 
 export interface InstalledCodexPackage {
@@ -22,8 +16,7 @@ export interface InstalledCodexPackage {
 export interface ValidatedCodexTarget extends InstalledCodexPackage {
   executablePath: string;
   asarPath: string;
-  chatGPTSha256: string;
-  asarSha256: string;
+  workLouderPackagePath: string;
 }
 
 interface InspectorTarget {
@@ -52,15 +45,6 @@ function writeLauncherLog(repoRoot: string, message: string): void {
     `${new Date().toISOString()} ${message.replace(/[\r\n]/g, " ")}\n`,
     "utf8",
   );
-}
-
-async function hashFile(filePath: string): Promise<string> {
-  const hash = createHash("sha256");
-  const stream = fs.createReadStream(filePath);
-  for await (const chunk of stream) {
-    hash.update(chunk as Buffer);
-  }
-  return hash.digest("hex").toUpperCase();
 }
 
 function runPowerShellJson<T>(script: string): T {
@@ -100,26 +84,94 @@ export function findInstalledCodexPackage(): InstalledCodexPackage {
   };
 }
 
-export async function validateCodexTarget(
-  installedPackage = findInstalledCodexPackage(),
-): Promise<ValidatedCodexTarget> {
-  if (installedPackage.version !== CODEX_PINNED_VERSION) {
-    throw new Error(
-      `Unsupported Codex version ${installedPackage.version}; this launcher is pinned to ${CODEX_PINNED_VERSION}.`,
-    );
+function isDirectory(directoryPath: string): boolean {
+  try {
+    return fs.statSync(directoryPath).isDirectory();
+  } catch {
+    return false;
   }
+}
+
+function containsNativeAddon(directoryPath: string): boolean {
+  const pending = [{ directoryPath, depth: 0 }];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current.directoryPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(".node")) return true;
+      if (entry.isDirectory() && current.depth < 8) {
+        pending.push({ directoryPath: path.join(current.directoryPath, entry.name), depth: current.depth + 1 });
+      }
+    }
+  }
+  return false;
+}
+
+function isWorkLouderPackage(directoryPath: string): boolean {
+  if (!isDirectory(directoryPath)) return false;
+  const manifestPath = path.join(directoryPath, "package.json");
+  const entryPoint = path.join(directoryPath, "dist", "index.js");
+  if (fs.existsSync(manifestPath) && fs.existsSync(entryPoint)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { name?: unknown };
+      if (manifest.name === CODEX_WORKLOUDER_MODULE) return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const deviceKitRoot = path.join(directoryPath, "node_modules", "@worklouder", "wl-device-kit");
+  const knownNativeAddons = [
+    path.join(deviceKitRoot, "node_modules", "node-hid", "build", "Release", "HID.node"),
+    path.join(
+      deviceKitRoot,
+      "node_modules",
+      "serialport",
+      "node_modules",
+      "@serialport",
+      "bindings-cpp",
+      "build",
+      "Release",
+      "bindings.node",
+    ),
+  ];
+  return isDirectory(deviceKitRoot) &&
+    (knownNativeAddons.some((nativeAddon) => fs.existsSync(nativeAddon)) || containsNativeAddon(deviceKitRoot));
+}
+
+export function findWorkLouderPackage(appRoot: string): string | null {
+  const candidate = path.join(
+    appRoot,
+    "resources",
+    "app.asar.unpacked",
+    "node_modules",
+    "@worklouder",
+    "device-kit-oai",
+  );
+  return isWorkLouderPackage(candidate) ? candidate : null;
+}
+
+export function validateCodexTarget(
+  installedPackage = findInstalledCodexPackage(),
+): ValidatedCodexTarget {
   const executablePath = path.join(installedPackage.installLocation, "app", "ChatGPT.exe");
   const asarPath = path.join(installedPackage.installLocation, "app", "resources", "app.asar");
   if (!fs.existsSync(executablePath) || !fs.existsSync(asarPath)) {
-    throw new Error("Pinned Codex package is missing ChatGPT.exe or resources/app.asar.");
+    throw new Error("Codex package is missing ChatGPT.exe or resources/app.asar.");
   }
-  const [chatGPTSha256, asarSha256] = await Promise.all([hashFile(executablePath), hashFile(asarPath)]);
-  if (!isPinnedTarget({ version: installedPackage.version, chatGPTSha256, asarSha256 })) {
+  const workLouderPackagePath = findWorkLouderPackage(path.join(installedPackage.installLocation, "app"));
+  if (!workLouderPackagePath) {
     throw new Error(
-      "Pinned Codex package contents changed; rebuild the launcher before using this workaround.",
+      `Codex ${installedPackage.version} does not expose the expected Work Louder native package; launcher adapter update required.`,
     );
   }
-  return { ...installedPackage, executablePath, asarPath, chatGPTSha256, asarSha256 };
+  return { ...installedPackage, executablePath, asarPath, workLouderPackagePath };
 }
 
 export function buildWorkLouderStubExpression(closeInspector = true): string {
@@ -180,18 +232,6 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
   };
 })()`;
-}
-
-export function isPinnedTarget(target: {
-  version: string;
-  chatGPTSha256: string;
-  asarSha256: string;
-}): boolean {
-  return (
-    target.version === CODEX_PINNED_VERSION &&
-    target.chatGPTSha256.toUpperCase() === CODEX_PINNED_CHATGPT_SHA256 &&
-    target.asarSha256.toUpperCase() === CODEX_PINNED_ASAR_SHA256
-  );
 }
 
 export function hasChatGPTProcessInTasklist(output: string): boolean {
@@ -416,17 +456,17 @@ export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): P
   }
   const installedPackage = findInstalledCodexPackage();
   if (options.dryRun) {
-    const target = await validateCodexTarget(installedPackage);
+    const target = validateCodexTarget(installedPackage);
     writeLauncherLog(repoRoot, `validated version=${target.version}`);
-    process.stdout.write(`Validated pinned Codex ${target.version}.\n`);
+    process.stdout.write(`Validated adaptive Codex ${target.version}.\n`);
     return;
   }
-  const target = await validateCodexTarget(installedPackage);
+  const target = validateCodexTarget(installedPackage);
   writeLauncherLog(repoRoot, `validated version=${target.version}`);
   const child = await injectWorkLouderBypass(target);
   child.unref();
   writeLauncherLog(repoRoot, `started version=${target.version}`);
-  process.stdout.write(`Started pinned Codex ${target.version} with Work Louder disabled.\n`);
+  process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {

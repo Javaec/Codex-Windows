@@ -33,37 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.INJECTION_TIMEOUT_MS = exports.CODEX_PINNED_ASAR_SHA256 = exports.CODEX_PINNED_CHATGPT_SHA256 = exports.CODEX_PINNED_VERSION = exports.CODEX_WORKLOUDER_MODULE = void 0;
+exports.INJECTION_TIMEOUT_MS = exports.CODEX_WORKLOUDER_MODULE = void 0;
 exports.findInstalledCodexPackage = findInstalledCodexPackage;
+exports.findWorkLouderPackage = findWorkLouderPackage;
 exports.validateCodexTarget = validateCodexTarget;
 exports.buildWorkLouderStubExpression = buildWorkLouderStubExpression;
-exports.isPinnedTarget = isPinnedTarget;
 exports.hasChatGPTProcessInTasklist = hasChatGPTProcessInTasklist;
 exports.runWorkLouderBypass = runWorkLouderBypass;
 exports.main = main;
-const node_crypto_1 = require("node:crypto");
 const node_child_process_1 = require("node:child_process");
 const fs = __importStar(require("node:fs"));
 const http = __importStar(require("node:http"));
 const net = __importStar(require("node:net"));
 const path = __importStar(require("node:path"));
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
-exports.CODEX_PINNED_VERSION = "26.715.2305.0";
-exports.CODEX_PINNED_CHATGPT_SHA256 = "305B25FA057C35241C2C27BCB1112450F35EEE12C1D4B1E4D74C073454914346";
-exports.CODEX_PINNED_ASAR_SHA256 = "D909924D6AE7A160AC78B88F01F9B16F079E6ABBE3F677427B752A411C6A3449";
 exports.INJECTION_TIMEOUT_MS = 10_000;
 function writeLauncherLog(repoRoot, message) {
     const logDir = path.join(repoRoot, "work", "worklouder-bypass");
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, "launcher.log"), `${new Date().toISOString()} ${message.replace(/[\r\n]/g, " ")}\n`, "utf8");
-}
-async function hashFile(filePath) {
-    const hash = (0, node_crypto_1.createHash)("sha256");
-    const stream = fs.createReadStream(filePath);
-    for await (const chunk of stream) {
-        hash.update(chunk);
-    }
-    return hash.digest("hex").toUpperCase();
 }
 function runPowerShellJson(script) {
     const result = (0, node_child_process_1.spawnSync)("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -96,20 +84,75 @@ function findInstalledCodexPackage() {
         installLocation: path.resolve(installLocation),
     };
 }
-async function validateCodexTarget(installedPackage = findInstalledCodexPackage()) {
-    if (installedPackage.version !== exports.CODEX_PINNED_VERSION) {
-        throw new Error(`Unsupported Codex version ${installedPackage.version}; this launcher is pinned to ${exports.CODEX_PINNED_VERSION}.`);
+function isDirectory(directoryPath) {
+    try {
+        return fs.statSync(directoryPath).isDirectory();
     }
+    catch {
+        return false;
+    }
+}
+function containsNativeAddon(directoryPath) {
+    const pending = [{ directoryPath, depth: 0 }];
+    while (pending.length > 0) {
+        const current = pending.pop();
+        if (!current)
+            continue;
+        let entries;
+        try {
+            entries = fs.readdirSync(current.directoryPath, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            if (entry.isFile() && entry.name.toLowerCase().endsWith(".node"))
+                return true;
+            if (entry.isDirectory() && current.depth < 8) {
+                pending.push({ directoryPath: path.join(current.directoryPath, entry.name), depth: current.depth + 1 });
+            }
+        }
+    }
+    return false;
+}
+function isWorkLouderPackage(directoryPath) {
+    if (!isDirectory(directoryPath))
+        return false;
+    const manifestPath = path.join(directoryPath, "package.json");
+    const entryPoint = path.join(directoryPath, "dist", "index.js");
+    if (fs.existsSync(manifestPath) && fs.existsSync(entryPoint)) {
+        try {
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+            if (manifest.name === exports.CODEX_WORKLOUDER_MODULE)
+                return true;
+        }
+        catch {
+            return false;
+        }
+    }
+    const deviceKitRoot = path.join(directoryPath, "node_modules", "@worklouder", "wl-device-kit");
+    const knownNativeAddons = [
+        path.join(deviceKitRoot, "node_modules", "node-hid", "build", "Release", "HID.node"),
+        path.join(deviceKitRoot, "node_modules", "serialport", "node_modules", "@serialport", "bindings-cpp", "build", "Release", "bindings.node"),
+    ];
+    return isDirectory(deviceKitRoot) &&
+        (knownNativeAddons.some((nativeAddon) => fs.existsSync(nativeAddon)) || containsNativeAddon(deviceKitRoot));
+}
+function findWorkLouderPackage(appRoot) {
+    const candidate = path.join(appRoot, "resources", "app.asar.unpacked", "node_modules", "@worklouder", "device-kit-oai");
+    return isWorkLouderPackage(candidate) ? candidate : null;
+}
+function validateCodexTarget(installedPackage = findInstalledCodexPackage()) {
     const executablePath = path.join(installedPackage.installLocation, "app", "ChatGPT.exe");
     const asarPath = path.join(installedPackage.installLocation, "app", "resources", "app.asar");
     if (!fs.existsSync(executablePath) || !fs.existsSync(asarPath)) {
-        throw new Error("Pinned Codex package is missing ChatGPT.exe or resources/app.asar.");
+        throw new Error("Codex package is missing ChatGPT.exe or resources/app.asar.");
     }
-    const [chatGPTSha256, asarSha256] = await Promise.all([hashFile(executablePath), hashFile(asarPath)]);
-    if (!isPinnedTarget({ version: installedPackage.version, chatGPTSha256, asarSha256 })) {
-        throw new Error("Pinned Codex package contents changed; rebuild the launcher before using this workaround.");
+    const workLouderPackagePath = findWorkLouderPackage(path.join(installedPackage.installLocation, "app"));
+    if (!workLouderPackagePath) {
+        throw new Error(`Codex ${installedPackage.version} does not expose the expected Work Louder native package; launcher adapter update required.`);
     }
-    return { ...installedPackage, executablePath, asarPath, chatGPTSha256, asarSha256 };
+    return { ...installedPackage, executablePath, asarPath, workLouderPackagePath };
 }
 function buildWorkLouderStubExpression(closeInspector = true) {
     const closeCode = closeInspector
@@ -169,11 +212,6 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
   };
 })()`;
-}
-function isPinnedTarget(target) {
-    return (target.version === exports.CODEX_PINNED_VERSION &&
-        target.chatGPTSha256.toUpperCase() === exports.CODEX_PINNED_CHATGPT_SHA256 &&
-        target.asarSha256.toUpperCase() === exports.CODEX_PINNED_ASAR_SHA256);
 }
 function hasChatGPTProcessInTasklist(output) {
     return /^"ChatGPT\.exe"/im.test(output);
@@ -399,17 +437,17 @@ async function runWorkLouderBypass(options = {}) {
     }
     const installedPackage = findInstalledCodexPackage();
     if (options.dryRun) {
-        const target = await validateCodexTarget(installedPackage);
+        const target = validateCodexTarget(installedPackage);
         writeLauncherLog(repoRoot, `validated version=${target.version}`);
-        process.stdout.write(`Validated pinned Codex ${target.version}.\n`);
+        process.stdout.write(`Validated adaptive Codex ${target.version}.\n`);
         return;
     }
-    const target = await validateCodexTarget(installedPackage);
+    const target = validateCodexTarget(installedPackage);
     writeLauncherLog(repoRoot, `validated version=${target.version}`);
     const child = await injectWorkLouderBypass(target);
     child.unref();
     writeLauncherLog(repoRoot, `started version=${target.version}`);
-    process.stdout.write(`Started pinned Codex ${target.version} with Work Louder disabled.\n`);
+    process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
 }
 async function main(argv = process.argv.slice(2)) {
     if (argv.includes("--help")) {
