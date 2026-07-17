@@ -6,6 +6,7 @@ import {
   CODEX_PINNED_CHATGPT_SHA256,
   CODEX_PINNED_VERSION,
   CODEX_WORKLOUDER_MODULE,
+  hasChatGPTProcessInTasklist,
   isPinnedTarget,
 } from "./worklouder-bypass";
 
@@ -40,7 +41,13 @@ test("stub intercepts only Work Louder and returns no devices", () => {
 
 test("injection expression is narrowly scoped", () => {
   const expression = buildWorkLouderStubExpression(false);
-  assert.match(expression, new RegExp(`request===target`));
+  assert.match(expression, /request\s*===\s*target/);
   assert.match(expression, new RegExp(CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(expression, /Module\._resolveFilename/);
+});
+
+test("tasklist detection matches only ChatGPT.exe rows", () => {
+  assert.equal(hasChatGPTProcessInTasklist('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
+  assert.equal(hasChatGPTProcessInTasklist('"Other.exe","1234","Console","1","120,000 K"'), false);
+  assert.equal(hasChatGPTProcessInTasklist("INFO: No tasks are running which match the specified criteria."), false);
 });

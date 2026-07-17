@@ -38,6 +38,7 @@ exports.findInstalledCodexPackage = findInstalledCodexPackage;
 exports.validateCodexTarget = validateCodexTarget;
 exports.buildWorkLouderStubExpression = buildWorkLouderStubExpression;
 exports.isPinnedTarget = isPinnedTarget;
+exports.hasChatGPTProcessInTasklist = hasChatGPTProcessInTasklist;
 exports.runWorkLouderBypass = runWorkLouderBypass;
 exports.main = main;
 const node_crypto_1 = require("node:crypto");
@@ -105,7 +106,7 @@ async function validateCodexTarget(installedPackage = findInstalledCodexPackage(
         throw new Error("Pinned Codex package is missing ChatGPT.exe or resources/app.asar.");
     }
     const [chatGPTSha256, asarSha256] = await Promise.all([hashFile(executablePath), hashFile(asarPath)]);
-    if (chatGPTSha256 !== exports.CODEX_PINNED_CHATGPT_SHA256 || asarSha256 !== exports.CODEX_PINNED_ASAR_SHA256) {
+    if (!isPinnedTarget({ version: installedPackage.version, chatGPTSha256, asarSha256 })) {
         throw new Error("Pinned Codex package contents changed; rebuild the launcher before using this workaround.");
     }
     return { ...installedPackage, executablePath, asarPath, chatGPTSha256, asarSha256 };
@@ -114,24 +115,75 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     const closeCode = closeInspector
         ? `setImmediate(()=>{try{require("node:inspector").close()}catch{}});`
         : "";
-    return `(()=>{const target=${JSON.stringify(exports.CODEX_WORKLOUDER_MODULE)};const Module=require("node:module");const originalLoad=Module._load;if(originalLoad.__codexWorkLouderBypass===true)return{ok:true,alreadyInstalled:true};const DeviceType=Object.freeze({Project2077:"Project2077"});const OAILightingEffect=Object.freeze({off:"off",breath:"breath",solid:"solid",snake:"snake"});const ConnectionEventType=Object.freeze({CONNECTED:"CONNECTED",DISCONNECTED:"DISCONNECTED",ERROR:"ERROR"});class WLDeviceDiscovery{findWLDevices(){return[]}}class WLDeviceCommImpl{connect(){throw new Error("Codex Micro disabled by external launcher")}}class RPCApiOAI{}const stub=Object.freeze({ConnectionEventType,DeviceType,OAILightingEffect,RPCApiOAI,WLDeviceCommImpl,WLDeviceDiscovery});function guardedLoad(request,parent,isMain){if(request===target)return stub;return Reflect.apply(originalLoad,this,arguments)}Object.defineProperty(guardedLoad,"__codexWorkLouderBypass",{value:true});Module._load=guardedLoad;${closeCode}return{ok:true,alreadyInstalled:false,findWLDevices:WLDeviceDiscovery.prototype.findWLDevices()}})()`;
+    return `
+(() => {
+  const target = ${JSON.stringify(exports.CODEX_WORKLOUDER_MODULE)};
+  const Module = require("node:module");
+  const originalLoad = Module._load;
+  if (originalLoad.__codexWorkLouderBypass === true) {
+    return { ok: true, alreadyInstalled: true, findWLDevices: [] };
+  }
+
+  const DeviceType = Object.freeze({ Project2077: "Project2077" });
+  const OAILightingEffect = Object.freeze({
+    off: "off",
+    breath: "breath",
+    solid: "solid",
+    snake: "snake",
+  });
+  const ConnectionEventType = Object.freeze({
+    CONNECTED: "CONNECTED",
+    DISCONNECTED: "DISCONNECTED",
+    ERROR: "ERROR",
+  });
+  class WLDeviceDiscovery {
+    findWLDevices() {
+      return [];
+    }
+  }
+  class WLDeviceCommImpl {
+    connect() {
+      throw new Error("Codex Micro disabled by external launcher");
+    }
+  }
+  class RPCApiOAI {}
+  const stub = Object.freeze({
+    ConnectionEventType,
+    DeviceType,
+    OAILightingEffect,
+    RPCApiOAI,
+    WLDeviceCommImpl,
+    WLDeviceDiscovery,
+  });
+
+  function guardedLoad(request, parent, isMain) {
+    if (request === target) return stub;
+    return Reflect.apply(originalLoad, this, arguments);
+  }
+  Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });
+  Module._load = guardedLoad;
+  ${closeCode}
+  return {
+    ok: true,
+    alreadyInstalled: false,
+    findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
+  };
+})()`;
 }
 function isPinnedTarget(target) {
     return (target.version === exports.CODEX_PINNED_VERSION &&
         target.chatGPTSha256.toUpperCase() === exports.CODEX_PINNED_CHATGPT_SHA256 &&
         target.asarSha256.toUpperCase() === exports.CODEX_PINNED_ASAR_SHA256);
 }
-function findRunningCodexProcesses(installLocation) {
-    const escapedRoot = installLocation.replace(/'/g, "''");
-    const rows = runPowerShellJson(`[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ` +
-        `$root='${escapedRoot}'; ` +
-        `$rows=Get-CimInstance Win32_Process -Filter \"Name='ChatGPT.exe'\" | ` +
-        `Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) } | ` +
-        `Select-Object @{Name='processId';Expression={$_.ProcessId}},@{Name='executablePath';Expression={$_.ExecutablePath}}; ` +
-        `if($rows){$rows | ConvertTo-Json -Compress}else{'[]'}`);
-    if (!rows)
-        return [];
-    return (Array.isArray(rows) ? rows : [rows]).filter((row) => Number(row.processId) > 0);
+function hasChatGPTProcessInTasklist(output) {
+    return /^"ChatGPT\.exe"/im.test(output);
+}
+function hasRunningChatGPTProcess() {
+    const result = (0, node_child_process_1.spawnSync)("tasklist.exe", ["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    if (result.error || result.status !== 0) {
+        throw new Error("Unable to inspect running ChatGPT processes.");
+    }
+    return hasChatGPTProcessInTasklist(String(result.stdout || ""));
 }
 async function findOpenLoopbackPort() {
     const server = net.createServer();
@@ -210,23 +262,30 @@ function connectInspector(webSocketUrl) {
                         const id = nextId++;
                         return new Promise((commandResolve, commandReject) => {
                             pending.set(id, { resolve: commandResolve, reject: commandReject });
-                            socket.send(JSON.stringify({ id, method, params }));
+                            try {
+                                socket.send(JSON.stringify({ id, method, params }));
+                            }
+                            catch (error) {
+                                pending.delete(id);
+                                commandReject(error instanceof Error ? error : new Error(String(error)));
+                            }
                         });
                     },
                     waitForEvent(method, timeoutMs) {
                         return new Promise((eventResolve, eventReject) => {
+                            const waiter = (message) => {
+                                clearTimeout(timer);
+                                eventResolve(message);
+                            };
                             const timer = setTimeout(() => {
                                 const entries = waiters.get(method) || [];
-                                const index = entries.indexOf(eventResolve);
+                                const index = entries.indexOf(waiter);
                                 if (index >= 0)
                                     entries.splice(index, 1);
                                 eventReject(new Error(`Inspector event ${method} timed out.`));
                             }, timeoutMs);
                             const entries = waiters.get(method) || [];
-                            entries.push((message) => {
-                                clearTimeout(timer);
-                                eventResolve(message);
-                            });
+                            entries.push(waiter);
                             waiters.set(method, entries);
                         });
                     },
@@ -288,18 +347,19 @@ async function injectWorkLouderBypass(target) {
         stdio: "ignore",
         windowsHide: false,
     });
-    let spawnError = null;
-    child.once("error", (error) => {
-        spawnError = error instanceof Error ? error : new Error(String(error));
+    const childFailure = new Promise((_, reject) => {
+        child.once("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
+        child.once("exit", (code, signal) => {
+            reject(new Error(`Codex exited before injection (code=${code}, signal=${signal || "none"}).`));
+        });
     });
+    childFailure.catch(() => undefined);
     const deadline = Date.now() + exports.INJECTION_TIMEOUT_MS;
     try {
-        const inspectorTarget = await waitForInspectorTarget(port, deadline);
-        if (spawnError)
-            throw spawnError;
-        if (child.exitCode !== null) {
-            throw new Error(`Codex exited before injection (code=${child.exitCode}).`);
-        }
+        const inspectorTarget = await Promise.race([
+            waitForInspectorTarget(port, deadline),
+            childFailure,
+        ]);
         const inspector = await connectInspector(inspectorTarget.webSocketDebuggerUrl);
         try {
             const pausedPromise = inspector.waitForEvent("Debugger.paused", Math.max(1, deadline - Date.now()));
@@ -334,16 +394,18 @@ async function injectWorkLouderBypass(target) {
 }
 async function runWorkLouderBypass(options = {}) {
     const repoRoot = path.resolve(__dirname, "../..");
-    const target = await validateCodexTarget();
-    writeLauncherLog(repoRoot, `validated version=${target.version}`);
+    if (!options.dryRun && hasRunningChatGPTProcess()) {
+        throw new Error("ChatGPT/Codex is already running. Exit it completely, then run this launcher.");
+    }
+    const installedPackage = findInstalledCodexPackage();
     if (options.dryRun) {
+        const target = await validateCodexTarget(installedPackage);
+        writeLauncherLog(repoRoot, `validated version=${target.version}`);
         process.stdout.write(`Validated pinned Codex ${target.version}.\n`);
         return;
     }
-    const running = findRunningCodexProcesses(target.installLocation);
-    if (running.length > 0) {
-        throw new Error("Codex is already running from the pinned Store package. Exit it completely, then run this launcher.");
-    }
+    const target = await validateCodexTarget(installedPackage);
+    writeLauncherLog(repoRoot, `validated version=${target.version}`);
     const child = await injectWorkLouderBypass(target);
     child.unref();
     writeLauncherLog(repoRoot, `started version=${target.version}`);

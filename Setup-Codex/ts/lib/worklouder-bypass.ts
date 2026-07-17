@@ -38,11 +38,6 @@ interface InspectorMessage {
   error?: { message?: string };
 }
 
-interface RunningCodexProcess {
-  processId: number;
-  executablePath: string;
-}
-
 interface InspectorConnection {
   sendCommand(method: string, params?: Record<string, unknown>): Promise<InspectorMessage>;
   waitForEvent(method: string, timeoutMs: number): Promise<InspectorMessage>;
@@ -119,7 +114,7 @@ export async function validateCodexTarget(
     throw new Error("Pinned Codex package is missing ChatGPT.exe or resources/app.asar.");
   }
   const [chatGPTSha256, asarSha256] = await Promise.all([hashFile(executablePath), hashFile(asarPath)]);
-  if (chatGPTSha256 !== CODEX_PINNED_CHATGPT_SHA256 || asarSha256 !== CODEX_PINNED_ASAR_SHA256) {
+  if (!isPinnedTarget({ version: installedPackage.version, chatGPTSha256, asarSha256 })) {
     throw new Error(
       "Pinned Codex package contents changed; rebuild the launcher before using this workaround.",
     );
@@ -131,7 +126,60 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
   const closeCode = closeInspector
     ? `setImmediate(()=>{try{require("node:inspector").close()}catch{}});`
     : "";
-  return `(()=>{const target=${JSON.stringify(CODEX_WORKLOUDER_MODULE)};const Module=require("node:module");const originalLoad=Module._load;if(originalLoad.__codexWorkLouderBypass===true)return{ok:true,alreadyInstalled:true};const DeviceType=Object.freeze({Project2077:"Project2077"});const OAILightingEffect=Object.freeze({off:"off",breath:"breath",solid:"solid",snake:"snake"});const ConnectionEventType=Object.freeze({CONNECTED:"CONNECTED",DISCONNECTED:"DISCONNECTED",ERROR:"ERROR"});class WLDeviceDiscovery{findWLDevices(){return[]}}class WLDeviceCommImpl{connect(){throw new Error("Codex Micro disabled by external launcher")}}class RPCApiOAI{}const stub=Object.freeze({ConnectionEventType,DeviceType,OAILightingEffect,RPCApiOAI,WLDeviceCommImpl,WLDeviceDiscovery});function guardedLoad(request,parent,isMain){if(request===target)return stub;return Reflect.apply(originalLoad,this,arguments)}Object.defineProperty(guardedLoad,"__codexWorkLouderBypass",{value:true});Module._load=guardedLoad;${closeCode}return{ok:true,alreadyInstalled:false,findWLDevices:WLDeviceDiscovery.prototype.findWLDevices()}})()`;
+  return `
+(() => {
+  const target = ${JSON.stringify(CODEX_WORKLOUDER_MODULE)};
+  const Module = require("node:module");
+  const originalLoad = Module._load;
+  if (originalLoad.__codexWorkLouderBypass === true) {
+    return { ok: true, alreadyInstalled: true, findWLDevices: [] };
+  }
+
+  const DeviceType = Object.freeze({ Project2077: "Project2077" });
+  const OAILightingEffect = Object.freeze({
+    off: "off",
+    breath: "breath",
+    solid: "solid",
+    snake: "snake",
+  });
+  const ConnectionEventType = Object.freeze({
+    CONNECTED: "CONNECTED",
+    DISCONNECTED: "DISCONNECTED",
+    ERROR: "ERROR",
+  });
+  class WLDeviceDiscovery {
+    findWLDevices() {
+      return [];
+    }
+  }
+  class WLDeviceCommImpl {
+    connect() {
+      throw new Error("Codex Micro disabled by external launcher");
+    }
+  }
+  class RPCApiOAI {}
+  const stub = Object.freeze({
+    ConnectionEventType,
+    DeviceType,
+    OAILightingEffect,
+    RPCApiOAI,
+    WLDeviceCommImpl,
+    WLDeviceDiscovery,
+  });
+
+  function guardedLoad(request, parent, isMain) {
+    if (request === target) return stub;
+    return Reflect.apply(originalLoad, this, arguments);
+  }
+  Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });
+  Module._load = guardedLoad;
+  ${closeCode}
+  return {
+    ok: true,
+    alreadyInstalled: false,
+    findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
+  };
+})()`;
 }
 
 export function isPinnedTarget(target: {
@@ -146,18 +194,20 @@ export function isPinnedTarget(target: {
   );
 }
 
-function findRunningCodexProcesses(installLocation: string): RunningCodexProcess[] {
-  const escapedRoot = installLocation.replace(/'/g, "''");
-  const rows = runPowerShellJson<RunningCodexProcess[]>(
-    `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ` +
-      `$root='${escapedRoot}'; ` +
-      `$rows=Get-CimInstance Win32_Process -Filter \"Name='ChatGPT.exe'\" | ` +
-      `Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) } | ` +
-      `Select-Object @{Name='processId';Expression={$_.ProcessId}},@{Name='executablePath';Expression={$_.ExecutablePath}}; ` +
-      `if($rows){$rows | ConvertTo-Json -Compress}else{'[]'}`,
+export function hasChatGPTProcessInTasklist(output: string): boolean {
+  return /^"ChatGPT\.exe"/im.test(output);
+}
+
+function hasRunningChatGPTProcess(): boolean {
+  const result = spawnSync(
+    "tasklist.exe",
+    ["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
-  if (!rows) return [];
-  return (Array.isArray(rows) ? rows : [rows]).filter((row) => Number(row.processId) > 0);
+  if (result.error || result.status !== 0) {
+    throw new Error("Unable to inspect running ChatGPT processes.");
+  }
+  return hasChatGPTProcessInTasklist(String(result.stdout || ""));
 }
 
 async function findOpenLoopbackPort(): Promise<number> {
@@ -240,22 +290,28 @@ function connectInspector(webSocketUrl: string): Promise<InspectorConnection> {
             const id = nextId++;
             return new Promise((commandResolve, commandReject) => {
               pending.set(id, { resolve: commandResolve, reject: commandReject });
-              socket.send(JSON.stringify({ id, method, params }));
+              try {
+                socket.send(JSON.stringify({ id, method, params }));
+              } catch (error) {
+                pending.delete(id);
+                commandReject(error instanceof Error ? error : new Error(String(error)));
+              }
             });
           },
           waitForEvent(method, timeoutMs) {
             return new Promise((eventResolve, eventReject) => {
+              const waiter = (message: InspectorMessage) => {
+                clearTimeout(timer);
+                eventResolve(message);
+              };
               const timer = setTimeout(() => {
                 const entries = waiters.get(method) || [];
-                const index = entries.indexOf(eventResolve);
+                const index = entries.indexOf(waiter);
                 if (index >= 0) entries.splice(index, 1);
                 eventReject(new Error(`Inspector event ${method} timed out.`));
               }, timeoutMs);
               const entries = waiters.get(method) || [];
-              entries.push((message) => {
-                clearTimeout(timer);
-                eventResolve(message);
-              });
+              entries.push(waiter);
               waiters.set(method, entries);
             });
           },
@@ -310,17 +366,19 @@ async function injectWorkLouderBypass(target: ValidatedCodexTarget): Promise<Chi
     stdio: "ignore",
     windowsHide: false,
   });
-  let spawnError: Error | null = null;
-  child.once("error", (error) => {
-    spawnError = error instanceof Error ? error : new Error(String(error));
+  const childFailure = new Promise<never>((_, reject) => {
+    child.once("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
+    child.once("exit", (code, signal) => {
+      reject(new Error(`Codex exited before injection (code=${code}, signal=${signal || "none"}).`));
+    });
   });
+  childFailure.catch(() => undefined);
   const deadline = Date.now() + INJECTION_TIMEOUT_MS;
   try {
-    const inspectorTarget = await waitForInspectorTarget(port, deadline);
-    if (spawnError) throw spawnError;
-    if (child.exitCode !== null) {
-      throw new Error(`Codex exited before injection (code=${child.exitCode}).`);
-    }
+    const inspectorTarget = await Promise.race([
+      waitForInspectorTarget(port, deadline),
+      childFailure,
+    ]);
     const inspector = await connectInspector(inspectorTarget.webSocketDebuggerUrl);
     try {
       const pausedPromise = inspector.waitForEvent("Debugger.paused", Math.max(1, deadline - Date.now()));
@@ -353,16 +411,18 @@ async function injectWorkLouderBypass(target: ValidatedCodexTarget): Promise<Chi
 
 export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): Promise<void> {
   const repoRoot = path.resolve(__dirname, "../..");
-  const target = await validateCodexTarget();
-  writeLauncherLog(repoRoot, `validated version=${target.version}`);
+  if (!options.dryRun && hasRunningChatGPTProcess()) {
+    throw new Error("ChatGPT/Codex is already running. Exit it completely, then run this launcher.");
+  }
+  const installedPackage = findInstalledCodexPackage();
   if (options.dryRun) {
+    const target = await validateCodexTarget(installedPackage);
+    writeLauncherLog(repoRoot, `validated version=${target.version}`);
     process.stdout.write(`Validated pinned Codex ${target.version}.\n`);
     return;
   }
-  const running = findRunningCodexProcesses(target.installLocation);
-  if (running.length > 0) {
-    throw new Error("Codex is already running from the pinned Store package. Exit it completely, then run this launcher.");
-  }
+  const target = await validateCodexTarget(installedPackage);
+  writeLauncherLog(repoRoot, `validated version=${target.version}`);
   const child = await injectWorkLouderBypass(target);
   child.unref();
   writeLauncherLog(repoRoot, `started version=${target.version}`);

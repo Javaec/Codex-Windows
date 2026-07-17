@@ -31,7 +31,12 @@ const moduleRuntime = require("node:module");
 });
 (0, node_test_1.test)("injection expression is narrowly scoped", () => {
     const expression = (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false);
-    strict_1.default.match(expression, new RegExp(`request===target`));
+    strict_1.default.match(expression, /request\s*===\s*target/);
     strict_1.default.match(expression, new RegExp(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     strict_1.default.doesNotMatch(expression, /Module\._resolveFilename/);
+});
+(0, node_test_1.test)("tasklist detection matches only ChatGPT.exe rows", () => {
+    strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
+    strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"Other.exe","1234","Console","1","120,000 K"'), false);
+    strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)("INFO: No tasks are running which match the specified criteria."), false);
 });
