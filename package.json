@@ -9,6 +9,8 @@
     "verify:lite": "node Setup-Codex/node/run.js verify",
     "smoke:lite": "node Setup-Codex/node/run.js smoke -ProfileName lite",
     "build:single-exe": "node Setup-Codex/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse",
+    "test:worklouder-bypass": "npm run build:runner && node --test Setup-Codex/node/lib/worklouder-bypass.test.js",
+    "worklouder-bypass:dry-run": "npm run build:runner && node Setup-Codex/node/lib/worklouder-bypass.js --dry-run",
     "test:version-identity": "node shared/version-identity/validate-known-builds.mjs",
     "test:setup-dependencies": "node Setup-Codex/node/CodexSetupWizard.cjs --check-dependencies --locale ru",
     "test:setup-dependency-warn": "node Setup-Codex/node/CodexSetupWizard.cjs --self-test-dependency-warn --locale ru",
