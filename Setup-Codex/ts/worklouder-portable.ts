@@ -6,6 +6,7 @@ import * as path from "node:path";
 const PORTABLE_FOLDER = "Codex-WorkLouder-Bypass";
 const ARCHIVE_NAME = `${PORTABLE_FOLDER}.zip`;
 const LAUNCHER_NAME = "Launch-Codex-WorkLouder-Bypass.cmd";
+const PATCH_MANAGER_NAME = "Manage-Persistent-Patch.ps1";
 
 function repositoryRoot(): string {
   return path.resolve(__dirname, "../..");
@@ -34,9 +35,11 @@ function writePortableLauncher(filePath: string): void {
   fs.writeFileSync(
     filePath,
     `@echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "ROOT=%~dp0"
+set "NODE_SCRIPT=%ROOT%worklouder-bypass.js"
+set "PATCH_MANAGER=%ROOT%${PATCH_MANAGER_NAME}"
 where node >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Node.js 22 or newer was not found in PATH.
@@ -51,7 +54,32 @@ if errorlevel 1 (
 
 set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%logs"
 if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
-node "%ROOT%worklouder-bypass.js" %*
+if /I "%~1"=="--install-persistent" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
+  exit /b !ERRORLEVEL!
+)
+if /I "%~1"=="--restore-persistent" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Restore -NodeScript "%NODE_SCRIPT%"
+  exit /b !ERRORLEVEL!
+)
+if /I "%~1"=="--patch-status" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Status -NodeScript "%NODE_SCRIPT%"
+  exit /b !ERRORLEVEL!
+)
+
+node "%NODE_SCRIPT%" %*
+exit /b %ERRORLEVEL%
+`,
+    "ascii",
+  );
+}
+
+function writePersistentModeLauncher(filePath: string, mode: string): void {
+  fs.writeFileSync(
+    filePath,
+    `@echo off
+setlocal
+call "%~dp0${LAUNCHER_NAME}" ${mode}
 exit /b %ERRORLEVEL%
 `,
     "ascii",
@@ -78,13 +106,24 @@ Usage
 -----
 
 1. Exit every ChatGPT.exe / Codex window.
-2. Run Launch-Codex-WorkLouder-Bypass.cmd.
-3. Use --dry-run first if you want to validate the installed package without launching it.
+2. Run Install-Persistent-Patch.cmd once and approve the Windows UAC prompt.
+3. Start Codex normally from Start menu, ChatGPT.exe, or Codex.exe.
+
+Use Check-Persistent-Patch.cmd to inspect the current state and
+Restore-Persistent-Patch.cmd to restore the original ASAR bytes.
+
+Launch-Codex-WorkLouder-Bypass.cmd remains the non-persistent alternative. Use
+--dry-run with it to validate the installed package without launching Codex.
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
 It intercepts only ${"@worklouder/device-kit-oai"} during the new process bootstrap and
 makes device discovery return an empty list. It does not modify the signed package,
 credentials, conversations, MCP configuration, or ChatGPT Classic.
+
+Persistent mode replaces only the packed codex-micro-service JavaScript entry while
+preserving its exact ASAR size and offset. Original bytes are backed up under
+LOCALAPPDATA before the write. A Microsoft Store update installs a new package and
+therefore requires running Install-Persistent-Patch.cmd again.
 
 Safety behavior
 ---------------
@@ -92,6 +131,8 @@ Safety behavior
 - The launcher refuses to attach to an already running ChatGPT.exe process.
 - It fails closed if the expected Work Louder native package contract is absent.
 - Inspector access is bound to 127.0.0.1 and closed immediately after bootstrap.
+- Persistent install and restore refuse to run while ChatGPT.exe is active.
+- Store package ACLs are restored after the elevated patch operation.
 - Runtime logs are written to the logs folder next to this launcher.
 
 This workaround disables Work Louder / Codex Micro. Do not use it if you need that
@@ -121,14 +162,21 @@ export function buildPortablePackage(): { stagingDir: string; archivePath: strin
   const stagingDir = path.join(outputDir, PORTABLE_FOLDER);
   const archivePath = path.join(outputDir, ARCHIVE_NAME);
   const sourceLauncher = path.join(root, "Setup-Codex", "node", "lib", "worklouder-bypass.js");
-  if (!fs.existsSync(sourceLauncher)) {
+  const sourcePersistentPatch = path.join(root, "Setup-Codex", "node", "lib", "worklouder-persistent-patch.js");
+  const sourcePatchManager = path.join(root, "shared", "worklouder-persistent", "Manage-Persistent-Patch.ps1");
+  if (!fs.existsSync(sourceLauncher) || !fs.existsSync(sourcePersistentPatch) || !fs.existsSync(sourcePatchManager)) {
     throw new Error("Compiled Work Louder launcher is missing. Run npm run build:runner first.");
   }
 
   fs.rmSync(stagingDir, { recursive: true, force: true });
   fs.mkdirSync(stagingDir, { recursive: true });
   fs.copyFileSync(sourceLauncher, path.join(stagingDir, "worklouder-bypass.js"));
+  fs.copyFileSync(sourcePersistentPatch, path.join(stagingDir, "worklouder-persistent-patch.js"));
+  fs.copyFileSync(sourcePatchManager, path.join(stagingDir, PATCH_MANAGER_NAME));
   writePortableLauncher(path.join(stagingDir, LAUNCHER_NAME));
+  writePersistentModeLauncher(path.join(stagingDir, "Install-Persistent-Patch.cmd"), "--install-persistent");
+  writePersistentModeLauncher(path.join(stagingDir, "Restore-Persistent-Patch.cmd"), "--restore-persistent");
+  writePersistentModeLauncher(path.join(stagingDir, "Check-Persistent-Patch.cmd"), "--patch-status");
   writePortableReadme(path.join(stagingDir, "README.md"));
 
   const metadata = {
@@ -137,7 +185,17 @@ export function buildPortablePackage(): { stagingDir: string; archivePath: strin
     sourceCommit: readSourceCommit(root),
     generatedAtIso: new Date().toISOString(),
     runtime: "Node.js >= 22",
-    files: [LAUNCHER_NAME, "worklouder-bypass.js", "README.md", "build-metadata.json"],
+    files: [
+      LAUNCHER_NAME,
+      "Install-Persistent-Patch.cmd",
+      "Restore-Persistent-Patch.cmd",
+      "Check-Persistent-Patch.cmd",
+      PATCH_MANAGER_NAME,
+      "worklouder-bypass.js",
+      "worklouder-persistent-patch.js",
+      "README.md",
+      "build-metadata.json",
+    ],
   };
   fs.writeFileSync(path.join(stagingDir, "build-metadata.json"), `${JSON.stringify(metadata, null, 2)}\n`, "ascii");
   const checksums = Object.fromEntries(

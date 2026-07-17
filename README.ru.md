@@ -83,6 +83,16 @@ Launcher не изменяет Store-пакет или пользователь�
 
 Перед запуском полностью закройте Codex/ChatGPT: launcher намеренно не подключается к уже работающему `ChatGPT.exe` и не завершает чужую сессию.
 
+Для установки persistent patch из репозитория:
+
+```cmd
+Launch-Codex-WorkLouder-Bypass.cmd --install-persistent
+Launch-Codex-WorkLouder-Bypass.cmd --patch-status
+Launch-Codex-WorkLouder-Bypass.cmd --restore-persistent
+```
+
+Install/restore запрашивают UAC, временно получают доступ к `app.asar`, возвращают исходный ACL после операции и сохраняют backup только entry `codex-micro-service` в `%LOCALAPPDATA%`.
+
 После обновления приложения launcher повторно проверит новый пакет автоматически. Если OpenAI изменит контракт Work Louder-модуля или его структуру, launcher намеренно завершится до запуска с сообщением о необходимости обновить адаптер.
 
 ### Portable ZIP для других разработчиков
@@ -94,6 +104,8 @@ npm run package:worklouder-bypass
 ```
 
 Архив появится в `work\portable-output\Codex-WorkLouder-Bypass.zip`. Внутри только launcher, compiled JS, README, metadata и SHA-256 checksums; исходники проекта, `node_modules`, чаты и логи текущей машины туда не попадают.
+
+Для постоянного patch внутри архива используются `Install-Persistent-Patch.cmd`, `Check-Persistent-Patch.cmd` и `Restore-Persistent-Patch.cmd`. Install/restore запрашивают UAC, меняют только packed `codex-micro-service` entry внутри `app.asar`, сохраняют оригинальные байты в `%LOCALAPPDATA%` и возвращают исходный ACL файла после операции. После обновления Store-пакета install нужно выполнить повторно.
 
 2. Прямой запуск:
 

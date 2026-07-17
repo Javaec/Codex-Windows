@@ -46,6 +46,7 @@ const fs = __importStar(require("node:fs"));
 const http = __importStar(require("node:http"));
 const net = __importStar(require("node:net"));
 const path = __importStar(require("node:path"));
+const worklouder_persistent_patch_1 = require("./worklouder-persistent-patch");
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 exports.INJECTION_TIMEOUT_MS = 10_000;
 function writeLauncherLog(message) {
@@ -217,10 +218,10 @@ function buildWorkLouderStubExpression(closeInspector = true) {
 })()`;
 }
 function hasChatGPTProcessInTasklist(output) {
-    return /^"ChatGPT\.exe"/im.test(output);
+    return /^(?:"ChatGPT|"Codex)\.exe"/im.test(output);
 }
 function hasRunningChatGPTProcess() {
-    const result = (0, node_child_process_1.spawnSync)("tasklist.exe", ["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const result = (0, node_child_process_1.spawnSync)("tasklist.exe", ["/FO", "CSV", "/NH"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     if (result.error || result.status !== 0) {
         throw new Error("Unable to inspect running ChatGPT processes.");
     }
@@ -453,12 +454,32 @@ async function runWorkLouderBypass(options = {}) {
 }
 async function main(argv = process.argv.slice(2)) {
     if (argv.includes("--help")) {
-        process.stdout.write("Usage: node Setup-Codex\\node\\worklouder-bypass.js [--dry-run]\n");
+        process.stdout.write("Usage: worklouder-bypass.js [--dry-run | --install-persistent | --restore-persistent | --patch-status]\n");
         return 0;
     }
-    const unknown = argv.filter((arg) => arg !== "--dry-run");
+    const supported = new Set(["--dry-run", "--install-persistent", "--restore-persistent", "--patch-status"]);
+    const unknown = argv.filter((arg) => !supported.has(arg));
     if (unknown.length > 0)
         throw new Error(`Unknown option: ${unknown[0]}`);
+    if (argv.length > 1)
+        throw new Error("Choose only one Work Louder launcher mode.");
+    if (argv.includes("--patch-status")) {
+        const target = validateCodexTarget();
+        const inspection = (0, worklouder_persistent_patch_1.inspectPersistentPatch)(target);
+        process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
+        return 0;
+    }
+    if (argv.includes("--install-persistent") || argv.includes("--restore-persistent")) {
+        if (hasRunningChatGPTProcess()) {
+            throw new Error("ChatGPT/Codex is already running. Exit it completely before changing the persistent patch.");
+        }
+        const target = validateCodexTarget();
+        const inspection = argv.includes("--install-persistent")
+            ? (0, worklouder_persistent_patch_1.installPersistentPatch)(target)
+            : (0, worklouder_persistent_patch_1.restorePersistentPatch)(target);
+        process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
+        return 0;
+    }
     await runWorkLouderBypass({ dryRun: argv.includes("--dry-run") });
     return 0;
 }

@@ -139,6 +139,7 @@ const moduleRuntime = require("node:module");
 });
 (0, node_test_1.test)("tasklist detection matches only ChatGPT.exe rows", () => {
     strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
+    strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"Codex.exe","1234","Console","1","120,000 K"'), true);
     strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"Other.exe","1234","Console","1","120,000 K"'), false);
     strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)("INFO: No tasks are running which match the specified criteria."), false);
 });

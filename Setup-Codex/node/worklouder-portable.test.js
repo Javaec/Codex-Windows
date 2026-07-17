@@ -56,11 +56,16 @@ const worklouder_portable_1 = require("./worklouder-portable");
         .filter(Boolean)
         .sort();
     strict_1.default.deepEqual(files, [
+        "Check-Persistent-Patch.cmd",
+        "Install-Persistent-Patch.cmd",
         "Launch-Codex-WorkLouder-Bypass.cmd",
+        "Manage-Persistent-Patch.ps1",
         "README.md",
+        "Restore-Persistent-Patch.cmd",
         "SHA256SUMS.txt",
         "build-metadata.json",
         "worklouder-bypass.js",
+        "worklouder-persistent-patch.js",
     ]);
     strict_1.default.equal(files.some((file) => /Codex-Windows|node_modules|\.codex/i.test(file)), false);
 });

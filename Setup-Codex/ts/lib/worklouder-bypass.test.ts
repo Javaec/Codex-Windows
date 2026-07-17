@@ -153,6 +153,7 @@ test("injection expression is narrowly scoped", () => {
 
 test("tasklist detection matches only ChatGPT.exe rows", () => {
   assert.equal(hasChatGPTProcessInTasklist('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
+  assert.equal(hasChatGPTProcessInTasklist('"Codex.exe","1234","Console","1","120,000 K"'), true);
   assert.equal(hasChatGPTProcessInTasklist('"Other.exe","1234","Console","1","120,000 K"'), false);
   assert.equal(hasChatGPTProcessInTasklist("INFO: No tasks are running which match the specified criteria."), false);
 });

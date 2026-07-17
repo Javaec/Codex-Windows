@@ -3,6 +3,11 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as path from "node:path";
+import {
+  inspectPersistentPatch,
+  installPersistentPatch,
+  restorePersistentPatch,
+} from "./worklouder-persistent-patch";
 
 export const CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 export const INJECTION_TIMEOUT_MS = 10_000;
@@ -238,13 +243,13 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
 }
 
 export function hasChatGPTProcessInTasklist(output: string): boolean {
-  return /^"ChatGPT\.exe"/im.test(output);
+  return /^(?:"ChatGPT|"Codex)\.exe"/im.test(output);
 }
 
 function hasRunningChatGPTProcess(): boolean {
   const result = spawnSync(
     "tasklist.exe",
-    ["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"],
+    ["/FO", "CSV", "/NH"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
   if (result.error || result.status !== 0) {
@@ -473,11 +478,33 @@ export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): P
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help")) {
-    process.stdout.write("Usage: node Setup-Codex\\node\\worklouder-bypass.js [--dry-run]\n");
+    process.stdout.write(
+      "Usage: worklouder-bypass.js [--dry-run | --install-persistent | --restore-persistent | --patch-status]\n",
+    );
     return 0;
   }
-  const unknown = argv.filter((arg) => arg !== "--dry-run");
+  const supported = new Set(["--dry-run", "--install-persistent", "--restore-persistent", "--patch-status"]);
+  const unknown = argv.filter((arg) => !supported.has(arg));
   if (unknown.length > 0) throw new Error(`Unknown option: ${unknown[0]}`);
+  if (argv.length > 1) throw new Error("Choose only one Work Louder launcher mode.");
+
+  if (argv.includes("--patch-status")) {
+    const target = validateCodexTarget();
+    const inspection = inspectPersistentPatch(target);
+    process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
+    return 0;
+  }
+  if (argv.includes("--install-persistent") || argv.includes("--restore-persistent")) {
+    if (hasRunningChatGPTProcess()) {
+      throw new Error("ChatGPT/Codex is already running. Exit it completely before changing the persistent patch.");
+    }
+    const target = validateCodexTarget();
+    const inspection = argv.includes("--install-persistent")
+      ? installPersistentPatch(target)
+      : restorePersistentPatch(target);
+    process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
+    return 0;
+  }
   await runWorkLouderBypass({ dryRun: argv.includes("--dry-run") });
   return 0;
 }

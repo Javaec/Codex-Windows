@@ -10,6 +10,7 @@
     "smoke:lite": "node Setup-Codex/node/run.js smoke -ProfileName lite",
     "build:single-exe": "node Setup-Codex/node/run.js build -ProfileName lite -SingleExe -NoLaunch -Reuse",
     "test:worklouder-bypass": "npm run build:runner && node --test Setup-Codex/node/lib/worklouder-bypass.test.js",
+    "test:worklouder-persistent": "npm run build:runner && node --test Setup-Codex/node/lib/worklouder-persistent-patch.test.js",
     "test:worklouder-portable": "npm run build:runner && node --test Setup-Codex/node/worklouder-portable.test.js",
     "worklouder-bypass:dry-run": "npm run build:runner && node Setup-Codex/node/lib/worklouder-bypass.js --dry-run",
     "package:worklouder-bypass": "npm run build:runner && node Setup-Codex/node/worklouder-portable.js",
