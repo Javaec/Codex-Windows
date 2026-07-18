@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   inspectPersistentPatch,
   installPersistentPatch,
+  isSignedAppxTarget,
   restorePersistentPatch,
   type PersistentPatchTarget,
 } from "./worklouder-persistent-patch";
@@ -108,11 +109,10 @@ test("persistent install refuses a signed AppX package", () => {
     createSyntheticAsar(asarPath);
     writeFileSync(path.join(root, "AppxBlockMap.xml"), "<BlockMap />");
     writeFileSync(path.join(root, "AppxSignature.p7x"), "signed");
+    const target = { name: "OpenAI.Codex", version: "99.100.200.0", asarPath };
+    assert.equal(isSignedAppxTarget(target), true);
     assert.throws(
-      () => installPersistentPatch(
-        { name: "OpenAI.Codex", version: "99.100.200.0", asarPath },
-        path.join(root, "backups"),
-      ),
+      () => installPersistentPatch(target, path.join(root, "backups")),
       /Refusing to modify app\.asar inside a signed AppX package/,
     );
   } finally {

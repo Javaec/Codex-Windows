@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isSignedAppxTarget = isSignedAppxTarget;
 exports.buildPersistentServiceStub = buildPersistentServiceStub;
 exports.inspectPersistentPatch = inspectPersistentPatch;
 exports.installPersistentPatch = installPersistentPatch;
@@ -62,11 +63,14 @@ function recordPath(target, override) {
     const pathId = (0, node_crypto_1.createHash)("sha256").update(path.resolve(target.asarPath).toLowerCase()).digest("hex").slice(0, 16);
     return path.join(backupRoot(override), `${version}-${pathId}.json`);
 }
-function assertTargetIsNotSignedAppx(target) {
+function isSignedAppxTarget(target) {
     const packageRoot = path.dirname(path.dirname(path.dirname(path.resolve(target.asarPath))));
     const hasBlockMap = fs.existsSync(path.join(packageRoot, "AppxBlockMap.xml"));
     const hasSignature = fs.existsSync(path.join(packageRoot, "AppxSignature.p7x"));
-    if (hasBlockMap && hasSignature) {
+    return hasBlockMap && hasSignature;
+}
+function assertTargetIsNotSignedAppx(target) {
+    if (isSignedAppxTarget(target)) {
         throw new Error("Refusing to modify app.asar inside a signed AppX package; use the non-persistent inspector launcher.");
     }
 }

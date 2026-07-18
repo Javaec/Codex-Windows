@@ -13,6 +13,7 @@
     "test:worklouder-persistent": "npm run build:runner && node --test Setup-Codex/node/lib/worklouder-persistent-patch.test.js",
     "test:worklouder-portable": "npm run build:runner && node --test Setup-Codex/node/worklouder-portable.test.js",
     "worklouder-bypass:dry-run": "npm run build:runner && node Setup-Codex/node/lib/worklouder-bypass.js --dry-run",
+    "worklouder-bypass:diagnose": "npm run build:runner && node Setup-Codex/node/lib/worklouder-bypass.js --diagnose",
     "package:worklouder-bypass": "npm run build:runner && node Setup-Codex/node/worklouder-portable.js",
     "test:version-identity": "node shared/version-identity/validate-known-builds.mjs",
     "test:setup-dependencies": "node Setup-Codex/node/CodexSetupWizard.cjs --check-dependencies --locale ru",

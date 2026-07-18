@@ -113,7 +113,8 @@ Use Check-Persistent-Patch.cmd to inspect the current state and
 Restore-Persistent-Patch.cmd to restore the original ASAR bytes.
 
 The default and --launch-once modes are the same safe inspector launcher. Use
---dry-run to validate the installed package without launching Codex.
+--dry-run to validate the installed package without launching Codex. Use
+--diagnose for a read-only, path-free status report.
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
 It intercepts only ${"@worklouder/device-kit-oai"} during the new process bootstrap and

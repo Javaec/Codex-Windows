@@ -163,6 +163,7 @@ test("tasklist detection matches only ChatGPT.exe rows", () => {
 test("launcher defaults to the safe non-persistent mode", () => {
   assert.equal(resolveWorkLouderLauncherMode([]), "launch-once");
   assert.equal(resolveWorkLouderLauncherMode(["--dry-run"]), "dry-run");
+  assert.equal(resolveWorkLouderLauncherMode(["--diagnose"]), "diagnose");
 });
 
 test("persistent install is rejected before package or process access", async () => {

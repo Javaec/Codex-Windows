@@ -5,6 +5,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import {
   inspectPersistentPatch,
+  isSignedAppxTarget,
   restorePersistentPatch,
 } from "./worklouder-persistent-patch";
 
@@ -21,6 +22,15 @@ export interface ValidatedCodexTarget extends InstalledCodexPackage {
   executablePath: string;
   asarPath: string;
   workLouderPackagePath: string;
+}
+
+export interface WorkLouderDiagnosticReport {
+  version: string;
+  signedAppx: boolean;
+  workLouderContract: "present";
+  persistentPatch: string;
+  chatGPTIsRunning: boolean;
+  defaultMode: "launch-once";
 }
 
 interface InspectorTarget {
@@ -469,7 +479,14 @@ export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): P
   }
   const target = validateCodexTarget(installedPackage);
   writeLauncherLog(`validated version=${target.version}`);
-  const child = await injectWorkLouderBypass(target);
+  let child: ChildProcess;
+  try {
+    child = await injectWorkLouderBypass(target);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    writeLauncherLog(`failed version=${target.version} stage=bootstrap reason=${reason}`);
+    throw error;
+  }
   child.unref();
   writeLauncherLog(`started version=${target.version}`);
   process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
@@ -479,6 +496,7 @@ export type WorkLouderLauncherMode =
   | "help"
   | "launch-once"
   | "dry-run"
+  | "diagnose"
   | "install-persistent"
   | "restore-persistent"
   | "patch-status";
@@ -493,6 +511,8 @@ export function resolveWorkLouderLauncherMode(argv: string[]): WorkLouderLaunche
       return "launch-once";
     case "--dry-run":
       return "dry-run";
+    case "--diagnose":
+      return "diagnose";
     case "--install-persistent":
       return "install-persistent";
     case "--restore-persistent":
@@ -508,13 +528,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const mode = resolveWorkLouderLauncherMode(argv);
   if (mode === "help") {
     process.stdout.write(
-      "Usage: worklouder-bypass.js [--launch-once | --dry-run | --restore-persistent | --patch-status]\n" +
+      "Usage: worklouder-bypass.js [--launch-once | --dry-run | --diagnose | --restore-persistent | --patch-status]\n" +
         "Default: --launch-once\n",
     );
     return 0;
   }
   if (mode === "install-persistent") {
     throw new Error("Persistent install is disabled because it invalidates the signed AppX package.");
+  }
+  if (mode === "diagnose") {
+    const target = validateCodexTarget();
+    const report: WorkLouderDiagnosticReport = {
+      version: target.version,
+      signedAppx: isSignedAppxTarget(target),
+      workLouderContract: "present",
+      persistentPatch: inspectPersistentPatch(target).status,
+      chatGPTIsRunning: hasRunningChatGPTProcess(),
+      defaultMode: "launch-once",
+    };
+    writeLauncherLog(
+      `diagnosed version=${report.version} signedAppx=${report.signedAppx} patch=${report.persistentPatch} running=${report.chatGPTIsRunning}`,
+    );
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return 0;
   }
   if (mode === "patch-status") {
     const target = validateCodexTarget();

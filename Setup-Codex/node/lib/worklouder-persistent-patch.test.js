@@ -127,7 +127,9 @@ function createFixture() {
         createSyntheticAsar(asarPath);
         (0, node_fs_1.writeFileSync)(path.join(root, "AppxBlockMap.xml"), "<BlockMap />");
         (0, node_fs_1.writeFileSync)(path.join(root, "AppxSignature.p7x"), "signed");
-        strict_1.default.throws(() => (0, worklouder_persistent_patch_1.installPersistentPatch)({ name: "OpenAI.Codex", version: "99.100.200.0", asarPath }, path.join(root, "backups")), /Refusing to modify app\.asar inside a signed AppX package/);
+        const target = { name: "OpenAI.Codex", version: "99.100.200.0", asarPath };
+        strict_1.default.equal((0, worklouder_persistent_patch_1.isSignedAppxTarget)(target), true);
+        strict_1.default.throws(() => (0, worklouder_persistent_patch_1.installPersistentPatch)(target, path.join(root, "backups")), /Refusing to modify app\.asar inside a signed AppX package/);
     }
     finally {
         (0, node_fs_1.rmSync)(root, { recursive: true, force: true });

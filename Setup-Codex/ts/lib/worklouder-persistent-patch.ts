@@ -75,11 +75,15 @@ function recordPath(target: PersistentPatchTarget, override?: string): string {
   return path.join(backupRoot(override), `${version}-${pathId}.json`);
 }
 
-function assertTargetIsNotSignedAppx(target: PersistentPatchTarget): void {
+export function isSignedAppxTarget(target: PersistentPatchTarget): boolean {
   const packageRoot = path.dirname(path.dirname(path.dirname(path.resolve(target.asarPath))));
   const hasBlockMap = fs.existsSync(path.join(packageRoot, "AppxBlockMap.xml"));
   const hasSignature = fs.existsSync(path.join(packageRoot, "AppxSignature.p7x"));
-  if (hasBlockMap && hasSignature) {
+  return hasBlockMap && hasSignature;
+}
+
+function assertTargetIsNotSignedAppx(target: PersistentPatchTarget): void {
+  if (isSignedAppxTarget(target)) {
     throw new Error(
       "Refusing to modify app.asar inside a signed AppX package; use the non-persistent inspector launcher.",
     );
