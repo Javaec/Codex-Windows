@@ -57,7 +57,6 @@ const worklouder_portable_1 = require("./worklouder-portable");
         .sort();
     strict_1.default.deepEqual(files, [
         "Check-Persistent-Patch.cmd",
-        "Install-Persistent-Patch.cmd",
         "Launch-Codex-WorkLouder-Bypass.cmd",
         "Manage-Persistent-Patch.ps1",
         "README.md",
@@ -69,6 +68,7 @@ const worklouder_portable_1 = require("./worklouder-portable");
     ]);
     strict_1.default.equal(files.some((file) => /Codex-Windows|node_modules|\.codex/i.test(file)), false);
     const launcher = fs.readFileSync(`${result.stagingDir}\\Launch-Codex-WorkLouder-Bypass.cmd`, "ascii");
-    strict_1.default.doesNotMatch(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
+    strict_1.default.doesNotMatch(launcher, /-Mode Install/);
+    strict_1.default.match(launcher, /Persistent install is disabled/);
     strict_1.default.match(launcher, /node "%NODE_SCRIPT%" %\*/);
 });

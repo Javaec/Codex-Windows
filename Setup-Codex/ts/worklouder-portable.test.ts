@@ -21,7 +21,6 @@ test("portable archive contains only shareable launcher files", () => {
     .sort();
   assert.deepEqual(files, [
     "Check-Persistent-Patch.cmd",
-    "Install-Persistent-Patch.cmd",
     "Launch-Codex-WorkLouder-Bypass.cmd",
     "Manage-Persistent-Patch.ps1",
     "README.md",
@@ -37,6 +36,7 @@ test("portable archive contains only shareable launcher files", () => {
     `${result.stagingDir}\\Launch-Codex-WorkLouder-Bypass.cmd`,
     "ascii",
   );
-  assert.doesNotMatch(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
+  assert.doesNotMatch(launcher, /-Mode Install/);
+  assert.match(launcher, /Persistent install is disabled/);
   assert.match(launcher, /node "%NODE_SCRIPT%" %\*/);
 });

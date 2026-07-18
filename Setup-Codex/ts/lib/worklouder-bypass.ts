@@ -5,7 +5,6 @@ import * as net from "node:net";
 import * as path from "node:path";
 import {
   inspectPersistentPatch,
-  installPersistentPatch,
   restorePersistentPatch,
 } from "./worklouder-persistent-patch";
 
@@ -243,13 +242,13 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
 }
 
 export function hasChatGPTProcessInTasklist(output: string): boolean {
-  return /^(?:"ChatGPT|"Codex)\.exe"/im.test(output);
+  return /^"ChatGPT\.exe"/im.test(output);
 }
 
 function hasRunningChatGPTProcess(): boolean {
   const result = spawnSync(
     "tasklist.exe",
-    ["/FO", "CSV", "/NH"],
+    ["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
   if (result.error || result.status !== 0) {
@@ -476,44 +475,63 @@ export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): P
   process.stdout.write(`Started adaptive Codex ${target.version} with Work Louder disabled.\n`);
 }
 
+export type WorkLouderLauncherMode =
+  | "help"
+  | "launch-once"
+  | "dry-run"
+  | "install-persistent"
+  | "restore-persistent"
+  | "patch-status";
+
+export function resolveWorkLouderLauncherMode(argv: string[]): WorkLouderLauncherMode {
+  if (argv.length === 0) return "launch-once";
+  if (argv.length > 1) throw new Error("Choose only one Work Louder launcher mode.");
+  switch (argv[0]) {
+    case "--help":
+      return "help";
+    case "--launch-once":
+      return "launch-once";
+    case "--dry-run":
+      return "dry-run";
+    case "--install-persistent":
+      return "install-persistent";
+    case "--restore-persistent":
+      return "restore-persistent";
+    case "--patch-status":
+      return "patch-status";
+    default:
+      throw new Error(`Unknown option: ${argv[0]}`);
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  if (argv.length === 0) argv = ["--launch-once"];
-  if (argv.includes("--help")) {
+  const mode = resolveWorkLouderLauncherMode(argv);
+  if (mode === "help") {
     process.stdout.write(
-      "Usage: worklouder-bypass.js [--install-persistent | --launch-once | --dry-run | --restore-persistent | --patch-status]\n" +
+      "Usage: worklouder-bypass.js [--launch-once | --dry-run | --restore-persistent | --patch-status]\n" +
         "Default: --launch-once\n",
     );
     return 0;
   }
-  const supported = new Set([
-    "--install-persistent",
-    "--launch-once",
-    "--dry-run",
-    "--restore-persistent",
-    "--patch-status",
-  ]);
-  const unknown = argv.filter((arg) => !supported.has(arg));
-  if (unknown.length > 0) throw new Error(`Unknown option: ${unknown[0]}`);
-  if (argv.length > 1) throw new Error("Choose only one Work Louder launcher mode.");
-
-  if (argv.includes("--patch-status")) {
+  if (mode === "install-persistent") {
+    throw new Error("Persistent install is disabled because it invalidates the signed AppX package.");
+  }
+  if (mode === "patch-status") {
     const target = validateCodexTarget();
     const inspection = inspectPersistentPatch(target);
     process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
     return 0;
   }
-  if (argv.includes("--install-persistent") || argv.includes("--restore-persistent")) {
+  if (mode === "restore-persistent") {
     if (hasRunningChatGPTProcess()) {
-      throw new Error("ChatGPT/Codex is already running. Exit it completely before changing the persistent patch.");
+      throw new Error("ChatGPT is already running. Exit it completely before restoring the persistent patch.");
     }
     const target = validateCodexTarget();
-    const inspection = argv.includes("--install-persistent")
-      ? installPersistentPatch(target)
-      : restorePersistentPatch(target);
+    const inspection = restorePersistentPatch(target);
     process.stdout.write(`Persistent Work Louder patch: ${inspection.status} (${target.version}).\n`);
     return 0;
   }
-  await runWorkLouderBypass({ dryRun: argv.includes("--dry-run") });
+  await runWorkLouderBypass({ dryRun: mode === "dry-run" });
   return 0;
 }
 

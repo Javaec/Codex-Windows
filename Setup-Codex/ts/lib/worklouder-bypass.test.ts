@@ -7,6 +7,8 @@ import {
   buildWorkLouderStubExpression,
   CODEX_WORKLOUDER_MODULE,
   hasChatGPTProcessInTasklist,
+  main,
+  resolveWorkLouderLauncherMode,
   validateCodexTarget,
 } from "./worklouder-bypass";
 
@@ -153,7 +155,19 @@ test("injection expression is narrowly scoped", () => {
 
 test("tasklist detection matches only ChatGPT.exe rows", () => {
   assert.equal(hasChatGPTProcessInTasklist('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
-  assert.equal(hasChatGPTProcessInTasklist('"Codex.exe","1234","Console","1","120,000 K"'), true);
+  assert.equal(hasChatGPTProcessInTasklist('"Codex.exe","1234","Console","1","120,000 K"'), false);
   assert.equal(hasChatGPTProcessInTasklist('"Other.exe","1234","Console","1","120,000 K"'), false);
   assert.equal(hasChatGPTProcessInTasklist("INFO: No tasks are running which match the specified criteria."), false);
+});
+
+test("launcher defaults to the safe non-persistent mode", () => {
+  assert.equal(resolveWorkLouderLauncherMode([]), "launch-once");
+  assert.equal(resolveWorkLouderLauncherMode(["--dry-run"]), "dry-run");
+});
+
+test("persistent install is rejected before package or process access", async () => {
+  await assert.rejects(
+    () => main(["--install-persistent"]),
+    /invalidates the signed AppX package/,
+  );
 });

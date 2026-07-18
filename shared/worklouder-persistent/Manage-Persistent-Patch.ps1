@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Install", "Restore", "Status")]
+    [ValidateSet("Restore", "Status")]
     [string]$Mode,
 
     [Parameter(Mandatory = $true)]
@@ -43,8 +43,8 @@ if ($Mode -eq "Status") {
     exit $LASTEXITCODE
 }
 
-if (Get-Process -Name ChatGPT, Codex -ErrorAction SilentlyContinue) {
-    throw "ChatGPT/Codex is running. Exit it completely before changing the persistent patch."
+if (Get-Process -Name ChatGPT -ErrorAction SilentlyContinue) {
+    throw "ChatGPT is running. Exit it completely before restoring the persistent patch."
 }
 
 if (-not $Elevated -or -not (Test-IsAdministrator)) {
@@ -72,7 +72,6 @@ if (-not (Test-Path -LiteralPath $asarPath -PathType Leaf)) {
 
 $originalAcl = Get-Acl -LiteralPath $asarPath
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$nodeMode = if ($Mode -eq "Install") { "--install-persistent" } else { "--restore-persistent" }
 
 try {
     & takeown.exe /F $asarPath /A | Out-Null
@@ -81,7 +80,7 @@ try {
     & icacls.exe $asarPath /grant "*$($currentSid):(M)" /Q | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Unable to grant temporary write access to app.asar." }
 
-    & $NodePath $NodeScript $nodeMode
+    & $NodePath $NodeScript --restore-persistent
     if ($LASTEXITCODE -ne 0) { throw "Persistent patch command failed with exit code $LASTEXITCODE." }
 }
 finally {

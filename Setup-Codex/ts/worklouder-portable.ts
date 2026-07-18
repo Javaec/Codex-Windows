@@ -55,8 +55,8 @@ if errorlevel 1 (
 set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%logs"
 if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
 if /I "%~1"=="--install-persistent" (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
-  exit /b !ERRORLEVEL!
+  echo [ERROR] Persistent install is disabled because it invalidates the signed AppX package.
+  exit /b 2
 )
 if /I "%~1"=="--restore-persistent" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Restore -NodeScript "%NODE_SCRIPT%"
@@ -130,8 +130,8 @@ Safety behavior
 - The launcher refuses to attach to an already running ChatGPT.exe process.
 - It fails closed if the expected Work Louder native package contract is absent.
 - Inspector access is bound to 127.0.0.1 and closed immediately after bootstrap.
-- Persistent install and restore refuse to run while ChatGPT.exe is active.
-- Store package ACLs are restored after the elevated patch operation.
+- Persistent restore refuses to run while ChatGPT.exe is active.
+- Store package ACLs are restored after the elevated restore operation.
 - Runtime logs are written to the logs folder next to this launcher.
 
 This workaround disables Work Louder / Codex Micro. Do not use it if you need that
@@ -173,7 +173,6 @@ export function buildPortablePackage(): { stagingDir: string; archivePath: strin
   fs.copyFileSync(sourcePersistentPatch, path.join(stagingDir, "worklouder-persistent-patch.js"));
   fs.copyFileSync(sourcePatchManager, path.join(stagingDir, PATCH_MANAGER_NAME));
   writePortableLauncher(path.join(stagingDir, LAUNCHER_NAME));
-  writePersistentModeLauncher(path.join(stagingDir, "Install-Persistent-Patch.cmd"), "--install-persistent");
   writePersistentModeLauncher(path.join(stagingDir, "Restore-Persistent-Patch.cmd"), "--restore-persistent");
   writePersistentModeLauncher(path.join(stagingDir, "Check-Persistent-Patch.cmd"), "--patch-status");
   writePortableReadme(path.join(stagingDir, "README.md"));
@@ -186,7 +185,6 @@ export function buildPortablePackage(): { stagingDir: string; archivePath: strin
     runtime: "Node.js >= 22",
     files: [
       LAUNCHER_NAME,
-      "Install-Persistent-Patch.cmd",
       "Restore-Persistent-Patch.cmd",
       "Check-Persistent-Patch.cmd",
       PATCH_MANAGER_NAME,
