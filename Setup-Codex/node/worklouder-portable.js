@@ -83,10 +83,6 @@ if errorlevel 1 (
 
 set "CODEX_WORKLOUDER_LOG_DIR=%ROOT%logs"
 if not exist "%CODEX_WORKLOUDER_LOG_DIR%" mkdir "%CODEX_WORKLOUDER_LOG_DIR%" >nul 2>nul
-if "%~1"=="" (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
-  exit /b !ERRORLEVEL!
-)
 if /I "%~1"=="--install-persistent" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PATCH_MANAGER%" -Mode Install -NodeScript "%NODE_SCRIPT%"
   exit /b !ERRORLEVEL!
@@ -128,26 +124,24 @@ Requirements
 Usage
 -----
 
-1. Exit every ChatGPT.exe / Codex window.
-2. Run Launch-Codex-WorkLouder-Bypass.cmd without arguments (or use
-   Install-Persistent-Patch.cmd) and approve the Windows UAC prompt.
-3. Start Codex normally from Start menu, ChatGPT.exe, or Codex.exe.
+1. Exit every ChatGPT.exe window.
+2. Run Launch-Codex-WorkLouder-Bypass.cmd without arguments.
+3. The launcher starts Codex with Work Louder disabled for that process.
 
 Use Check-Persistent-Patch.cmd to inspect the current state and
 Restore-Persistent-Patch.cmd to restore the original ASAR bytes.
 
-Use Launch-Codex-WorkLouder-Bypass.cmd --launch-once for the non-persistent
-inspector alternative. Use --dry-run to validate without launching Codex.
+The default and --launch-once modes are the same safe inspector launcher. Use
+--dry-run to validate the installed package without launching Codex.
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
 It intercepts only ${"@worklouder/device-kit-oai"} during the new process bootstrap and
 makes device discovery return an empty list. It does not modify the signed package,
 credentials, conversations, MCP configuration, or ChatGPT Classic.
 
-Persistent mode replaces only the packed codex-micro-service JavaScript entry while
-preserving its exact ASAR size and offset. Original bytes are backed up under
-LOCALAPPDATA before the write. A Microsoft Store update installs a new package and
-therefore requires running Install-Persistent-Patch.cmd again.
+Persistent install is disabled because modifying app.asar invalidates the signed
+AppX block map. Restore-Persistent-Patch.cmd remains available only to recover a
+package changed by an older launcher version.
 
 Safety behavior
 ---------------

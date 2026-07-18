@@ -119,3 +119,17 @@ function createFixture() {
         (0, node_fs_1.rmSync)(fixture.root, { recursive: true, force: true });
     }
 });
+(0, node_test_1.test)("persistent install refuses a signed AppX package", () => {
+    const root = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-signed-appx-"));
+    const asarPath = path.join(root, "app", "resources", "app.asar");
+    try {
+        (0, node_fs_1.mkdirSync)(path.dirname(asarPath), { recursive: true });
+        createSyntheticAsar(asarPath);
+        (0, node_fs_1.writeFileSync)(path.join(root, "AppxBlockMap.xml"), "<BlockMap />");
+        (0, node_fs_1.writeFileSync)(path.join(root, "AppxSignature.p7x"), "signed");
+        strict_1.default.throws(() => (0, worklouder_persistent_patch_1.installPersistentPatch)({ name: "OpenAI.Codex", version: "99.100.200.0", asarPath }, path.join(root, "backups")), /Refusing to modify app\.asar inside a signed AppX package/);
+    }
+    finally {
+        (0, node_fs_1.rmSync)(root, { recursive: true, force: true });
+    }
+});

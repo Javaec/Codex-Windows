@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { closeSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
@@ -97,5 +97,25 @@ test("persistent restore refuses a modified patched entry", () => {
     );
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("persistent install refuses a signed AppX package", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "codex-signed-appx-"));
+  const asarPath = path.join(root, "app", "resources", "app.asar");
+  try {
+    mkdirSync(path.dirname(asarPath), { recursive: true });
+    createSyntheticAsar(asarPath);
+    writeFileSync(path.join(root, "AppxBlockMap.xml"), "<BlockMap />");
+    writeFileSync(path.join(root, "AppxSignature.p7x"), "signed");
+    assert.throws(
+      () => installPersistentPatch(
+        { name: "OpenAI.Codex", version: "99.100.200.0", asarPath },
+        path.join(root, "backups"),
+      ),
+      /Refusing to modify app\.asar inside a signed AppX package/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -75,6 +75,17 @@ function recordPath(target: PersistentPatchTarget, override?: string): string {
   return path.join(backupRoot(override), `${version}-${pathId}.json`);
 }
 
+function assertTargetIsNotSignedAppx(target: PersistentPatchTarget): void {
+  const packageRoot = path.dirname(path.dirname(path.dirname(path.resolve(target.asarPath))));
+  const hasBlockMap = fs.existsSync(path.join(packageRoot, "AppxBlockMap.xml"));
+  const hasSignature = fs.existsSync(path.join(packageRoot, "AppxSignature.p7x"));
+  if (hasBlockMap && hasSignature) {
+    throw new Error(
+      "Refusing to modify app.asar inside a signed AppX package; use the non-persistent inspector launcher.",
+    );
+  }
+}
+
 function readAsarHeader(asarPath: string): { fd: number; payloadBaseOffset: number; header: AsarDirectoryNode } {
   const fd = fs.openSync(asarPath, "r");
   try {
@@ -240,6 +251,7 @@ export function inspectPersistentPatch(
 }
 
 export function installPersistentPatch(target: PersistentPatchTarget, backupOverride?: string): PersistentPatchInspection {
+  assertTargetIsNotSignedAppx(target);
   const entry = locateServiceEntry(target.asarPath);
   const filePath = recordPath(target, backupOverride);
   const existingRecord = readRecord(filePath);

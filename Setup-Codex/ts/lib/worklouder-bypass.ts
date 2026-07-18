@@ -477,11 +477,11 @@ export async function runWorkLouderBypass(options: { dryRun?: boolean } = {}): P
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  if (argv.length === 0) argv = ["--install-persistent"];
+  if (argv.length === 0) argv = ["--launch-once"];
   if (argv.includes("--help")) {
     process.stdout.write(
       "Usage: worklouder-bypass.js [--install-persistent | --launch-once | --dry-run | --restore-persistent | --patch-status]\n" +
-        "Default: --install-persistent\n",
+        "Default: --launch-once\n",
     );
     return 0;
   }

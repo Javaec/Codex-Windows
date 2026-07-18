@@ -37,6 +37,6 @@ test("portable archive contains only shareable launcher files", () => {
     `${result.stagingDir}\\Launch-Codex-WorkLouder-Bypass.cmd`,
     "ascii",
   );
-  assert.match(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
+  assert.doesNotMatch(launcher, /if "%~1"=="" \([\s\S]*-Mode Install/);
   assert.match(launcher, /node "%NODE_SCRIPT%" %\*/);
 });

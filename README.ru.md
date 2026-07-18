@@ -73,17 +73,15 @@ npm i -g @openai/codex
 
 ### Workaround для лагов Windows Codex
 
-Если Microsoft Store-сборка Codex вызывает системные зависания и события `0xc06d007f`, установите persistent patch:
+Если Microsoft Store-сборка Codex вызывает системные зависания и события `0xc06d007f`, запустите безопасный внешний bypass:
 
 ```cmd
 Launch-Codex-WorkLouder-Bypass.cmd
 ```
 
-Запуск без аргументов по умолчанию устанавливает patch и завершается. После этого обычные `ChatGPT.exe` и `Codex.exe` используют пропатченный Store-пакет.
+Запуск без аргументов временно подменяет только загрузку `@worklouder/device-kit-oai` в новом процессе. Store-пакет, чаты, токены и MCP не изменяются. Work Louder / Codex Micro при этом не работает.
 
-Persistent patch изменяет только packed `codex-micro-service` entry; пользовательские данные, чаты, токены и MCP не затрагиваются. Work Louder / Codex Micro при этом не работает.
-
-Для разового inspector-запуска без изменения Store-пакета используйте `--launch-once`. `--dry-run` только проверяет пакет.
+`--launch-once` является явным именем того же режима. `--dry-run` только проверяет пакет.
 
 Перед запуском полностью закройте Codex/ChatGPT: launcher намеренно не подключается к уже работающему `ChatGPT.exe` и не завершает чужую сессию.
 
@@ -92,7 +90,7 @@ Launch-Codex-WorkLouder-Bypass.cmd --patch-status
 Launch-Codex-WorkLouder-Bypass.cmd --restore-persistent
 ```
 
-Install/restore запрашивают UAC, временно получают доступ к `app.asar`, возвращают исходный ACL после операции и сохраняют backup только entry `codex-micro-service` в `%LOCALAPPDATA%`.
+Новая persistent-установка запрещена: изменение `app.asar` нарушает подписанный `AppxBlockMap.xml` и может сломать запуск Store-приложения. Restore оставлен только для восстановления пакета, изменённого старой версией launcher-а; он использует backup entry из `%LOCALAPPDATA%` и возвращает исходный ACL.
 
 После обновления приложения launcher повторно проверит новый пакет автоматически. Если OpenAI изменит контракт Work Louder-модуля или его структуру, launcher намеренно завершится до запуска с сообщением о необходимости обновить адаптер.
 
@@ -106,7 +104,7 @@ npm run package:worklouder-bypass
 
 Архив появится в `work\portable-output\Codex-WorkLouder-Bypass.zip`. Внутри только launcher, compiled JS, README, metadata и SHA-256 checksums; исходники проекта, `node_modules`, чаты и логи текущей машины туда не попадают.
 
-Для постоянного patch внутри архива используются `Install-Persistent-Patch.cmd`, `Check-Persistent-Patch.cmd` и `Restore-Persistent-Patch.cmd`. Install/restore запрашивают UAC, меняют только packed `codex-micro-service` entry внутри `app.asar`, сохраняют оригинальные байты в `%LOCALAPPDATA%` и возвращают исходный ACL файла после операции. После обновления Store-пакета install нужно выполнить повторно.
+Portable launcher также использует безопасный inspector-bypass. `Check-Persistent-Patch.cmd` и `Restore-Persistent-Patch.cmd` предназначены только для диагностики и восстановления после старых версий.
 
 2. Прямой запуск:
 
