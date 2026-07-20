@@ -136,9 +136,10 @@ The default and --launch-once modes are the same safe inspector launcher. Use
 --diagnose for a read-only, path-free status report.
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
-It intercepts only ${"@worklouder/device-kit-oai"} during the new process bootstrap and
-makes device discovery return an empty list. It does not modify the signed package,
-credentials, conversations, MCP configuration, or ChatGPT Classic.
+During the new process bootstrap it intercepts only the Work Louder integration,
+its codex-micro-service entry, and its HID watcher native module. Device discovery
+returns an empty list. It does not modify the signed package, credentials,
+conversations, MCP configuration, or ChatGPT Classic.
 
 Persistent install is disabled because modifying app.asar invalidates the signed
 AppX block map. Restore-Persistent-Patch.cmd remains available only to recover a

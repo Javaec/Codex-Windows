@@ -132,7 +132,7 @@ test("adaptive target fails closed when the module contract is missing", () => {
   }
 });
 
-test("stub intercepts only Work Louder and returns no devices", () => {
+test("stub intercepts Work Louder, service, and native watcher", async () => {
   const originalLoad = moduleRuntime._load;
   try {
     Function("require", buildWorkLouderStubExpression(false))(require);
@@ -140,6 +140,15 @@ test("stub intercepts only Work Louder and returns no devices", () => {
       WLDeviceDiscovery: new () => { findWLDevices(): unknown[] };
     };
     assert.deepEqual(new stub.WLDeviceDiscovery().findWLDevices(), []);
+    const service = moduleRuntime._load("C:\\app\\.vite\\build\\codex-micro-service-DyGGZ-q3.js", module, false) as {
+      CodexMicroService: new (options: unknown) => { getState(): { status: string }; updateLighting(): Promise<boolean> };
+    };
+    assert.equal(new service.CodexMicroService({}).getState().status, "not-detected");
+    assert.equal(await new service.CodexMicroService({}).updateLighting(), false);
+    const nativeWatcher = moduleRuntime._load("C:\\app\\native\\hid_topology_watcher.node", module, false) as {
+      findCodexMicroInterfaces(): unknown[];
+    };
+    assert.deepEqual(nativeWatcher.findCodexMicroInterfaces(), []);
     assert.equal(moduleRuntime._load("node:fs", module, false), require("node:fs"));
   } finally {
     moduleRuntime._load = originalLoad;
@@ -151,6 +160,8 @@ test("injection expression is narrowly scoped", () => {
   assert.match(expression, /request\s*===\s*target/);
   assert.match(expression, new RegExp(CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(expression, /Module\._resolveFilename/);
+  assert.match(expression, /codex-micro-service-/);
+  assert.match(expression, /hid_topology_watcher/);
 });
 
 test("tasklist detection matches only ChatGPT.exe rows", () => {

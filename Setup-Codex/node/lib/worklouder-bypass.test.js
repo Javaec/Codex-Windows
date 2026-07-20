@@ -119,12 +119,17 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
-(0, node_test_1.test)("stub intercepts only Work Louder and returns no devices", () => {
+(0, node_test_1.test)("stub intercepts Work Louder, service, and native watcher", async () => {
     const originalLoad = moduleRuntime._load;
     try {
         Function("require", (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false))(require);
         const stub = moduleRuntime._load(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE, module, false);
         strict_1.default.deepEqual(new stub.WLDeviceDiscovery().findWLDevices(), []);
+        const service = moduleRuntime._load("C:\\app\\.vite\\build\\codex-micro-service-DyGGZ-q3.js", module, false);
+        strict_1.default.equal(new service.CodexMicroService({}).getState().status, "not-detected");
+        strict_1.default.equal(await new service.CodexMicroService({}).updateLighting(), false);
+        const nativeWatcher = moduleRuntime._load("C:\\app\\native\\hid_topology_watcher.node", module, false);
+        strict_1.default.deepEqual(nativeWatcher.findCodexMicroInterfaces(), []);
         strict_1.default.equal(moduleRuntime._load("node:fs", module, false), require("node:fs"));
     }
     finally {
@@ -136,6 +141,8 @@ const moduleRuntime = require("node:module");
     strict_1.default.match(expression, /request\s*===\s*target/);
     strict_1.default.match(expression, new RegExp(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     strict_1.default.doesNotMatch(expression, /Module\._resolveFilename/);
+    strict_1.default.match(expression, /codex-micro-service-/);
+    strict_1.default.match(expression, /hid_topology_watcher/);
 });
 (0, node_test_1.test)("tasklist detection matches only ChatGPT.exe rows", () => {
     strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);

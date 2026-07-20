@@ -79,7 +79,7 @@ npm i -g @openai/codex
 Launch-Codex-WorkLouder-Bypass.cmd
 ```
 
-Запуск без аргументов временно подменяет только загрузку `@worklouder/device-kit-oai` в новом процессе. Store-пакет, чаты, токены и MCP не изменяются. Work Louder / Codex Micro при этом не работает.
+Запуск без аргументов в новом процессе перехватывает только Work Louder integration: `@worklouder/device-kit-oai`, `codex-micro-service` и HID watcher native module. Store-пакет, чаты, токены и MCP не изменяются. Work Louder / Codex Micro при этом не работает.
 
 `--launch-once` является явным именем того же режима. `--dry-run` только проверяет пакет, а `--diagnose` печатает обезличенный read-only отчёт о версии, подписи AppX, состоянии patch и активном процессе.
 

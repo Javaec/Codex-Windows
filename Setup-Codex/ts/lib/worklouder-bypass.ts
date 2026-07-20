@@ -198,10 +198,12 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
   return `
 (() => {
   const target = ${JSON.stringify(CODEX_WORKLOUDER_MODULE)};
+  const servicePattern = /(?:^|[\\\\/])codex-micro-service-[A-Za-z0-9_-]+\\.js$/;
+  const nativeWatcherPattern = /(?:^|[\\\\/])(?:hid_topology_watcher|hid-topology-watcher)\\.node$/;
   const Module = require("node:module");
   const originalLoad = Module._load;
   if (originalLoad.__codexWorkLouderBypass === true) {
-    return { ok: true, alreadyInstalled: true, findWLDevices: [] };
+    return { ok: true, alreadyInstalled: true, findWLDevices: [], serviceIntercepted: true };
   }
 
   const DeviceType = Object.freeze({ Project2077: "Project2077" });
@@ -227,7 +229,7 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     }
   }
   class RPCApiOAI {}
-  const stub = Object.freeze({
+  const deviceStub = Object.freeze({
     ConnectionEventType,
     DeviceType,
     OAILightingEffect,
@@ -235,9 +237,38 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     WLDeviceCommImpl,
     WLDeviceDiscovery,
   });
+  const serviceStub = Object.freeze({
+    CodexMicroService: class {
+      constructor(options) {
+        this.options = options;
+        this.state = { status: "not-detected", error: null, battery: null };
+      }
+      getState() {
+        return this.state;
+      }
+      start() {}
+      async updateLighting() {
+        return false;
+      }
+      async stop() {}
+      dispose() {
+        return this.stop();
+      }
+    },
+  });
+  const nativeWatcherStub = Object.freeze({
+    watch() {
+      return { dispose() {} };
+    },
+    findCodexMicroInterfaces() {
+      return [];
+    },
+  });
 
   function guardedLoad(request, parent, isMain) {
-    if (request === target) return stub;
+    if (request === target) return deviceStub;
+    if (typeof request === "string" && servicePattern.test(request)) return serviceStub;
+    if (typeof request === "string" && nativeWatcherPattern.test(request)) return nativeWatcherStub;
     return Reflect.apply(originalLoad, this, arguments);
   }
   Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });
@@ -247,6 +278,7 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     ok: true,
     alreadyInstalled: false,
     findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
+    serviceIntercepted: true,
   };
 })()`;
 }
