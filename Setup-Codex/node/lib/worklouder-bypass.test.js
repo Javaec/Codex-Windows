@@ -125,11 +125,19 @@ const moduleRuntime = require("node:module");
         Function("require", (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false))(require);
         const stub = moduleRuntime._load(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE, module, false);
         strict_1.default.deepEqual(new stub.WLDeviceDiscovery().findWLDevices(), []);
+        strict_1.default.equal(stub.ConnectionType.hid, 1);
+        strict_1.default.equal(stub.DeviceType.Project2077, "project_2077");
+        strict_1.default.equal(stub.OAILightingEffect.off, 0);
+        strict_1.default.equal(stub.OAILightingEffect.shallowBreath, 6);
         const service = moduleRuntime._load("C:\\app\\.vite\\build\\codex-micro-service-DyGGZ-q3.js", module, false);
         strict_1.default.equal(new service.CodexMicroService({}).getState().status, "not-detected");
         strict_1.default.equal(await new service.CodexMicroService({}).updateLighting(), false);
         const nativeWatcher = moduleRuntime._load("C:\\app\\native\\hid_topology_watcher.node", module, false);
         strict_1.default.deepEqual(nativeWatcher.findCodexMicroInterfaces(), []);
+        const relativeService = moduleRuntime._load("./codex-micro-service-DyGGZ-q3.js", module, false);
+        strict_1.default.equal(new relativeService.CodexMicroService({}).getState().status, "not-detected");
+        const relativeNativeWatcher = moduleRuntime._load("hid-topology-watcher.node", module, false);
+        strict_1.default.deepEqual(relativeNativeWatcher.findCodexMicroInterfaces(), []);
         strict_1.default.equal(moduleRuntime._load("node:fs", module, false), require("node:fs"));
     }
     finally {
@@ -143,6 +151,11 @@ const moduleRuntime = require("node:module");
     strict_1.default.doesNotMatch(expression, /Module\._resolveFilename/);
     strict_1.default.match(expression, /codex-micro-service-/);
     strict_1.default.match(expression, /hid_topology_watcher/);
+});
+(0, node_test_1.test)("module request patterns cover packed and relative native paths", () => {
+    const expression = (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false);
+    strict_1.default.match(expression, /codex-micro-service-\[A-Za-z0-9_-]\+/);
+    strict_1.default.match(expression, /hid-topology-watcher/);
 });
 (0, node_test_1.test)("tasklist detection matches only ChatGPT.exe rows", () => {
     strict_1.default.equal((0, worklouder_bypass_1.hasChatGPTProcessInTasklist)('"ChatGPT.exe","1234","Console","1","120,000 K"'), true);
