@@ -139,6 +139,20 @@ const moduleRuntime = require("node:module");
         moduleRuntime._load = originalLoad;
     }
 });
+(0, node_test_1.test)("hook leaves Codex Micro service entry to Node", () => {
+    const originalLoad = moduleRuntime._load;
+    const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-service-"));
+    const servicePath = path.join(packageRoot, "codex-micro-service-test.js");
+    try {
+        (0, node_fs_1.writeFileSync)(servicePath, "module.exports = { original: true };\n", "ascii");
+        Function("require", (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false))(require);
+        strict_1.default.deepEqual(moduleRuntime._load(servicePath, module, false), { original: true });
+    }
+    finally {
+        moduleRuntime._load = originalLoad;
+        (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
+    }
+});
 (0, node_test_1.test)("injection expression is narrowly scoped", () => {
     const expression = (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false);
     strict_1.default.match(expression, /request\s*===\s*target/);

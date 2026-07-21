@@ -159,6 +159,20 @@ test("stub intercepts Work Louder device kit and native watcher", () => {
   }
 });
 
+test("hook leaves Codex Micro service entry to Node", () => {
+  const originalLoad = moduleRuntime._load;
+  const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-service-"));
+  const servicePath = path.join(packageRoot, "codex-micro-service-test.js");
+  try {
+    writeFileSync(servicePath, "module.exports = { original: true };\n", "ascii");
+    Function("require", buildWorkLouderStubExpression(false))(require);
+    assert.deepEqual(moduleRuntime._load(servicePath, module, false), { original: true });
+  } finally {
+    moduleRuntime._load = originalLoad;
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
 test("injection expression is narrowly scoped", () => {
   const expression = buildWorkLouderStubExpression(false);
   assert.match(expression, /request\s*===\s*target/);

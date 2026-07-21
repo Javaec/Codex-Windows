@@ -243,7 +243,7 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     },
   });
 
-  function guardedLoad(request, parent, isMain) {
+  function guardedLoad(request) {
     if (request === target) return deviceStub;
     if (typeof request === "string" && nativeWatcherPattern.test(request)) return nativeWatcherStub;
     return Reflect.apply(originalLoad, this, arguments);
