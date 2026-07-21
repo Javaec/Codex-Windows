@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = exports.CODEX_MICRO_SERVICE_REQUEST_PATTERN = exports.INJECTION_TIMEOUT_MS = exports.CODEX_WORKLOUDER_MODULE = void 0;
+exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = exports.INJECTION_TIMEOUT_MS = exports.CODEX_WORKLOUDER_MODULE = void 0;
 exports.findInstalledCodexPackage = findInstalledCodexPackage;
 exports.findWorkLouderPackage = findWorkLouderPackage;
 exports.validateCodexTarget = validateCodexTarget;
@@ -50,7 +50,6 @@ const path = __importStar(require("node:path"));
 const worklouder_persistent_patch_1 = require("./worklouder-persistent-patch");
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 exports.INJECTION_TIMEOUT_MS = 10_000;
-exports.CODEX_MICRO_SERVICE_REQUEST_PATTERN = /codex-micro-service-[A-Za-z0-9_-]+\.js$/;
 exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
 function writeLauncherLog(message) {
     const configuredLogDir = String(process.env.CODEX_WORKLOUDER_LOG_DIR || "").trim();
@@ -168,12 +167,11 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     return `
 (() => {
   const target = ${JSON.stringify(exports.CODEX_WORKLOUDER_MODULE)};
-  const servicePattern = new RegExp(${JSON.stringify(exports.CODEX_MICRO_SERVICE_REQUEST_PATTERN.source)});
   const nativeWatcherPattern = new RegExp(${JSON.stringify(exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN.source)});
   const Module = require("node:module");
   const originalLoad = Module._load;
   if (originalLoad.__codexWorkLouderBypass === true) {
-    return { ok: true, alreadyInstalled: true, findWLDevices: [], serviceIntercepted: true, nativeWatcherIntercepted: true };
+    return { ok: true, alreadyInstalled: true, findWLDevices: [], deviceKitIntercepted: true, nativeWatcherIntercepted: true };
   }
 
   const ConnectionType = Object.freeze({ serial: 0, hid: 1 });
@@ -236,24 +234,6 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     WLRelease,
     WLRPCClient,
   });
-  const CodexMicroService = class {
-      constructor(options) {
-        this.options = options;
-        this.state = { status: "not-detected", error: null, battery: null };
-      }
-      getState() {
-        return this.state;
-      }
-      start() {}
-      async updateLighting() {
-        return false;
-      }
-      async stop() {}
-      dispose() {
-        return this.stop();
-      }
-  };
-  const serviceStub = Object.freeze({ CodexMicroService, default: CodexMicroService });
   const nativeWatcherStub = Object.freeze({
     watch() {
       return { dispose() {} };
@@ -265,7 +245,6 @@ function buildWorkLouderStubExpression(closeInspector = true) {
 
   function guardedLoad(request, parent, isMain) {
     if (request === target) return deviceStub;
-    if (typeof request === "string" && servicePattern.test(request)) return serviceStub;
     if (typeof request === "string" && nativeWatcherPattern.test(request)) return nativeWatcherStub;
     return Reflect.apply(originalLoad, this, arguments);
   }
@@ -276,7 +255,7 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     ok: true,
     alreadyInstalled: false,
     findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
-    serviceIntercepted: true,
+    deviceKitIntercepted: true,
     nativeWatcherIntercepted: true,
   };
 })()`;
@@ -483,7 +462,7 @@ async function injectWorkLouderBypass(target) {
                 returnByValue: true,
             });
             const value = evaluation.result?.result?.value;
-            if (!value?.ok || !Array.isArray(value.findWLDevices) || !value.serviceIntercepted || !value.nativeWatcherIntercepted) {
+            if (!value?.ok || !Array.isArray(value.findWLDevices) || !value.deviceKitIntercepted || !value.nativeWatcherIntercepted) {
                 throw new Error("Work Louder stub was not confirmed by the target process.");
             }
             await inspector.sendCommand("Debugger.resume").catch(() => undefined);

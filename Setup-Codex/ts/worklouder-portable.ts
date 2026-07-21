@@ -118,7 +118,8 @@ The default and --launch-once modes are the same safe inspector launcher. Use
 
 The launcher discovers the current OpenAI.Codex AppX install path automatically.
 During the new process bootstrap it intercepts only the Work Louder integration,
-its codex-micro-service entry, and its HID watcher native module. Device discovery
+the exact device-kit package, and its HID watcher native module. The original
+codex-micro-service entry remains loaded for compatibility, while device discovery
 returns an empty list. It does not modify the signed package, credentials,
 conversations, MCP configuration, or ChatGPT Classic.
 

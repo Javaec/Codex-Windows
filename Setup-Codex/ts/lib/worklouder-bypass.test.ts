@@ -132,7 +132,7 @@ test("adaptive target fails closed when the module contract is missing", () => {
   }
 });
 
-test("stub intercepts Work Louder, service, and native watcher", async () => {
+test("stub intercepts Work Louder device kit and native watcher", () => {
   const originalLoad = moduleRuntime._load;
   try {
     Function("require", buildWorkLouderStubExpression(false))(require);
@@ -147,17 +147,10 @@ test("stub intercepts Work Louder, service, and native watcher", async () => {
     assert.equal(stub.DeviceType.Project2077, "project_2077");
     assert.equal(stub.OAILightingEffect.off, 0);
     assert.equal(stub.OAILightingEffect.shallowBreath, 6);
-    const service = moduleRuntime._load("C:\\app\\.vite\\build\\codex-micro-service-DyGGZ-q3.js", module, false) as {
-      CodexMicroService: new (options: unknown) => { getState(): { status: string }; updateLighting(): Promise<boolean> };
-    };
-    assert.equal(new service.CodexMicroService({}).getState().status, "not-detected");
-    assert.equal(await new service.CodexMicroService({}).updateLighting(), false);
     const nativeWatcher = moduleRuntime._load("C:\\app\\native\\hid_topology_watcher.node", module, false) as {
       findCodexMicroInterfaces(): unknown[];
     };
     assert.deepEqual(nativeWatcher.findCodexMicroInterfaces(), []);
-    const relativeService = moduleRuntime._load("./codex-micro-service-DyGGZ-q3.js", module, false) as typeof service;
-    assert.equal(new relativeService.CodexMicroService({}).getState().status, "not-detected");
     const relativeNativeWatcher = moduleRuntime._load("hid-topology-watcher.node", module, false) as typeof nativeWatcher;
     assert.deepEqual(relativeNativeWatcher.findCodexMicroInterfaces(), []);
     assert.equal(moduleRuntime._load("node:fs", module, false), require("node:fs"));
@@ -171,13 +164,12 @@ test("injection expression is narrowly scoped", () => {
   assert.match(expression, /request\s*===\s*target/);
   assert.match(expression, new RegExp(CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(expression, /Module\._resolveFilename/);
-  assert.match(expression, /codex-micro-service-/);
+  assert.doesNotMatch(expression, /codex-micro-service-/);
   assert.match(expression, /hid_topology_watcher/);
 });
 
 test("module request patterns cover packed and relative native paths", () => {
   const expression = buildWorkLouderStubExpression(false);
-  assert.match(expression, /codex-micro-service-\[A-Za-z0-9_-]\+/);
   assert.match(expression, /hid-topology-watcher/);
 });
 

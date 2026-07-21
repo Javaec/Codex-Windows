@@ -11,7 +11,6 @@ import {
 
 export const CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 export const INJECTION_TIMEOUT_MS = 10_000;
-export const CODEX_MICRO_SERVICE_REQUEST_PATTERN = /codex-micro-service-[A-Za-z0-9_-]+\.js$/;
 export const HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
 
 export interface InstalledCodexPackage {
@@ -201,12 +200,11 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
   return `
 (() => {
   const target = ${JSON.stringify(CODEX_WORKLOUDER_MODULE)};
-  const servicePattern = new RegExp(${JSON.stringify(CODEX_MICRO_SERVICE_REQUEST_PATTERN.source)});
   const nativeWatcherPattern = new RegExp(${JSON.stringify(HID_TOPOLOGY_WATCHER_REQUEST_PATTERN.source)});
   const Module = require("node:module");
   const originalLoad = Module._load;
   if (originalLoad.__codexWorkLouderBypass === true) {
-    return { ok: true, alreadyInstalled: true, findWLDevices: [], serviceIntercepted: true, nativeWatcherIntercepted: true };
+    return { ok: true, alreadyInstalled: true, findWLDevices: [], deviceKitIntercepted: true, nativeWatcherIntercepted: true };
   }
 
   const ConnectionType = Object.freeze({ serial: 0, hid: 1 });
@@ -269,24 +267,6 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     WLRelease,
     WLRPCClient,
   });
-  const CodexMicroService = class {
-      constructor(options) {
-        this.options = options;
-        this.state = { status: "not-detected", error: null, battery: null };
-      }
-      getState() {
-        return this.state;
-      }
-      start() {}
-      async updateLighting() {
-        return false;
-      }
-      async stop() {}
-      dispose() {
-        return this.stop();
-      }
-  };
-  const serviceStub = Object.freeze({ CodexMicroService, default: CodexMicroService });
   const nativeWatcherStub = Object.freeze({
     watch() {
       return { dispose() {} };
@@ -298,7 +278,6 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
 
   function guardedLoad(request, parent, isMain) {
     if (request === target) return deviceStub;
-    if (typeof request === "string" && servicePattern.test(request)) return serviceStub;
     if (typeof request === "string" && nativeWatcherPattern.test(request)) return nativeWatcherStub;
     return Reflect.apply(originalLoad, this, arguments);
   }
@@ -309,7 +288,7 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
     ok: true,
     alreadyInstalled: false,
     findWLDevices: WLDeviceDiscovery.prototype.findWLDevices(),
-    serviceIntercepted: true,
+    deviceKitIntercepted: true,
     nativeWatcherIntercepted: true,
   };
 })()`;
@@ -516,9 +495,9 @@ async function injectWorkLouderBypass(target: ValidatedCodexTarget): Promise<Chi
         returnByValue: true,
       });
       const value = (evaluation.result?.result as {
-        value?: { ok?: boolean; findWLDevices?: unknown; serviceIntercepted?: boolean; nativeWatcherIntercepted?: boolean };
+        value?: { ok?: boolean; findWLDevices?: unknown; deviceKitIntercepted?: boolean; nativeWatcherIntercepted?: boolean };
       } | undefined)?.value;
-      if (!value?.ok || !Array.isArray(value.findWLDevices) || !value.serviceIntercepted || !value.nativeWatcherIntercepted) {
+      if (!value?.ok || !Array.isArray(value.findWLDevices) || !value.deviceKitIntercepted || !value.nativeWatcherIntercepted) {
         throw new Error("Work Louder stub was not confirmed by the target process.");
       }
       await inspector.sendCommand("Debugger.resume").catch(() => undefined);
