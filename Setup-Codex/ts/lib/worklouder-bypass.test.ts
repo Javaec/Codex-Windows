@@ -162,6 +162,17 @@ test("launcher removes inherited session state and selects bundled CLI", () => {
   }
 });
 
+test("launcher drops stale CLI overrides when bundled CLI is unavailable", () => {
+  const environment = buildCodexLaunchEnvironment("C:\\missing\\ChatGPT.exe", {
+    codex_thread_id: "stale-thread",
+    CODEX_CLI_PATH: "stale-cli",
+    PATH: "system-path",
+  });
+  assert.equal(environment.codex_thread_id, undefined);
+  assert.equal(environment.CODEX_CLI_PATH, undefined);
+  assert.equal(environment.PATH, "system-path");
+});
+
 test("stub intercepts Work Louder device kit and native watcher", () => {
   const originalLoad = moduleRuntime._load;
   try {

@@ -148,6 +148,16 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
+(0, node_test_1.test)("launcher drops stale CLI overrides when bundled CLI is unavailable", () => {
+    const environment = (0, worklouder_bypass_1.buildCodexLaunchEnvironment)("C:\\missing\\ChatGPT.exe", {
+        codex_thread_id: "stale-thread",
+        CODEX_CLI_PATH: "stale-cli",
+        PATH: "system-path",
+    });
+    strict_1.default.equal(environment.codex_thread_id, undefined);
+    strict_1.default.equal(environment.CODEX_CLI_PATH, undefined);
+    strict_1.default.equal(environment.PATH, "system-path");
+});
 (0, node_test_1.test)("stub intercepts Work Louder device kit and native watcher", () => {
     const originalLoad = moduleRuntime._load;
     try {
