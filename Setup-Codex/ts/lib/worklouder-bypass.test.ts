@@ -133,7 +133,7 @@ test("adaptive target fails closed when the module contract is missing", () => {
   }
 });
 
-test("launcher removes inherited session state and selects bundled CLI", () => {
+test("launcher removes only inherited task state and selects bundled CLI", () => {
   const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-env-"));
   try {
     const appRoot = path.join(packageRoot, "app");
@@ -146,6 +146,7 @@ test("launcher removes inherited session state and selects bundled CLI", () => {
       CODEX_LB_API_KEY: "preserve",
       CODEX_THREAD_ID: "stale-thread",
       CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "stale-originator",
+      CODEX_FUTURE_DESKTOP_CONTRACT: "preserve",
       CODEX_WORKLOUDER_LOG_DIR: "launcher-log",
       CODEX_CLI_PATH: "stale-cli",
       PATH: "system-path",
@@ -153,8 +154,9 @@ test("launcher removes inherited session state and selects bundled CLI", () => {
     assert.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
     assert.equal(environment.CODEX_LB_API_KEY, "preserve");
     assert.equal(environment.CODEX_THREAD_ID, undefined);
-    assert.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
-    assert.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+    assert.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, "stale-originator");
+    assert.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, "preserve");
+    assert.equal(environment.CODEX_WORKLOUDER_LOG_DIR, "launcher-log");
     assert.equal(environment.CODEX_CLI_PATH, bundledCliPath);
     assert.equal(environment.PATH, "system-path");
   } finally {
@@ -162,14 +164,14 @@ test("launcher removes inherited session state and selects bundled CLI", () => {
   }
 });
 
-test("launcher drops stale CLI overrides when bundled CLI is unavailable", () => {
+test("launcher preserves CLI override when bundled CLI is unavailable", () => {
   const environment = buildCodexLaunchEnvironment("C:\\missing\\ChatGPT.exe", {
     codex_thread_id: "stale-thread",
     CODEX_CLI_PATH: "stale-cli",
     PATH: "system-path",
   });
   assert.equal(environment.codex_thread_id, undefined);
-  assert.equal(environment.CODEX_CLI_PATH, undefined);
+  assert.equal(environment.CODEX_CLI_PATH, "stale-cli");
   assert.equal(environment.PATH, "system-path");
 });
 

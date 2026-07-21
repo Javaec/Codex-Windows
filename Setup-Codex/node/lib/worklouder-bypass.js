@@ -52,19 +52,11 @@ const worklouder_persistent_patch_1 = require("./worklouder-persistent-patch");
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 exports.INJECTION_TIMEOUT_MS = 10_000;
 exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
-const CODEX_ENV_PASSTHROUGH = new Set([
-    "CODEX_HOME",
-    "CODEX_KEY_RU",
-    "CODEX_LB_API_KEY",
-    "CODEX_NODE_PATH",
-    "CODEX_PWSH_PATH",
-    "CODEX_SSH_PATH",
-]);
+const CODEX_THREAD_ID_ENVIRONMENT_VARIABLE = "CODEX_THREAD_ID";
 function buildCodexLaunchEnvironment(executablePath, sourceEnvironment = process.env) {
     const environment = { ...sourceEnvironment };
     for (const key of Object.keys(environment)) {
-        const normalizedKey = key.toUpperCase();
-        if (normalizedKey.startsWith("CODEX_") && !CODEX_ENV_PASSTHROUGH.has(normalizedKey)) {
+        if (key.toUpperCase() === CODEX_THREAD_ID_ENVIRONMENT_VARIABLE) {
             delete environment[key];
         }
     }

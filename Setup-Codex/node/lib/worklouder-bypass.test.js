@@ -119,7 +119,7 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
-(0, node_test_1.test)("launcher removes inherited session state and selects bundled CLI", () => {
+(0, node_test_1.test)("launcher removes only inherited task state and selects bundled CLI", () => {
     const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-env-"));
     try {
         const appRoot = path.join(packageRoot, "app");
@@ -132,6 +132,7 @@ const moduleRuntime = require("node:module");
             CODEX_LB_API_KEY: "preserve",
             CODEX_THREAD_ID: "stale-thread",
             CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "stale-originator",
+            CODEX_FUTURE_DESKTOP_CONTRACT: "preserve",
             CODEX_WORKLOUDER_LOG_DIR: "launcher-log",
             CODEX_CLI_PATH: "stale-cli",
             PATH: "system-path",
@@ -139,8 +140,9 @@ const moduleRuntime = require("node:module");
         strict_1.default.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
         strict_1.default.equal(environment.CODEX_LB_API_KEY, "preserve");
         strict_1.default.equal(environment.CODEX_THREAD_ID, undefined);
-        strict_1.default.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
-        strict_1.default.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+        strict_1.default.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, "stale-originator");
+        strict_1.default.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, "preserve");
+        strict_1.default.equal(environment.CODEX_WORKLOUDER_LOG_DIR, "launcher-log");
         strict_1.default.equal(environment.CODEX_CLI_PATH, bundledCliPath);
         strict_1.default.equal(environment.PATH, "system-path");
     }
@@ -148,14 +150,14 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
-(0, node_test_1.test)("launcher drops stale CLI overrides when bundled CLI is unavailable", () => {
+(0, node_test_1.test)("launcher preserves CLI override when bundled CLI is unavailable", () => {
     const environment = (0, worklouder_bypass_1.buildCodexLaunchEnvironment)("C:\\missing\\ChatGPT.exe", {
         codex_thread_id: "stale-thread",
         CODEX_CLI_PATH: "stale-cli",
         PATH: "system-path",
     });
     strict_1.default.equal(environment.codex_thread_id, undefined);
-    strict_1.default.equal(environment.CODEX_CLI_PATH, undefined);
+    strict_1.default.equal(environment.CODEX_CLI_PATH, "stale-cli");
     strict_1.default.equal(environment.PATH, "system-path");
 });
 (0, node_test_1.test)("stub intercepts Work Louder device kit and native watcher", () => {
