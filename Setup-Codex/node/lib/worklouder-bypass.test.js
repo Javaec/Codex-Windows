@@ -119,6 +119,35 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
+(0, node_test_1.test)("launcher removes inherited session state and selects bundled CLI", () => {
+    const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-env-"));
+    try {
+        const appRoot = path.join(packageRoot, "app");
+        const executablePath = path.join(appRoot, "ChatGPT.exe");
+        const bundledCliPath = path.join(appRoot, "resources", "codex.exe");
+        (0, node_fs_1.mkdirSync)(path.dirname(bundledCliPath), { recursive: true });
+        (0, node_fs_1.writeFileSync)(bundledCliPath, "bundled");
+        const environment = (0, worklouder_bypass_1.buildCodexLaunchEnvironment)(executablePath, {
+            CODEX_HOME: "C:\\Users\\lensm\\.codex",
+            CODEX_LB_API_KEY: "preserve",
+            CODEX_THREAD_ID: "stale-thread",
+            CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "stale-originator",
+            CODEX_WORKLOUDER_LOG_DIR: "launcher-log",
+            CODEX_CLI_PATH: "stale-cli",
+            PATH: "system-path",
+        });
+        strict_1.default.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
+        strict_1.default.equal(environment.CODEX_LB_API_KEY, "preserve");
+        strict_1.default.equal(environment.CODEX_THREAD_ID, undefined);
+        strict_1.default.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
+        strict_1.default.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+        strict_1.default.equal(environment.CODEX_CLI_PATH, bundledCliPath);
+        strict_1.default.equal(environment.PATH, "system-path");
+    }
+    finally {
+        (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
+    }
+});
 (0, node_test_1.test)("stub intercepts Work Louder device kit and native watcher", () => {
     const originalLoad = moduleRuntime._load;
     try {

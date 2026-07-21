@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = exports.INJECTION_TIMEOUT_MS = exports.CODEX_WORKLOUDER_MODULE = void 0;
+exports.buildCodexLaunchEnvironment = buildCodexLaunchEnvironment;
 exports.findInstalledCodexPackage = findInstalledCodexPackage;
 exports.findWorkLouderPackage = findWorkLouderPackage;
 exports.validateCodexTarget = validateCodexTarget;
@@ -51,6 +52,27 @@ const worklouder_persistent_patch_1 = require("./worklouder-persistent-patch");
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 exports.INJECTION_TIMEOUT_MS = 10_000;
 exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
+const CODEX_ENV_PASSTHROUGH = new Set([
+    "CODEX_HOME",
+    "CODEX_KEY_RU",
+    "CODEX_LB_API_KEY",
+    "CODEX_NODE_PATH",
+    "CODEX_PWSH_PATH",
+    "CODEX_SSH_PATH",
+]);
+function buildCodexLaunchEnvironment(executablePath, sourceEnvironment = process.env) {
+    const environment = { ...sourceEnvironment };
+    for (const key of Object.keys(environment)) {
+        const normalizedKey = key.toUpperCase();
+        if (normalizedKey.startsWith("CODEX_") && !CODEX_ENV_PASSTHROUGH.has(normalizedKey)) {
+            delete environment[key];
+        }
+    }
+    const bundledCliPath = path.resolve(path.dirname(executablePath), "resources", "codex.exe");
+    if (fs.existsSync(bundledCliPath))
+        environment.CODEX_CLI_PATH = bundledCliPath;
+    return environment;
+}
 function writeLauncherLog(message) {
     const configuredLogDir = String(process.env.CODEX_WORKLOUDER_LOG_DIR || "").trim();
     const logDir = configuredLogDir
@@ -429,6 +451,7 @@ async function injectWorkLouderBypass(target) {
     const port = await findOpenLoopbackPort();
     const child = (0, node_child_process_1.spawn)(target.executablePath, [`--inspect-brk=127.0.0.1:${port}`], {
         cwd: path.dirname(target.executablePath),
+        env: buildCodexLaunchEnvironment(target.executablePath),
         stdio: "ignore",
         windowsHide: false,
     });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
   buildWorkLouderStubExpression,
+  buildCodexLaunchEnvironment,
   CODEX_WORKLOUDER_MODULE,
   hasChatGPTProcessInTasklist,
   main,
@@ -127,6 +128,35 @@ test("adaptive target fails closed when the module contract is missing", () => {
       () => validateCodexTarget({ name: "OpenAI.Codex", version: "99.100.200.0", installLocation: packageRoot }),
       /adapter update required/,
     );
+  } finally {
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test("launcher removes inherited session state and selects bundled CLI", () => {
+  const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-env-"));
+  try {
+    const appRoot = path.join(packageRoot, "app");
+    const executablePath = path.join(appRoot, "ChatGPT.exe");
+    const bundledCliPath = path.join(appRoot, "resources", "codex.exe");
+    mkdirSync(path.dirname(bundledCliPath), { recursive: true });
+    writeFileSync(bundledCliPath, "bundled");
+    const environment = buildCodexLaunchEnvironment(executablePath, {
+      CODEX_HOME: "C:\\Users\\lensm\\.codex",
+      CODEX_LB_API_KEY: "preserve",
+      CODEX_THREAD_ID: "stale-thread",
+      CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "stale-originator",
+      CODEX_WORKLOUDER_LOG_DIR: "launcher-log",
+      CODEX_CLI_PATH: "stale-cli",
+      PATH: "system-path",
+    });
+    assert.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
+    assert.equal(environment.CODEX_LB_API_KEY, "preserve");
+    assert.equal(environment.CODEX_THREAD_ID, undefined);
+    assert.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
+    assert.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+    assert.equal(environment.CODEX_CLI_PATH, bundledCliPath);
+    assert.equal(environment.PATH, "system-path");
   } finally {
     rmSync(packageRoot, { recursive: true, force: true });
   }

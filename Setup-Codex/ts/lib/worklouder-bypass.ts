@@ -13,6 +13,15 @@ export const CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 export const INJECTION_TIMEOUT_MS = 10_000;
 export const HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
 
+const CODEX_ENV_PASSTHROUGH = new Set([
+  "CODEX_HOME",
+  "CODEX_KEY_RU",
+  "CODEX_LB_API_KEY",
+  "CODEX_NODE_PATH",
+  "CODEX_PWSH_PATH",
+  "CODEX_SSH_PATH",
+]);
+
 export interface InstalledCodexPackage {
   name: string;
   version: string;
@@ -33,6 +42,22 @@ export interface WorkLouderDiagnosticReport {
   persistentPatch: string;
   chatGPTIsRunning: boolean;
   defaultMode: "launch-once";
+}
+
+export function buildCodexLaunchEnvironment(
+  executablePath: string,
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment = { ...sourceEnvironment };
+  for (const key of Object.keys(environment)) {
+    const normalizedKey = key.toUpperCase();
+    if (normalizedKey.startsWith("CODEX_") && !CODEX_ENV_PASSTHROUGH.has(normalizedKey)) {
+      delete environment[key];
+    }
+  }
+  const bundledCliPath = path.resolve(path.dirname(executablePath), "resources", "codex.exe");
+  if (fs.existsSync(bundledCliPath)) environment.CODEX_CLI_PATH = bundledCliPath;
+  return environment;
 }
 
 interface InspectorTarget {
@@ -463,6 +488,7 @@ async function injectWorkLouderBypass(target: ValidatedCodexTarget): Promise<Chi
   const port = await findOpenLoopbackPort();
   const child = spawn(target.executablePath, [`--inspect-brk=127.0.0.1:${port}`], {
     cwd: path.dirname(target.executablePath),
+    env: buildCodexLaunchEnvironment(target.executablePath),
     stdio: "ignore",
     windowsHide: false,
   });

@@ -81,6 +81,8 @@ Launch-Codex-WorkLouder-Bypass.cmd
 
 Запуск без аргументов в новом процессе перехватывает только точный пакет Work Louder `@worklouder/device-kit-oai` и HID watcher native module. Оригинальный `codex-micro-service` остаётся в приложении и работает с пустым discovery; это сохраняет совместимость main-process API. Store-пакет, чаты, токены и MCP не изменяются. Work Louder / Codex Micro при этом не работает.
 
+Перед запуском launcher очищает унаследованные внутренние `CODEX_*`-переменные сессии (включая stale thread/task identity и собственный путь логов), чтобы новый app-server не привязался к старому чату. Пользовательский `CODEX_HOME`, ключи провайдера и пути системных инструментов сохраняются; `CODEX_CLI_PATH` принудительно указывает на bundled `resources\\codex.exe`.
+
 `--launch-once` является явным именем того же режима. `--dry-run` только проверяет пакет, а `--diagnose` печатает обезличенный read-only отчёт о версии, подписи AppX, состоянии patch и активном процессе.
 
 Перед запуском полностью закройте Codex/ChatGPT: launcher намеренно не подключается к уже работающему `ChatGPT.exe` и не завершает чужую сессию.
