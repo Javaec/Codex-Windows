@@ -133,14 +133,11 @@ test("adaptive target fails closed when the module contract is missing", () => {
   }
 });
 
-test("launcher removes only inherited task state and selects bundled CLI", () => {
+test("launcher removes inherited session state and preserves user environment", () => {
   const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-env-"));
   try {
     const appRoot = path.join(packageRoot, "app");
     const executablePath = path.join(appRoot, "ChatGPT.exe");
-    const bundledCliPath = path.join(appRoot, "resources", "codex.exe");
-    mkdirSync(path.dirname(bundledCliPath), { recursive: true });
-    writeFileSync(bundledCliPath, "bundled");
     const environment = buildCodexLaunchEnvironment(executablePath, {
       CODEX_HOME: "C:\\Users\\lensm\\.codex",
       CODEX_LB_API_KEY: "preserve",
@@ -154,31 +151,39 @@ test("launcher removes only inherited task state and selects bundled CLI", () =>
     assert.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
     assert.equal(environment.CODEX_LB_API_KEY, "preserve");
     assert.equal(environment.CODEX_THREAD_ID, undefined);
-    assert.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, "stale-originator");
-    assert.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, "preserve");
-    assert.equal(environment.CODEX_WORKLOUDER_LOG_DIR, "launcher-log");
-    assert.equal(environment.CODEX_CLI_PATH, bundledCliPath);
+    assert.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
+    assert.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, undefined);
+    assert.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+    assert.equal(environment.CODEX_CLI_PATH, undefined);
     assert.equal(environment.PATH, "system-path");
   } finally {
     rmSync(packageRoot, { recursive: true, force: true });
   }
 });
 
-test("launcher preserves CLI override when bundled CLI is unavailable", () => {
+test("launcher preserves configured runtime paths", () => {
   const environment = buildCodexLaunchEnvironment("C:\\missing\\ChatGPT.exe", {
     codex_thread_id: "stale-thread",
+    CODEX_NODE_PATH: "configured-node",
     CODEX_CLI_PATH: "stale-cli",
     PATH: "system-path",
   });
   assert.equal(environment.codex_thread_id, undefined);
-  assert.equal(environment.CODEX_CLI_PATH, "stale-cli");
+  assert.equal(environment.CODEX_NODE_PATH, "configured-node");
+  assert.equal(environment.CODEX_CLI_PATH, undefined);
   assert.equal(environment.PATH, "system-path");
 });
 
 test("stub intercepts Work Louder device kit and native watcher", () => {
   const originalLoad = moduleRuntime._load;
+  const originalArgv = [...process.argv];
+  const originalExecArgv = [...process.execArgv];
   try {
+    process.argv.push("--inspect=127.0.0.1:1", "--inspect-brk=127.0.0.1:2", "--app-argument");
+    process.execArgv.push("--inspect-brk=127.0.0.1:3");
     Function("require", buildWorkLouderStubExpression(false))(require);
+    assert.deepEqual(process.argv, [...originalArgv, "--app-argument"]);
+    assert.deepEqual(process.execArgv, originalExecArgv);
     const stub = moduleRuntime._load(CODEX_WORKLOUDER_MODULE, module, false) as {
       WLDeviceDiscovery: new () => { findWLDevices(): unknown[] };
       ConnectionType: { hid: number };
@@ -199,6 +204,8 @@ test("stub intercepts Work Louder device kit and native watcher", () => {
     assert.equal(moduleRuntime._load("node:fs", module, false), require("node:fs"));
   } finally {
     moduleRuntime._load = originalLoad;
+    process.argv.splice(0, process.argv.length, ...originalArgv);
+    process.execArgv.splice(0, process.execArgv.length, ...originalExecArgv);
   }
 });
 
@@ -223,6 +230,8 @@ test("injection expression is narrowly scoped", () => {
   assert.doesNotMatch(expression, /Module\._resolveFilename/);
   assert.doesNotMatch(expression, /codex-micro-service-/);
   assert.match(expression, /hid_topology_watcher/);
+  assert.match(expression, /process\.argv = process\.argv\.filter/);
+  assert.match(expression, /process\.execArgv = process\.execArgv\.filter/);
 });
 
 test("module request patterns cover packed and relative native paths", () => {

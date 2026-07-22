@@ -119,14 +119,11 @@ const moduleRuntime = require("node:module");
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
-(0, node_test_1.test)("launcher removes only inherited task state and selects bundled CLI", () => {
+(0, node_test_1.test)("launcher removes inherited session state and preserves user environment", () => {
     const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-env-"));
     try {
         const appRoot = path.join(packageRoot, "app");
         const executablePath = path.join(appRoot, "ChatGPT.exe");
-        const bundledCliPath = path.join(appRoot, "resources", "codex.exe");
-        (0, node_fs_1.mkdirSync)(path.dirname(bundledCliPath), { recursive: true });
-        (0, node_fs_1.writeFileSync)(bundledCliPath, "bundled");
         const environment = (0, worklouder_bypass_1.buildCodexLaunchEnvironment)(executablePath, {
             CODEX_HOME: "C:\\Users\\lensm\\.codex",
             CODEX_LB_API_KEY: "preserve",
@@ -140,30 +137,38 @@ const moduleRuntime = require("node:module");
         strict_1.default.equal(environment.CODEX_HOME, "C:\\Users\\lensm\\.codex");
         strict_1.default.equal(environment.CODEX_LB_API_KEY, "preserve");
         strict_1.default.equal(environment.CODEX_THREAD_ID, undefined);
-        strict_1.default.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, "stale-originator");
-        strict_1.default.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, "preserve");
-        strict_1.default.equal(environment.CODEX_WORKLOUDER_LOG_DIR, "launcher-log");
-        strict_1.default.equal(environment.CODEX_CLI_PATH, bundledCliPath);
+        strict_1.default.equal(environment.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);
+        strict_1.default.equal(environment.CODEX_FUTURE_DESKTOP_CONTRACT, undefined);
+        strict_1.default.equal(environment.CODEX_WORKLOUDER_LOG_DIR, undefined);
+        strict_1.default.equal(environment.CODEX_CLI_PATH, undefined);
         strict_1.default.equal(environment.PATH, "system-path");
     }
     finally {
         (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
     }
 });
-(0, node_test_1.test)("launcher preserves CLI override when bundled CLI is unavailable", () => {
+(0, node_test_1.test)("launcher preserves configured runtime paths", () => {
     const environment = (0, worklouder_bypass_1.buildCodexLaunchEnvironment)("C:\\missing\\ChatGPT.exe", {
         codex_thread_id: "stale-thread",
+        CODEX_NODE_PATH: "configured-node",
         CODEX_CLI_PATH: "stale-cli",
         PATH: "system-path",
     });
     strict_1.default.equal(environment.codex_thread_id, undefined);
-    strict_1.default.equal(environment.CODEX_CLI_PATH, "stale-cli");
+    strict_1.default.equal(environment.CODEX_NODE_PATH, "configured-node");
+    strict_1.default.equal(environment.CODEX_CLI_PATH, undefined);
     strict_1.default.equal(environment.PATH, "system-path");
 });
 (0, node_test_1.test)("stub intercepts Work Louder device kit and native watcher", () => {
     const originalLoad = moduleRuntime._load;
+    const originalArgv = [...process.argv];
+    const originalExecArgv = [...process.execArgv];
     try {
+        process.argv.push("--inspect=127.0.0.1:1", "--inspect-brk=127.0.0.1:2", "--app-argument");
+        process.execArgv.push("--inspect-brk=127.0.0.1:3");
         Function("require", (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false))(require);
+        strict_1.default.deepEqual(process.argv, [...originalArgv, "--app-argument"]);
+        strict_1.default.deepEqual(process.execArgv, originalExecArgv);
         const stub = moduleRuntime._load(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE, module, false);
         strict_1.default.deepEqual(new stub.WLDeviceDiscovery().findWLDevices(), []);
         strict_1.default.equal(stub.ConnectionType.hid, 1);
@@ -178,6 +183,8 @@ const moduleRuntime = require("node:module");
     }
     finally {
         moduleRuntime._load = originalLoad;
+        process.argv.splice(0, process.argv.length, ...originalArgv);
+        process.execArgv.splice(0, process.execArgv.length, ...originalExecArgv);
     }
 });
 (0, node_test_1.test)("hook leaves Codex Micro service entry to Node", () => {
@@ -201,6 +208,8 @@ const moduleRuntime = require("node:module");
     strict_1.default.doesNotMatch(expression, /Module\._resolveFilename/);
     strict_1.default.doesNotMatch(expression, /codex-micro-service-/);
     strict_1.default.match(expression, /hid_topology_watcher/);
+    strict_1.default.match(expression, /process\.argv = process\.argv\.filter/);
+    strict_1.default.match(expression, /process\.execArgv = process\.execArgv\.filter/);
 });
 (0, node_test_1.test)("module request patterns cover packed and relative native paths", () => {
     const expression = (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false);

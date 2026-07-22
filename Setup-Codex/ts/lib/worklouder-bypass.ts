@@ -13,7 +13,14 @@ export const CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 export const INJECTION_TIMEOUT_MS = 10_000;
 export const HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
 
-const CODEX_THREAD_ID_ENVIRONMENT_VARIABLE = "CODEX_THREAD_ID";
+const CODEX_ENV_PASSTHROUGH = new Set([
+  "CODEX_HOME",
+  "CODEX_KEY_RU",
+  "CODEX_LB_API_KEY",
+  "CODEX_NODE_PATH",
+  "CODEX_PWSH_PATH",
+  "CODEX_SSH_PATH",
+]);
 
 export interface InstalledCodexPackage {
   name: string;
@@ -43,12 +50,11 @@ export function buildCodexLaunchEnvironment(
 ): NodeJS.ProcessEnv {
   const environment = { ...sourceEnvironment };
   for (const key of Object.keys(environment)) {
-    if (key.toUpperCase() === CODEX_THREAD_ID_ENVIRONMENT_VARIABLE) {
+    const normalizedKey = key.toUpperCase();
+    if (normalizedKey.startsWith("CODEX_") && !CODEX_ENV_PASSTHROUGH.has(normalizedKey)) {
       delete environment[key];
     }
   }
-  const bundledCliPath = path.resolve(path.dirname(executablePath), "resources", "codex.exe");
-  if (fs.existsSync(bundledCliPath)) environment.CODEX_CLI_PATH = bundledCliPath;
   return environment;
 }
 
@@ -218,6 +224,7 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
 (() => {
   const target = ${JSON.stringify(CODEX_WORKLOUDER_MODULE)};
   const nativeWatcherPattern = new RegExp(${JSON.stringify(HID_TOPOLOGY_WATCHER_REQUEST_PATTERN.source)});
+  const inspectorArgumentPattern = /^--inspect(?:-brk)?(?:=|$)/;
   const Module = require("node:module");
   const originalLoad = Module._load;
   if (originalLoad.__codexWorkLouderBypass === true) {
@@ -300,6 +307,8 @@ export function buildWorkLouderStubExpression(closeInspector = true): string {
   }
   Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });
   Module._load = guardedLoad;
+  process.argv = process.argv.filter((argument) => !inspectorArgumentPattern.test(argument));
+  process.execArgv = process.execArgv.filter((argument) => !inspectorArgumentPattern.test(argument));
   ${closeCode}
   return {
     ok: true,

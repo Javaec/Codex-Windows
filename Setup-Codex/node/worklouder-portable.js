@@ -142,9 +142,10 @@ codex-micro-service entry remains loaded for compatibility, while device discove
 returns an empty list. It does not modify the signed package, credentials,
 conversations, MCP configuration, or ChatGPT Classic.
 
-Before launch, only an inherited CODEX_THREAD_ID is removed so the new app-server
-cannot attach itself to the launcher's current task. Other Desktop CODEX_*
-variables are preserved; CODEX_CLI_PATH is set to the bundled resources\\codex.exe.
+Before launch, inherited session-only CODEX_* variables and temporary inspector
+arguments are removed so the app-server starts like a clean Store launch. User
+CODEX_HOME, provider keys, and configured runtime paths are preserved; the app
+resolves its own bundled CLI path.
 
 Persistent install is disabled because modifying app.asar invalidates the signed
 AppX block map. Restore-Persistent-Patch.cmd remains available only to recover a

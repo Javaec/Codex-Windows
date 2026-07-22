@@ -52,17 +52,22 @@ const worklouder_persistent_patch_1 = require("./worklouder-persistent-patch");
 exports.CODEX_WORKLOUDER_MODULE = "@worklouder/device-kit-oai";
 exports.INJECTION_TIMEOUT_MS = 10_000;
 exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN = /(?:hid_topology_watcher|hid-topology-watcher)\.node$/;
-const CODEX_THREAD_ID_ENVIRONMENT_VARIABLE = "CODEX_THREAD_ID";
+const CODEX_ENV_PASSTHROUGH = new Set([
+    "CODEX_HOME",
+    "CODEX_KEY_RU",
+    "CODEX_LB_API_KEY",
+    "CODEX_NODE_PATH",
+    "CODEX_PWSH_PATH",
+    "CODEX_SSH_PATH",
+]);
 function buildCodexLaunchEnvironment(executablePath, sourceEnvironment = process.env) {
     const environment = { ...sourceEnvironment };
     for (const key of Object.keys(environment)) {
-        if (key.toUpperCase() === CODEX_THREAD_ID_ENVIRONMENT_VARIABLE) {
+        const normalizedKey = key.toUpperCase();
+        if (normalizedKey.startsWith("CODEX_") && !CODEX_ENV_PASSTHROUGH.has(normalizedKey)) {
             delete environment[key];
         }
     }
-    const bundledCliPath = path.resolve(path.dirname(executablePath), "resources", "codex.exe");
-    if (fs.existsSync(bundledCliPath))
-        environment.CODEX_CLI_PATH = bundledCliPath;
     return environment;
 }
 function writeLauncherLog(message) {
@@ -182,6 +187,7 @@ function buildWorkLouderStubExpression(closeInspector = true) {
 (() => {
   const target = ${JSON.stringify(exports.CODEX_WORKLOUDER_MODULE)};
   const nativeWatcherPattern = new RegExp(${JSON.stringify(exports.HID_TOPOLOGY_WATCHER_REQUEST_PATTERN.source)});
+  const inspectorArgumentPattern = /^--inspect(?:-brk)?(?:=|$)/;
   const Module = require("node:module");
   const originalLoad = Module._load;
   if (originalLoad.__codexWorkLouderBypass === true) {
@@ -264,6 +270,8 @@ function buildWorkLouderStubExpression(closeInspector = true) {
   }
   Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });
   Module._load = guardedLoad;
+  process.argv = process.argv.filter((argument) => !inspectorArgumentPattern.test(argument));
+  process.execArgv = process.execArgv.filter((argument) => !inspectorArgumentPattern.test(argument));
   ${closeCode}
   return {
     ok: true,
