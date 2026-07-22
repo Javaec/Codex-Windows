@@ -137,7 +137,7 @@ Safety behavior
 
 - The launcher refuses to attach to an already running ChatGPT.exe process.
 - It fails closed if the expected Work Louder native package contract is absent.
-- Inspector access is bound to 127.0.0.1 and closed immediately after bootstrap.
+- Inspector access is bound to 127.0.0.1 and closed shortly after bootstrap.
 - Persistent restore refuses to run while ChatGPT.exe is active.
 - Store package ACLs are restored after the elevated restore operation.
 - Runtime logs are written to the logs folder next to this launcher.

@@ -181,7 +181,7 @@ function validateCodexTarget(installedPackage = findInstalledCodexPackage()) {
 }
 function buildWorkLouderStubExpression(closeInspector = true) {
     const closeCode = closeInspector
-        ? `setImmediate(()=>{try{require("node:inspector").close()}catch{}});`
+        ? `setTimeout(()=>{try{require("node:inspector").close()}catch{}},250);`
         : "";
     return `
 (() => {
@@ -263,9 +263,37 @@ function buildWorkLouderStubExpression(closeInspector = true) {
     },
   });
 
-  function guardedLoad(request) {
-    if (request === target) return deviceStub;
-    if (typeof request === "string" && nativeWatcherPattern.test(request)) return nativeWatcherStub;
+  const moduleCache = Module._cache;
+  let deviceKitCached = false;
+  let nativeWatcherCached = false;
+
+  function cacheStub(request, parent, exports) {
+    let resolved;
+    try {
+      resolved = Module._resolveFilename(request, parent);
+    } catch {
+      return false;
+    }
+    if (typeof resolved !== "string") return false;
+    moduleCache[resolved] = { id: resolved, filename: resolved, loaded: true, exports };
+    return true;
+  }
+
+  function releaseLoaderWhenReady() {
+    if (deviceKitCached && nativeWatcherCached) Module._load = originalLoad;
+  }
+
+  function guardedLoad(request, parent, isMain) {
+    if (request === target) {
+      deviceKitCached = cacheStub(request, parent, deviceStub) || deviceKitCached;
+      releaseLoaderWhenReady();
+      return deviceStub;
+    }
+    if (typeof request === "string" && nativeWatcherPattern.test(request)) {
+      nativeWatcherCached = cacheStub(request, parent, nativeWatcherStub) || nativeWatcherCached;
+      releaseLoaderWhenReady();
+      return nativeWatcherStub;
+    }
     return Reflect.apply(originalLoad, this, arguments);
   }
   Object.defineProperty(guardedLoad, "__codexWorkLouderBypass", { value: true });

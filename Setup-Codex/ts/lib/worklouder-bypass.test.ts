@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -209,6 +210,40 @@ test("stub intercepts Work Louder device kit and native watcher", () => {
   }
 });
 
+test("loader is released after caching both disabled native modules", () => {
+  const originalLoad = moduleRuntime._load;
+  const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-cache-"));
+  const servicePath = path.join(packageRoot, "service.js");
+  const packagePath = path.join(packageRoot, "node_modules", "@worklouder", "device-kit-oai");
+  const nativePath = path.join(packageRoot, "hid_topology_watcher.node");
+  mkdirSync(packagePath, { recursive: true });
+  writeFileSync(servicePath, "module.exports = {};");
+  writeFileSync(path.join(packagePath, "package.json"), JSON.stringify({ name: CODEX_WORKLOUDER_MODULE, main: "index.js" }));
+  writeFileSync(path.join(packagePath, "index.js"), "module.exports = { real: true };");
+  writeFileSync(nativePath, "not-a-real-native-addon");
+  const serviceRequire = createRequire(servicePath);
+  let packageCachePath: string | undefined;
+  let nativeCachePath: string | undefined;
+  try {
+    Function("require", buildWorkLouderStubExpression(false))(serviceRequire);
+    const packageStub = serviceRequire(CODEX_WORKLOUDER_MODULE) as { WLDeviceDiscovery: new () => { findWLDevices(): unknown[] } };
+    assert.deepEqual(new packageStub.WLDeviceDiscovery().findWLDevices(), []);
+    serviceRequire(CODEX_WORKLOUDER_MODULE);
+    serviceRequire(nativePath);
+    packageCachePath = serviceRequire.resolve(CODEX_WORKLOUDER_MODULE);
+    nativeCachePath = serviceRequire.resolve(nativePath);
+    assert.equal(moduleRuntime._load, originalLoad);
+    const cachedPackageStub = serviceRequire(CODEX_WORKLOUDER_MODULE) as typeof packageStub;
+    assert.deepEqual(new cachedPackageStub.WLDeviceDiscovery().findWLDevices(), []);
+    assert.deepEqual((serviceRequire(nativePath) as { findCodexMicroInterfaces(): unknown[] }).findCodexMicroInterfaces(), []);
+  } finally {
+    if (packageCachePath) delete require.cache[packageCachePath];
+    if (nativeCachePath) delete require.cache[nativeCachePath];
+    moduleRuntime._load = originalLoad;
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
 test("hook leaves Codex Micro service entry to Node", () => {
   const originalLoad = moduleRuntime._load;
   const packageRoot = mkdtempSync(path.join(tmpdir(), "codex-worklouder-service-"));
@@ -227,9 +262,14 @@ test("injection expression is narrowly scoped", () => {
   const expression = buildWorkLouderStubExpression(false);
   assert.match(expression, /request\s*===\s*target/);
   assert.match(expression, new RegExp(CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.doesNotMatch(expression, /Module\._resolveFilename/);
+  assert.match(expression, /Module\._resolveFilename/);
   assert.doesNotMatch(expression, /codex-micro-service-/);
   assert.match(expression, /hid_topology_watcher/);
+  assert.match(expression, /Module\._cache/);
+  assert.match(
+    buildWorkLouderStubExpression(),
+    /setTimeout\(\(\)=>\{try\{require\("node:inspector"\)\.close\(\)\}catch\{\}\},250\)/,
+  );
   assert.match(expression, /process\.argv = process\.argv\.filter/);
   assert.match(expression, /process\.execArgv = process\.execArgv\.filter/);
 });

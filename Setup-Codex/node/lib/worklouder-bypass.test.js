@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const strict_1 = __importDefault(require("node:assert/strict"));
 const node_fs_1 = require("node:fs");
+const node_module_1 = require("node:module");
 const node_test_1 = require("node:test");
 const node_os_1 = require("node:os");
 const path = __importStar(require("node:path"));
@@ -187,6 +188,42 @@ const moduleRuntime = require("node:module");
         process.execArgv.splice(0, process.execArgv.length, ...originalExecArgv);
     }
 });
+(0, node_test_1.test)("loader is released after caching both disabled native modules", () => {
+    const originalLoad = moduleRuntime._load;
+    const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-cache-"));
+    const servicePath = path.join(packageRoot, "service.js");
+    const packagePath = path.join(packageRoot, "node_modules", "@worklouder", "device-kit-oai");
+    const nativePath = path.join(packageRoot, "hid_topology_watcher.node");
+    (0, node_fs_1.mkdirSync)(packagePath, { recursive: true });
+    (0, node_fs_1.writeFileSync)(servicePath, "module.exports = {};");
+    (0, node_fs_1.writeFileSync)(path.join(packagePath, "package.json"), JSON.stringify({ name: worklouder_bypass_1.CODEX_WORKLOUDER_MODULE, main: "index.js" }));
+    (0, node_fs_1.writeFileSync)(path.join(packagePath, "index.js"), "module.exports = { real: true };");
+    (0, node_fs_1.writeFileSync)(nativePath, "not-a-real-native-addon");
+    const serviceRequire = (0, node_module_1.createRequire)(servicePath);
+    let packageCachePath;
+    let nativeCachePath;
+    try {
+        Function("require", (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false))(serviceRequire);
+        const packageStub = serviceRequire(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE);
+        strict_1.default.deepEqual(new packageStub.WLDeviceDiscovery().findWLDevices(), []);
+        serviceRequire(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE);
+        serviceRequire(nativePath);
+        packageCachePath = serviceRequire.resolve(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE);
+        nativeCachePath = serviceRequire.resolve(nativePath);
+        strict_1.default.equal(moduleRuntime._load, originalLoad);
+        const cachedPackageStub = serviceRequire(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE);
+        strict_1.default.deepEqual(new cachedPackageStub.WLDeviceDiscovery().findWLDevices(), []);
+        strict_1.default.deepEqual(serviceRequire(nativePath).findCodexMicroInterfaces(), []);
+    }
+    finally {
+        if (packageCachePath)
+            delete require.cache[packageCachePath];
+        if (nativeCachePath)
+            delete require.cache[nativeCachePath];
+        moduleRuntime._load = originalLoad;
+        (0, node_fs_1.rmSync)(packageRoot, { recursive: true, force: true });
+    }
+});
 (0, node_test_1.test)("hook leaves Codex Micro service entry to Node", () => {
     const originalLoad = moduleRuntime._load;
     const packageRoot = (0, node_fs_1.mkdtempSync)(path.join((0, node_os_1.tmpdir)(), "codex-worklouder-service-"));
@@ -205,9 +242,11 @@ const moduleRuntime = require("node:module");
     const expression = (0, worklouder_bypass_1.buildWorkLouderStubExpression)(false);
     strict_1.default.match(expression, /request\s*===\s*target/);
     strict_1.default.match(expression, new RegExp(worklouder_bypass_1.CODEX_WORKLOUDER_MODULE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    strict_1.default.doesNotMatch(expression, /Module\._resolveFilename/);
+    strict_1.default.match(expression, /Module\._resolveFilename/);
     strict_1.default.doesNotMatch(expression, /codex-micro-service-/);
     strict_1.default.match(expression, /hid_topology_watcher/);
+    strict_1.default.match(expression, /Module\._cache/);
+    strict_1.default.match((0, worklouder_bypass_1.buildWorkLouderStubExpression)(), /setTimeout\(\(\)=>\{try\{require\("node:inspector"\)\.close\(\)\}catch\{\}\},250\)/);
     strict_1.default.match(expression, /process\.argv = process\.argv\.filter/);
     strict_1.default.match(expression, /process\.execArgv = process\.execArgv\.filter/);
 });
