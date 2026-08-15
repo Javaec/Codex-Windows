@@ -106,7 +106,9 @@ function Show-Report {
   if ($null -ne $Report.mixedSessionMetadata) {
     Write-Info 'Mixed metadata' $Report.mixedSessionMetadata
   }
-  Write-Info 'Provider' ("{0} -> {1}" -f ($Report.fromProviders -join ', '), $Report.toProvider)
+  if (-not $Report.repairOnly) {
+    Write-Info 'Provider' ("{0} -> {1}" -f ($Report.fromProviders -join ', '), $Report.toProvider)
+  }
   if ($Report.sessionId) {
     Write-Info 'Session' $Report.sessionId
   }
@@ -138,6 +140,41 @@ Write-Info 'JSONL sessions' $status.jsonlSessions
 Write-Info 'SQLite threads' $status.sqliteThreads
 Write-Info 'Repair candidates' $status.historyRepairCandidates
 Write-Host ''
+
+Write-Host 'Операция:' -ForegroundColor Cyan
+Write-Host '  1. Переключить provider у сессий' -ForegroundColor White
+Write-Host '  2. Починить историю во всех сессиях' -ForegroundColor White
+$operation = Read-MenuChoice 'Выбор' 1 2
+if ($operation -eq 2) {
+  $preview = Invoke-CodexCliJson @('--repair-all', '--dry-run')
+
+  Write-Host ''
+  Write-Host 'Предпросмотр ремонта всех сессий:' -ForegroundColor Green
+  Show-Report $preview
+  if ([int]$preview.historyRepairs -eq 0) {
+    Write-Host 'Поврежденные элементы не найдены.' -ForegroundColor Yellow
+    Read-Host 'Нажмите Enter для выхода' | Out-Null
+    exit 0
+  }
+
+  if (Get-Process -Name codex -ErrorAction SilentlyContinue) {
+    Write-Host 'ВНИМАНИЕ: Codex сейчас запущен. Перед записью закройте Codex, CLI и app-server.' -ForegroundColor Yellow
+  }
+  Write-Host ''
+  $confirmation = (Read-Host 'Починить все найденные истории с backup? [y/N]').Trim().ToLowerInvariant()
+  if ($confirmation -notin @('y', 'yes', 'д', 'да')) {
+    Write-Host 'Отменено. Ничего не изменено.' -ForegroundColor DarkGray
+    Read-Host 'Нажмите Enter для выхода' | Out-Null
+    exit 0
+  }
+
+  $result = Invoke-CodexCliJson @('--repair-all', '--yes')
+  Write-Host ''
+  Write-Host 'Ремонт всех сессий завершен.' -ForegroundColor Green
+  Show-Report $result
+  Read-Host 'Нажмите Enter для выхода' | Out-Null
+  exit 0
+}
 
 $sessionProviderNames = @($status.sessionMetadataProviders.PSObject.Properties.Name)
 $databaseProviderNames = @($status.databaseProviders.PSObject.Properties.Name)

@@ -37,6 +37,13 @@ To repair a known rollout without changing its provider:
 Run-Codex-Provider-Sync.cmd --repair-history --session-id 01... --yes
 ```
 
+To scan and repair all active and archived rollouts:
+
+```text
+Run-Codex-Provider-Sync.cmd --repair-all --dry-run
+Run-Codex-Provider-Sync.cmd --repair-all --yes
+```
+
 Backups are created under `<CODEX_HOME>\backups\provider-sync\<timestamp>` before every write. The default state database follows the current Codex layout: root `state_5.sqlite`, then `sqlite\state_5.sqlite` only if the root database is absent. Use `--state-db` when an explicit database is required.
 
 The preview reports mixed `session_meta` files and repair candidates. The apply report shows how many history items were removed. This repair is deliberately narrow: a visible summary-only reasoning item is preserved, as are all items with encrypted content.

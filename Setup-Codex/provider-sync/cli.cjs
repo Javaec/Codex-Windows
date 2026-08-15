@@ -30,6 +30,10 @@ that can make cross-provider compaction fail are removed after the backup is cre
 Repair one history without changing its provider:
   Run-Codex-Provider-Sync.cmd --repair-history --session-id ID --yes
 
+Repair all active and archived histories:
+  Run-Codex-Provider-Sync.cmd --repair-all --dry-run
+  Run-Codex-Provider-Sync.cmd --repair-all --yes
+
 Options:
   --codex-home PATH       Codex home (default: CODEX_HOME or %USERPROFILE%\\.codex)
   --state-db PATH         Explicit state_5.sqlite path
@@ -71,6 +75,10 @@ function parseArgs(argv) {
         break;
       case '--repair-history':
         options.repairHistory = true;
+        break;
+      case '--repair-all':
+        options.repairHistory = true;
+        options.repairAll = true;
         break;
       case '--dry-run':
         options.apply = false;
@@ -144,6 +152,9 @@ function main() {
   }
   if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
     throw new Error('--repair-history cannot be combined with --from or --to.');
+  }
+  if (options.repairAll && options.sessionId) {
+    throw new Error('--repair-all cannot be combined with --session-id.');
   }
   if (options.apply && !process.argv.includes('--yes')) {
     throw new Error('Applying changes requires --yes.');
