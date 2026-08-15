@@ -4,10 +4,10 @@ Standalone Windows utility for retagging Codex sessions when switching between t
 
 Codex stores the provider in two places:
 
-- `sessions/**/rollout-*.jsonl` and `archived_sessions/rollout-*.jsonl`, inside the first `session_meta` record;
+- `sessions/**/rollout-*.jsonl` and `archived_sessions/rollout-*.jsonl`, inside every `session_meta` record;
 - `state_5.sqlite`, in the `threads.model_provider` column.
 
-Both surfaces must be updated or the session can disappear from the history/resume list. The package changes only that metadata field. It does not modify message bodies, `auth.json`, titles, or `config.toml`.
+Both surfaces must be updated or the session can disappear from the history/resume list. During a migration, the package also removes only empty reasoning response items whose ID has no encrypted content and whose summary is invisible. These items are not useful history, but a later cross-provider `/responses/compact` call can submit their stale ID and receive a 404. Real messages and reasoning items with content remain unchanged. The package does not modify `auth.json`, titles, or `config.toml`.
 
 ## Usage
 
@@ -31,7 +31,15 @@ To test or migrate one thread only:
 Run-Codex-Provider-Sync.cmd --session-id 01... --from openai --to codex --yes
 ```
 
+To repair a known rollout without changing its provider:
+
+```text
+Run-Codex-Provider-Sync.cmd --repair-history --session-id 01... --yes
+```
+
 Backups are created under `<CODEX_HOME>\backups\provider-sync\<timestamp>` before every write. The default state database follows the current Codex layout: root `state_5.sqlite`, then `sqlite\state_5.sqlite` only if the root database is absent. Use `--state-db` when an explicit database is required.
+
+The preview reports mixed `session_meta` files and repair candidates. The apply report shows how many history items were removed. This repair is deliberately narrow: a visible summary-only reasoning item is preserved, as are all items with encrypted content.
 
 The tool intentionally fails when `.jsonl.zst` rollouts are present because it cannot safely rewrite compressed rollouts without a zstd runtime. No partial write is started in that case.
 

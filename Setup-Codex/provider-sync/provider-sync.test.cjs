@@ -18,8 +18,29 @@ function fixture() {
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
   fs.mkdirSync(path.dirname(archivedPath), { recursive: true });
   const session = { type: 'session_meta', payload: { id: 'session-a', model_provider: 'openai', cwd: 'C:\\work' } };
+  const resumedSession = { type: 'session_meta', payload: { id: 'session-a', model_provider: 'codex', cwd: 'C:\\work' } };
+  const malformedReasoning = {
+    type: 'response_item',
+    payload: {
+      type: 'reasoning',
+      id: 'rs_missing',
+      summary: [{ type: 'summary_text', text: '\u200b' }],
+      encrypted_content: null,
+      content: null,
+    },
+  };
+  const validReasoning = {
+    type: 'response_item',
+    payload: {
+      type: 'reasoning',
+      id: 'rs_valid',
+      summary: [{ type: 'summary_text', text: 'Visible summary' }],
+      encrypted_content: null,
+      content: null,
+    },
+  };
   const archived = { type: 'session_meta', payload: { id: 'session-b', model_provider: 'custom', cwd: 'C:\\work' } };
-  fs.writeFileSync(sessionPath, `${JSON.stringify(session)}\n${JSON.stringify({ type: 'event_msg', payload: { text: '"model_provider":"openai"' } })}\n`, 'utf8');
+  fs.writeFileSync(sessionPath, `${JSON.stringify(session)}\n${JSON.stringify(resumedSession)}\n${JSON.stringify(malformedReasoning)}\n${JSON.stringify(validReasoning)}\n${JSON.stringify({ type: 'event_msg', payload: { text: '"model_provider":"openai"' } })}\n`, 'utf8');
   fs.writeFileSync(archivedPath, `${JSON.stringify(archived)}\n`, 'utf8');
 
   const dbPath = path.join(root, 'state_5.sqlite');
@@ -60,8 +81,13 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.equal(report.verified, true);
     assert.equal(report.remainingJsonl, 0);
     assert.equal(report.remainingSqlite, 0);
+    assert.equal(report.historyRepairs, 1);
+    assert.equal(report.historyItemsRemoved, 1);
     const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
-    assert.match(text, /"model_provider":"custom"/);
+    assert.equal((text.match(/"type":"session_meta"/g) || []).length, 2);
+    assert.equal((text.match(/"model_provider":"custom"/g) || []).length, 2);
+    assert.doesNotMatch(text, /rs_missing/);
+    assert.match(text, /rs_valid/);
     assert.match(text, /\\"model_provider\\":\\"openai\\"/);
     const db = new DatabaseSync(testFixture.dbPath, { readOnly: true });
     assert.equal(db.prepare('SELECT model_provider FROM threads WHERE id = ?').get('session-a').model_provider, 'custom');
@@ -88,6 +114,31 @@ test('dry-run does not write or create a backup', () => {
     assert.equal(report.sqliteChanges, 1);
     assert.equal(fs.existsSync(path.join(testFixture.root, 'backups')), false);
     assert.match(fs.readFileSync(testFixture.sessionPath, 'utf8'), /"model_provider":"openai"/);
+  } finally {
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
+test('repair-history removes only empty reasoning items without changing provider metadata', () => {
+  const testFixture = fixture();
+  try {
+    const report = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      repairHistory: true,
+      sessionId: 'session-a',
+      apply: true,
+      backupRoot: path.join(testFixture.root, 'backups'),
+    });
+    assert.equal(report.repairOnly, true);
+    assert.equal(report.historyRepairs, 1);
+    assert.equal(report.historyItemsRemoved, 1);
+    assert.equal(report.verified, true);
+    const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
+    assert.match(text, /"model_provider":"openai"/);
+    assert.match(text, /"model_provider":"codex"/);
+    assert.doesNotMatch(text, /rs_missing/);
+    assert.match(text, /rs_valid/);
   } finally {
     fs.rmSync(testFixture.root, { recursive: true, force: true });
   }

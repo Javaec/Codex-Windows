@@ -24,6 +24,12 @@ Apply the migration (close Codex first):
 Apply to exactly one session:
   Run-Codex-Provider-Sync.cmd --session-id ID --from openai --to codex --yes
 
+During apply, all session_meta provider records are normalized and known empty reasoning items
+that can make cross-provider compaction fail are removed after the backup is created.
+
+Repair one history without changing its provider:
+  Run-Codex-Provider-Sync.cmd --repair-history --session-id ID --yes
+
 Options:
   --codex-home PATH       Codex home (default: CODEX_HOME or %USERPROFILE%\\.codex)
   --state-db PATH         Explicit state_5.sqlite path
@@ -63,6 +69,9 @@ function parseArgs(argv) {
       case '--yes':
         options.apply = true;
         break;
+      case '--repair-history':
+        options.repairHistory = true;
+        break;
       case '--dry-run':
         options.apply = false;
         break;
@@ -97,11 +106,23 @@ function print(value, json) {
     return;
   }
   if (value.mode) {
+    if (value.repairOnly) {
+      console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
+      console.log(`Codex home: ${value.codexHome}`);
+      if (value.sessionId) console.log(`Session: ${value.sessionId}`);
+      if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
+      if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
+      if (value.verified) console.log('Verification: OK');
+      return;
+    }
     console.log(`${value.mode}: ${value.jsonlChanges} JSONL file(s), ${value.sqliteChanges} SQLite row(s)`);
     console.log(`Codex home: ${value.codexHome}`);
     console.log(`State DB: ${value.stateDbPath}`);
     console.log(`Provider: ${value.fromProviders.join(', ')} -> ${value.toProvider}`);
     if (value.sessionId) console.log(`Session: ${value.sessionId}`);
+    if (value.historyRepairs) console.log(`History repair candidates: ${value.historyRepairs}`);
+    if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
+    if (value.mixedSessionMetadata) console.log(`Mixed session_meta files: ${value.mixedSessionMetadata}`);
     if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
     if (value.verified) console.log('Verification: OK');
     return;
@@ -117,9 +138,12 @@ function main() {
   }
   const codexHome = resolveCodexHome(options.codexHome);
   const stateDbPath = resolveStateDb(codexHome, options.stateDbPath);
-  if (options.status || options.fromProviders.length === 0 || !options.toProvider) {
+  if (options.status || (!options.repairHistory && (options.fromProviders.length === 0 || !options.toProvider))) {
     print(formatInventory(scanInventory({ codexHome, stateDbPath })), options.json);
     return;
+  }
+  if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
+    throw new Error('--repair-history cannot be combined with --from or --to.');
   }
   if (options.apply && !process.argv.includes('--yes')) {
     throw new Error('Applying changes requires --yes.');

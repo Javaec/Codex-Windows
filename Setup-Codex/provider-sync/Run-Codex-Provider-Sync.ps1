@@ -97,6 +97,15 @@ function Show-Report {
   Write-Rule
   Write-Info 'JSONL changes' $Report.jsonlChanges
   Write-Info 'SQLite changes' $Report.sqliteChanges
+  if ($null -ne $Report.historyRepairs) {
+    Write-Info 'History repairs' $Report.historyRepairs
+  }
+  if ($null -ne $Report.historyItemsRemoved) {
+    Write-Info 'Items removed' $Report.historyItemsRemoved
+  }
+  if ($null -ne $Report.mixedSessionMetadata) {
+    Write-Info 'Mixed metadata' $Report.mixedSessionMetadata
+  }
   Write-Info 'Provider' ("{0} -> {1}" -f ($Report.fromProviders -join ', '), $Report.toProvider)
   if ($Report.sessionId) {
     Write-Info 'Session' $Report.sessionId
@@ -127,9 +136,10 @@ Write-Info 'Codex home' $status.codexHome
 Write-Info 'State DB' $status.stateDbPath
 Write-Info 'JSONL sessions' $status.jsonlSessions
 Write-Info 'SQLite threads' $status.sqliteThreads
+Write-Info 'Repair candidates' $status.historyRepairCandidates
 Write-Host ''
 
-$sessionProviderNames = @($status.sessionProviders.PSObject.Properties.Name)
+$sessionProviderNames = @($status.sessionMetadataProviders.PSObject.Properties.Name)
 $databaseProviderNames = @($status.databaseProviders.PSObject.Properties.Name)
 $providerNames = @($sessionProviderNames + $databaseProviderNames | Sort-Object -Unique)
 if ($providerNames.Count -eq 0) {

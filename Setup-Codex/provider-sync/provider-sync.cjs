@@ -93,9 +93,62 @@ function parseSessionMetaLine(text) {
   return null;
 }
 
+function isInvisibleText(value) {
+  return typeof value === 'string' && value.replace(/[\s\u200B\u200C\u200D\uFEFF]/gu, '') === '';
+}
+
+function isRepairableReasoningItem(payload) {
+  if (!payload || payload.type !== 'reasoning' || typeof payload.id !== 'string' || !payload.id) {
+    return false;
+  }
+  if (typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
+    return false;
+  }
+  if (Array.isArray(payload.content) && payload.content.length > 0) {
+    return false;
+  }
+  const summary = Array.isArray(payload.summary)
+    ? payload.summary.map((item) => (item && typeof item.text === 'string' ? item.text : '')).join('')
+    : '';
+  return isInvisibleText(summary);
+}
+
+function analyzeSessionText(text) {
+  const lines = text.split('\n');
+  const providers = [];
+  let firstMeta = null;
+  let malformedResponseItems = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (!line.trim()) {
+      continue;
+    }
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record && record.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+      firstMeta ||= record;
+      const provider = typeof record.payload.model_provider === 'string' ? record.payload.model_provider : '';
+      if (provider && !providers.includes(provider)) {
+        providers.push(provider);
+      }
+    }
+    if (record && record.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
+      malformedResponseItems += 1;
+    }
+  }
+
+  return { firstMeta, providers, malformedResponseItems };
+}
+
 function inspectSessionFile(filePath, codexHome) {
   const text = fs.readFileSync(filePath, 'utf8');
-  const metaRecord = parseSessionMetaLine(text);
+  const analysis = analyzeSessionText(text);
+  const metaRecord = analysis.firstMeta;
   if (!metaRecord) {
     return { filePath, error: 'session_meta record not found' };
   }
@@ -113,6 +166,8 @@ function inspectSessionFile(filePath, codexHome) {
     relativePath,
     id,
     provider,
+    providers: analysis.providers,
+    malformedResponseItems: analysis.malformedResponseItems,
     bytes: Buffer.byteLength(text, 'utf8'),
   };
 }
@@ -221,7 +276,7 @@ function buildPlan(inventory, { fromProviders, toProvider, sessionId }) {
   }
 
   const sessionMatches = inventory.sessions.filter((entry) =>
-    (!sessionId || entry.id === sessionId) && sources.includes(entry.provider));
+    (!sessionId || entry.id === sessionId) && sources.some((source) => entry.providers.includes(source)));
   const dbMatches = inventory.dbRows.filter((row) =>
     (!sessionId || row.id === sessionId) && sources.includes(row.provider));
   if (sessionId && sessionMatches.length === 0 && dbMatches.length === 0) {
@@ -240,8 +295,27 @@ function buildPlan(inventory, { fromProviders, toProvider, sessionId }) {
   };
 }
 
-function rewriteSessionProvider(text, toProvider) {
+function buildRepairPlan(inventory, { sessionId }) {
+  const sessionFiles = inventory.sessions.filter((entry) =>
+    (!sessionId || entry.id === sessionId) && entry.malformedResponseItems > 0);
+  if (sessionId && sessionFiles.length === 0) {
+    fail(`Session was not found with repairable history: ${sessionId}`);
+  }
+  return {
+    repairOnly: true,
+    fromProviders: [],
+    toProvider: '',
+    sessionId: sessionId || '',
+    sessionFiles,
+    dbRows: [],
+  };
+}
+
+function rewriteSessionFile(text, toProvider) {
   const lines = text.split('\n');
+  let providerUpdates = 0;
+  let removedResponseItems = 0;
+  let sawMeta = false;
   for (let index = 0; index < lines.length; index += 1) {
     const original = lines[index];
     const line = original.endsWith('\r') ? original.slice(0, -1) : original;
@@ -254,18 +328,34 @@ function rewriteSessionProvider(text, toProvider) {
     } catch {
       continue;
     }
+    if (record && record.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
+      lines.splice(index, 1);
+      index -= 1;
+      removedResponseItems += 1;
+      continue;
+    }
     if (!record || record.type !== 'session_meta' || !record.payload || typeof record.payload !== 'object') {
       continue;
     }
-    if (record.payload.model_provider === toProvider) {
-      return text;
+    sawMeta = true;
+    if (toProvider && record.payload.model_provider !== toProvider) {
+      record.payload.model_provider = toProvider;
+      providerUpdates += 1;
+      const leading = line.match(/^\s*/)[0];
+      lines[index] = `${leading}${JSON.stringify(record)}${original.endsWith('\r') ? '\r' : ''}`;
     }
-    record.payload.model_provider = toProvider;
-    const leading = line.match(/^\s*/)[0];
-    lines[index] = `${leading}${JSON.stringify(record)}${original.endsWith('\r') ? '\r' : ''}`;
-    return lines.join('\n');
   }
-  fail('Cannot rewrite session without a session_meta record.');
+  if (!sawMeta) {
+    fail('Cannot rewrite session without a session_meta record.');
+  }
+  if (providerUpdates === 0 && removedResponseItems === 0) {
+    return { text, providerUpdates, removedResponseItems };
+  }
+  return { text: lines.join('\n'), providerUpdates, removedResponseItems };
+}
+
+function rewriteSessionProvider(text, toProvider) {
+  return rewriteSessionFile(text, toProvider).text;
 }
 
 function writeFileAtomically(filePath, contents) {
@@ -344,25 +434,32 @@ function applyDatabasePlan(inventory, plan) {
 
 function applySessionPlan(plan) {
   let changed = 0;
+  let removedResponseItems = 0;
   for (const entry of plan.sessionFiles) {
     const original = fs.readFileSync(entry.filePath, 'utf8');
-    const current = parseSessionMetaLine(original);
-    if (!current || current.payload.id !== entry.id || current.payload.model_provider !== entry.provider) {
+    const current = analyzeSessionText(original);
+    if (!current.firstMeta || current.firstMeta.payload.id !== entry.id || JSON.stringify(current.providers) !== JSON.stringify(entry.providers)) {
       fail(`Session changed while preparing to write: ${entry.filePath}`);
     }
-    const updated = rewriteSessionProvider(original, plan.toProvider);
-    if (updated !== original) {
-      writeFileAtomically(entry.filePath, updated);
+    const rewritten = rewriteSessionFile(original, plan.toProvider);
+    if (rewritten.text !== original) {
+      writeFileAtomically(entry.filePath, rewritten.text);
       changed += 1;
     }
+    removedResponseItems += rewritten.removedResponseItems;
   }
-  return changed;
+  return { changed, removedResponseItems };
 }
 
 function verifyPlan(inventory, plan) {
   const fresh = scanInventory(inventory);
-  const remainingFiles = fresh.sessions.filter((entry) =>
-    (!plan.sessionId || entry.id === plan.sessionId) && plan.fromProviders.includes(entry.provider));
+  const remainingFiles = fresh.sessions.filter((entry) => {
+    if (plan.repairOnly) {
+      return (!plan.sessionId || entry.id === plan.sessionId) && entry.malformedResponseItems > 0;
+    }
+    return (!plan.sessionId || entry.id === plan.sessionId)
+      && plan.fromProviders.some((source) => entry.providers.includes(source));
+  });
   const remainingRows = fresh.dbRows.filter((row) =>
     (!plan.sessionId || row.id === plan.sessionId) && plan.fromProviders.includes(row.provider));
   if (remainingFiles.length > 0 || remainingRows.length > 0) {
@@ -381,6 +478,8 @@ function summarize(inventory, plan) {
     jsonlChanges: plan.sessionFiles.length,
     sqliteChanges: plan.dbRows.length,
     jsonlBytes: plan.sessionFiles.reduce((total, entry) => total + entry.bytes, 0),
+    historyRepairs: plan.sessionFiles.reduce((total, entry) => total + entry.malformedResponseItems, 0),
+    mixedSessionMetadata: plan.sessionFiles.filter((entry) => entry.providers.length > 1).length,
     unsupportedCompressed: inventory.unsupported.length,
     scanErrors: inventory.scanErrors.length,
   };
@@ -400,9 +499,10 @@ function syncProvider(options) {
     fail(`Compressed rollouts are present but this standalone package cannot rewrite them yet:\n${inventory.unsupported.join('\n')}`);
   }
 
-  const plan = buildPlan(inventory, options);
+  const plan = options.repairHistory ? buildRepairPlan(inventory, options) : buildPlan(inventory, options);
   const report = {
     mode: options.apply ? 'apply' : 'dry-run',
+    repairOnly: Boolean(options.repairHistory),
     ...summarize(inventory, plan),
   };
   if (!options.apply || (plan.sessionFiles.length === 0 && plan.dbRows.length === 0)) {
@@ -411,12 +511,19 @@ function syncProvider(options) {
 
   const backupRoot = path.resolve(options.backupRoot || path.join(codexHome, 'backups', 'provider-sync'));
   report.backupDir = createBackup(inventory, plan, backupRoot);
-  report.sqliteUpdated = applyDatabasePlan(inventory, plan);
-  report.jsonlUpdated = applySessionPlan(plan);
+  report.sqliteUpdated = plan.dbRows.length > 0 ? applyDatabasePlan(inventory, plan) : 0;
+  const sessionResult = applySessionPlan(plan);
+  report.jsonlUpdated = sessionResult.changed;
+  report.historyItemsRemoved = sessionResult.removedResponseItems;
   const verified = verifyPlan({ codexHome, stateDbPath }, plan);
   report.verified = true;
-  report.remainingJsonl = verified.sessions.filter((entry) =>
-    (!plan.sessionId || entry.id === plan.sessionId) && plan.fromProviders.includes(entry.provider)).length;
+  report.remainingJsonl = verified.sessions.filter((entry) => {
+    if (plan.repairOnly) {
+      return (!plan.sessionId || entry.id === plan.sessionId) && entry.malformedResponseItems > 0;
+    }
+    return (!plan.sessionId || entry.id === plan.sessionId)
+      && plan.fromProviders.some((source) => entry.providers.includes(source));
+  }).length;
   report.remainingSqlite = verified.dbRows.filter((row) =>
     (!plan.sessionId || row.id === plan.sessionId) && plan.fromProviders.includes(row.provider)).length;
   return report;
@@ -430,6 +537,8 @@ function formatInventory(inventory) {
     sqliteThreads: inventory.dbRows.length,
     sessionProviders: inventory.sessionProviders,
     databaseProviders: inventory.databaseProviders,
+    sessionMetadataProviders: countProviders(inventory.sessions.flatMap((entry) => entry.providers)),
+    historyRepairCandidates: inventory.sessions.reduce((total, entry) => total + entry.malformedResponseItems, 0),
     archivedAndActiveRoots: SESSION_ROOTS.map((root) => path.join(inventory.codexHome, root)),
   };
 }
