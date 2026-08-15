@@ -57,6 +57,8 @@ Backups are created under `<CODEX_HOME>\backups\provider-sync\<timestamp>` befor
 
 The preview reports mixed `session_meta` files, empty-history candidates, encrypted replay candidates, and nested plaintext/opaque compaction candidates. The apply report shows how many reasoning items were sanitized, readable compactions converted, and opaque compactions removed. Every write has a backup and a post-write scan.
 
+Rollout inspection and rewriting use bounded streaming buffers, so large histories do not need to be loaded into memory as one document. A targeted `--session-id` scan also avoids opening unrelated rollout files when the session ID is present in the filename, with a safe fallback for older naming schemes.
+
 The tool intentionally fails when `.jsonl.zst` rollouts are present because it cannot safely rewrite compressed rollouts without a zstd runtime. No partial write is started in that case.
 
 Cross-provider continuation can still fail when the backend cannot decrypt provider-specific `encrypted_content`; retagging restores local visibility, not backend compatibility.

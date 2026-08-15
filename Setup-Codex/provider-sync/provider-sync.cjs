@@ -14,6 +14,8 @@ const ACTION_SANITIZE_REASONING = 'sanitizedReasoning';
 const ACTION_REMOVE_COMPACTION = 'removedCompaction';
 const ACTION_CONVERT_COMPACTION = 'convertedCompaction';
 const OPAQUE_ENCRYPTED_CONTENT = /^[A-Za-z0-9_+=\/-]+$/u;
+const JSONL_READ_BUFFER_SIZE = 8 * 1024 * 1024;
+const MAX_SCAN_ATTEMPTS = 3;
 
 function fail(message) {
   throw new Error(message);
@@ -76,7 +78,7 @@ function listFilesRecursive(rootPath) {
       }
     }
   }
-  return result.sort((left, right) => left.localeCompare(right));
+  return result.sort();
 }
 
 function isInvisibleText(value) {
@@ -180,51 +182,96 @@ function collectReplayStats(record, stats) {
   }
 }
 
-function analyzeSessionText(text) {
-  const lines = text.split('\n');
-  const providers = [];
-  const providerSet = new Set();
-  let firstMeta = null;
-  let malformedResponseItems = 0;
-  const replayStats = {
+function processJsonlLinesSync(fileDescriptor, callback) {
+  const decoder = new StringDecoder('utf8');
+  const buffer = Buffer.allocUnsafe(JSONL_READ_BUFFER_SIZE);
+  let carry = '';
+
+  const consume = (chunk, final = false) => {
+    carry += chunk;
+    let newlineIndex = carry.indexOf('\n');
+    while (newlineIndex >= 0) {
+      callback(carry.slice(0, newlineIndex), true);
+      carry = carry.slice(newlineIndex + 1);
+      newlineIndex = carry.indexOf('\n');
+    }
+    if (final && carry.length > 0) {
+      callback(carry, false);
+      carry = '';
+    }
+  };
+
+  let bytesRead;
+  while ((bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, null)) > 0) {
+    consume(decoder.write(buffer.subarray(0, bytesRead)));
+  }
+  consume(decoder.end(), true);
+}
+
+function forEachJsonlLineSync(filePath, callback) {
+  const fileDescriptor = fs.openSync(filePath, 'r');
+  try {
+    processJsonlLinesSync(fileDescriptor, callback);
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
+function createSessionAnalysis() {
+  return {
+    providers: [],
+    providerSet: new Set(),
+    firstMeta: null,
+    malformedResponseItems: 0,
     encryptedReasoningItems: 0,
     encryptedCompactionItems: 0,
     opaqueCompactionItems: 0,
     plaintextCompactionItems: 0,
   };
+}
 
-  for (const rawLine of lines) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    if (!line.trim()) {
-      continue;
-    }
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (record && record.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
-      firstMeta ||= record;
-      const provider = typeof record.payload.model_provider === 'string' ? record.payload.model_provider : '';
-      if (provider && !providerSet.has(provider)) {
-        providerSet.add(provider);
-        providers.push(provider);
-      }
-    }
-    if (record && record.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
-      malformedResponseItems += 1;
-    }
-    collectReplayStats(record, replayStats);
+function analyzeSessionLine(line, analysis) {
+  const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
+  if (!normalizedLine.trim()) {
+    return;
   }
-
-  return { firstMeta, providers, malformedResponseItems, ...replayStats };
+  let record;
+  try {
+    record = JSON.parse(normalizedLine);
+  } catch {
+    return;
+  }
+  if (record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+    analysis.firstMeta ||= record;
+    const provider = typeof record.payload.model_provider === 'string' ? record.payload.model_provider : '';
+    if (provider && !analysis.providerSet.has(provider)) {
+      analysis.providerSet.add(provider);
+      analysis.providers.push(provider);
+    }
+  }
+  if (record?.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
+    analysis.malformedResponseItems += 1;
+  }
+  collectReplayStats(record, analysis);
 }
 
 function inspectSessionFile(filePath, codexHome) {
-  const text = fs.readFileSync(filePath, 'utf8');
-  const fileStat = fs.statSync(filePath);
-  const analysis = analyzeSessionText(text);
+  let analysis;
+  let fileStat;
+  for (let attempt = 0; attempt < MAX_SCAN_ATTEMPTS; attempt += 1) {
+    const initialStat = fs.statSync(filePath);
+    const currentAnalysis = createSessionAnalysis();
+    forEachJsonlLineSync(filePath, (line) => analyzeSessionLine(line, currentAnalysis));
+    const currentStat = fs.statSync(filePath);
+    if (currentStat.size === initialStat.size && currentStat.mtimeMs === initialStat.mtimeMs) {
+      analysis = currentAnalysis;
+      fileStat = currentStat;
+      break;
+    }
+  }
+  if (!analysis || !fileStat) {
+    throw new Error(`Session changed while scanning: ${filePath}`);
+  }
   const metaRecord = analysis.firstMeta;
   if (!metaRecord) {
     return { filePath, error: 'session_meta record not found' };
@@ -582,9 +629,6 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
     throw error;
   }
   const changes = createRewriteState();
-  const decoder = new StringDecoder('utf8');
-  const buffer = Buffer.allocUnsafe(1024 * 1024);
-  let carry = '';
   let outputFdOpen = true;
 
   const writeLine = (line, hasNewline) => {
@@ -593,26 +637,8 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
       fs.writeSync(temp.fd, rewritten.text + (hasNewline ? '\n' : ''), null, 'utf8');
     }
   };
-  const consume = (chunk, final = false) => {
-    carry += chunk;
-    let newlineIndex = carry.indexOf('\n');
-    while (newlineIndex >= 0) {
-      writeLine(carry.slice(0, newlineIndex), true);
-      carry = carry.slice(newlineIndex + 1);
-      newlineIndex = carry.indexOf('\n');
-    }
-    if (final && carry.length > 0) {
-      writeLine(carry, false);
-      carry = '';
-    }
-  };
-
   try {
-    let bytesRead;
-    while ((bytesRead = fs.readSync(sourceFd, buffer, 0, buffer.length, null)) > 0) {
-      consume(decoder.write(buffer.subarray(0, bytesRead)));
-    }
-    consume(decoder.end(), true);
+    processJsonlLinesSync(sourceFd, writeLine);
     if (!changes.sawMeta) {
       fail('Cannot rewrite session without a session_meta record.');
     }
