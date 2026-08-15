@@ -7,6 +7,12 @@ const { DatabaseSync } = require('node:sqlite');
 
 const STATE_DB_FILENAME = 'state_5.sqlite';
 const SESSION_ROOTS = ['sessions', 'archived_sessions'];
+const ACTION_NONE = 'none';
+const ACTION_REMOVE_REASONING = 'removedReasoning';
+const ACTION_SANITIZE_REASONING = 'sanitizedReasoning';
+const ACTION_REMOVE_COMPACTION = 'removedCompaction';
+const ACTION_CONVERT_COMPACTION = 'convertedCompaction';
+const OPAQUE_ENCRYPTED_CONTENT = /^[A-Za-z0-9_+=\/-]+$/u;
 
 function fail(message) {
   throw new Error(message);
@@ -60,7 +66,6 @@ function listFilesRecursive(rootPath) {
   while (pending.length > 0) {
     const current = pending.pop();
     const entries = fs.readdirSync(current, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
       const entryPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
@@ -94,7 +99,25 @@ function parseSessionMetaLine(text) {
 }
 
 function isInvisibleText(value) {
-  return typeof value === 'string' && value.replace(/[\s\u200B\u200C\u200D\uFEFF]/gu, '') === '';
+  return typeof value === 'string' && !/[^\s\u200B\u200C\u200D\uFEFF]/u.test(value);
+}
+
+function summaryText(payload) {
+  if (!Array.isArray(payload?.summary)) {
+    return '';
+  }
+  let result = '';
+  for (const item of payload.summary) {
+    if (typeof item?.text === 'string') {
+      result += item.text;
+    }
+  }
+  return result;
+}
+
+function hasVisibleReasoningContent(payload) {
+  return (Array.isArray(payload?.content) && payload.content.length > 0)
+    || !isInvisibleText(summaryText(payload));
 }
 
 function isRepairableReasoningItem(payload) {
@@ -104,30 +127,13 @@ function isRepairableReasoningItem(payload) {
   if (typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
     return false;
   }
-  if (Array.isArray(payload.content) && payload.content.length > 0) {
-    return false;
-  }
-  const summary = Array.isArray(payload.summary)
-    ? payload.summary.map((item) => (item && typeof item.text === 'string' ? item.text : '')).join('')
-    : '';
-  return isInvisibleText(summary);
+  return !hasVisibleReasoningContent(payload);
 }
 
-function looksLikeOpaqueEncryptedContent(value) {
+function isOpaqueEncryptedContent(value) {
   return typeof value === 'string'
     && value.length > 0
-    && !/\s/u.test(value)
-    && /^[A-Za-z0-9_+=\/-]+$/u.test(value);
-}
-
-function hasVisibleReasoningContent(payload) {
-  if (Array.isArray(payload.content) && payload.content.length > 0) {
-    return true;
-  }
-  const summary = Array.isArray(payload.summary)
-    ? payload.summary.map((item) => (item && typeof item.text === 'string' ? item.text : '')).join('')
-    : '';
-  return !isInvisibleText(summary);
+    && OPAQUE_ENCRYPTED_CONTENT.test(value);
 }
 
 function makeVisibleCompactionMessage(text) {
@@ -140,60 +146,55 @@ function makeVisibleCompactionMessage(text) {
 
 function sanitizeResponseItem(payload) {
   if (!payload || typeof payload !== 'object') {
-    return { payload, action: 'none' };
+    return { payload, action: ACTION_NONE };
   }
 
   if (payload.type === 'reasoning' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
     if (!hasVisibleReasoningContent(payload)) {
-      return { payload: null, action: 'removedReasoning' };
+      return { payload: null, action: ACTION_REMOVE_REASONING };
     }
     const sanitized = { ...payload };
     delete sanitized.encrypted_content;
     delete sanitized.id;
-    return { payload: sanitized, action: 'sanitizedReasoning' };
+    return { payload: sanitized, action: ACTION_SANITIZE_REASONING };
   }
 
   if (payload.type === 'compaction' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
-    if (looksLikeOpaqueEncryptedContent(payload.encrypted_content)) {
-      return { payload: null, action: 'removedCompaction' };
+    if (isOpaqueEncryptedContent(payload.encrypted_content)) {
+      return { payload: null, action: ACTION_REMOVE_COMPACTION };
     }
-    return { payload: makeVisibleCompactionMessage(payload.encrypted_content), action: 'convertedCompaction' };
+    return { payload: makeVisibleCompactionMessage(payload.encrypted_content), action: ACTION_CONVERT_COMPACTION };
   }
 
-  return { payload, action: 'none' };
+  return { payload, action: ACTION_NONE };
 }
 
-function collectReplayStats(record, stats) {
-  if (!record || typeof record !== 'object') {
+function forEachReplayItem(record, callback) {
+  if (record?.type === 'response_item') {
+    callback(record.payload);
+  }
+  if (record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
+    for (const item of record.payload.replacement_history) {
+      callback(item);
+    }
+  }
+}
+
+function collectReplayStats(payload, stats) {
+  if (!payload || typeof payload !== 'object') {
     return;
   }
-  if (record.type === 'response_item') {
-    const payload = record.payload;
-    if (payload?.type === 'reasoning' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
-      stats.encryptedReasoningItems += 1;
-    }
-    if (payload?.type === 'compaction' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
-      stats.encryptedCompactionItems += 1;
-      if (looksLikeOpaqueEncryptedContent(payload.encrypted_content)) {
-        stats.opaqueCompactionItems += 1;
-      } else {
-        stats.plaintextCompactionItems += 1;
-      }
-    }
+  if (typeof payload.encrypted_content !== 'string' || payload.encrypted_content.length === 0) {
+    return;
   }
-  if (record.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
-    for (const item of record.payload.replacement_history) {
-      if (item?.type === 'reasoning' && typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0) {
-        stats.encryptedReasoningItems += 1;
-      }
-      if (item?.type === 'compaction' && typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0) {
-        stats.encryptedCompactionItems += 1;
-        if (looksLikeOpaqueEncryptedContent(item.encrypted_content)) {
-          stats.opaqueCompactionItems += 1;
-        } else {
-          stats.plaintextCompactionItems += 1;
-        }
-      }
+  if (payload.type === 'reasoning') {
+    stats.encryptedReasoningItems += 1;
+  } else if (payload.type === 'compaction') {
+    stats.encryptedCompactionItems += 1;
+    if (isOpaqueEncryptedContent(payload.encrypted_content)) {
+      stats.opaqueCompactionItems += 1;
+    } else {
+      stats.plaintextCompactionItems += 1;
     }
   }
 }
@@ -201,6 +202,7 @@ function collectReplayStats(record, stats) {
 function analyzeSessionText(text) {
   const lines = text.split('\n');
   const providers = [];
+  const providerSet = new Set();
   let firstMeta = null;
   let malformedResponseItems = 0;
   const replayStats = {
@@ -224,14 +226,15 @@ function analyzeSessionText(text) {
     if (record && record.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
       firstMeta ||= record;
       const provider = typeof record.payload.model_provider === 'string' ? record.payload.model_provider : '';
-      if (provider && !providers.includes(provider)) {
+      if (provider && !providerSet.has(provider)) {
+        providerSet.add(provider);
         providers.push(provider);
       }
     }
     if (record && record.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
       malformedResponseItems += 1;
     }
-    collectReplayStats(record, replayStats);
+    forEachReplayItem(record, (payload) => collectReplayStats(payload, replayStats));
   }
 
   return { firstMeta, providers, malformedResponseItems, ...replayStats };
@@ -269,10 +272,27 @@ function inspectSessionFile(filePath, codexHome) {
   };
 }
 
-function scanSessions(codexHome) {
+function inspectSessionFiles(filePaths, codexHome) {
   const entries = [];
   const errors = [];
+  for (const filePath of filePaths) {
+    try {
+      const entry = inspectSessionFile(filePath, codexHome);
+      if (entry.error) {
+        errors.push(entry);
+      } else {
+        entries.push(entry);
+      }
+    } catch (error) {
+      errors.push({ filePath, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { entries, errors };
+}
+
+function scanSessions(codexHome, sessionId = '') {
   const unsupported = [];
+  const rolloutFiles = [];
   for (const rootName of SESSION_ROOTS) {
     const rootPath = path.join(codexHome, rootName);
     for (const filePath of listFilesRecursive(rootPath)) {
@@ -283,19 +303,23 @@ function scanSessions(codexHome) {
       if (!filePath.endsWith('.jsonl') || !path.basename(filePath).startsWith('rollout-')) {
         continue;
       }
-      try {
-        const entry = inspectSessionFile(filePath, codexHome);
-        if (entry.error) {
-          errors.push(entry);
-        } else {
-          entries.push(entry);
-        }
-      } catch (error) {
-        errors.push({ filePath, error: error instanceof Error ? error.message : String(error) });
-      }
+      rolloutFiles.push(filePath);
     }
   }
-  return { entries, errors, unsupported };
+
+  const matchingFiles = sessionId
+    ? rolloutFiles.filter((filePath) => path.basename(filePath).includes(sessionId))
+    : rolloutFiles;
+  const matchingFileSet = new Set(matchingFiles);
+  const initialFiles = sessionId && matchingFiles.length === 0 ? rolloutFiles : matchingFiles;
+  const inspected = inspectSessionFiles(initialFiles, codexHome);
+  if (sessionId && matchingFiles.length > 0 && !inspected.entries.some((entry) => entry.id === sessionId)) {
+    const fallbackFiles = rolloutFiles.filter((filePath) => !matchingFileSet.has(filePath));
+    const fallback = inspectSessionFiles(fallbackFiles, codexHome);
+    inspected.entries.push(...fallback.entries.filter((entry) => entry.id === sessionId));
+    inspected.errors.push(...fallback.errors);
+  }
+  return { entries: inspected.entries, errors: inspected.errors, unsupported };
 }
 
 function openStateDb(stateDbPath, readOnly) {
@@ -338,8 +362,8 @@ function countProviders(values) {
   return Object.fromEntries([...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])));
 }
 
-function scanInventory({ codexHome, stateDbPath }) {
-  const sessions = scanSessions(codexHome);
+function scanInventory({ codexHome, stateDbPath, sessionId = '' }) {
+  const sessions = scanSessions(codexHome, sessionId);
   const dbRows = readStateRows(stateDbPath);
   return {
     codexHome,
@@ -413,93 +437,113 @@ function buildRepairPlan(inventory, { sessionId, repairEncrypted }) {
   };
 }
 
+function formatJsonLine(record, originalLine) {
+  const leading = originalLine.match(/^\s*/)[0];
+  return `${leading}${JSON.stringify(record)}${originalLine.endsWith('\r') ? '\r' : ''}`;
+}
+
+function recordSanitizedAction(action, changes) {
+  switch (action) {
+    case ACTION_REMOVE_REASONING:
+      changes.removedResponseItems += 1;
+      break;
+    case ACTION_SANITIZE_REASONING:
+      changes.sanitizedReasoningItems += 1;
+      break;
+    case ACTION_REMOVE_COMPACTION:
+      changes.removedCompactionItems += 1;
+      break;
+    case ACTION_CONVERT_COMPACTION:
+      changes.convertedCompactionItems += 1;
+      break;
+    default:
+      break;
+  }
+}
+
 function rewriteSessionFile(text, toProvider, { sanitizeEncrypted = false } = {}) {
   const lines = text.split('\n');
-  let providerUpdates = 0;
-  let removedResponseItems = 0;
-  let sanitizedReasoningItems = 0;
-  let convertedCompactionItems = 0;
-  let removedCompactionItems = 0;
+  const output = [];
+  const changes = {
+    providerUpdates: 0,
+    removedResponseItems: 0,
+    sanitizedReasoningItems: 0,
+    convertedCompactionItems: 0,
+    removedCompactionItems: 0,
+  };
   let sawMeta = false;
   for (let index = 0; index < lines.length; index += 1) {
     const original = lines[index];
     const line = original.endsWith('\r') ? original.slice(0, -1) : original;
     if (!line.trim()) {
+      output.push(original);
       continue;
     }
     let record;
     try {
       record = JSON.parse(line);
     } catch {
+      output.push(original);
       continue;
     }
+    let keepRecord = true;
+    let recordChanged = false;
     if (record && record.type === 'response_item') {
       if (isRepairableReasoningItem(record.payload)) {
-        lines.splice(index, 1);
-        index -= 1;
-        removedResponseItems += 1;
-        continue;
+        changes.removedResponseItems += 1;
+        keepRecord = false;
       }
-      if (sanitizeEncrypted) {
+      if (keepRecord && sanitizeEncrypted) {
         const sanitized = sanitizeResponseItem(record.payload);
-        if (sanitized.action === 'removedReasoning' || sanitized.action === 'removedCompaction') {
-          lines.splice(index, 1);
-          index -= 1;
-          if (sanitized.action === 'removedReasoning') removedResponseItems += 1;
-          if (sanitized.action === 'removedCompaction') removedCompactionItems += 1;
-          continue;
+        if (sanitized.action === ACTION_REMOVE_REASONING || sanitized.action === ACTION_REMOVE_COMPACTION) {
+          keepRecord = false;
         }
-        if (sanitized.action !== 'none') {
-          record.payload = sanitized.payload;
-          if (sanitized.action === 'sanitizedReasoning') sanitizedReasoningItems += 1;
-          if (sanitized.action === 'convertedCompaction') convertedCompactionItems += 1;
-          const leading = line.match(/^\s*/)[0];
-          lines[index] = `${leading}${JSON.stringify(record)}${original.endsWith('\r') ? '\r' : ''}`;
+        if (sanitized.action !== ACTION_NONE) {
+          recordSanitizedAction(sanitized.action, changes);
+          if (keepRecord) {
+            record.payload = sanitized.payload;
+            recordChanged = true;
+          }
         }
       }
     }
-    if (sanitizeEncrypted && record && record.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
+    if (keepRecord && sanitizeEncrypted && record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
       const replacementHistory = [];
       let replacementChanged = false;
       for (const item of record.payload.replacement_history) {
         const sanitized = sanitizeResponseItem(item);
-        if (sanitized.action === 'removedReasoning' || sanitized.action === 'removedCompaction') {
+        if (sanitized.action !== ACTION_NONE) {
+          recordSanitizedAction(sanitized.action, changes);
           replacementChanged = true;
-          if (sanitized.action === 'removedReasoning') removedResponseItems += 1;
-          if (sanitized.action === 'removedCompaction') removedCompactionItems += 1;
-          continue;
         }
-        if (sanitized.action !== 'none') {
-          replacementChanged = true;
-          if (sanitized.action === 'sanitizedReasoning') sanitizedReasoningItems += 1;
-          if (sanitized.action === 'convertedCompaction') convertedCompactionItems += 1;
+        if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
+          replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
         }
-        replacementHistory.push(sanitized.payload);
       }
       if (replacementChanged) {
         record.payload.replacement_history = replacementHistory;
-        const leading = line.match(/^\s*/)[0];
-        lines[index] = `${leading}${JSON.stringify(record)}${original.endsWith('\r') ? '\r' : ''}`;
+        recordChanged = true;
       }
     }
-    if (!record || record.type !== 'session_meta' || !record.payload || typeof record.payload !== 'object') {
-      continue;
+    if (keepRecord && record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+      sawMeta = true;
+      if (toProvider && record.payload.model_provider !== toProvider) {
+        record.payload.model_provider = toProvider;
+        changes.providerUpdates += 1;
+        recordChanged = true;
+      }
     }
-    sawMeta = true;
-    if (toProvider && record.payload.model_provider !== toProvider) {
-      record.payload.model_provider = toProvider;
-      providerUpdates += 1;
-      const leading = line.match(/^\s*/)[0];
-      lines[index] = `${leading}${JSON.stringify(record)}${original.endsWith('\r') ? '\r' : ''}`;
+    if (keepRecord) {
+      output.push(recordChanged ? formatJsonLine(record, original) : original);
     }
   }
   if (!sawMeta) {
     fail('Cannot rewrite session without a session_meta record.');
   }
-  if (providerUpdates === 0 && removedResponseItems === 0 && sanitizedReasoningItems === 0 && convertedCompactionItems === 0 && removedCompactionItems === 0) {
-    return { text, providerUpdates, removedResponseItems, sanitizedReasoningItems, convertedCompactionItems, removedCompactionItems };
+  if (Object.values(changes).every((value) => value === 0)) {
+    return { text, ...changes };
   }
-  return { text: lines.join('\n'), providerUpdates, removedResponseItems, sanitizedReasoningItems, convertedCompactionItems, removedCompactionItems };
+  return { text: output.join('\n'), ...changes };
 }
 
 function rewriteSessionProvider(text, toProvider) {
@@ -605,19 +649,30 @@ function applySessionPlan(plan) {
   return { changed, removedResponseItems, sanitizedReasoningItems, convertedCompactionItems, removedCompactionItems };
 }
 
+function isSelectedSession(entry, plan) {
+  return !plan.sessionId || entry.id === plan.sessionId;
+}
+
+function remainsInPlan(entry, plan) {
+  if (!isSelectedSession(entry, plan)) {
+    return false;
+  }
+  if (plan.repairOnly) {
+    return entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0);
+  }
+  return plan.fromProviders.some((source) => entry.providers.includes(source))
+    || (plan.sanitizeEncrypted && entry.encryptedReplayItems > 0);
+}
+
+function remainsInDatabase(row, plan) {
+  return (!plan.sessionId || row.id === plan.sessionId)
+    && plan.fromProviders.includes(row.provider);
+}
+
 function verifyPlan(inventory, plan) {
-  const fresh = scanInventory(inventory);
-  const remainingFiles = fresh.sessions.filter((entry) => {
-    if (plan.repairOnly) {
-      return (!plan.sessionId || entry.id === plan.sessionId)
-        && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0));
-    }
-    return (!plan.sessionId || entry.id === plan.sessionId)
-      && (plan.fromProviders.some((source) => entry.providers.includes(source))
-        || (plan.sanitizeEncrypted && entry.encryptedReplayItems > 0));
-  });
-  const remainingRows = fresh.dbRows.filter((row) =>
-    (!plan.sessionId || row.id === plan.sessionId) && plan.fromProviders.includes(row.provider));
+  const fresh = scanInventory({ ...inventory, sessionId: plan.sessionId });
+  const remainingFiles = fresh.sessions.filter((entry) => remainsInPlan(entry, plan));
+  const remainingRows = fresh.dbRows.filter((row) => remainsInDatabase(row, plan));
   if (remainingFiles.length > 0 || remainingRows.length > 0) {
     fail(`Verification failed: ${remainingFiles.length} JSONL files and ${remainingRows.length} SQLite rows still use source providers.`);
   }
@@ -625,6 +680,20 @@ function verifyPlan(inventory, plan) {
 }
 
 function summarize(inventory, plan) {
+  const totals = plan.sessionFiles.reduce((result, entry) => {
+    result.bytes += entry.bytes;
+    result.historyRepairs += entry.malformedResponseItems;
+    result.encryptedReplayItems += entry.encryptedReplayItems;
+    result.plaintextCompactionItems += entry.plaintextCompactionItems;
+    result.opaqueCompactionItems += entry.opaqueCompactionItems;
+    return result;
+  }, {
+    bytes: 0,
+    historyRepairs: 0,
+    encryptedReplayItems: 0,
+    plaintextCompactionItems: 0,
+    opaqueCompactionItems: 0,
+  });
   return {
     codexHome: inventory.codexHome,
     stateDbPath: inventory.stateDbPath,
@@ -633,11 +702,11 @@ function summarize(inventory, plan) {
     sessionId: plan.sessionId || null,
     jsonlChanges: plan.sessionFiles.length,
     sqliteChanges: plan.dbRows.length,
-    jsonlBytes: plan.sessionFiles.reduce((total, entry) => total + entry.bytes, 0),
-    historyRepairs: plan.sessionFiles.reduce((total, entry) => total + entry.malformedResponseItems, 0),
-    encryptedReplayItems: plan.sessionFiles.reduce((total, entry) => total + entry.encryptedReplayItems, 0),
-    plaintextCompactionItems: plan.sessionFiles.reduce((total, entry) => total + entry.plaintextCompactionItems, 0),
-    opaqueCompactionItems: plan.sessionFiles.reduce((total, entry) => total + entry.opaqueCompactionItems, 0),
+    jsonlBytes: totals.bytes,
+    historyRepairs: totals.historyRepairs,
+    encryptedReplayItems: totals.encryptedReplayItems,
+    plaintextCompactionItems: totals.plaintextCompactionItems,
+    opaqueCompactionItems: totals.opaqueCompactionItems,
     mixedSessionMetadata: plan.sessionFiles.filter((entry) => entry.providers.length > 1).length,
     unsupportedCompressed: inventory.unsupported.length,
     scanErrors: inventory.scanErrors.length,
@@ -650,7 +719,7 @@ function syncProvider(options) {
     fail(`Codex home does not exist: ${codexHome}`);
   }
   const stateDbPath = resolveStateDb(codexHome, options.stateDbPath);
-  const inventory = scanInventory({ codexHome, stateDbPath });
+  const inventory = scanInventory({ codexHome, stateDbPath, sessionId: options.sessionId });
   if (inventory.scanErrors.length > 0) {
     fail(`Cannot safely continue: ${inventory.scanErrors.length} rollout files could not be parsed.`);
   }
@@ -680,19 +749,24 @@ function syncProvider(options) {
   report.removedCompactionItems = sessionResult.removedCompactionItems;
   const verified = verifyPlan({ codexHome, stateDbPath }, plan);
   report.verified = true;
-  report.remainingJsonl = verified.sessions.filter((entry) => {
-    if (plan.repairOnly) {
-      return (!plan.sessionId || entry.id === plan.sessionId) && entry.malformedResponseItems > 0;
-    }
-    return (!plan.sessionId || entry.id === plan.sessionId)
-      && plan.fromProviders.some((source) => entry.providers.includes(source));
-  }).length;
-  report.remainingSqlite = verified.dbRows.filter((row) =>
-    (!plan.sessionId || row.id === plan.sessionId) && plan.fromProviders.includes(row.provider)).length;
+  report.remainingJsonl = verified.sessions.filter((entry) => remainsInPlan(entry, plan)).length;
+  report.remainingSqlite = verified.dbRows.filter((row) => remainsInDatabase(row, plan)).length;
   return report;
 }
 
 function formatInventory(inventory) {
+  const sessionTotals = inventory.sessions.reduce((result, entry) => {
+    result.historyRepairCandidates += entry.malformedResponseItems;
+    result.encryptedReplayCandidates += entry.encryptedReplayItems;
+    result.plaintextCompactionCandidates += entry.plaintextCompactionItems;
+    result.opaqueCompactionCandidates += entry.opaqueCompactionItems;
+    return result;
+  }, {
+    historyRepairCandidates: 0,
+    encryptedReplayCandidates: 0,
+    plaintextCompactionCandidates: 0,
+    opaqueCompactionCandidates: 0,
+  });
   return {
     codexHome: inventory.codexHome,
     stateDbPath: inventory.stateDbPath,
@@ -701,10 +775,7 @@ function formatInventory(inventory) {
     sessionProviders: inventory.sessionProviders,
     databaseProviders: inventory.databaseProviders,
     sessionMetadataProviders: countProviders(inventory.sessions.flatMap((entry) => entry.providers)),
-    historyRepairCandidates: inventory.sessions.reduce((total, entry) => total + entry.malformedResponseItems, 0),
-    encryptedReplayCandidates: inventory.sessions.reduce((total, entry) => total + entry.encryptedReplayItems, 0),
-    plaintextCompactionCandidates: inventory.sessions.reduce((total, entry) => total + entry.plaintextCompactionItems, 0),
-    opaqueCompactionCandidates: inventory.sessions.reduce((total, entry) => total + entry.opaqueCompactionItems, 0),
+    ...sessionTotals,
     archivedAndActiveRoots: SESSION_ROOTS.map((root) => path.join(inventory.codexHome, root)),
   };
 }
