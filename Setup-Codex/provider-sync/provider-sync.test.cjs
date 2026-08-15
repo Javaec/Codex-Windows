@@ -39,8 +39,42 @@ function fixture() {
       content: null,
     },
   };
+  const encryptedReasoning = {
+    type: 'response_item',
+    payload: {
+      type: 'reasoning',
+      id: 'rs_encrypted',
+      summary: [{ type: 'summary_text', text: 'Visible encrypted summary' }],
+      encrypted_content: 'gAAAA_provider_specific_reasoning',
+      content: null,
+    },
+  };
+  const compacted = {
+    type: 'compacted',
+    payload: {
+      id: 'cmp_parent',
+      replacement_history: [
+        {
+          type: 'compaction',
+          id: 'cmp_plain',
+          encrypted_content: 'Visible checkpoint summary from the old provider',
+        },
+        {
+          type: 'compaction',
+          id: 'cmp_opaque',
+          encrypted_content: 'gAAAA_provider_specific_compaction',
+        },
+        {
+          type: 'reasoning',
+          id: 'rs_nested',
+          summary: [{ type: 'summary_text', text: 'Nested visible summary' }],
+          encrypted_content: 'gAAAA_provider_specific_nested_reasoning',
+        },
+      ],
+    },
+  };
   const archived = { type: 'session_meta', payload: { id: 'session-b', model_provider: 'custom', cwd: 'C:\\work' } };
-  fs.writeFileSync(sessionPath, `${JSON.stringify(session)}\n${JSON.stringify(resumedSession)}\n${JSON.stringify(malformedReasoning)}\n${JSON.stringify(validReasoning)}\n${JSON.stringify({ type: 'event_msg', payload: { text: '"model_provider":"openai"' } })}\n`, 'utf8');
+  fs.writeFileSync(sessionPath, `${JSON.stringify(session)}\n${JSON.stringify(resumedSession)}\n${JSON.stringify(malformedReasoning)}\n${JSON.stringify(validReasoning)}\n${JSON.stringify(encryptedReasoning)}\n${JSON.stringify(compacted)}\n${JSON.stringify({ type: 'event_msg', payload: { text: '"model_provider":"openai"' } })}\n`, 'utf8');
   fs.writeFileSync(archivedPath, `${JSON.stringify(archived)}\n`, 'utf8');
 
   const dbPath = path.join(root, 'state_5.sqlite');
@@ -83,10 +117,18 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.equal(report.remainingSqlite, 0);
     assert.equal(report.historyRepairs, 1);
     assert.equal(report.historyItemsRemoved, 1);
+    assert.equal(report.encryptedReplayItems, 4);
+    assert.equal(report.sanitizedReasoningItems, 2);
+    assert.equal(report.convertedCompactionItems, 1);
+    assert.equal(report.removedCompactionItems, 1);
     const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
     assert.equal((text.match(/"type":"session_meta"/g) || []).length, 2);
     assert.equal((text.match(/"model_provider":"custom"/g) || []).length, 2);
     assert.doesNotMatch(text, /rs_missing/);
+    assert.doesNotMatch(text, /rs_encrypted/);
+    assert.doesNotMatch(text, /gAAAA_provider_specific/);
+    assert.match(text, /Visible checkpoint summary from the old provider/);
+    assert.match(text, /"type":"message"/);
     assert.match(text, /rs_valid/);
     assert.match(text, /\\"model_provider\\":\\"openai\\"/);
     const db = new DatabaseSync(testFixture.dbPath, { readOnly: true });
@@ -139,6 +181,36 @@ test('repair-history removes only empty reasoning items without changing provide
     assert.match(text, /"model_provider":"codex"/);
     assert.doesNotMatch(text, /rs_missing/);
     assert.match(text, /rs_valid/);
+    assert.match(text, /gAAAA_provider_specific/);
+  } finally {
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
+test('repair-encrypted sanitizes nested compaction history without changing provider metadata', () => {
+  const testFixture = fixture();
+  try {
+    const report = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      repairHistory: true,
+      repairEncrypted: true,
+      sessionId: 'session-a',
+      apply: true,
+      backupRoot: path.join(testFixture.root, 'backups'),
+    });
+    assert.equal(report.repairEncrypted, true);
+    assert.equal(report.encryptedReplayItems, 4);
+    assert.equal(report.historyItemsRemoved, 1);
+    assert.equal(report.sanitizedReasoningItems, 2);
+    assert.equal(report.convertedCompactionItems, 1);
+    assert.equal(report.removedCompactionItems, 1);
+    assert.equal(report.verified, true);
+    const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
+    assert.match(text, /"model_provider":"openai"/);
+    assert.match(text, /"model_provider":"codex"/);
+    assert.doesNotMatch(text, /gAAAA_provider_specific/);
+    assert.match(text, /Nested visible summary/);
   } finally {
     fs.rmSync(testFixture.root, { recursive: true, force: true });
   }

@@ -34,6 +34,10 @@ Repair all active and archived histories:
   Run-Codex-Provider-Sync.cmd --repair-all --dry-run
   Run-Codex-Provider-Sync.cmd --repair-all --yes
 
+Repair provider-specific encrypted reasoning and compaction history:
+  Run-Codex-Provider-Sync.cmd --repair-encrypted --session-id ID --yes
+  Run-Codex-Provider-Sync.cmd --repair-encrypted --dry-run
+
 Options:
   --codex-home PATH       Codex home (default: CODEX_HOME or %USERPROFILE%\\.codex)
   --state-db PATH         Explicit state_5.sqlite path
@@ -75,6 +79,10 @@ function parseArgs(argv) {
         break;
       case '--repair-history':
         options.repairHistory = true;
+        break;
+      case '--repair-encrypted':
+        options.repairHistory = true;
+        options.repairEncrypted = true;
         break;
       case '--repair-all':
         options.repairHistory = true;
@@ -118,8 +126,16 @@ function print(value, json) {
       console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
       console.log(`Codex home: ${value.codexHome}`);
       if (value.sessionId) console.log(`Session: ${value.sessionId}`);
+      if (value.repairEncrypted) {
+        console.log(`Encrypted replay candidates: ${value.encryptedReplayItems}`);
+        console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
+        console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
+      }
       if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
       if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
+      if (value.sanitizedReasoningItems) console.log(`Reasoning items sanitized: ${value.sanitizedReasoningItems}`);
+      if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
+      if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
       if (value.verified) console.log('Verification: OK');
       return;
     }
@@ -129,7 +145,13 @@ function print(value, json) {
     console.log(`Provider: ${value.fromProviders.join(', ')} -> ${value.toProvider}`);
     if (value.sessionId) console.log(`Session: ${value.sessionId}`);
     if (value.historyRepairs) console.log(`History repair candidates: ${value.historyRepairs}`);
+    if (value.encryptedReplayItems) console.log(`Encrypted replay candidates: ${value.encryptedReplayItems}`);
+    if (value.plaintextCompactionItems) console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
+    if (value.opaqueCompactionItems) console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
     if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
+    if (value.sanitizedReasoningItems) console.log(`Reasoning items sanitized: ${value.sanitizedReasoningItems}`);
+    if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
+    if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
     if (value.mixedSessionMetadata) console.log(`Mixed session_meta files: ${value.mixedSessionMetadata}`);
     if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
     if (value.verified) console.log('Verification: OK');
@@ -151,7 +173,7 @@ function main() {
     return;
   }
   if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
-    throw new Error('--repair-history cannot be combined with --from or --to.');
+    throw new Error('--repair-history/--repair-encrypted cannot be combined with --from or --to.');
   }
   if (options.repairAll && options.sessionId) {
     throw new Error('--repair-all cannot be combined with --session-id.');

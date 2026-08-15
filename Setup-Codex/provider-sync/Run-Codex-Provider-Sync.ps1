@@ -103,6 +103,18 @@ function Show-Report {
   if ($null -ne $Report.historyItemsRemoved) {
     Write-Info 'Items removed' $Report.historyItemsRemoved
   }
+  if ($null -ne $Report.encryptedReplayItems) {
+    Write-Info 'Encrypted replay' $Report.encryptedReplayItems
+  }
+  if ($null -ne $Report.sanitizedReasoningItems) {
+    Write-Info 'Reasoning sanitized' $Report.sanitizedReasoningItems
+  }
+  if ($null -ne $Report.convertedCompactionItems) {
+    Write-Info 'Compaction converted' $Report.convertedCompactionItems
+  }
+  if ($null -ne $Report.removedCompactionItems) {
+    Write-Info 'Opaque compaction removed' $Report.removedCompactionItems
+  }
   if ($null -ne $Report.mixedSessionMetadata) {
     Write-Info 'Mixed metadata' $Report.mixedSessionMetadata
   }
@@ -139,12 +151,14 @@ Write-Info 'State DB' $status.stateDbPath
 Write-Info 'JSONL sessions' $status.jsonlSessions
 Write-Info 'SQLite threads' $status.sqliteThreads
 Write-Info 'Repair candidates' $status.historyRepairCandidates
+Write-Info 'Encrypted candidates' $status.encryptedReplayCandidates
 Write-Host ''
 
 Write-Host 'Операция:' -ForegroundColor Cyan
 Write-Host '  1. Переключить provider у сессий' -ForegroundColor White
 Write-Host '  2. Починить историю во всех сессиях' -ForegroundColor White
-$operation = Read-MenuChoice 'Выбор' 1 2
+Write-Host '  3. Починить provider-specific encrypted history' -ForegroundColor White
+$operation = Read-MenuChoice 'Выбор' 1 3
 if ($operation -eq 2) {
   $preview = Invoke-CodexCliJson @('--repair-all', '--dry-run')
 
@@ -171,6 +185,54 @@ if ($operation -eq 2) {
   $result = Invoke-CodexCliJson @('--repair-all', '--yes')
   Write-Host ''
   Write-Host 'Ремонт всех сессий завершен.' -ForegroundColor Green
+  Show-Report $result
+  Read-Host 'Нажмите Enter для выхода' | Out-Null
+  exit 0
+}
+
+if ($operation -eq 3) {
+  Write-Host ''
+  Write-Host 'Область ремонта encrypted history:' -ForegroundColor Cyan
+  Write-Host '  1. Все активные и архивные сессии' -ForegroundColor White
+  Write-Host '  2. Одна сессия по ID' -ForegroundColor White
+  $encryptedScope = Read-MenuChoice 'Выбор' 1 2
+  $encryptedArgs = @('--repair-encrypted', '--dry-run')
+  if ($encryptedScope -eq 2) {
+    $encryptedSessionId = (Read-Host 'Session ID').Trim()
+    if (-not $encryptedSessionId) {
+      throw 'Session ID cannot be empty.'
+    }
+    $encryptedArgs += @('--session-id', $encryptedSessionId)
+  }
+
+  $preview = Invoke-CodexCliJson $encryptedArgs
+  Write-Host ''
+  Write-Host 'Предпросмотр ремонта encrypted history:' -ForegroundColor Green
+  Show-Report $preview
+  if ([int]$preview.encryptedReplayItems -eq 0 -and [int]$preview.historyRepairs -eq 0) {
+    Write-Host 'Поврежденные encrypted-элементы не найдены.' -ForegroundColor Yellow
+    Read-Host 'Нажмите Enter для выхода' | Out-Null
+    exit 0
+  }
+
+  if (Get-Process -Name codex -ErrorAction SilentlyContinue) {
+    Write-Host 'ВНИМАНИЕ: Codex сейчас запущен. Перед записью закройте Codex, CLI и app-server.' -ForegroundColor Yellow
+  }
+  Write-Host ''
+  $confirmation = (Read-Host 'Починить encrypted history с backup? [y/N]').Trim().ToLowerInvariant()
+  if ($confirmation -notin @('y', 'yes', 'д', 'да')) {
+    Write-Host 'Отменено. Ничего не изменено.' -ForegroundColor DarkGray
+    Read-Host 'Нажмите Enter для выхода' | Out-Null
+    exit 0
+  }
+
+  $applyEncryptedArgs = @('--repair-encrypted', '--yes')
+  if ($encryptedScope -eq 2) {
+    $applyEncryptedArgs += @('--session-id', $encryptedSessionId)
+  }
+  $result = Invoke-CodexCliJson $applyEncryptedArgs
+  Write-Host ''
+  Write-Host 'Ремонт encrypted history завершен.' -ForegroundColor Green
   Show-Report $result
   Read-Host 'Нажмите Enter для выхода' | Out-Null
   exit 0
