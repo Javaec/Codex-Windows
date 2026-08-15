@@ -394,11 +394,12 @@ function buildPlan(inventory, { fromProviders, toProvider, sessionId }) {
 }
 
 function buildRepairPlan(inventory, { sessionId, repairEncrypted }) {
+  const matchingSession = inventory.sessions.some((entry) => !sessionId || entry.id === sessionId);
   const sessionFiles = inventory.sessions.filter((entry) =>
     (!sessionId || entry.id === sessionId)
       && (entry.malformedResponseItems > 0 || (repairEncrypted && entry.encryptedReplayItems > 0)));
-  if (sessionId && sessionFiles.length === 0) {
-    fail(`Session was not found with repairable history: ${sessionId}`);
+  if (sessionId && !matchingSession) {
+    fail(`Session was not found: ${sessionId}`);
   }
   return {
     repairOnly: true,

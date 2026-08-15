@@ -211,6 +211,16 @@ test('repair-encrypted sanitizes nested compaction history without changing prov
     assert.match(text, /"model_provider":"codex"/);
     assert.doesNotMatch(text, /gAAAA_provider_specific/);
     assert.match(text, /Nested visible summary/);
+    const secondPreview = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      repairHistory: true,
+      repairEncrypted: true,
+      sessionId: 'session-a',
+      apply: false,
+    });
+    assert.equal(secondPreview.jsonlChanges, 0);
+    assert.equal(secondPreview.encryptedReplayItems, 0);
   } finally {
     fs.rmSync(testFixture.root, { recursive: true, force: true });
   }
