@@ -5,7 +5,7 @@
   "description": "Synchronize Codex rollout and SQLite model_provider metadata.",
   "type": "commonjs",
   "scripts": {
-    "test": "node --test provider-sync.test.cjs"
+    "test": "node --test provider-sync.test.cjs cli.test.cjs"
   },
   "engines": {
     "node": ">=22.5.0"

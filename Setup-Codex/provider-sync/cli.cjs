@@ -160,23 +160,27 @@ function print(value, json) {
   console.log(JSON.stringify(value, null, 2));
 }
 
+function validateOptions(options) {
+  if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
+    throw new Error('--repair-history/--repair-encrypted cannot be combined with --from or --to.');
+  }
+  if (options.repairAll && options.sessionId) {
+    throw new Error('--repair-all cannot be combined with --session-id.');
+  }
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     usage();
     return;
   }
+  validateOptions(options);
   const codexHome = resolveCodexHome(options.codexHome);
   const stateDbPath = resolveStateDb(codexHome, options.stateDbPath);
   if (options.status || (!options.repairHistory && (options.fromProviders.length === 0 || !options.toProvider))) {
     print(formatInventory(scanInventory({ codexHome, stateDbPath })), options.json);
     return;
-  }
-  if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
-    throw new Error('--repair-history/--repair-encrypted cannot be combined with --from or --to.');
-  }
-  if (options.repairAll && options.sessionId) {
-    throw new Error('--repair-all cannot be combined with --session-id.');
   }
   print(syncProvider(options), options.json);
 }
