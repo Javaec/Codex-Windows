@@ -11,7 +11,9 @@ Both surfaces must be updated or the session can disappear from the history/resu
 
 ## Usage
 
-Run `Run-Codex-Provider-Sync.cmd --status` first. Preview a migration:
+Double-click `Run-Codex-Provider-Sync.cmd` for the interactive PowerShell interface. If Windows Terminal is installed, the launcher opens a new styled Windows Terminal tab. It shows provider counts, asks for source and target providers, previews the changes, and asks for confirmation before writing.
+
+The same launcher remains scriptable; when arguments are supplied it runs synchronously without opening a new tab. Preview a migration:
 
 ```text
 Run-Codex-Provider-Sync.cmd --from openai --to codex --dry-run
