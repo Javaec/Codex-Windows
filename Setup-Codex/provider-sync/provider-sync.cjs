@@ -415,8 +415,10 @@ function syncProvider(options) {
   report.jsonlUpdated = applySessionPlan(plan);
   const verified = verifyPlan({ codexHome, stateDbPath }, plan);
   report.verified = true;
-  report.remainingJsonl = verified.sessions.filter((entry) => plan.fromProviders.includes(entry.provider)).length;
-  report.remainingSqlite = verified.dbRows.filter((row) => plan.fromProviders.includes(row.provider)).length;
+  report.remainingJsonl = verified.sessions.filter((entry) =>
+    (!plan.sessionId || entry.id === plan.sessionId) && plan.fromProviders.includes(entry.provider)).length;
+  report.remainingSqlite = verified.dbRows.filter((row) =>
+    (!plan.sessionId || row.id === plan.sessionId) && plan.fromProviders.includes(row.provider)).length;
   return report;
 }
 

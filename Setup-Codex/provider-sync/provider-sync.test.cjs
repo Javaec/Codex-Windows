@@ -58,6 +58,8 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.equal(report.jsonlUpdated, 1);
     assert.equal(report.sqliteUpdated, 1);
     assert.equal(report.verified, true);
+    assert.equal(report.remainingJsonl, 0);
+    assert.equal(report.remainingSqlite, 0);
     const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
     assert.match(text, /"model_provider":"custom"/);
     assert.match(text, /\\"model_provider\\":\\"openai\\"/);
