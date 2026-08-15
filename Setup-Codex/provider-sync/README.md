@@ -42,6 +42,7 @@ To scan and repair all active and archived rollouts:
 ```text
 Run-Codex-Provider-Sync.cmd --repair-all --dry-run
 Run-Codex-Provider-Sync.cmd --repair-all --yes
+```
 
 To repair provider-specific encrypted reasoning and nested compaction history:
 
@@ -51,7 +52,6 @@ Run-Codex-Provider-Sync.cmd --repair-encrypted --session-id 01... --yes
 ```
 
 Omit `--session-id` to scan all active and archived rollouts. The interactive PowerShell launcher exposes this as a separate operation.
-```
 
 Backups are created under `<CODEX_HOME>\backups\provider-sync\<timestamp>` before every write. The default state database follows the current Codex layout: root `state_5.sqlite`, then `sqlite\state_5.sqlite` only if the root database is absent. Use `--state-db` when an explicit database is required.
 

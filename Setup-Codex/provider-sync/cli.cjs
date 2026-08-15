@@ -178,9 +178,6 @@ function main() {
   if (options.repairAll && options.sessionId) {
     throw new Error('--repair-all cannot be combined with --session-id.');
   }
-  if (options.apply && !process.argv.includes('--yes')) {
-    throw new Error('Applying changes requires --yes.');
-  }
   print(syncProvider(options), options.json);
 }
 

@@ -78,26 +78,6 @@ function listFilesRecursive(rootPath) {
   return result.sort((left, right) => left.localeCompare(right));
 }
 
-function parseSessionMetaLine(text) {
-  const lines = text.split('\n');
-  for (const rawLine of lines) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    if (!line.trim()) {
-      continue;
-    }
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (record && record.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
-      return record;
-    }
-  }
-  return null;
-}
-
 function isInvisibleText(value) {
   return typeof value === 'string' && !/[^\s\u200B\u200C\u200D\uFEFF]/u.test(value);
 }
@@ -169,18 +149,7 @@ function sanitizeResponseItem(payload) {
   return { payload, action: ACTION_NONE };
 }
 
-function forEachReplayItem(record, callback) {
-  if (record?.type === 'response_item') {
-    callback(record.payload);
-  }
-  if (record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
-    for (const item of record.payload.replacement_history) {
-      callback(item);
-    }
-  }
-}
-
-function collectReplayStats(payload, stats) {
+function collectReplayPayloadStats(payload, stats) {
   if (!payload || typeof payload !== 'object') {
     return;
   }
@@ -195,6 +164,17 @@ function collectReplayStats(payload, stats) {
       stats.opaqueCompactionItems += 1;
     } else {
       stats.plaintextCompactionItems += 1;
+    }
+  }
+}
+
+function collectReplayStats(record, stats) {
+  if (record?.type === 'response_item') {
+    collectReplayPayloadStats(record.payload, stats);
+  }
+  if (record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
+    for (const item of record.payload.replacement_history) {
+      collectReplayPayloadStats(item, stats);
     }
   }
 }
@@ -234,7 +214,7 @@ function analyzeSessionText(text) {
     if (record && record.type === 'response_item' && isRepairableReasoningItem(record.payload)) {
       malformedResponseItems += 1;
     }
-    forEachReplayItem(record, (payload) => collectReplayStats(payload, replayStats));
+    collectReplayStats(record, replayStats);
   }
 
   return { firstMeta, providers, malformedResponseItems, ...replayStats };
@@ -242,6 +222,7 @@ function analyzeSessionText(text) {
 
 function inspectSessionFile(filePath, codexHome) {
   const text = fs.readFileSync(filePath, 'utf8');
+  const fileStat = fs.statSync(filePath);
   const analysis = analyzeSessionText(text);
   const metaRecord = analysis.firstMeta;
   if (!metaRecord) {
@@ -268,7 +249,8 @@ function inspectSessionFile(filePath, codexHome) {
     encryptedReplayItems: analysis.encryptedReasoningItems + analysis.encryptedCompactionItems,
     opaqueCompactionItems: analysis.opaqueCompactionItems,
     plaintextCompactionItems: analysis.plaintextCompactionItems,
-    bytes: Buffer.byteLength(text, 'utf8'),
+    bytes: fileStat.size,
+    mtimeMs: fileStat.mtimeMs,
   };
 }
 
@@ -314,9 +296,11 @@ function scanSessions(codexHome, sessionId = '') {
   const initialFiles = sessionId && matchingFiles.length === 0 ? rolloutFiles : matchingFiles;
   const inspected = inspectSessionFiles(initialFiles, codexHome);
   if (sessionId && matchingFiles.length > 0 && !inspected.entries.some((entry) => entry.id === sessionId)) {
+    const initialTargetEntries = inspected.entries.filter((entry) => entry.id === sessionId);
     const fallbackFiles = rolloutFiles.filter((filePath) => !matchingFileSet.has(filePath));
     const fallback = inspectSessionFiles(fallbackFiles, codexHome);
-    inspected.entries.push(...fallback.entries.filter((entry) => entry.id === sessionId));
+    inspected.entries.length = 0;
+    inspected.entries.push(...initialTargetEntries, ...fallback.entries.filter((entry) => entry.id === sessionId));
     inspected.errors.push(...fallback.errors);
   }
   return { entries: inspected.entries, errors: inspected.errors, unsupported };
@@ -567,8 +551,21 @@ function writeFileAtomically(filePath, contents) {
 
 function createBackup(inventory, plan, backupRoot) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = path.join(backupRoot, stamp);
-  fs.mkdirSync(path.join(backupDir, 'jsonl'), { recursive: true });
+  fs.mkdirSync(backupRoot, { recursive: true });
+  let backupDir = '';
+  for (let suffix = 0; ; suffix += 1) {
+    const candidate = path.join(backupRoot, suffix === 0 ? stamp : `${stamp}-${suffix}`);
+    try {
+      fs.mkdirSync(candidate);
+      fs.mkdirSync(path.join(candidate, 'jsonl'));
+      backupDir = candidate;
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') {
+        throw error;
+      }
+    }
+  }
 
   const dbFiles = [inventory.stateDbPath, `${inventory.stateDbPath}-wal`, `${inventory.stateDbPath}-shm`]
     .filter((filePath) => fs.existsSync(filePath));
@@ -632,8 +629,8 @@ function applySessionPlan(plan) {
   let removedCompactionItems = 0;
   for (const entry of plan.sessionFiles) {
     const original = fs.readFileSync(entry.filePath, 'utf8');
-    const current = analyzeSessionText(original);
-    if (!current.firstMeta || current.firstMeta.payload.id !== entry.id || JSON.stringify(current.providers) !== JSON.stringify(entry.providers)) {
+    const fileStat = fs.statSync(entry.filePath);
+    if (fileStat.size !== entry.bytes || fileStat.mtimeMs !== entry.mtimeMs) {
       fail(`Session changed while preparing to write: ${entry.filePath}`);
     }
     const rewritten = rewriteSessionFile(original, plan.toProvider, { sanitizeEncrypted: plan.sanitizeEncrypted });
@@ -783,7 +780,6 @@ function formatInventory(inventory) {
 module.exports = {
   buildPlan,
   formatInventory,
-  parseSessionMetaLine,
   resolveCodexHome,
   resolveStateDb,
   rewriteSessionProvider,

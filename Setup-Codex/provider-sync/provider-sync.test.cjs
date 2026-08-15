@@ -123,6 +123,56 @@ test('provider rewrite preserves CRLF and malformed lines byte-for-byte', () => 
   assert.equal(rewritten, `  ${JSON.stringify({ type: 'session_meta', payload: { id: 'session-crlf', model_provider: 'custom' } })}\r\nnot-json\r\n`);
 });
 
+test('targeted scan falls back when a matching filename belongs to another session', () => {
+  const testFixture = fixture();
+  try {
+    const actualPath = path.join(testFixture.root, 'sessions', '2026', '08', '15', 'rollout-without-session-id.jsonl');
+    const misleadingPath = testFixture.sessionPath;
+    fs.renameSync(misleadingPath, actualPath);
+    fs.writeFileSync(misleadingPath, `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-b', model_provider: 'custom' } })}\n`, 'utf8');
+
+    const targeted = scanInventory({ codexHome: testFixture.root, stateDbPath: testFixture.dbPath, sessionId: 'session-a' });
+    assert.deepEqual(targeted.sessions.map((entry) => entry.id), ['session-a']);
+    assert.equal(targeted.sessions[0].filePath, actualPath);
+  } finally {
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
+test('backup directory gets a suffix when the timestamp already exists', () => {
+  const testFixture = fixture();
+  const originalDate = Date;
+  try {
+    const fixedIso = '2026-08-15T00:00:00.000Z';
+    const fixedStamp = fixedIso.replace(/[:.]/g, '-');
+    const backupRoot = path.join(testFixture.root, 'backups');
+    fs.mkdirSync(path.join(backupRoot, fixedStamp, 'jsonl'), { recursive: true });
+    global.Date = class extends originalDate {
+      constructor(...args) {
+        super(...(args.length === 0 ? [fixedIso] : args));
+      }
+
+      static now() {
+        return new originalDate(fixedIso).getTime();
+      }
+    };
+
+    const report = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      repairHistory: true,
+      sessionId: 'session-a',
+      apply: true,
+      backupRoot,
+    });
+    assert.equal(report.backupDir, path.join(backupRoot, `${fixedStamp}-1`));
+    assert.equal(fs.existsSync(path.join(report.backupDir, 'manifest.json')), true);
+  } finally {
+    global.Date = originalDate;
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
 test('apply changes only the session_meta provider and matching SQLite row', () => {
   const testFixture = fixture();
   try {
