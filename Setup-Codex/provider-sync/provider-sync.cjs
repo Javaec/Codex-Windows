@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { StringDecoder } = require('node:string_decoder');
 const { DatabaseSync } = require('node:sqlite');
 
 const STATE_DB_FILENAME = 'state_5.sqlite';
@@ -445,108 +446,203 @@ function recordSanitizedAction(action, changes) {
   }
 }
 
-function rewriteSessionFile(text, toProvider, { sanitizeEncrypted = false } = {}) {
-  const lines = text.split('\n');
-  const output = [];
-  const changes = {
+function createRewriteState() {
+  return {
     providerUpdates: 0,
     removedResponseItems: 0,
     sanitizedReasoningItems: 0,
     convertedCompactionItems: 0,
     removedCompactionItems: 0,
+    sawMeta: false,
   };
-  let sawMeta = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const original = lines[index];
-    const line = original.endsWith('\r') ? original.slice(0, -1) : original;
-    if (!line.trim()) {
-      output.push(original);
-      continue;
+}
+
+function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
+  const line = original.endsWith('\r') ? original.slice(0, -1) : original;
+  if (!line.trim()) {
+    return { keep: true, text: original };
+  }
+
+  let record;
+  try {
+    record = JSON.parse(line);
+  } catch {
+    return { keep: true, text: original };
+  }
+
+  let keepRecord = true;
+  let recordChanged = false;
+  if (record?.type === 'response_item') {
+    if (isRepairableReasoningItem(record.payload)) {
+      changes.removedResponseItems += 1;
+      keepRecord = false;
     }
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      output.push(original);
-      continue;
-    }
-    let keepRecord = true;
-    let recordChanged = false;
-    if (record && record.type === 'response_item') {
-      if (isRepairableReasoningItem(record.payload)) {
-        changes.removedResponseItems += 1;
+    if (keepRecord && sanitizeEncrypted) {
+      const sanitized = sanitizeResponseItem(record.payload);
+      if (sanitized.action === ACTION_REMOVE_REASONING || sanitized.action === ACTION_REMOVE_COMPACTION) {
         keepRecord = false;
       }
-      if (keepRecord && sanitizeEncrypted) {
-        const sanitized = sanitizeResponseItem(record.payload);
-        if (sanitized.action === ACTION_REMOVE_REASONING || sanitized.action === ACTION_REMOVE_COMPACTION) {
-          keepRecord = false;
-        }
-        if (sanitized.action !== ACTION_NONE) {
-          recordSanitizedAction(sanitized.action, changes);
-          if (keepRecord) {
-            record.payload = sanitized.payload;
-            recordChanged = true;
-          }
+      if (sanitized.action !== ACTION_NONE) {
+        recordSanitizedAction(sanitized.action, changes);
+        if (keepRecord) {
+          record.payload = sanitized.payload;
+          recordChanged = true;
         }
       }
-    }
-    if (keepRecord && sanitizeEncrypted && record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
-      const replacementHistory = [];
-      let replacementChanged = false;
-      for (const item of record.payload.replacement_history) {
-        const sanitized = sanitizeResponseItem(item);
-        if (sanitized.action !== ACTION_NONE) {
-          recordSanitizedAction(sanitized.action, changes);
-          replacementChanged = true;
-        }
-        if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
-          replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
-        }
-      }
-      if (replacementChanged) {
-        record.payload.replacement_history = replacementHistory;
-        recordChanged = true;
-      }
-    }
-    if (keepRecord && record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
-      sawMeta = true;
-      if (toProvider && record.payload.model_provider !== toProvider) {
-        record.payload.model_provider = toProvider;
-        changes.providerUpdates += 1;
-        recordChanged = true;
-      }
-    }
-    if (keepRecord) {
-      output.push(recordChanged ? formatJsonLine(record, original) : original);
     }
   }
-  if (!sawMeta) {
+  if (keepRecord && sanitizeEncrypted && record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
+    const replacementHistory = [];
+    let replacementChanged = false;
+    for (const item of record.payload.replacement_history) {
+      const sanitized = sanitizeResponseItem(item);
+      if (sanitized.action !== ACTION_NONE) {
+        recordSanitizedAction(sanitized.action, changes);
+        replacementChanged = true;
+      }
+      if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
+        replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
+      }
+    }
+    if (replacementChanged) {
+      record.payload.replacement_history = replacementHistory;
+      recordChanged = true;
+    }
+  }
+  if (keepRecord && record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+    changes.sawMeta = true;
+    if (toProvider && record.payload.model_provider !== toProvider) {
+      record.payload.model_provider = toProvider;
+      changes.providerUpdates += 1;
+      recordChanged = true;
+    }
+  }
+  return {
+    keep: keepRecord,
+    text: keepRecord && recordChanged ? formatJsonLine(record, original) : original,
+  };
+}
+
+function finishRewrite(changes, text) {
+  if (!changes.sawMeta) {
     fail('Cannot rewrite session without a session_meta record.');
   }
-  if (Object.values(changes).every((value) => value === 0)) {
-    return { text, ...changes };
+  const { sawMeta, ...result } = changes;
+  return { text, ...result };
+}
+
+function hasRewriteChanges(changes) {
+  return changes.providerUpdates > 0
+    || changes.removedResponseItems > 0
+    || changes.sanitizedReasoningItems > 0
+    || changes.convertedCompactionItems > 0
+    || changes.removedCompactionItems > 0;
+}
+
+function rewriteSessionFile(text, toProvider, { sanitizeEncrypted = false } = {}) {
+  const lines = text.split('\n');
+  const output = [];
+  const changes = createRewriteState();
+  for (const original of lines) {
+    const rewritten = rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes);
+    if (rewritten.keep) {
+      output.push(rewritten.text);
+    }
   }
-  return { text: output.join('\n'), ...changes };
+  return finishRewrite(changes, hasRewriteChanges(changes) ? output.join('\n') : text);
+}
+
+function openUniqueTempFile(filePath) {
+  const base = `${filePath}.${process.pid}.${Date.now()}`;
+  for (let suffix = 0; ; suffix += 1) {
+    const tempPath = `${base}${suffix === 0 ? '' : `-${suffix}`}.tmp`;
+    try {
+      return { fd: fs.openSync(tempPath, 'wx'), path: tempPath };
+    } catch (error) {
+      if (error?.code !== 'EEXIST') {
+        throw error;
+      }
+    }
+  }
+}
+
+function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncrypted = false } = {}) {
+  const currentStat = fs.statSync(filePath);
+  if (currentStat.size !== expected.bytes || currentStat.mtimeMs !== expected.mtimeMs) {
+    fail(`Session changed while preparing to write: ${filePath}`);
+  }
+
+  const temp = openUniqueTempFile(filePath);
+  let sourceFd;
+  try {
+    sourceFd = fs.openSync(filePath, 'r');
+  } catch (error) {
+    fs.closeSync(temp.fd);
+    fs.rmSync(temp.path, { force: true });
+    throw error;
+  }
+  const changes = createRewriteState();
+  const decoder = new StringDecoder('utf8');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let carry = '';
+  let outputFdOpen = true;
+
+  const writeLine = (line, hasNewline) => {
+    const rewritten = rewriteSessionLine(line, toProvider, sanitizeEncrypted, changes);
+    if (rewritten.keep) {
+      fs.writeSync(temp.fd, rewritten.text + (hasNewline ? '\n' : ''), null, 'utf8');
+    }
+  };
+  const consume = (chunk, final = false) => {
+    carry += chunk;
+    let newlineIndex = carry.indexOf('\n');
+    while (newlineIndex >= 0) {
+      writeLine(carry.slice(0, newlineIndex), true);
+      carry = carry.slice(newlineIndex + 1);
+      newlineIndex = carry.indexOf('\n');
+    }
+    if (final && carry.length > 0) {
+      writeLine(carry, false);
+      carry = '';
+    }
+  };
+
+  try {
+    let bytesRead;
+    while ((bytesRead = fs.readSync(sourceFd, buffer, 0, buffer.length, null)) > 0) {
+      consume(decoder.write(buffer.subarray(0, bytesRead)));
+    }
+    consume(decoder.end(), true);
+    if (!changes.sawMeta) {
+      fail('Cannot rewrite session without a session_meta record.');
+    }
+    fs.fsyncSync(temp.fd);
+    fs.closeSync(sourceFd);
+    fs.closeSync(temp.fd);
+    outputFdOpen = false;
+
+    if (!hasRewriteChanges(changes)) {
+      fs.rmSync(temp.path, { force: true });
+      return { changed: false, ...finishRewrite(changes, '') };
+    }
+    fs.chmodSync(temp.path, currentStat.mode);
+    fs.rmSync(filePath);
+    fs.renameSync(temp.path, filePath);
+    return { changed: true, ...finishRewrite(changes, '') };
+  } catch (error) {
+    if (sourceFd !== undefined) {
+      try { fs.closeSync(sourceFd); } catch { /* Best-effort cleanup. */ }
+    }
+    if (outputFdOpen) {
+      try { fs.closeSync(temp.fd); } catch { /* Best-effort cleanup. */ }
+    }
+    fs.rmSync(temp.path, { force: true });
+    throw error;
+  }
 }
 
 function rewriteSessionProvider(text, toProvider) {
   return rewriteSessionFile(text, toProvider).text;
-}
-
-function writeFileAtomically(filePath, contents) {
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  const originalMode = fs.statSync(filePath).mode;
-  const handle = fs.openSync(tempPath, 'w');
-  try {
-    fs.writeFileSync(handle, contents, 'utf8');
-    fs.fsyncSync(handle);
-  } finally {
-    fs.closeSync(handle);
-  }
-  fs.chmodSync(tempPath, originalMode);
-  fs.rmSync(filePath);
-  fs.renameSync(tempPath, filePath);
 }
 
 function createBackup(inventory, plan, backupRoot) {
@@ -628,14 +724,8 @@ function applySessionPlan(plan) {
   let convertedCompactionItems = 0;
   let removedCompactionItems = 0;
   for (const entry of plan.sessionFiles) {
-    const original = fs.readFileSync(entry.filePath, 'utf8');
-    const fileStat = fs.statSync(entry.filePath);
-    if (fileStat.size !== entry.bytes || fileStat.mtimeMs !== entry.mtimeMs) {
-      fail(`Session changed while preparing to write: ${entry.filePath}`);
-    }
-    const rewritten = rewriteSessionFile(original, plan.toProvider, { sanitizeEncrypted: plan.sanitizeEncrypted });
-    if (rewritten.text !== original) {
-      writeFileAtomically(entry.filePath, rewritten.text);
+    const rewritten = rewriteSessionFileOnDisk(entry.filePath, entry, plan.toProvider, { sanitizeEncrypted: plan.sanitizeEncrypted });
+    if (rewritten.changed) {
       changed += 1;
     }
     removedResponseItems += rewritten.removedResponseItems;
