@@ -1,0 +1,13 @@
+{
+  "name": "codex-provider-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Synchronize Codex rollout and SQLite model_provider metadata.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test provider-sync.test.cjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
