@@ -216,6 +216,36 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
   }
 });
 
+test('verification ignores encrypted history in an unplanned target session', () => {
+  const testFixture = fixture();
+  try {
+    const targetPath = path.join(testFixture.root, 'sessions', '2026', '08', '16', 'rollout-session-c.jsonl');
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-c', model_provider: 'custom', cwd: 'C:\\work' } })}\n${JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'reasoning', id: 'rs_target', encrypted_content: 'gAAAA_target_provider_ciphertext' },
+    })}\n`, 'utf8');
+    const db = new DatabaseSync(testFixture.dbPath);
+    db.prepare('INSERT INTO threads VALUES (?, ?, ?)').run('session-c', 'custom', targetPath);
+    db.close();
+
+    const report = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      fromProviders: ['openai'],
+      toProvider: 'custom',
+      apply: true,
+      backupRoot: path.join(testFixture.root, 'backups'),
+    });
+    assert.equal(report.verified, true);
+    assert.equal(report.remainingJsonl, 0);
+    assert.equal(report.remainingSqlite, 0);
+    assert.match(fs.readFileSync(targetPath, 'utf8'), /gAAAA_target_provider_ciphertext/);
+  } finally {
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
 test('dry-run does not write or create a backup', () => {
   const testFixture = fixture();
   try {
