@@ -217,6 +217,29 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
   }
 });
 
+test('on-disk rewrite preserves CRLF line endings', () => {
+  const testFixture = fixture();
+  try {
+    const original = fs.readFileSync(testFixture.sessionPath, 'utf8');
+    fs.writeFileSync(testFixture.sessionPath, original.replace(/\n/g, '\r\n'), 'utf8');
+    const report = syncProvider({
+      codexHome: testFixture.root,
+      stateDbPath: testFixture.dbPath,
+      fromProviders: ['openai'],
+      toProvider: 'custom',
+      sessionId: 'session-a',
+      apply: true,
+      backupRoot: path.join(testFixture.root, 'backups'),
+    });
+    assert.equal(report.verified, true);
+    const rewritten = fs.readFileSync(testFixture.sessionPath, 'utf8');
+    assert.match(rewritten, /\r\n/);
+    assert.doesNotMatch(rewritten.replace(/\r\n/g, ''), /\r/);
+  } finally {
+    fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
 test('verification ignores encrypted history in an unplanned target session', () => {
   const testFixture = fixture();
   try {

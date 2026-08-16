@@ -15,6 +15,7 @@ const ACTION_REMOVE_COMPACTION = 'removedCompaction';
 const ACTION_CONVERT_COMPACTION = 'convertedCompaction';
 const OPAQUE_ENCRYPTED_CONTENT = /^[A-Za-z0-9_+=\/-]+$/u;
 const JSONL_READ_BUFFER_SIZE = 8 * 1024 * 1024;
+const JSONL_WRITE_BUFFER_SIZE = 8 * 1024 * 1024;
 const MAX_SCAN_ATTEMPTS = 3;
 
 function fail(message) {
@@ -615,6 +616,31 @@ function openUniqueTempFile(filePath) {
   }
 }
 
+function createBufferedWriter(fileDescriptor) {
+  let chunks = [];
+  let length = 0;
+
+  const flush = () => {
+    if (length === 0) {
+      return;
+    }
+    fs.writeSync(fileDescriptor, chunks.join(''), null, 'utf8');
+    chunks = [];
+    length = 0;
+  };
+
+  return {
+    write(text) {
+      chunks.push(text);
+      length += text.length;
+      if (length >= JSONL_WRITE_BUFFER_SIZE) {
+        flush();
+      }
+    },
+    flush,
+  };
+}
+
 function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncrypted = false } = {}) {
   const currentStat = fs.statSync(filePath);
   if (currentStat.size !== expected.bytes || currentStat.mtimeMs !== expected.mtimeMs) {
@@ -631,16 +657,18 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
     throw error;
   }
   const changes = createRewriteState();
+  const output = createBufferedWriter(temp.fd);
   let outputFdOpen = true;
 
   const writeLine = (line, hasNewline) => {
     const rewritten = rewriteSessionLine(line, toProvider, sanitizeEncrypted, changes);
     if (rewritten.keep) {
-      fs.writeSync(temp.fd, rewritten.text + (hasNewline ? '\n' : ''), null, 'utf8');
+      output.write(rewritten.text + (hasNewline ? '\n' : ''));
     }
   };
   try {
     processJsonlLinesSync(sourceFd, writeLine);
+    output.flush();
     if (!changes.sawMeta) {
       fail('Cannot rewrite session without a session_meta record.');
     }
