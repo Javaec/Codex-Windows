@@ -358,7 +358,7 @@ function openStateDb(stateDbPath, readOnly) {
   return new DatabaseSync(stateDbPath, readOnly ? { readOnly: true } : {});
 }
 
-function readStateRows(stateDbPath) {
+function readStateRows(stateDbPath, sessionId = '') {
   const db = openStateDb(stateDbPath, true);
   try {
     const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'threads'").get();
@@ -375,7 +375,9 @@ function readStateRows(stateDbPath) {
     const select = hasRolloutPath
       ? 'SELECT id, model_provider, rollout_path FROM threads'
       : 'SELECT id, model_provider, NULL AS rollout_path FROM threads';
-    return db.prepare(select).all().map((row) => ({
+    const query = sessionId ? `${select} WHERE id = ?` : select;
+    const rows = sessionId ? db.prepare(query).all(sessionId) : db.prepare(query).all();
+    return rows.map((row) => ({
       id: String(row.id),
       provider: typeof row.model_provider === 'string' ? row.model_provider : '',
       rolloutPath: row.rollout_path == null ? '' : String(row.rollout_path),
@@ -396,7 +398,7 @@ function countProviders(values) {
 
 function scanInventory({ codexHome, stateDbPath, sessionId = '' }) {
   const sessions = scanSessions(codexHome, sessionId);
-  const dbRows = readStateRows(stateDbPath);
+  const dbRows = readStateRows(stateDbPath, sessionId);
   return {
     codexHome,
     stateDbPath,
@@ -766,15 +768,11 @@ function isSelectedSession(entry, plan) {
   return !plan.sessionId || entry.id === plan.sessionId;
 }
 
-function isPlannedSessionFile(entry, plan) {
-  return plan.sessionFiles.some((planned) => planned.filePath === entry.filePath);
-}
-
-function remainsInPlan(entry, plan) {
+function remainsInPlan(entry, plan, plannedSessionPaths) {
   if (!isSelectedSession(entry, plan)) {
     return false;
   }
-  const isPlanned = isPlannedSessionFile(entry, plan);
+  const isPlanned = plannedSessionPaths.has(entry.filePath);
   if (plan.repairOnly) {
     return isPlanned
       && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0));
@@ -790,12 +788,13 @@ function remainsInDatabase(row, plan) {
 
 function verifyPlan(inventory, plan) {
   const fresh = scanInventory({ ...inventory, sessionId: plan.sessionId });
-  const remainingFiles = fresh.sessions.filter((entry) => remainsInPlan(entry, plan));
+  const plannedSessionPaths = new Set(plan.sessionFiles.map((entry) => entry.filePath));
+  const remainingFiles = fresh.sessions.filter((entry) => remainsInPlan(entry, plan, plannedSessionPaths));
   const remainingRows = fresh.dbRows.filter((row) => remainsInDatabase(row, plan));
   if (remainingFiles.length > 0 || remainingRows.length > 0) {
     fail(`Verification failed: ${remainingFiles.length} JSONL files and ${remainingRows.length} SQLite rows still use source providers.`);
   }
-  return fresh;
+  return { remainingFiles, remainingRows };
 }
 
 function summarize(inventory, plan) {
@@ -868,8 +867,8 @@ function syncProvider(options) {
   report.removedCompactionItems = sessionResult.removedCompactionItems;
   const verified = verifyPlan({ codexHome, stateDbPath }, plan);
   report.verified = true;
-  report.remainingJsonl = verified.sessions.filter((entry) => remainsInPlan(entry, plan)).length;
-  report.remainingSqlite = verified.dbRows.filter((row) => remainsInDatabase(row, plan)).length;
+  report.remainingJsonl = verified.remainingFiles.length;
+  report.remainingSqlite = verified.remainingRows.length;
   return report;
 }
 

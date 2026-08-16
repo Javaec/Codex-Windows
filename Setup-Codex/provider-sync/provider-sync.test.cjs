@@ -112,6 +112,7 @@ test('inventory reads active and archived rollouts and SQLite providers', () => 
     assert.deepEqual(inventory.databaseProviders, { custom: 1, openai: 1 });
     const targeted = scanInventory({ codexHome: testFixture.root, stateDbPath: testFixture.dbPath, sessionId: 'session-a' });
     assert.deepEqual(targeted.sessions.map((entry) => entry.id), ['session-a']);
+    assert.deepEqual(targeted.dbRows.map((row) => row.id), ['session-a']);
   } finally {
     fs.rmSync(testFixture.root, { recursive: true, force: true });
   }
