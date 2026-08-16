@@ -766,15 +766,21 @@ function isSelectedSession(entry, plan) {
   return !plan.sessionId || entry.id === plan.sessionId;
 }
 
+function isPlannedSessionFile(entry, plan) {
+  return plan.sessionFiles.some((planned) => planned.filePath === entry.filePath);
+}
+
 function remainsInPlan(entry, plan) {
   if (!isSelectedSession(entry, plan)) {
     return false;
   }
+  const isPlanned = isPlannedSessionFile(entry, plan);
   if (plan.repairOnly) {
-    return entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0);
+    return isPlanned
+      && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0));
   }
   return plan.fromProviders.some((source) => entry.providers.includes(source))
-    || (plan.sanitizeEncrypted && entry.encryptedReplayItems > 0);
+    || (isPlanned && plan.sanitizeEncrypted && entry.encryptedReplayItems > 0);
 }
 
 function remainsInDatabase(row, plan) {
