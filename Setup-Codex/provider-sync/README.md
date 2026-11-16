@@ -21,6 +21,18 @@ Bulk zstd support requires Node.js 22.15+ or 23.8+. Targeted in-place repairs re
 
 The installed CLI `0.169.0-alpha.11.1` verified a bulk round trip on an isolated copy of the ECS chat, including compressed input. All 24 turns and 3728 full history items remained available. A 65,597,978-byte source produced a 6,081,343-byte continuation in 935 ms locally; reverse migration of its compressed continuation took 804 ms. These are single local measurements, not a throughput guarantee. Detailed reports: `work/provider-sync-validation/bulk-native-report.json` and `bulk-native-ecs-report.json`.
 
+### Live bulk validation on 2026-11-16
+
+The live migration switched 558 indexed chats to `openai` in 38.209 seconds. It created continuations for 449 available histories, including 311 compressed inputs; 109 previously missing histories received provider metadata updates only. Selected source files occupied 6,573,077,259 bytes. New continuations occupied 899,594,286 bytes. The process used 77.297 CPU seconds across its workers and peaked at 458 MiB RSS. A subsequent status query took 35 ms locally.
+
+Verification checked all 449 new headers and confirmed every original file's size and modification time remained unchanged. All 579 rows then present in SQLite used `openai`. The two previously running chats were unloaded and returned from the archive. Native `thread/resume` with `excludeTurns=true` and full paginated history reads succeeded for both; their first 100 turns contained 10,098 and 13,267 items respectively. These page counts are not totals for the complete chats.
+
+The migrated Disconnects context (192 items) passed the official WebSocket diagnostic tool call and `previous_response_id` continuation, returning `PROBE_OK`. No model turn was submitted to either live chat. This sample establishes continuation compatibility for the tested context; it does not test every migrated chat against the backend.
+
+Backup: `C:\Users\lensm\.codex\backups\provider-sync\2026-11-16T20-50-43-374Z-bulk`. Local evidence lives in `work/provider-sync-validation/`: `bulk-live-report.json`, `bulk-live-verification.json`, `bulk-live-native-report.json`, and `bulk-context-probe-report.json`. These files contain private local paths/history and are not committed.
+
+`npm run test:provider-sync` now runs 34 tests, including compressed archived histories, frozen ancestor cutoffs, immutable originals, replay sanitization, missing files, byte-range locks, source writes during preparation, and atomic cancellation on concurrent SQLite changes.
+
 The design follows upstream [immutable revert segments](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/revert_thread.rs), [model-context checkpoint boundaries](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/model_context.rs), and [rollout compression](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/compression.rs).
 
 Codex stores the provider in two places:

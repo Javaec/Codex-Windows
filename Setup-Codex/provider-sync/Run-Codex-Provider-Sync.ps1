@@ -250,7 +250,7 @@ if ($providerNames.Count -eq 0) {
 
 $defaultSource = if ($providerNames -contains 'openai') { 'openai' } else { $providerNames[0] }
 $sourceProvider = Read-ProviderChoice 'Исходный provider:' $providerNames $defaultSource $true
-$targetProviders = @($providerNames | Where-Object { $_ -ne $sourceProvider })
+$targetProviders = @(@('openai', 'codex') + $providerNames | Where-Object { $_ -ne $sourceProvider } | Sort-Object -Unique)
 $defaultTarget = if ($targetProviders -contains 'codex') { 'codex' } elseif ($targetProviders.Count -gt 0) { $targetProviders[0] } else { '' }
 $targetProvider = Read-ProviderChoice 'Целевой provider:' $targetProviders $defaultTarget $true
 
