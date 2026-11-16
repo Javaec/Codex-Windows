@@ -8,6 +8,7 @@ const {
   scanInventory,
   syncProvider,
 } = require('./provider-sync.cjs');
+const { fastStatus, syncAllProviders } = require('./bulk-sync.cjs');
 
 function usage() {
   console.log(`Codex provider session synchronizer
@@ -20,6 +21,9 @@ Preview all sessions from one provider:
 
 Apply the migration (close Codex first):
   Run-Codex-Provider-Sync.cmd --from openai --to codex --yes
+
+Switch all indexed chats, including compressed and archived histories:
+  Run-Codex-Provider-Sync.cmd --all --to openai --yes
 
 Apply to exactly one session:
   Run-Codex-Provider-Sync.cmd --session-id ID --from openai --to codex --yes
@@ -43,6 +47,7 @@ Options:
   --codex-home PATH       Codex home (default: CODEX_HOME or %USERPROFILE%\\.codex)
   --state-db PATH         Explicit state_5.sqlite path
   --from ID[,ID]          Source provider ID(s)
+  --all                  Select every provider except the target
   --to ID                 Target provider ID
   --session-id ID         Restrict changes to one session
   --backup-root PATH      Backup root (default: <Codex Home>\\backups\\provider-sync)
@@ -77,6 +82,9 @@ function parseArgs(argv) {
         break;
       case '--yes':
         options.apply = true;
+        break;
+      case '--all':
+        options.all = true;
         break;
       case '--repair-history':
         options.repairHistory = true;
@@ -124,6 +132,9 @@ function print(value, json) {
     return;
   }
   if (value.replayRepairItems) console.log(`Provider replay candidates: ${value.replayRepairItems}`);
+  if (value.strategy) console.log(`Strategy: ${value.strategy}`);
+  if (value.writtenBytes !== undefined) console.log(`New continuation bytes: ${value.writtenBytes}`);
+  if (value.missingRollouts?.length) console.log(`Missing histories (provider metadata only): ${value.missingRollouts.length}`);
   if (value.historyThreadsReset) console.log(`History projections reset: ${value.historyThreadsReset} (rebuilt when the chat resumes)`);
   if (value.repairOnly) {
     console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
@@ -150,6 +161,9 @@ function print(value, json) {
 }
 
 function validateOptions(options) {
+  if (options.all && (options.sessionId || options.repairHistory || options.fromProviders.length || !options.toProvider)) {
+    throw new Error('--all requires --to and cannot be combined with --session-id, --from, or history repair.');
+  }
   if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
     throw new Error('--repair-history/--repair-replay/--repair-encrypted cannot be combined with --from or --to.');
   }
@@ -158,7 +172,7 @@ function validateOptions(options) {
   }
 }
 
-function main() {
+async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     usage();
@@ -167,16 +181,21 @@ function main() {
   validateOptions(options);
   const codexHome = resolveCodexHome(options.codexHome);
   const stateDbPath = resolveStateDb(codexHome, options.stateDbPath);
-  if (options.status || (!options.repairHistory && (options.fromProviders.length === 0 || !options.toProvider))) {
-    print(formatInventory(scanInventory({ codexHome, stateDbPath, sessionId: options.sessionId })), options.json);
+  if (options.status || (!options.repairHistory && ((!options.all && options.fromProviders.length === 0) || !options.toProvider))) {
+    print(options.sessionId
+      ? formatInventory(scanInventory({ codexHome, stateDbPath, sessionId: options.sessionId }))
+      : fastStatus({ codexHome, stateDbPath }), options.json);
     return;
   }
-  print(syncProvider(options), options.json);
+  if (!options.sessionId && !options.repairHistory) {
+    if (!options.json) options.onProgress = (done, total) => process.stderr.write(`\rPreparing continuations: ${done}/${total}${done === total ? '\n' : ''}`);
+    print(await syncAllProviders(options), options.json);
+  } else {
+    print(syncProvider(options), options.json);
+  }
 }
 
-try {
-  main();
-} catch (error) {
+main().catch(error => {
   console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
-}
+});

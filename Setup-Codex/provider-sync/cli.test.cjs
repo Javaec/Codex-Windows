@@ -19,6 +19,15 @@ test('help exposes encrypted history repair', () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--repair-encrypted/);
   assert.match(result.stdout, /--repair-replay/);
+  assert.match(result.stdout, /--all --to openai/);
+});
+
+test('all-chat migration rejects ambiguous filters before filesystem access', () => {
+  for (const args of [['--all'], ['--all', '--to', 'openai', '--session-id', 'x'], ['--all', '--to', 'openai', '--from', 'codex']]) {
+    const result = runCli(args);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--all requires --to/);
+  }
 });
 
 test('repository entrypoints use the standalone synchronizer', () => {

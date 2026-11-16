@@ -970,9 +970,12 @@ function formatInventory(inventory) {
 }
 
 module.exports = {
+  createRewriteState,
   formatInventory,
+  listFilesRecursive,
   resolveCodexHome,
   resolveStateDb,
+  rewriteSessionLine,
   scanInventory,
   syncProvider,
 };

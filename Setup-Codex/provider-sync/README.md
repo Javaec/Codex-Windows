@@ -2,6 +2,27 @@
 
 Standalone Windows utility for retagging Codex sessions when switching between the official provider and a custom provider.
 
+## Fast bulk switching
+
+```text
+Run-Codex-Provider-Sync.cmd --all --to openai --dry-run
+Run-Codex-Provider-Sync.cmd --all --to openai --yes
+```
+
+`--all` selects every indexed provider except the target. Use `--from codex --to openai` to select one source instead. Both commands use the same bulk path when `--session-id` is omitted. Active and archived chats are included. Already selected target-provider chats are untouched. `--status` reads SQLite and file metadata only, so opening the menu no longer parses gigabytes of history.
+
+The bulk path creates a new immutable rollout containing the latest compaction checkpoint and its suffix, sanitizes provider-specific replay state, and switches the existing chat's provider and file pointer in one SQLite transaction. The new header uses `history_base` to retain the older visible history at its original byte cutoff. Originals and their history projections stay intact, including ancestors referenced by other chats. Without a checkpoint in the current segment, it follows frozen ancestor cutoffs until it finds one or reaches the beginning.
+
+Two persistent workers stream plain or `.jsonl.zst` histories using Node's built-in zstd decoder. Memory retains the latest checkpoint and suffix rather than every compaction. Each output is synced before publication. Selected chats must be unloaded. Writer locks and source changes are checked before publication, and a concurrent SQLite pointer change cancels the whole transaction. Failed preparation removes unpublished output files.
+
+The backup contains a consistent state database snapshot and `manifest.json` with each chat's original provider, path, and new path. Original rollout files are the unchanged body backups; do not delete them after switching. Existing missing histories are reported as `missingRollouts`: only their provider metadata can be switched. The utility cannot recover a previously deleted history.
+
+Bulk zstd support requires Node.js 22.15+ or 23.8+. Targeted in-place repairs retain their previous behavior and compression restriction.
+
+The installed CLI `0.169.0-alpha.11.1` verified a bulk round trip on an isolated copy of the ECS chat, including compressed input. All 24 turns and 3728 full history items remained available. A 65,597,978-byte source produced a 6,081,343-byte continuation in 935 ms locally; reverse migration of its compressed continuation took 804 ms. These are single local measurements, not a throughput guarantee. Detailed reports: `work/provider-sync-validation/bulk-native-report.json` and `bulk-native-ecs-report.json`.
+
+The design follows upstream [immutable revert segments](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/revert_thread.rs), [model-context checkpoint boundaries](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/model_context.rs), and [rollout compression](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/compression.rs).
+
 Codex stores the provider in two places:
 
 - `sessions/**/rollout-*.jsonl` and `archived_sessions/rollout-*.jsonl`, inside every `session_meta` record;
@@ -67,7 +88,7 @@ Rollout inspection and rewriting use 1 MiB read blocks and a bounded output queu
 
 Post-write verification reads only the planned rollouts and checks the updated SQLite rows. It rejects missing rows, changed session identities, and remaining replay problems without rescanning unrelated histories or treating concurrently created chats as failed migrations. Bulk history resets reuse prepared SQL statements. Buffered output uses [`fs.writeFileSync`](https://nodejs.org/api/fs.html#fswritefilesyncfile-data-options) on the open temporary descriptor before syncing and replacing the original file.
 
-The tool intentionally fails when selected `.jsonl.zst` rollouts are present because it cannot safely rewrite compressed rollouts without a zstd runtime. Unrelated compressed rollouts do not block a targeted migration. No partial write is started in that case.
+Targeted in-place migration and history repair fail when selected `.jsonl.zst` rollouts are present. Bulk provider switching supports compressed input through immutable continuation files. Unrelated compressed rollouts do not block a targeted migration.
 
 Local provider counts and history scans alone cannot establish backend continuation compatibility. Validate both the initial model request and continuation after a tool result.
 

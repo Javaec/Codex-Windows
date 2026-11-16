@@ -153,10 +153,9 @@ Write-Host ''
 $status = Invoke-CodexCliJson @('--status')
 Write-Info 'Codex home' $status.codexHome
 Write-Info 'State DB' $status.stateDbPath
-Write-Info 'JSONL sessions' $status.jsonlSessions
-Write-Info 'SQLite threads' $status.sqliteThreads
-Write-Info 'Repair candidates' $status.historyRepairCandidates
-Write-Info 'Replay candidates' $status.replayRepairCandidates
+Write-Info 'Indexed chats' $status.sqliteThreads
+Write-Info 'Compressed files' $status.compressedRollouts
+Write-Info 'Missing files' $status.missingRollouts
 Write-Host ''
 
 Write-Host 'Операция:' -ForegroundColor Cyan
@@ -243,9 +242,8 @@ if ($operation -eq 3) {
   exit 0
 }
 
-$sessionProviderNames = @($status.sessionMetadataProviders.PSObject.Properties.Name)
 $databaseProviderNames = @($status.databaseProviders.PSObject.Properties.Name)
-$providerNames = @($sessionProviderNames + $databaseProviderNames | Sort-Object -Unique)
+$providerNames = @($databaseProviderNames | Sort-Object -Unique)
 if ($providerNames.Count -eq 0) {
   throw 'Provider-tagged sessions were not found.'
 }
