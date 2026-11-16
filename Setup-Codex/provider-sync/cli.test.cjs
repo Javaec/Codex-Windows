@@ -20,6 +20,18 @@ test('help exposes encrypted history repair', () => {
   assert.match(result.stdout, /--repair-encrypted/);
 });
 
+test('repository entrypoints use the standalone synchronizer', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const packageJson = require(path.join(root, 'package.json'));
+  assert.equal(packageJson.scripts['provider-retag'], 'node Setup-Codex/provider-sync/cli.cjs');
+  if (process.platform !== 'win32') return;
+  const result = spawnSync('cmd.exe', ['/d', '/c', path.join(root, 'Run-CodexProviderRetag.cmd'), '--help'], {
+    encoding: 'utf8', windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Codex provider session synchronizer/);
+});
+
 test('incompatible repair and migration flags fail before filesystem access', () => {
   const result = runCli([
     '--repair-encrypted',

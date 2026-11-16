@@ -11,7 +11,7 @@ $nodeCommand = Get-Command node.exe -ErrorAction Stop
 function Invoke-CodexCliJson {
   param([string[]] $Arguments)
 
-  $output = & $nodeCommand.Source $cliPath @Arguments '--json' 2>&1
+  $output = & $nodeCommand.Source --no-warnings $cliPath @Arguments '--json' 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw (($output | Out-String).Trim())
   }
@@ -127,14 +127,16 @@ function Show-Report {
   if ($Report.backupDir) {
     Write-Info 'Backup' $Report.backupDir
   }
+  if ($Report.historyThreadsReset) {
+    Write-Info 'History reindex' ("{0} (on chat resume)" -f $Report.historyThreadsReset)
+  }
   if ($Report.verified) {
     Write-Info 'Verification' 'OK'
   }
 }
 
 if ($CliArguments.Count -gt 0) {
-  $env:NODE_NO_WARNINGS = '1'
-  & $nodeCommand.Source $cliPath @CliArguments
+  & $nodeCommand.Source --no-warnings $cliPath @CliArguments
   exit $LASTEXITCODE
 }
 

@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { spawn } = require('node:child_process');
+const { once } = require('node:events');
 const { DatabaseSync } = require('node:sqlite');
 const {
   rewriteSessionProvider,
@@ -72,6 +74,7 @@ function fixture() {
           encrypted_content: 'gAAAA_provider_specific_nested_reasoning',
         },
       ],
+      replacement_history_metadata: [{ label: 'plain' }, { label: 'opaque' }, { label: 'reasoning' }],
     },
   };
   const topLevelPlainCompaction = {
@@ -140,6 +143,128 @@ test('targeted scan falls back when a matching filename belongs to another sessi
   }
 });
 
+test('targeted migration uses the indexed rollout without reading unrelated files', () => {
+  const f = fixture();
+  try {
+    const indexedPath = path.join(path.dirname(f.sessionPath), 'rollout-renamed.jsonl');
+    fs.renameSync(f.sessionPath, indexedPath);
+    const db = new DatabaseSync(f.dbPath);
+    db.prepare('UPDATE threads SET rollout_path = ? WHERE id = ?').run(indexedPath, 'session-a');
+    db.close();
+    fs.writeFileSync(f.archivedPath, 'invalid unrelated rollout\n');
+    fs.writeFileSync(`${f.archivedPath}.zst`, 'unrelated compressed rollout');
+    fs.writeFileSync(`${f.sessionPath}.zst`, 'older compressed segment of this chat');
+    const report = syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true });
+    assert.equal(report.verified, true);
+    assert.equal(report.jsonlUpdated, 1);
+    assert.equal(report.unsupportedCompressed, 0);
+    assert.equal(fs.readFileSync(f.archivedPath, 'utf8'), 'invalid unrelated rollout\n');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('paginated migration backs up and rebuilds only the changed history suffix', () => {
+  const f = fixture();
+  try {
+    const rolloutId = '01a1e1a9-7503-7c90-9250-fc1a0c3cb906';
+    const rotatedPath = path.join(path.dirname(f.sessionPath), `rollout-session-a_${rolloutId}.jsonl`);
+    fs.renameSync(f.sessionPath, rotatedPath);
+    f.sessionPath = rotatedPath;
+    const state = new DatabaseSync(f.dbPath);
+    state.prepare("UPDATE threads SET rollout_path = ? WHERE id = 'session-a'").run(rotatedPath);
+    state.close();
+    const records = fs.readFileSync(f.sessionPath, 'utf8').trimEnd().split('\n').map(JSON.parse);
+    records[0].payload.history_mode = 'paginated';
+    records[0].payload.history_base = { thread_id: 'session-a', end_ordinal_exclusive: 10, end_byte_offset: 500 };
+    records[0].payload.creator_user_id = 'original-user';
+    records[0].payload.creator_account_id = 'original-account';
+    fs.writeFileSync(f.sessionPath, records.map((r, i) => JSON.stringify({ ...r, ordinal: i + 10 })).join('\n') + '\n');
+    const historyPath = path.join(f.root, 'thread_history_1.sqlite');
+    const history = new DatabaseSync(historyPath);
+    history.exec(`
+      CREATE TABLE thread_turns (thread_id TEXT, turn_id TEXT, rollout_ordinal INTEGER, rollout_end_ordinal INTEGER, rollout_end_byte_offset INTEGER, status TEXT);
+      CREATE TABLE thread_items (thread_id TEXT, rollout_ordinal INTEGER, item_json TEXT);
+      CREATE TABLE thread_realtime_items (thread_id TEXT, rollout_ordinal INTEGER, item_json TEXT);
+      CREATE TABLE thread_history_projection_state (thread_id TEXT PRIMARY KEY, next_rollout_byte_offset INTEGER, next_rollout_ordinal INTEGER);
+      INSERT INTO thread_turns VALUES ('${rolloutId}', 'inherited', 1, 5, 400, 'completed'), ('${rolloutId}', 'crossing', 8, 12, 800, 'completed'), ('${rolloutId}', 'suffix', 15, 20, 1000, 'completed'), ('session-b', 'other', 1, 5, 400, 'completed');
+      INSERT INTO thread_items VALUES ('${rolloutId}', 2, 'inherited'), ('${rolloutId}', 16, 'suffix'), ('session-b', 2, 'other');
+      INSERT INTO thread_realtime_items SELECT * FROM thread_items;
+      INSERT INTO thread_history_projection_state VALUES ('${rolloutId}', 1000, 20), ('session-b', 400, 5);
+    `);
+    history.close();
+    const before = fs.readFileSync(historyPath);
+    const options = { codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex' };
+    syncProvider(options);
+    assert.deepEqual(fs.readFileSync(historyPath), before);
+    const report = syncProvider({ ...options, apply: true });
+    assert.equal(report.historyThreadsReset, 1);
+    assert.equal(report.verified, true);
+    const db = new DatabaseSync(historyPath, { readOnly: true });
+    assert.deepEqual(db.prepare('SELECT turn_id FROM thread_turns ORDER BY turn_id').all().map(r => r.turn_id), ['crossing', 'inherited', 'other']);
+    assert.equal(db.prepare("SELECT status FROM thread_turns WHERE turn_id = 'crossing'").get().status, 'inProgress');
+    assert.deepEqual(db.prepare('SELECT item_json FROM thread_items ORDER BY item_json').all().map(r => r.item_json), ['inherited', 'other']);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM thread_history_projection_state').get().n, 1);
+    db.close();
+    const backup = new DatabaseSync(path.join(report.backupDir, 'thread_history_1.sqlite'), { readOnly: true });
+    assert.equal(backup.prepare('SELECT count(*) AS n FROM thread_turns').get().n, 3);
+    assert.equal(backup.prepare("SELECT count(*) AS n FROM thread_items WHERE thread_id = 'session-b'").get().n, 0);
+    backup.close();
+    const roundTrip = syncProvider({ ...options, fromProviders: ['codex'], toProvider: 'openai', apply: true });
+    assert.equal(roundTrip.verified, true);
+    const meta = JSON.parse(fs.readFileSync(f.sessionPath, 'utf8').split('\n')[0]);
+    assert.equal(meta.payload.creator_account_id, 'original-account');
+    assert.equal(meta.payload.creator_user_id, 'original-user');
+    assert.equal(meta.ordinal, 10);
+    assert.deepEqual(meta.payload.history_base, records[0].payload.history_base);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('failed rollout replacement preserves the original file and provider row', () => {
+  const f = fixture();
+  const rename = fs.renameSync;
+  try {
+    const original = fs.readFileSync(f.sessionPath);
+    fs.renameSync = (source, destination) => {
+      if (destination === f.sessionPath) throw new Error('replacement denied');
+      return rename(source, destination);
+    };
+    assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true }), /replacement denied/);
+    assert.deepEqual(fs.readFileSync(f.sessionPath), original);
+    const db = new DatabaseSync(f.dbPath, { readOnly: true });
+    assert.equal(db.prepare("SELECT model_provider FROM threads WHERE id = 'session-a'").get().model_provider, 'openai');
+    db.close();
+  } finally {
+    fs.renameSync = rename;
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('a Windows writer lock prevents changes and backup creation', { skip: process.platform !== 'win32' }, async () => {
+  const f = fixture();
+  const lockPath = path.join(f.root, 'thread-writer-locks', 'session-a.lock');
+  fs.mkdirSync(path.dirname(lockPath));
+  fs.writeFileSync(lockPath, '');
+  const child = spawn('pwsh.exe', ['-NoLogo', '-NoProfile', '-Command',
+    "$lock = [IO.File]::Open($env:PROVIDER_SYNC_TEST_LOCK, 'Open', 'ReadWrite', 'None'); [Console]::WriteLine('locked'); [Console]::Out.Flush(); [Console]::ReadLine() | Out-Null; $lock.Dispose()",
+  ], { env: { ...process.env, PROVIDER_SYNC_TEST_LOCK: lockPath }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const finished = once(child, 'exit');
+  try {
+    const [ready] = await once(child.stdout, 'data');
+    assert.match(ready.toString(), /locked/);
+    const original = fs.readFileSync(f.sessionPath);
+    assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true }), { code: 'EBUSY' });
+    assert.deepEqual(fs.readFileSync(f.sessionPath), original);
+    assert.equal(fs.existsSync(path.join(f.root, 'backups')), false);
+  } finally {
+    child.stdin.end('\n');
+    await finished;
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test('backup directory gets a suffix when the timestamp already exists', () => {
   const testFixture = fixture();
   const originalDate = Date;
@@ -204,6 +329,9 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.doesNotMatch(text, /rs_encrypted/);
     assert.doesNotMatch(text, /gAAAA_(provider_specific|top_level)/);
     assert.match(text, /Visible checkpoint summary from the old provider/);
+    const compacted = text.split('\n').filter(Boolean).map(JSON.parse).find(r => r.type === 'compacted');
+    assert.deepEqual(compacted.payload.replacement_history_metadata, [{ label: 'plain' }, { label: 'reasoning' }]);
+    assert.equal(compacted.payload.replacement_history.length, compacted.payload.replacement_history_metadata.length);
     assert.match(text, /"type":"message"/);
     assert.match(text, /rs_valid/);
     assert.match(text, /\\"model_provider\\":\\"openai\\"/);

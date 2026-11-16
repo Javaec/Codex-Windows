@@ -1,4 +1,4 @@
 @echo off
 setlocal
-node "%~dp0scripts\node\CodexProviderRetag.cjs" %*
+call "%~dp0Setup-Codex\provider-sync\Run-Codex-Provider-Sync.cmd" %*
 exit /b %errorlevel%

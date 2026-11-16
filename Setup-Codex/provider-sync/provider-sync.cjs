@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { StringDecoder } = require('node:string_decoder');
 const { DatabaseSync } = require('node:sqlite');
+const { pathToFileURL } = require('node:url');
 
 const STATE_DB_FILENAME = 'state_5.sqlite';
 const SESSION_ROOTS = ['sessions', 'archived_sessions'];
@@ -17,6 +18,7 @@ const OPAQUE_ENCRYPTED_CONTENT = /^[A-Za-z0-9_+=\/-]+$/u;
 const JSONL_READ_BUFFER_SIZE = 8 * 1024 * 1024;
 const JSONL_WRITE_BUFFER_SIZE = 8 * 1024 * 1024;
 const MAX_SCAN_ATTEMPTS = 3;
+const HISTORY_TABLES = ['thread_turns', 'thread_items', 'thread_realtime_items', 'thread_history_projection_state'];
 
 function fail(message) {
   throw new Error(message);
@@ -290,6 +292,7 @@ function inspectSessionFile(filePath, codexHome) {
     filePath,
     relativePath,
     id,
+    rolloutId: path.basename(filePath).match(/([0-9a-f-]{36})\.jsonl$/iu)?.[1] || id,
     provider,
     providers: analysis.providers,
     malformedResponseItems: analysis.malformedResponseItems,
@@ -298,6 +301,7 @@ function inspectSessionFile(filePath, codexHome) {
     encryptedReplayItems: analysis.encryptedReasoningItems + analysis.encryptedCompactionItems,
     opaqueCompactionItems: analysis.opaqueCompactionItems,
     plaintextCompactionItems: analysis.plaintextCompactionItems,
+    historyStartOrdinal: payload.history_base?.end_ordinal_exclusive || 0,
     bytes: fileStat.size,
     mtimeMs: fileStat.mtimeMs,
   };
@@ -321,13 +325,23 @@ function inspectSessionFiles(filePaths, codexHome) {
   return { entries, errors };
 }
 
-function scanSessions(codexHome, sessionId = '') {
+function scanSessions(codexHome, sessionId = '', dbRows = []) {
+  const indexed = dbRows.find((row) => row.id === sessionId);
+  if (indexed && fs.existsSync(indexed.rolloutPath)) {
+    if (indexed.rolloutPath.endsWith('.jsonl.zst')) {
+      return { entries: [], errors: [], unsupported: [indexed.rolloutPath] };
+    }
+    const inspected = inspectSessionFiles([indexed.rolloutPath], codexHome);
+    if (inspected.entries.some((entry) => entry.id === sessionId) || inspected.errors.length > 0) {
+      return { ...inspected, unsupported: [] };
+    }
+  }
   const unsupported = [];
   const rolloutFiles = [];
   for (const rootName of SESSION_ROOTS) {
     const rootPath = path.join(codexHome, rootName);
     for (const filePath of listFilesRecursive(rootPath)) {
-      if (filePath.endsWith('.jsonl.zst')) {
+      if (filePath.endsWith('.jsonl.zst') && (!sessionId || path.basename(filePath).includes(sessionId))) {
         unsupported.push(filePath);
         continue;
       }
@@ -352,7 +366,7 @@ function scanSessions(codexHome, sessionId = '') {
     inspected.entries.push(...initialTargetEntries, ...fallback.entries.filter((entry) => entry.id === sessionId));
     inspected.errors.push(...fallback.errors);
   }
-  return { entries: inspected.entries, errors: inspected.errors, unsupported };
+  return { entries: inspected.entries.filter((entry) => !sessionId || entry.id === sessionId), errors: inspected.errors, unsupported };
 }
 
 function openStateDb(stateDbPath, readOnly) {
@@ -398,11 +412,13 @@ function countProviders(values) {
 }
 
 function scanInventory({ codexHome, stateDbPath, sessionId = '' }) {
-  const sessions = scanSessions(codexHome, sessionId);
   const dbRows = readStateRows(stateDbPath, sessionId);
+  const sessions = scanSessions(codexHome, sessionId, dbRows);
+  const historyDbPath = path.join(path.dirname(stateDbPath), 'thread_history_1.sqlite');
   return {
     codexHome,
     stateDbPath,
+    historyDbPath: fs.existsSync(historyDbPath) ? historyDbPath : '',
     sessions: sessions.entries,
     scanErrors: sessions.errors,
     unsupported: sessions.unsupported,
@@ -543,8 +559,13 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
   }
   if (keepRecord && sanitizeEncrypted && record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
     const replacementHistory = [];
+    const replacementMetadata = [];
+    const metadata = record.payload.replacement_history_metadata;
+    if (Array.isArray(metadata) && metadata.length !== record.payload.replacement_history.length) {
+      fail('Compaction history and metadata have different lengths.');
+    }
     let replacementChanged = false;
-    for (const item of record.payload.replacement_history) {
+    for (const [index, item] of record.payload.replacement_history.entries()) {
       const sanitized = sanitizeResponseItem(item);
       if (sanitized.action !== ACTION_NONE) {
         recordSanitizedAction(sanitized.action, changes);
@@ -552,10 +573,12 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
       }
       if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
         replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
+        if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
       }
     }
     if (replacementChanged) {
       record.payload.replacement_history = replacementHistory;
+      if (Array.isArray(metadata)) record.payload.replacement_history_metadata = replacementMetadata;
       recordChanged = true;
     }
   }
@@ -682,7 +705,10 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
       return { changed: false, ...finishRewrite(changes, '') };
     }
     fs.chmodSync(temp.path, currentStat.mode);
-    fs.rmSync(filePath);
+    const finalStat = fs.statSync(filePath);
+    if (finalStat.size !== expected.bytes || finalStat.mtimeMs !== expected.mtimeMs) {
+      fail(`Session changed while rewriting: ${filePath}`);
+    }
     fs.renameSync(temp.path, filePath);
     return { changed: true, ...finishRewrite(changes, '') };
   } catch (error) {
@@ -719,11 +745,13 @@ function createBackup(inventory, plan, backupRoot) {
     }
   }
 
-  const dbFiles = [inventory.stateDbPath, `${inventory.stateDbPath}-wal`, `${inventory.stateDbPath}-shm`]
-    .filter((filePath) => fs.existsSync(filePath));
-  for (const filePath of dbFiles) {
-    fs.copyFileSync(filePath, path.join(backupDir, path.basename(filePath)));
+  const db = openStateDb(inventory.stateDbPath, true);
+  try {
+    db.exec(`VACUUM INTO ${sqlString(path.join(backupDir, STATE_DB_FILENAME))}`);
+  } finally {
+    db.close();
   }
+  backupHistory(inventory, plan, backupDir);
 
   for (const entry of plan.sessionFiles) {
     const destination = path.join(backupDir, 'jsonl', entry.relativePath);
@@ -735,14 +763,58 @@ function createBackup(inventory, plan, backupRoot) {
     createdAt: new Date().toISOString(),
     codexHome: inventory.codexHome,
     stateDbPath: inventory.stateDbPath,
+    historyDbPath: inventory.historyDbPath,
     fromProviders: plan.fromProviders,
     toProvider: plan.toProvider,
     sessionId: plan.sessionId || null,
     sessionFiles: plan.sessionFiles.map((entry) => entry.relativePath),
+    historyRollouts: plan.sessionFiles.map((entry) => entry.rolloutId),
     databaseRows: plan.dbRows.map((row) => row.id),
   };
   fs.writeFileSync(path.join(backupDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   return backupDir;
+}
+
+function sqlString(value) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function backupHistory(inventory, plan, backupDir) {
+  if (!inventory.historyDbPath || plan.sessionFiles.length === 0) return;
+  const db = new DatabaseSync(path.join(backupDir, 'thread_history_1.sqlite'));
+  try {
+    db.exec(`ATTACH DATABASE ${sqlString(`${pathToFileURL(inventory.historyDbPath).href}?mode=ro`)} AS source`);
+    db.exec('BEGIN');
+    const ids = [...new Set(plan.sessionFiles.map((entry) => sqlString(entry.rolloutId)))].join(',');
+    for (const table of HISTORY_TABLES) {
+      db.exec(`CREATE TABLE main.${table} AS SELECT * FROM source.${table} WHERE thread_id IN (${ids})`);
+    }
+    db.exec('COMMIT');
+  } finally {
+    db.close();
+  }
+}
+
+function resetHistoryProjection(inventory, plan) {
+  if (!inventory.historyDbPath || plan.sessionFiles.length === 0) return 0;
+  const db = openStateDb(inventory.historyDbPath, false);
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    for (const entry of plan.sessionFiles) {
+      // Keep inherited history whose durable prefix is no longer in this rollout.
+      for (const table of HISTORY_TABLES.slice(0, -1)) {
+        db.prepare(`DELETE FROM ${table} WHERE thread_id = ? AND rollout_ordinal >= ?`)
+          .run(entry.rolloutId, entry.historyStartOrdinal);
+      }
+      db.prepare("UPDATE thread_turns SET rollout_end_ordinal = NULL, rollout_end_byte_offset = NULL, status = 'inProgress' WHERE thread_id = ? AND rollout_end_ordinal >= ?")
+        .run(entry.rolloutId, entry.historyStartOrdinal);
+      db.prepare('DELETE FROM thread_history_projection_state WHERE thread_id = ?').run(entry.rolloutId);
+    }
+    db.exec('COMMIT');
+    return plan.sessionFiles.length;
+  } finally {
+    db.close();
+  }
 }
 
 function applyDatabasePlan(inventory, plan) {
@@ -750,14 +822,13 @@ function applyDatabasePlan(inventory, plan) {
   let changed = 0;
   try {
     db.exec('BEGIN IMMEDIATE');
-    if (plan.sessionId) {
-      const result = db.prepare('UPDATE threads SET model_provider = ? WHERE id = ? AND model_provider IN (' + plan.fromProviders.map(() => '?').join(',') + ')')
-        .run(plan.toProvider, plan.sessionId, ...plan.fromProviders);
-      changed = Number(result.changes || 0);
-    } else {
-      const result = db.prepare('UPDATE threads SET model_provider = ? WHERE model_provider IN (' + plan.fromProviders.map(() => '?').join(',') + ')')
-        .run(plan.toProvider, ...plan.fromProviders);
-      changed = Number(result.changes || 0);
+    const update = db.prepare('UPDATE threads SET model_provider = ? WHERE id = ? AND model_provider = ?');
+    for (const row of plan.dbRows) {
+      const result = update.run(plan.toProvider, row.id, row.provider);
+      if (Number(result.changes) !== 1) {
+        fail(`Session provider changed while preparing to write: ${row.id}`);
+      }
+      changed += 1;
     }
     db.exec('COMMIT');
     return changed;
@@ -816,6 +887,9 @@ function remainsInDatabase(row, plan) {
 
 function verifyPlan(inventory, plan) {
   const fresh = scanInventory({ ...inventory, sessionId: plan.sessionId });
+  if (fresh.scanErrors.length > 0 || plan.sessionFiles.some((entry) => !fresh.sessions.some((current) => current.filePath === entry.filePath))) {
+    fail('Verification failed: a rewritten rollout is missing or unreadable.');
+  }
   const plannedSessionPaths = new Set(plan.sessionFiles.map((entry) => entry.filePath));
   const remainingFiles = fresh.sessions.filter((entry) => remainsInPlan(entry, plan, plannedSessionPaths));
   const remainingRows = fresh.dbRows.filter((row) => remainsInDatabase(row, plan));
@@ -884,10 +958,20 @@ function syncProvider(options) {
     return report;
   }
 
+  for (const entry of plan.sessionFiles) {
+    const lockPath = path.join(codexHome, 'thread-writer-locks', `${entry.id}.lock`);
+    if (fs.existsSync(lockPath)) {
+      // Windows denies access while the app owns this thread's writer lock.
+      const lockFd = fs.openSync(lockPath, 'r');
+      fs.closeSync(lockFd);
+    }
+  }
+
   const backupRoot = path.resolve(options.backupRoot || path.join(codexHome, 'backups', 'provider-sync'));
   report.backupDir = createBackup(inventory, plan, backupRoot);
-  report.sqliteUpdated = plan.dbRows.length > 0 ? applyDatabasePlan(inventory, plan) : 0;
+  report.historyThreadsReset = resetHistoryProjection(inventory, plan);
   const sessionResult = applySessionPlan(plan);
+  report.sqliteUpdated = plan.dbRows.length > 0 ? applyDatabasePlan(inventory, plan) : 0;
   report.jsonlUpdated = sessionResult.changed;
   report.historyItemsRemoved = sessionResult.removedResponseItems;
   report.sanitizedReasoningItems = sessionResult.sanitizedReasoningItems;

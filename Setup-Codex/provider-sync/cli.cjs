@@ -122,6 +122,7 @@ function print(value, json) {
     return;
   }
   if (value.mode) {
+    if (value.historyThreadsReset) console.log(`History projections reset: ${value.historyThreadsReset} (rebuilt when the chat resumes)`);
     if (value.repairOnly) {
       console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
       console.log(`Codex home: ${value.codexHome}`);
@@ -179,7 +180,7 @@ function main() {
   const codexHome = resolveCodexHome(options.codexHome);
   const stateDbPath = resolveStateDb(codexHome, options.stateDbPath);
   if (options.status || (!options.repairHistory && (options.fromProviders.length === 0 || !options.toProvider))) {
-    print(formatInventory(scanInventory({ codexHome, stateDbPath })), options.json);
+    print(formatInventory(scanInventory({ codexHome, stateDbPath, sessionId: options.sessionId })), options.json);
     return;
   }
   print(syncProvider(options), options.json);
