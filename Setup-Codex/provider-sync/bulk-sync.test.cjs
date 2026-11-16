@@ -102,6 +102,30 @@ test('compressed archived rollouts use decoded byte offsets and stale plain inde
   assert.equal(f.records(source.id)[0].payload.history_base.end_byte_offset, Buffer.byteLength(prefix));
 });
 
+for (const compressed of [false, true]) {
+  test(`bulk UTF-8 boundaries, CRLF and a final unterminated record (${compressed ? 'zstd' : 'plain'})`, async t => {
+    const f = fixture(t);
+    const source = f.add([], { compressed });
+    const header = source.content.trimEnd() + '\r\n';
+    const item = { ordinal: 1, type: 'response_item', payload: message('') };
+    const textOffset = JSON.stringify(item).indexOf('"text":"') + '"text":"'.length;
+    const padding = 'x'.repeat(1024 * 1024 - Buffer.byteLength(header) - textOffset - 1);
+    item.payload = message(padding + '🦀Ж' + 'z'.repeat(1024 * 1024));
+    const prefix = header + JSON.stringify(item) + '\r\n \r\n';
+    const thought = '🙂Я'.repeat(512 * 1024);
+    const content = prefix + JSON.stringify({ ordinal: 2, ...checkpoint('Latest') }) + '\r\n'
+      + JSON.stringify({ ordinal: 3, type: 'response_item', payload: reasoning(thought) });
+    const original = compressed ? zstdCompressSync(content) : Buffer.from(content);
+    fs.writeFileSync(source.file, original);
+    const report = await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true });
+    const records = f.records(source.id);
+    assert.equal(records[0].payload.history_base.end_byte_offset, Buffer.byteLength(prefix));
+    assert.equal(records[2].payload.content[0].text, thought);
+    assert.equal(report.writtenBytes, fs.statSync(f.row(source.id).rollout_path).size);
+    assert.deepEqual(fs.readFileSync(source.file), original);
+  });
+}
+
 test('a checkpoint in an ancestor respects the frozen cutoff and preserves descendant suffixes', async t => {
   const f = fixture(t);
   const ancestor = f.add([checkpoint('Frozen context'), { type: 'response_item', payload: message('Frozen tail') }], { compressed: true, provider: 'openai' });
@@ -137,6 +161,29 @@ test('status and preview avoid parsing histories, and missing histories are repo
   assert.equal(f.row(missing.id).model_provider, 'openai');
 });
 
+test('preview and an already selected provider ignore unrelated rollout directories', async t => {
+  const f = fixture(t);
+  const source = f.add([checkpoint('Context')]);
+  fs.writeFileSync(path.join(f.codexHome, 'archived_sessions'), 'Unrelated invalid directory');
+  const preview = await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai' });
+  assert.equal(preview.sqliteChanges, 1);
+  assert.equal(preview.sourceBytes, Buffer.byteLength(source.content));
+  const noOp = await syncAllProviders({ codexHome: f.codexHome, toProvider: 'codex', apply: true });
+  assert.equal(noOp.sqliteChanges, 0);
+  assert.equal(fs.existsSync(path.join(f.codexHome, 'backups')), false);
+  assert.equal(f.row(source.id).rollout_path, source.file);
+});
+
+test('status counts provider IDs that match object prototype properties', t => {
+  const f = fixture(t);
+  f.add([], { provider: 'constructor' });
+  f.add([], { provider: '__proto__' });
+  const providers = fastStatus({ codexHome: f.codexHome }).databaseProviders;
+  assert.equal(Object.keys(providers).length, 2);
+  assert.equal(providers.constructor, 1);
+  assert.equal(providers.__proto__, 1);
+});
+
 test('concurrent changes roll back every pointer and remove unpublished continuation files', async t => {
   const f = fixture(t);
   const first = f.add([checkpoint('First')]);
@@ -158,6 +205,27 @@ test('source writes after preparation cancel publication', async t => {
     codexHome: f.codexHome, toProvider: 'openai', apply: true,
     onProgress: () => fs.appendFileSync(source.file, JSON.stringify({ type: 'response_item', payload: message('New turn') }) + '\n'),
   }), /Rollout changed/);
+  assert.equal(f.row(source.id).rollout_path, source.file);
+  assert.equal(f.row(source.id).model_provider, 'codex');
+  assert.equal(fs.readdirSync(path.dirname(source.file)).length, 1);
+});
+
+test('a failed worker cancels the batch and removes unpublished output from both workers', async t => {
+  const f = fixture(t);
+  const broken = f.add([]);
+  const valid = f.add([checkpoint('Context'), { type: 'response_item', payload: message('x'.repeat(4 * 1024 * 1024)) }]);
+  fs.writeFileSync(broken.file, 'invalid JSON');
+  await assert.rejects(syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true }), /JSON/);
+  assert.equal(f.row(broken.id).model_provider, 'codex');
+  assert.equal(f.row(valid.id).rollout_path, valid.file);
+  assert.equal(fs.readdirSync(path.dirname(valid.file)).length, 2);
+});
+
+test('an invalid rollout record cancels publication instead of silently removing data', async t => {
+  const f = fixture(t);
+  const source = f.add([checkpoint('Context')]);
+  fs.appendFileSync(source.file, 'null\n');
+  await assert.rejects(syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true }), /record has no type/);
   assert.equal(f.row(source.id).rollout_path, source.file);
   assert.equal(f.row(source.id).model_provider, 'codex');
   assert.equal(fs.readdirSync(path.dirname(source.file)).length, 1);

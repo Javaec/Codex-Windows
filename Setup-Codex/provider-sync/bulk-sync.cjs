@@ -5,10 +5,9 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { DatabaseSync, backup } = require('node:sqlite');
 const { createZstdDecompress } = require('node:zlib');
-const { StringDecoder } = require('node:string_decoder');
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const {
-  createRewriteState, listFilesRecursive, resolveCodexHome, resolveStateDb, rewriteSessionLine,
+  countProviders, createRewriteState, listFilesRecursive, resolveCodexHome, resolveStateDb, rewriteSessionRecord,
 } = require('./provider-sync.cjs');
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.jsonl(?:\.zst)?$)/i;
@@ -61,18 +60,18 @@ function readInventory(options) {
 
 function fastStatus(options) {
   const inventory = readInventory(options);
-  const databaseProviders = {};
   let compressedRollouts = 0;
   let missingRollouts = 0;
   for (const row of inventory.rows) {
-    databaseProviders[row.model_provider] = (databaseProviders[row.model_provider] || 0) + 1;
     const file = resolveRollout(row.rollout_path);
     if (!file) missingRollouts += 1;
     if (file.endsWith('.zst')) compressedRollouts += 1;
   }
   return {
     codexHome: inventory.codexHome, stateDbPath: inventory.stateDbPath,
-    sqliteThreads: inventory.rows.length, databaseProviders, compressedRollouts, missingRollouts,
+    sqliteThreads: inventory.rows.length,
+    databaseProviders: countProviders(inventory.rows.map(row => row.model_provider)),
+    compressedRollouts, missingRollouts,
   };
 }
 
@@ -82,15 +81,14 @@ async function scanTail(file, endByteOffset = Infinity) {
   const input = fs.createReadStream(file, { highWaterMark: BLOCK_SIZE });
   const stream = file.endsWith('.zst') ? input.pipe(createZstdDecompress()) : input;
   if (stream !== input) input.on('error', error => stream.destroy(error));
-  const decoder = new StringDecoder('utf8');
   let fragments = [];
   let offset = 0;
   let lastOrdinal = -1;
   let meta;
   let checkpoint;
   let tail = [];
-  const consumeLine = (line, newline) => {
-    const bytes = Buffer.byteLength(line) + (newline ? 1 : 0);
+  const consumeLine = (buffer, newline) => {
+    const line = buffer.toString('utf8');
     if (line.trim()) {
       const prefix = line.slice(0, 250);
       const type = /"type"\s*:\s*"([^"]+)"/.exec(prefix)?.[1];
@@ -106,28 +104,32 @@ async function scanTail(file, endByteOffset = Infinity) {
         tail.push(line);
       }
     }
-    offset += bytes;
+    offset += buffer.length + (newline ? 1 : 0);
   };
   const consume = chunk => {
     let start = 0;
-    for (let end = chunk.indexOf('\n'); end >= 0; end = chunk.indexOf('\n', start)) {
-      fragments.push(chunk.slice(start, end));
-      consumeLine(fragments.length === 1 ? fragments[0] : fragments.join(''), true);
-      fragments = [];
+    for (let end = chunk.indexOf(10); end >= 0; end = chunk.indexOf(10, start)) {
+      const line = chunk.subarray(start, end);
+      if (fragments.length) {
+        fragments.push(line);
+        consumeLine(Buffer.concat(fragments), true);
+        fragments = [];
+      } else {
+        consumeLine(line, true);
+      }
       start = end + 1;
     }
-    if (start < chunk.length) fragments.push(chunk.slice(start));
+    if (start < chunk.length) fragments.push(chunk.subarray(start));
   };
   try {
     let decodedBytes = 0;
     for await (const chunk of stream) {
       const part = chunk.subarray(0, Math.min(chunk.length, endByteOffset - decodedBytes));
       decodedBytes += part.length;
-      consume(decoder.write(part));
+      consume(part);
       if (decodedBytes === endByteOffset) break;
     }
-    consume(decoder.end());
-    if (fragments.length) consumeLine(fragments.join(''), false);
+    if (fragments.length) consumeLine(Buffer.concat(fragments), false);
     if (Number.isFinite(endByteOffset) && offset !== endByteOffset) {
       throw new Error(`Incomplete ancestor rollout: ${file}, expected ${endByteOffset} bytes, read ${offset}`);
     }
@@ -136,7 +138,7 @@ async function scanTail(file, endByteOffset = Infinity) {
     if (!Number.isFinite(endByteOffset) && (before.size !== after.size || before.mtimeMs !== after.mtimeMs)) {
       throw new Error(`Rollout changed during migration: ${file}`);
     }
-    return { meta, checkpoint, tail, bytes: offset, lastOrdinal };
+    return { meta, checkpoint, tail };
   } finally {
     stream.destroy();
     input.destroy();
@@ -146,7 +148,6 @@ async function scanTail(file, endByteOffset = Infinity) {
 async function prepareContinuation(job, catalog, toProvider) {
   let file = job.sourcePath;
   let endByteOffset = Infinity;
-  let current;
   let head;
   let historyBase;
   const suffixes = [];
@@ -155,7 +156,7 @@ async function prepareContinuation(job, catalog, toProvider) {
     const id = rolloutId(file);
     if (visited.has(id)) throw new Error(`Cyclic history_base: ${id}`);
     visited.add(id);
-    current = await scanTail(file, endByteOffset);
+    const current = await scanTail(file, endByteOffset);
     if (!head) head = current.meta;
     if (head.payload.id !== job.id && head.payload.session_id !== job.id) {
       throw new Error(`Rollout belongs to another chat: ${job.sourcePath}`);
@@ -184,30 +185,29 @@ async function prepareContinuation(job, catalog, toProvider) {
   if (historyBase) head.payload.history_base = historyBase;
   else delete head.payload.history_base;
   const fd = fs.openSync(job.targetPath, 'wx');
-  let writtenBytes = 0;
+  let writtenBytes;
   let buffer = [];
-  let bufferedBytes = 0;
+  let bufferedChars = 0;
   const flush = () => {
     if (!buffer.length) return;
     fs.writeFileSync(fd, buffer.join(''));
     buffer = [];
-    bufferedBytes = 0;
+    bufferedChars = 0;
   };
   const write = line => {
     const text = `${line}\n`;
-    const size = Buffer.byteLength(text);
-    writtenBytes += size;
-    bufferedBytes += size;
+    bufferedChars += text.length;
     buffer.push(text);
-    if (bufferedBytes >= BLOCK_SIZE) flush();
+    if (bufferedChars >= BLOCK_SIZE / 2) flush();
   };
   try {
     write(JSON.stringify(head));
     for (const tail of suffixes.reverse()) {
       for (const line of tail) {
-        const rewritten = rewriteSessionLine(line, toProvider, true, changes);
-        if (rewritten === null) continue;
-        const record = JSON.parse(rewritten);
+        const parsed = JSON.parse(line);
+        if (typeof parsed?.type !== 'string') throw new Error(`Rollout record has no type: ${job.sourcePath}`);
+        const record = rewriteSessionRecord(parsed, toProvider, true, changes);
+        if (record === null) continue;
         record.ordinal = ordinal++;
         if (record.type === 'compacted' && record.payload.window_number == null) record.payload.window_number = 0;
         write(JSON.stringify(record));
@@ -215,6 +215,7 @@ async function prepareContinuation(job, catalog, toProvider) {
     }
     flush();
     fs.fsyncSync(fd);
+    writtenBytes = fs.fstatSync(fd).size;
   } finally {
     fs.closeSync(fd);
   }
@@ -222,18 +223,17 @@ async function prepareContinuation(job, catalog, toProvider) {
 }
 
 async function prepareJobs(jobs, catalog, toProvider, onProgress) {
-  const queue = jobs.slice();
+  let next = 0;
   const results = [];
   const workers = [];
-  let failure;
   try {
     await Promise.all(Array.from({ length: Math.min(2, jobs.length) }, async () => {
       const worker = new Worker(__filename, {
         workerData: { catalog, toProvider }, resourceLimits: { maxOldGenerationSizeMb: 768 },
       });
       workers.push(worker);
-      while (queue.length && !failure) {
-        const job = queue.shift();
+      while (next < jobs.length) {
+        const job = jobs[next++];
         const result = await new Promise((resolve, reject) => {
           const message = value => { cleanup(); value.error ? reject(new Error(value.error)) : resolve(value); };
           const error = value => { cleanup(); reject(value); };
@@ -247,8 +247,7 @@ async function prepareJobs(jobs, catalog, toProvider, onProgress) {
         results.push(result);
         onProgress?.(results.length, jobs.length);
       }
-    }).map(promise => promise.catch(error => { failure = error; })));
-    if (failure) throw failure;
+    }));
     return results;
   } finally {
     await Promise.all(workers.map(worker => worker.terminate()));
@@ -263,12 +262,6 @@ async function syncAllProviders(options) {
   const from = (options.fromProviders || []).flatMap(value => value.split(',')).filter(Boolean);
   const selected = rows.filter(row => row.model_provider !== options.toProvider
     && (!from.length || from.includes(row.model_provider)));
-  const catalog = {};
-  for (const root of ['sessions', 'archived_sessions']) {
-    for (const file of listFilesRecursive(path.join(codexHome, root))) {
-      if (UUID.test(file)) catalog[rolloutId(file)] = resolveRollout(file);
-    }
-  }
   const jobs = selected.map(row => {
     const sourcePath = resolveRollout(row.rollout_path);
     const base = sourcePath.replace(/\.jsonl(?:\.zst)?$/, '').replace(/_[0-9a-f-]{36}$/i, '');
@@ -283,7 +276,7 @@ async function syncAllProviders(options) {
     fromProviders: [...new Set(selected.map(row => row.model_provider))],
     sqliteChanges: selected.length, jsonlChanges: available.length,
     compressedRollouts: available.filter(job => job.sourcePath.endsWith('.zst')).length,
-    sourceBytes: available.reduce((sum, job) => sum + fs.statSync(job.sourcePath).size, 0),
+    sourceBytes: available.reduce((sum, job) => sum + job.sourceSize, 0),
     missingRollouts: jobs.filter(job => !job.sourcePath).map(job => job.id),
   };
   if (!options.apply || !selected.length) return report;
@@ -297,6 +290,14 @@ async function syncAllProviders(options) {
   let committed = false;
   try {
     await backup(db, path.join(backupDir, 'state_5.sqlite'));
+    const catalog = {};
+    if (available.length) {
+      for (const root of ['sessions', 'archived_sessions']) {
+        for (const file of listFilesRecursive(path.join(codexHome, root))) {
+          if (UUID.test(file)) catalog[rolloutId(file)] = resolveRollout(file);
+        }
+      }
+    }
     const results = await prepareJobs(available, catalog, options.toProvider, options.onProgress);
     assertUnloaded(codexHome, selected);
     for (const job of available) {
@@ -319,8 +320,9 @@ async function syncAllProviders(options) {
       db.exec('ROLLBACK');
       throw error;
     }
+    const readRow = db.prepare('SELECT model_provider, rollout_path FROM threads WHERE id=?');
     for (const job of jobs) {
-      const row = db.prepare('SELECT model_provider, rollout_path FROM threads WHERE id=?').get(job.id);
+      const row = readRow.get(job.id);
       if (row.model_provider !== options.toProvider || row.rollout_path !== job.targetPath) {
         throw new Error(`Provider verification failed: ${job.id}`);
       }

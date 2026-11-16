@@ -531,23 +531,26 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
     return original;
   }
 
-  let recordChanged = false;
+  const rewritten = rewriteSessionRecord(record, toProvider, sanitizeEncrypted, changes);
+  if (rewritten === record) return original;
+  if (rewritten === null) return null;
+  return formatJsonLine(rewritten, original);
+}
+
+function rewriteSessionRecord(record, toProvider, sanitizeEncrypted, changes) {
+  let payload = record?.payload;
   if (record?.type === 'response_item') {
-    const rewritten = rewriteResponseItem(record.payload, changes, sanitizeEncrypted);
-    if (rewritten !== record.payload) {
-      if (rewritten === null) return null;
-      record.payload = rewritten;
-      recordChanged = true;
-    }
+    payload = rewriteResponseItem(payload, changes, sanitizeEncrypted);
+    if (payload === null && record.payload !== null) return null;
   }
   if (sanitizeEncrypted && record?.type === 'compacted') {
     for (const historyKey of REPLAY_HISTORY_KEYS) {
-      const history = record.payload?.[historyKey];
+      const history = payload?.[historyKey];
       if (!Array.isArray(history)) continue;
       const replacementHistory = [];
       const replacementMetadata = [];
       const metadataKey = `${historyKey}_metadata`;
-      const metadata = record.payload[metadataKey];
+      const metadata = payload[metadataKey];
       if (Array.isArray(metadata) && metadata.length !== history.length) {
         fail('Compaction history and metadata have different lengths.');
       }
@@ -562,21 +565,19 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
         if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
       }
       if (replacementChanged) {
-        record.payload[historyKey] = replacementHistory;
-        if (Array.isArray(metadata)) record.payload[metadataKey] = replacementMetadata;
-        recordChanged = true;
+        payload = { ...payload, [historyKey]: replacementHistory };
+        if (Array.isArray(metadata)) payload[metadataKey] = replacementMetadata;
       }
     }
   }
-  if (record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+  if (record?.type === 'session_meta' && payload && typeof payload === 'object') {
     changes.sawMeta = true;
-    if (toProvider && record.payload.model_provider !== toProvider) {
-      record.payload.model_provider = toProvider;
+    if (toProvider && payload.model_provider !== toProvider) {
+      payload = { ...payload, model_provider: toProvider };
       changes.providerUpdates += 1;
-      recordChanged = true;
     }
   }
-  return recordChanged ? formatJsonLine(record, original) : original;
+  return payload === record?.payload ? record : { ...record, payload };
 }
 
 function hasRewriteChanges(changes) {
@@ -970,12 +971,13 @@ function formatInventory(inventory) {
 }
 
 module.exports = {
+  countProviders,
   createRewriteState,
   formatInventory,
   listFilesRecursive,
   resolveCodexHome,
   resolveStateDb,
-  rewriteSessionLine,
+  rewriteSessionRecord,
   scanInventory,
   syncProvider,
 };

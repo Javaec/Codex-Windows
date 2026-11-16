@@ -35,6 +35,23 @@ Backup: `C:\Users\lensm\.codex\backups\provider-sync\2026-11-16T20-50-43-374Z-bu
 
 The design follows upstream [immutable revert segments](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/revert_thread.rs), [model-context checkpoint boundaries](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/model_context.rs), and [rollout compression](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/compression.rs).
 
+### Bulk implementation polish
+
+Bulk switching now parses and serializes each retained record once. The same record sanitizer serves targeted repair and bulk continuation files. The streaming reader splits decoded buffers before UTF-8 conversion, so byte offsets come directly from buffer lengths. The writer uses a character-bounded queue and reads the actual output byte count once after syncing. Preview and no-op operations skip the rollout directory catalog. File sizes and the SQLite verification statement are reused, and workers take jobs by index without copying and shifting a queue. A failed worker immediately cancels the other worker before unpublished files are removed.
+
+Three sequential before/after pairs compared this version with `ccfc17e`, using Node.js `v26.13.0` and isolated copies of two real histories, each in plain and zstd form. Medians:
+
+| Input | CPU ms before → after | Peak RSS MiB before → after | Elapsed ms before → after |
+| --- | ---: | ---: | ---: |
+| Original history, 65.6 MB, plain | 344 → 203 | 151 → 138 | 624 → 1014 |
+| Original history, 65.6 MB decoded, zstd | 438 → 422 | 165 → 149 | 774 → 746 |
+| Continuation, 8.95 MB, plain | 187 → 109 | 138 → 124 | 707 → 664 |
+| Continuation, 8.95 MB decoded, zstd | 172 → 171 | 159 → 122 | 731 → 662 |
+
+The read-only no-match preview against the real home took 147.55 ms before and 2.92 ms after (20 measured calls per version, following warm-up). All six runs per input produced byte-identical output: original history SHA-256 `6ef8aedd819010451895e240dd788d1aa6c2912037ddd3d90dee429c67336715`, continuation SHA-256 `7d77e9beda08fec3b9f0c4ac0c7bf327d72a433612894ccc33c085b0bf2c122b`. End-to-end elapsed time varied; the plain original-history case was slower despite using less CPU and memory. These local measurements do not establish a universal wall-clock speedup.
+
+The installed CLI also verified another isolated round trip, including zstd input, preserving all 25 turns and 3834 full history items. The current suite has 40 tests, including split UTF-8/emoji, CRLF, unterminated records, worker cancellation, no-op/preview directory isolation, invalid records, and prototype-named provider IDs. Detailed local evidence: `work/provider-sync-validation/bulk-polish-measurements.json`, `bulk-polish-inputs.json`, and `bulk-polish-native-report.json`. No live chat provider or history was changed by these polish checks.
+
 Codex stores the provider in two places:
 
 - `sessions/**/rollout-*.jsonl` and `archived_sessions/rollout-*.jsonl`, inside every `session_meta` record;
