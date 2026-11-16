@@ -24,8 +24,8 @@ Apply the migration (close Codex first):
 Apply to exactly one session:
   Run-Codex-Provider-Sync.cmd --session-id ID --from openai --to codex --yes
 
-During apply, all session_meta provider records are normalized and known empty reasoning items
-that can make cross-provider compaction fail are removed after the backup is created.
+During migration, all session_meta provider records are normalized. Visible reasoning becomes
+ordinary text; empty reasoning is removed, including nested replay histories. Every write has a backup.
 
 Repair one history without changing its provider:
   Run-Codex-Provider-Sync.cmd --repair-history --session-id ID --yes
@@ -34,7 +34,8 @@ Repair all active and archived histories:
   Run-Codex-Provider-Sync.cmd --repair-all --dry-run
   Run-Codex-Provider-Sync.cmd --repair-all --yes
 
-Repair provider-specific encrypted reasoning and compaction history:
+Repair provider-specific replay state, including summary-only reasoning:
+  Run-Codex-Provider-Sync.cmd --repair-replay --session-id ID --yes
   Run-Codex-Provider-Sync.cmd --repair-encrypted --session-id ID --yes
   Run-Codex-Provider-Sync.cmd --repair-encrypted --dry-run
 
@@ -80,6 +81,7 @@ function parseArgs(argv) {
       case '--repair-history':
         options.repairHistory = true;
         break;
+      case '--repair-replay':
       case '--repair-encrypted':
         options.repairHistory = true;
         options.repairEncrypted = true;
@@ -122,6 +124,7 @@ function print(value, json) {
     return;
   }
   if (value.mode) {
+    if (value.replayRepairItems) console.log(`Provider replay candidates: ${value.replayRepairItems}`);
     if (value.historyThreadsReset) console.log(`History projections reset: ${value.historyThreadsReset} (rebuilt when the chat resumes)`);
     if (value.repairOnly) {
       console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
@@ -134,7 +137,7 @@ function print(value, json) {
       }
       if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
       if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
-      if (value.sanitizedReasoningItems) console.log(`Reasoning items sanitized: ${value.sanitizedReasoningItems}`);
+      if (value.sanitizedReasoningItems) console.log(`Reasoning items converted to messages: ${value.sanitizedReasoningItems}`);
       if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
       if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
       if (value.verified) console.log('Verification: OK');
@@ -150,7 +153,7 @@ function print(value, json) {
     if (value.plaintextCompactionItems) console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
     if (value.opaqueCompactionItems) console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
     if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
-    if (value.sanitizedReasoningItems) console.log(`Reasoning items sanitized: ${value.sanitizedReasoningItems}`);
+    if (value.sanitizedReasoningItems) console.log(`Reasoning items converted to messages: ${value.sanitizedReasoningItems}`);
     if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
     if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
     if (value.mixedSessionMetadata) console.log(`Mixed session_meta files: ${value.mixedSessionMetadata}`);
@@ -163,7 +166,7 @@ function print(value, json) {
 
 function validateOptions(options) {
   if (options.repairHistory && (options.fromProviders.length > 0 || options.toProvider)) {
-    throw new Error('--repair-history/--repair-encrypted cannot be combined with --from or --to.');
+    throw new Error('--repair-history/--repair-replay/--repair-encrypted cannot be combined with --from or --to.');
   }
   if (options.repairAll && options.sessionId) {
     throw new Error('--repair-all cannot be combined with --session-id.');

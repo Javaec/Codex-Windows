@@ -18,6 +18,7 @@ test('help exposes encrypted history repair', () => {
   const result = runCli(['--help']);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--repair-encrypted/);
+  assert.match(result.stdout, /--repair-replay/);
 });
 
 test('repository entrypoints use the standalone synchronizer', () => {

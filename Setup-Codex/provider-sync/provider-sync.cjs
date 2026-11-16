@@ -19,6 +19,7 @@ const JSONL_READ_BUFFER_SIZE = 8 * 1024 * 1024;
 const JSONL_WRITE_BUFFER_SIZE = 8 * 1024 * 1024;
 const MAX_SCAN_ATTEMPTS = 3;
 const HISTORY_TABLES = ['thread_turns', 'thread_items', 'thread_realtime_items', 'thread_history_projection_state'];
+const REPLAY_HISTORY_KEYS = ['replacement_history', 'guardian_history'];
 
 function fail(message) {
   throw new Error(message);
@@ -122,11 +123,13 @@ function isOpaqueEncryptedContent(value) {
     && OPAQUE_ENCRYPTED_CONTENT.test(value);
 }
 
-function makeVisibleCompactionMessage(text) {
+function makeVisibleReplayMessage(text, source) {
+  const turnId = source.internal_chat_message_metadata_passthrough?.turn_id;
   return {
     type: 'message',
     role: 'assistant',
     content: [{ type: 'output_text', text }],
+    ...(turnId ? { internal_chat_message_metadata_passthrough: { turn_id: turnId } } : {}),
   };
 }
 
@@ -135,21 +138,21 @@ function sanitizeResponseItem(payload) {
     return { payload, action: ACTION_NONE };
   }
 
-  if (payload.type === 'reasoning' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
-    if (!hasVisibleReasoningContent(payload)) {
+  if (payload.type === 'reasoning') {
+    const text = [...(payload.summary || []), ...(payload.content || [])]
+      .map((item) => item.text || '').filter((part) => !isInvisibleText(part)).join('\n\n');
+    if (isInvisibleText(text)) {
       return { payload: null, action: ACTION_REMOVE_REASONING };
     }
-    const sanitized = { ...payload };
-    delete sanitized.encrypted_content;
-    delete sanitized.id;
-    return { payload: sanitized, action: ACTION_SANITIZE_REASONING };
+    // Summary-only reasoning still breaks Rustponses previous_response_id replay.
+    return { payload: makeVisibleReplayMessage(text, payload), action: ACTION_SANITIZE_REASONING };
   }
 
   if (payload.type === 'compaction' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
     if (isOpaqueEncryptedContent(payload.encrypted_content)) {
       return { payload: null, action: ACTION_REMOVE_COMPACTION };
     }
-    return { payload: makeVisibleCompactionMessage(payload.encrypted_content), action: ACTION_CONVERT_COMPACTION };
+    return { payload: makeVisibleReplayMessage(payload.encrypted_content, payload), action: ACTION_CONVERT_COMPACTION };
   }
 
   return { payload, action: ACTION_NONE };
@@ -158,6 +161,9 @@ function sanitizeResponseItem(payload) {
 function collectReplayPayloadStats(payload, stats) {
   if (!payload || typeof payload !== 'object') {
     return;
+  }
+  if (payload.type === 'reasoning') {
+    stats.reasoningItems += 1;
   }
   if (typeof payload.encrypted_content !== 'string' || payload.encrypted_content.length === 0) {
     return;
@@ -178,9 +184,11 @@ function collectReplayStats(record, stats) {
   if (record?.type === 'response_item') {
     collectReplayPayloadStats(record.payload, stats);
   }
-  if (record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
-    for (const item of record.payload.replacement_history) {
-      collectReplayPayloadStats(item, stats);
+  if (record?.type === 'compacted') {
+    for (const key of REPLAY_HISTORY_KEYS) {
+      for (const item of record.payload?.[key] || []) {
+        collectReplayPayloadStats(item, stats);
+      }
     }
   }
 }
@@ -226,6 +234,7 @@ function createSessionAnalysis() {
     providerSet: new Set(),
     firstMeta: null,
     malformedResponseItems: 0,
+    reasoningItems: 0,
     encryptedReasoningItems: 0,
     encryptedCompactionItems: 0,
     opaqueCompactionItems: 0,
@@ -299,6 +308,7 @@ function inspectSessionFile(filePath, codexHome) {
     encryptedReasoningItems: analysis.encryptedReasoningItems,
     encryptedCompactionItems: analysis.encryptedCompactionItems,
     encryptedReplayItems: analysis.encryptedReasoningItems + analysis.encryptedCompactionItems,
+    replayRepairItems: analysis.reasoningItems + analysis.encryptedCompactionItems,
     opaqueCompactionItems: analysis.opaqueCompactionItems,
     plaintextCompactionItems: analysis.plaintextCompactionItems,
     historyStartOrdinal: payload.history_base?.end_ordinal_exclusive || 0,
@@ -472,7 +482,7 @@ function buildRepairPlan(inventory, { sessionId, repairEncrypted }) {
   const matchingSession = inventory.sessions.some((entry) => !sessionId || entry.id === sessionId);
   const sessionFiles = inventory.sessions.filter((entry) =>
     (!sessionId || entry.id === sessionId)
-      && (entry.malformedResponseItems > 0 || (repairEncrypted && entry.encryptedReplayItems > 0)));
+      && (entry.malformedResponseItems > 0 || (repairEncrypted && entry.replayRepairItems > 0)));
   if (sessionId && !matchingSession) {
     fail(`Session was not found: ${sessionId}`);
   }
@@ -557,29 +567,34 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
       }
     }
   }
-  if (keepRecord && sanitizeEncrypted && record?.type === 'compacted' && Array.isArray(record.payload?.replacement_history)) {
-    const replacementHistory = [];
-    const replacementMetadata = [];
-    const metadata = record.payload.replacement_history_metadata;
-    if (Array.isArray(metadata) && metadata.length !== record.payload.replacement_history.length) {
-      fail('Compaction history and metadata have different lengths.');
-    }
-    let replacementChanged = false;
-    for (const [index, item] of record.payload.replacement_history.entries()) {
-      const sanitized = sanitizeResponseItem(item);
-      if (sanitized.action !== ACTION_NONE) {
-        recordSanitizedAction(sanitized.action, changes);
-        replacementChanged = true;
+  if (keepRecord && sanitizeEncrypted && record?.type === 'compacted') {
+    for (const historyKey of REPLAY_HISTORY_KEYS) {
+      const history = record.payload?.[historyKey];
+      if (!Array.isArray(history)) continue;
+      const replacementHistory = [];
+      const replacementMetadata = [];
+      const metadataKey = `${historyKey}_metadata`;
+      const metadata = record.payload[metadataKey];
+      if (Array.isArray(metadata) && metadata.length !== history.length) {
+        fail('Compaction history and metadata have different lengths.');
       }
-      if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
-        replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
-        if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
+      let replacementChanged = false;
+      for (const [index, item] of history.entries()) {
+        const sanitized = sanitizeResponseItem(item);
+        if (sanitized.action !== ACTION_NONE) {
+          recordSanitizedAction(sanitized.action, changes);
+          replacementChanged = true;
+        }
+        if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
+          replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
+          if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
+        }
       }
-    }
-    if (replacementChanged) {
-      record.payload.replacement_history = replacementHistory;
-      if (Array.isArray(metadata)) record.payload.replacement_history_metadata = replacementMetadata;
-      recordChanged = true;
+      if (replacementChanged) {
+        record.payload[historyKey] = replacementHistory;
+        if (Array.isArray(metadata)) record.payload[metadataKey] = replacementMetadata;
+        recordChanged = true;
+      }
     }
   }
   if (keepRecord && record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
@@ -874,10 +889,10 @@ function remainsInPlan(entry, plan, plannedSessionPaths) {
   const isPlanned = plannedSessionPaths.has(entry.filePath);
   if (plan.repairOnly) {
     return isPlanned
-      && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.encryptedReplayItems > 0));
+      && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.replayRepairItems > 0));
   }
   return plan.fromProviders.some((source) => entry.providers.includes(source))
-    || (isPlanned && plan.sanitizeEncrypted && entry.encryptedReplayItems > 0);
+    || (isPlanned && plan.sanitizeEncrypted && entry.replayRepairItems > 0);
 }
 
 function remainsInDatabase(row, plan) {
@@ -904,6 +919,7 @@ function summarize(inventory, plan) {
     result.bytes += entry.bytes;
     result.historyRepairs += entry.malformedResponseItems;
     result.encryptedReplayItems += entry.encryptedReplayItems;
+    result.replayRepairItems += entry.replayRepairItems;
     result.plaintextCompactionItems += entry.plaintextCompactionItems;
     result.opaqueCompactionItems += entry.opaqueCompactionItems;
     return result;
@@ -911,6 +927,7 @@ function summarize(inventory, plan) {
     bytes: 0,
     historyRepairs: 0,
     encryptedReplayItems: 0,
+    replayRepairItems: 0,
     plaintextCompactionItems: 0,
     opaqueCompactionItems: 0,
   });
@@ -925,6 +942,7 @@ function summarize(inventory, plan) {
     jsonlBytes: totals.bytes,
     historyRepairs: totals.historyRepairs,
     encryptedReplayItems: totals.encryptedReplayItems,
+    replayRepairItems: totals.replayRepairItems,
     plaintextCompactionItems: totals.plaintextCompactionItems,
     opaqueCompactionItems: totals.opaqueCompactionItems,
     mixedSessionMetadata: plan.sessionFiles.filter((entry) => entry.providers.length > 1).length,
@@ -988,12 +1006,14 @@ function formatInventory(inventory) {
   const sessionTotals = inventory.sessions.reduce((result, entry) => {
     result.historyRepairCandidates += entry.malformedResponseItems;
     result.encryptedReplayCandidates += entry.encryptedReplayItems;
+    result.replayRepairCandidates += entry.replayRepairItems;
     result.plaintextCompactionCandidates += entry.plaintextCompactionItems;
     result.opaqueCompactionCandidates += entry.opaqueCompactionItems;
     return result;
   }, {
     historyRepairCandidates: 0,
     encryptedReplayCandidates: 0,
+    replayRepairCandidates: 0,
     plaintextCompactionCandidates: 0,
     opaqueCompactionCandidates: 0,
   });

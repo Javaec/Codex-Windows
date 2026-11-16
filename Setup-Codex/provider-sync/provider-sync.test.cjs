@@ -319,7 +319,7 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.equal(report.historyRepairs, 1);
     assert.equal(report.historyItemsRemoved, 1);
     assert.equal(report.encryptedReplayItems, 6);
-    assert.equal(report.sanitizedReasoningItems, 2);
+    assert.equal(report.sanitizedReasoningItems, 3);
     assert.equal(report.convertedCompactionItems, 2);
     assert.equal(report.removedCompactionItems, 2);
     const text = fs.readFileSync(testFixture.sessionPath, 'utf8');
@@ -333,7 +333,8 @@ test('apply changes only the session_meta provider and matching SQLite row', () 
     assert.deepEqual(compacted.payload.replacement_history_metadata, [{ label: 'plain' }, { label: 'reasoning' }]);
     assert.equal(compacted.payload.replacement_history.length, compacted.payload.replacement_history_metadata.length);
     assert.match(text, /"type":"message"/);
-    assert.match(text, /rs_valid/);
+    assert.doesNotMatch(text, /rs_valid/);
+    assert.match(text, /Visible summary/);
     assert.match(text, /\\"model_provider\\":\\"openai\\"/);
     const db = new DatabaseSync(testFixture.dbPath, { readOnly: true });
     assert.equal(db.prepare('SELECT model_provider FROM threads WHERE id = ?').get('session-a').model_provider, 'custom');
@@ -459,7 +460,7 @@ test('repair-encrypted sanitizes nested compaction history without changing prov
     assert.equal(report.repairEncrypted, true);
     assert.equal(report.encryptedReplayItems, 6);
     assert.equal(report.historyItemsRemoved, 1);
-    assert.equal(report.sanitizedReasoningItems, 2);
+    assert.equal(report.sanitizedReasoningItems, 3);
     assert.equal(report.convertedCompactionItems, 2);
     assert.equal(report.removedCompactionItems, 2);
     assert.equal(report.verified, true);
@@ -480,5 +481,58 @@ test('repair-encrypted sanitizes nested compaction history without changing prov
     assert.equal(secondPreview.encryptedReplayItems, 0);
   } finally {
     fs.rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
+test('replay repair selects summary-only reasoning left by an older migration', () => {
+  const f = fixture();
+  try {
+    const records = [
+      { type: 'session_meta', payload: { id: 'session-a', model_provider: 'openai' } },
+      { type: 'response_item', payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Visible previous reasoning' }], content: [{ type: 'reasoning_text', text: 'Visible previous detail' }], internal_chat_message_metadata_passthrough: { turn_id: 'turn-a' } } },
+    ];
+    fs.writeFileSync(f.sessionPath, records.map(r => JSON.stringify(r)).join('\n') + '\n');
+    const options = { codexHome: f.root, sessionId: 'session-a', repairHistory: true, repairEncrypted: true };
+    const preview = syncProvider(options);
+    assert.equal(preview.jsonlChanges, 1);
+    assert.equal(preview.encryptedReplayItems, 0);
+    assert.equal(preview.replayRepairItems, 1);
+    const report = syncProvider({ ...options, apply: true });
+    assert.equal(report.sanitizedReasoningItems, 1);
+    const rewritten = fs.readFileSync(f.sessionPath, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepEqual(rewritten[1].payload, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Visible previous reasoning\n\nVisible previous detail' }], internal_chat_message_metadata_passthrough: { turn_id: 'turn-a' } });
+    assert.equal(syncProvider(options).jsonlChanges, 0);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('replay repair handles guardian history while preserving tools and aligned metadata', () => {
+  const f = fixture();
+  try {
+    const tool = { type: 'function_call', id: 'fc_original', call_id: 'call_original', name: 'check', arguments: '{}' };
+    const compacted = {
+      type: 'compacted', payload: {
+        message: 'Keep the checkpoint',
+        guardian_history: [
+          { type: 'reasoning', id: 'rs_opaque', summary: [], encrypted_content: 'gAAAA_guardian_ciphertext' },
+          { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Visible guardian summary' }], encrypted_content: 'gAAAA_guardian_visible_ciphertext' },
+          tool,
+        ],
+        guardian_history_metadata: [{ label: 'opaque' }, { label: 'visible' }, { label: 'tool' }],
+      },
+    };
+    fs.appendFileSync(f.sessionPath, JSON.stringify(compacted) + '\n');
+    const report = syncProvider({ codexHome: f.root, sessionId: 'session-a', repairHistory: true, repairEncrypted: true, apply: true });
+    assert.equal(report.encryptedReplayItems, 8);
+    assert.equal(report.replayRepairItems, 10);
+    const records = fs.readFileSync(f.sessionPath, 'utf8').trim().split('\n').map(JSON.parse);
+    const rewritten = records.at(-1);
+    assert.equal(rewritten.payload.message, 'Keep the checkpoint');
+    assert.deepEqual(rewritten.payload.guardian_history, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Visible guardian summary' }] }, tool]);
+    assert.deepEqual(rewritten.payload.guardian_history_metadata, [{ label: 'visible' }, { label: 'tool' }]);
+    assert.doesNotMatch(fs.readFileSync(f.sessionPath, 'utf8'), /"type":"reasoning"|gAAAA/);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
   }
 });
