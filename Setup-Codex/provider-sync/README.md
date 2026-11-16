@@ -52,6 +52,23 @@ The read-only no-match preview against the real home took 147.55 ms before and 2
 
 The installed CLI also verified another isolated round trip, including zstd input, preserving all 25 turns and 3834 full history items. The current suite has 40 tests, including split UTF-8/emoji, CRLF, unterminated records, worker cancellation, no-op/preview directory isolation, invalid records, and prototype-named provider IDs. Detailed local evidence: `work/provider-sync-validation/bulk-polish-measurements.json`, `bulk-polish-inputs.json`, and `bulk-polish-native-report.json`. No live chat provider or history was changed by these polish checks.
 
+### Seek to the retained plain-file suffix
+
+Plain rollouts now locate a canonical compaction record header from the end in overlapping 1 MiB blocks. The reader loads the original session metadata and streams forward from that offset, preserving exact byte cutoffs. Nested payload markers cannot become seek points. Records with different formatting still pass through the existing forward reader, so a newer checkpoint remains authoritative. Large metadata records and files without a recognized checkpoint use the full forward scan. Zstd input remains sequential. Checkpoint validation now reuses the parsed output record instead of parsing the large checkpoint payload twice.
+
+Three before/after pairs compared frozen copies of `67886e3` and this implementation with Node.js `v26.13.0`. The same two real histories were tested in plain and zstd form. Medians:
+
+| Input | CPU ms before → after | Peak RSS MiB before → after | Elapsed ms before → after |
+| --- | ---: | ---: | ---: |
+| Original history, 65.6 MB, plain | 375 → 203 | 155 → 118 | 1399 → 1199 |
+| Original history, 65.6 MB decoded, zstd | 704 → 719 | 164 → 178 | 2703 → 1931 |
+| Continuation, 8.95 MB, plain | 203 → 172 | 131 → 125 | 944 → 750 |
+| Continuation, 8.95 MB decoded, zstd | 328 → 282 | 128 → 131 | 1087 → 1010 |
+
+All six outputs per input remained byte-identical, with the same SHA-256 hashes recorded above. The plain-history case used 46% less CPU and 24% less peak RSS in this sample. Compressed-input CPU and memory did not improve consistently; these local measurements do not establish a universal speedup. Read-only no-match preview remained approximately 6 ms in this run.
+
+The suite now has 47 tests, including headers split across reverse-read blocks, nested markers, newer noncanonical checkpoints, plain and compressed frozen ancestor cutoffs, large metadata with and without checkpoints, and atomic failure on incomplete compactions. The installed CLI verified both directions on another isolated copy, including zstd input, preserving all 25 turns and 3834 full history items. No live chat was migrated during these checks. Local measurements and frozen source hashes: `work/provider-sync-validation/reverse-measurements.json` and `reverse-summary.json`. Native validation: `reverse-native-report.json`. References under `reference/decompile/*` remain absent; the approach was checked against upstream [model-context reads](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/model_context.rs) and [blocking rollout reads](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/compression/blocking_reader.rs).
+
 Codex stores the provider in two places:
 
 - `sessions/**/rollout-*.jsonl` and `archived_sessions/rollout-*.jsonl`, inside every `session_meta` record;

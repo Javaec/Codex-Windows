@@ -113,7 +113,7 @@ for (const compressed of [false, true]) {
     item.payload = message(padding + '🦀Ж' + 'z'.repeat(1024 * 1024));
     const prefix = header + JSON.stringify(item) + '\r\n \r\n';
     const thought = '🙂Я'.repeat(512 * 1024);
-    const content = prefix + JSON.stringify({ ordinal: 2, ...checkpoint('Latest') }) + '\r\n'
+    const content = prefix + JSON.stringify({ timestamp: '2026-11-16T10:00:00Z', ordinal: 2, ...checkpoint('Latest') }) + '\r\n'
       + JSON.stringify({ ordinal: 3, type: 'response_item', payload: reasoning(thought) });
     const original = compressed ? zstdCompressSync(content) : Buffer.from(content);
     fs.writeFileSync(source.file, original);
@@ -126,20 +126,82 @@ for (const compressed of [false, true]) {
   });
 }
 
-test('a checkpoint in an ancestor respects the frozen cutoff and preserves descendant suffixes', async t => {
+for (const compressed of [false, true]) {
+  test(`an ancestor checkpoint respects its frozen cutoff (${compressed ? 'zstd' : 'plain'})`, async t => {
+    const f = fixture(t);
+    const ancestor = f.add([checkpoint('Frozen context'), { type: 'response_item', payload: message('Frozen tail') }], { compressed, provider: 'openai' });
+    const child = f.add([{ type: 'response_item', payload: reasoning('Child thought') }], { historyBase: {
+      thread_id: ancestor.id, end_ordinal_exclusive: 3, end_byte_offset: Buffer.byteLength(ancestor.content),
+    } });
+    const content = ancestor.content + JSON.stringify({ timestamp: '2026-11-16T11:00:00Z', ordinal: 3, ...checkpoint('Too new') }) + '\n';
+    fs.writeFileSync(ancestor.file, compressed ? zstdCompressSync(content) : content);
+    await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true });
+    const records = f.records(child.id);
+    assert.equal(records[1].payload.replacement_history[0].content[0].text, 'Frozen context');
+    assert.equal(records[2].payload.content[0].text, 'Frozen tail');
+    assert.equal(records[3].payload.content[0].text, 'Child thought');
+    assert.equal(records[0].payload.history_base.thread_id, ancestor.id);
+  });
+}
+
+test('reverse lookup finds a checkpoint header split across blocks and ignores nested markers', async t => {
   const f = fixture(t);
-  const ancestor = f.add([checkpoint('Frozen context'), { type: 'response_item', payload: message('Frozen tail') }], { compressed: true, provider: 'openai' });
-  const child = f.add([{ type: 'response_item', payload: reasoning('Child thought') }], { historyBase: {
-    thread_id: ancestor.id, end_ordinal_exclusive: 3, end_byte_offset: Buffer.byteLength(ancestor.content),
-  } });
-  fs.writeFileSync(ancestor.file, zstdCompressSync(ancestor.content + JSON.stringify({ ordinal: 3, ...checkpoint('Too new') }) + '\n'));
+  const source = f.add([{ type: 'response_item', payload: message('x'.repeat(2 * 1024 * 1024)) }]);
+  const compacted = JSON.stringify({ timestamp: '2026-11-16T10:00:00Z', ordinal: 2, ...checkpoint('Latest') }) + '\n';
+  const nested = JSON.stringify({ timestamp: '2026-11-16T10:00:00Z', ordinal: 3, type: 'event_msg', payload: checkpoint('Nested data') }) + '\n';
+  const last = { ordinal: 4, type: 'response_item', payload: message('') };
+  const initialSize = Buffer.byteLength(source.content + compacted + nested + JSON.stringify(last) + '\n');
+  const blockStart = Buffer.byteLength(source.content) + compacted.indexOf('"type":"compacted"') + 8;
+  const padding = blockStart + 1024 * 1024 - initialSize;
+  last.payload = message('z'.repeat(padding));
+  fs.writeFileSync(source.file, source.content + compacted + nested + JSON.stringify(last) + '\n');
   await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true });
-  const records = f.records(child.id);
-  assert.equal(records[1].payload.replacement_history[0].content[0].text, 'Frozen context');
-  assert.equal(records[2].payload.content[0].text, 'Frozen tail');
-  assert.equal(records[3].payload.content[0].text, 'Child thought');
-  assert.equal(records[0].payload.history_base.thread_id, ancestor.id);
+  const records = f.records(source.id);
+  assert.equal(records[0].payload.history_base.end_byte_offset, Buffer.byteLength(source.content));
+  assert.equal(records[1].payload.replacement_history[0].content[0].text, 'Latest');
+  assert.equal(records[2].payload.type, 'compacted');
+  assert.equal(records[3].payload.content[0].text.length, padding);
 });
+
+test('forward replay still chooses a newer noncanonical checkpoint', async t => {
+  const f = fixture(t);
+  const source = f.add([checkpoint('Older')]);
+  const newer = JSON.stringify({ timestamp: '2026-11-16T10:00:00Z', ordinal: 2, ...checkpoint('Newer') })
+    .replace('"type":"compacted"', '"type": "compacted"');
+  fs.appendFileSync(source.file, newer + '\n');
+  await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true });
+  const records = f.records(source.id);
+  assert.equal(records[0].payload.history_base.end_byte_offset, Buffer.byteLength(source.content));
+  assert.equal(records[1].payload.replacement_history[0].content[0].text, 'Newer');
+});
+
+for (const hasCheckpoint of [false, true]) {
+  test(`large session metadata is preserved (${hasCheckpoint ? 'checkpoint' : 'full history'})`, async t => {
+    const f = fixture(t);
+    const source = f.add([...(hasCheckpoint ? [checkpoint('Latest')] : []), { type: 'response_item', payload: message('Last message') }]);
+    const records = source.content.trimEnd().split('\n').map(JSON.parse);
+    records[0].payload.base_instructions = { text: 'x'.repeat(2 * 1024 * 1024) };
+    fs.writeFileSync(source.file, records.map(JSON.stringify).join('\n'));
+    await syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true });
+    const rewritten = f.records(source.id);
+    assert.equal(rewritten[0].payload.base_instructions.text.length, 2 * 1024 * 1024);
+    assert.equal(rewritten.at(-1).payload.content[0].text, 'Last message');
+    assert.equal(Boolean(rewritten[0].payload.history_base), hasCheckpoint);
+  });
+}
+
+for (const compressed of [false, true]) {
+  test(`an incomplete checkpoint leaves the database and original file unchanged (${compressed ? 'zstd' : 'plain'})`, async t => {
+    const f = fixture(t);
+    const source = f.add([{ type: 'compacted', payload: { message: '', window_number: 1 } }], { compressed });
+    const original = fs.readFileSync(source.file);
+    await assert.rejects(syncAllProviders({ codexHome: f.codexHome, toProvider: 'openai', apply: true }), /no replacement_history/);
+    assert.equal(f.row(source.id).rollout_path, source.file);
+    assert.equal(f.row(source.id).model_provider, 'codex');
+    assert.deepEqual(fs.readFileSync(source.file), original);
+    assert.equal(fs.readdirSync(path.dirname(source.file)).length, 1);
+  });
+}
 
 test('status and preview avoid parsing histories, and missing histories are reported explicitly', async t => {
   const f = fixture(t);

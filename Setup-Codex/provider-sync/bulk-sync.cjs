@@ -12,6 +12,40 @@ const {
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.jsonl(?:\.zst)?$)/i;
 const BLOCK_SIZE = 1024 * 1024;
+const CHECKPOINT_MARKER = Buffer.from('"type":"compacted"');
+
+// Locate canonical record headers in bytes, without decoding discarded history.
+function findPlainCheckpoint(file, endByteOffset) {
+  const fd = fs.openSync(file, 'r');
+  const buffer = Buffer.allocUnsafe(BLOCK_SIZE + 256);
+  try {
+    for (let end = endByteOffset; end > 0;) {
+      const start = Math.max(0, end - BLOCK_SIZE);
+      // Overlap keeps a record header intact when it crosses a block boundary.
+      const length = Math.min(buffer.length, endByteOffset - start);
+      const block = buffer.subarray(0, fs.readSync(fd, buffer, 0, length, start));
+      for (let match = block.lastIndexOf(CHECKPOINT_MARKER); match > 0; match = block.lastIndexOf(CHECKPOINT_MARKER, match - 1)) {
+        const prefixStart = Math.max(0, match - 250);
+        const newline = block.subarray(prefixStart, match).lastIndexOf(10);
+        if (newline < 0) continue;
+        const lineStart = prefixStart + newline + 1;
+        const header = block.toString('utf8', lineStart, match + CHECKPOINT_MARKER.length);
+        if (/^\{"timestamp":"[^"]+","ordinal":\d+,"type":"compacted"$/.test(header)) {
+          const first = buffer.subarray(0, fs.readSync(fd, buffer, 0, BLOCK_SIZE, 0));
+          const headerEnd = first.indexOf(10);
+          if (headerEnd < 0) return { start: 0 };
+          const meta = JSON.parse(first.toString('utf8', 0, headerEnd));
+          if (meta.type !== 'session_meta') throw new Error(`Missing session_meta: ${file}`);
+          return { start: start + lineStart, meta };
+        }
+      }
+      end = start;
+    }
+    return { start: 0 };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 function rolloutId(file) {
   const match = path.basename(file).match(UUID);
@@ -78,13 +112,16 @@ function fastStatus(options) {
 // Read decoded bytes so lineage cutoffs work identically for plain and zstd files.
 async function scanTail(file, endByteOffset = Infinity) {
   const before = fs.statSync(file);
-  const input = fs.createReadStream(file, { highWaterMark: BLOCK_SIZE });
-  const stream = file.endsWith('.zst') ? input.pipe(createZstdDecompress()) : input;
+  const compressed = file.endsWith('.zst');
+  const { start, meta: initialMeta } = compressed ? { start: 0 }
+    : findPlainCheckpoint(file, Math.min(endByteOffset, before.size));
+  const input = fs.createReadStream(file, { start, highWaterMark: BLOCK_SIZE });
+  const stream = compressed ? input.pipe(createZstdDecompress()) : input;
   if (stream !== input) input.on('error', error => stream.destroy(error));
   let fragments = [];
-  let offset = 0;
+  let offset = start;
   let lastOrdinal = -1;
-  let meta;
+  let meta = initialMeta;
   let checkpoint;
   let tail = [];
   const consumeLine = (buffer, newline) => {
@@ -122,7 +159,7 @@ async function scanTail(file, endByteOffset = Infinity) {
     if (start < chunk.length) fragments.push(chunk.subarray(start));
   };
   try {
-    let decodedBytes = 0;
+    let decodedBytes = start;
     for await (const chunk of stream) {
       const part = chunk.subarray(0, Math.min(chunk.length, endByteOffset - decodedBytes));
       decodedBytes += part.length;
@@ -163,10 +200,6 @@ async function prepareContinuation(job, catalog, toProvider) {
     }
     suffixes.push(current.tail);
     if (current.checkpoint) {
-      const payload = JSON.parse(current.tail[0]).payload;
-      if (!Array.isArray(payload.replacement_history)) {
-        throw new Error(`Compaction has no replacement_history: ${file}`);
-      }
       historyBase = {
         thread_id: id, end_ordinal_exclusive: current.checkpoint.ordinal,
         end_byte_offset: current.checkpoint.offset,
@@ -209,7 +242,10 @@ async function prepareContinuation(job, catalog, toProvider) {
         const record = rewriteSessionRecord(parsed, toProvider, true, changes);
         if (record === null) continue;
         record.ordinal = ordinal++;
-        if (record.type === 'compacted' && record.payload.window_number == null) record.payload.window_number = 0;
+        if (record.type === 'compacted') {
+          if (!Array.isArray(record.payload?.replacement_history)) throw new Error(`Compaction has no replacement_history: ${file}`);
+          if (record.payload.window_number == null) record.payload.window_number = 0;
+        }
         write(JSON.stringify(record));
       }
     }
