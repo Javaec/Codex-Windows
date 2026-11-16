@@ -9,14 +9,9 @@ const { pathToFileURL } = require('node:url');
 
 const STATE_DB_FILENAME = 'state_5.sqlite';
 const SESSION_ROOTS = ['sessions', 'archived_sessions'];
-const ACTION_NONE = 'none';
-const ACTION_REMOVE_REASONING = 'removedReasoning';
-const ACTION_SANITIZE_REASONING = 'sanitizedReasoning';
-const ACTION_REMOVE_COMPACTION = 'removedCompaction';
-const ACTION_CONVERT_COMPACTION = 'convertedCompaction';
 const OPAQUE_ENCRYPTED_CONTENT = /^[A-Za-z0-9_+=\/-]+$/u;
-const JSONL_READ_BUFFER_SIZE = 8 * 1024 * 1024;
-const JSONL_WRITE_BUFFER_SIZE = 8 * 1024 * 1024;
+const JSONL_READ_BUFFER_SIZE = 1024 * 1024;
+const JSONL_WRITE_BUFFER_SIZE = 1024 * 1024;
 const MAX_SCAN_ATTEMPTS = 3;
 const HISTORY_TABLES = ['thread_turns', 'thread_items', 'thread_realtime_items', 'thread_history_projection_state'];
 const REPLAY_HISTORY_KEYS = ['replacement_history', 'guardian_history'];
@@ -85,26 +80,20 @@ function listFilesRecursive(rootPath) {
   return result.sort();
 }
 
-function isInvisibleText(value) {
-  return typeof value === 'string' && !/[^\s\u200B\u200C\u200D\uFEFF]/u.test(value);
+function hasVisibleText(text) {
+  return /[^\s\u200B\u200C\u200D\uFEFF]/u.test(text);
 }
 
-function summaryText(payload) {
-  if (!Array.isArray(payload?.summary)) {
-    return '';
-  }
-  let result = '';
-  for (const item of payload.summary) {
-    if (typeof item?.text === 'string') {
-      result += item.text;
+function reasoningText(payload) {
+  const parts = [];
+  for (const key of ['summary', 'content']) {
+    for (const item of payload[key] || []) {
+      if (typeof item?.text === 'string' && hasVisibleText(item.text)) {
+        parts.push(item.text);
+      }
     }
   }
-  return result;
-}
-
-function hasVisibleReasoningContent(payload) {
-  return (Array.isArray(payload?.content) && payload.content.length > 0)
-    || !isInvisibleText(summaryText(payload));
+  return parts.join('\n\n');
 }
 
 function isRepairableReasoningItem(payload) {
@@ -114,7 +103,7 @@ function isRepairableReasoningItem(payload) {
   if (typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
     return false;
   }
-  return !hasVisibleReasoningContent(payload);
+  return reasoningText(payload) === '';
 }
 
 function isOpaqueEncryptedContent(value) {
@@ -125,37 +114,48 @@ function isOpaqueEncryptedContent(value) {
 
 function makeVisibleReplayMessage(text, source) {
   const turnId = source.internal_chat_message_metadata_passthrough?.turn_id;
-  return {
+  const message = {
     type: 'message',
     role: 'assistant',
     content: [{ type: 'output_text', text }],
-    ...(turnId ? { internal_chat_message_metadata_passthrough: { turn_id: turnId } } : {}),
   };
+  if (turnId) {
+    message.internal_chat_message_metadata_passthrough = { turn_id: turnId };
+  }
+  return message;
 }
 
-function sanitizeResponseItem(payload) {
+function rewriteResponseItem(payload, changes, repairReplay) {
   if (!payload || typeof payload !== 'object') {
-    return { payload, action: ACTION_NONE };
+    return payload;
   }
 
-  if (payload.type === 'reasoning') {
-    const text = [...(payload.summary || []), ...(payload.content || [])]
-      .map((item) => item.text || '').filter((part) => !isInvisibleText(part)).join('\n\n');
-    if (isInvisibleText(text)) {
-      return { payload: null, action: ACTION_REMOVE_REASONING };
+  if (repairReplay && payload.type === 'reasoning') {
+    const text = reasoningText(payload);
+    if (!text) {
+      changes.removedResponseItems += 1;
+      return null;
     }
     // Summary-only reasoning still breaks Rustponses previous_response_id replay.
-    return { payload: makeVisibleReplayMessage(text, payload), action: ACTION_SANITIZE_REASONING };
+    changes.sanitizedReasoningItems += 1;
+    return makeVisibleReplayMessage(text, payload);
   }
 
-  if (payload.type === 'compaction' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
+  if (isRepairableReasoningItem(payload)) {
+    changes.removedResponseItems += 1;
+    return null;
+  }
+
+  if (repairReplay && payload.type === 'compaction' && typeof payload.encrypted_content === 'string' && payload.encrypted_content.length > 0) {
     if (isOpaqueEncryptedContent(payload.encrypted_content)) {
-      return { payload: null, action: ACTION_REMOVE_COMPACTION };
+      changes.removedCompactionItems += 1;
+      return null;
     }
-    return { payload: makeVisibleReplayMessage(payload.encrypted_content, payload), action: ACTION_CONVERT_COMPACTION };
+    changes.convertedCompactionItems += 1;
+    return makeVisibleReplayMessage(payload.encrypted_content, payload);
   }
 
-  return { payload, action: ACTION_NONE };
+  return payload;
 }
 
 function collectReplayPayloadStats(payload, stats) {
@@ -196,19 +196,28 @@ function collectReplayStats(record, stats) {
 function processJsonlLinesSync(fileDescriptor, callback) {
   const decoder = new StringDecoder('utf8');
   const buffer = Buffer.allocUnsafe(JSONL_READ_BUFFER_SIZE);
-  let carry = '';
+  let pending = [];
 
   const consume = (chunk, final = false) => {
-    carry += chunk;
-    let newlineIndex = carry.indexOf('\n');
+    let start = 0;
+    let newlineIndex = chunk.indexOf('\n', start);
     while (newlineIndex >= 0) {
-      callback(carry.slice(0, newlineIndex), true);
-      carry = carry.slice(newlineIndex + 1);
-      newlineIndex = carry.indexOf('\n');
+      let line = chunk.slice(start, newlineIndex);
+      if (pending.length > 0) {
+        pending.push(line);
+        line = pending.join('');
+        pending = [];
+      }
+      callback(line, true);
+      start = newlineIndex + 1;
+      newlineIndex = chunk.indexOf('\n', start);
     }
-    if (final && carry.length > 0) {
-      callback(carry, false);
-      carry = '';
+    if (start < chunk.length) {
+      pending.push(chunk.slice(start));
+    }
+    if (final && pending.length > 0) {
+      callback(pending.join(''), false);
+      pending = [];
     }
   };
 
@@ -365,22 +374,21 @@ function scanSessions(codexHome, sessionId = '', dbRows = []) {
   const matchingFiles = sessionId
     ? rolloutFiles.filter((filePath) => path.basename(filePath).includes(sessionId))
     : rolloutFiles;
-  const matchingFileSet = new Set(matchingFiles);
   const initialFiles = sessionId && matchingFiles.length === 0 ? rolloutFiles : matchingFiles;
   const inspected = inspectSessionFiles(initialFiles, codexHome);
   if (sessionId && matchingFiles.length > 0 && !inspected.entries.some((entry) => entry.id === sessionId)) {
-    const initialTargetEntries = inspected.entries.filter((entry) => entry.id === sessionId);
+    const matchingFileSet = new Set(matchingFiles);
     const fallbackFiles = rolloutFiles.filter((filePath) => !matchingFileSet.has(filePath));
     const fallback = inspectSessionFiles(fallbackFiles, codexHome);
     inspected.entries.length = 0;
-    inspected.entries.push(...initialTargetEntries, ...fallback.entries.filter((entry) => entry.id === sessionId));
+    inspected.entries.push(...fallback.entries.filter((entry) => entry.id === sessionId));
     inspected.errors.push(...fallback.errors);
   }
   return { entries: inspected.entries.filter((entry) => !sessionId || entry.id === sessionId), errors: inspected.errors, unsupported };
 }
 
 function openStateDb(stateDbPath, readOnly) {
-  return new DatabaseSync(stateDbPath, readOnly ? { readOnly: true } : {});
+  return new DatabaseSync(stateDbPath, { readOnly });
 }
 
 function readStateRows(stateDbPath, sessionId = '') {
@@ -464,10 +472,6 @@ function buildPlan(inventory, { fromProviders, toProvider, sessionId }) {
   if (sessionId && sessionMatches.length === 0 && dbMatches.length === 0) {
     fail(`Session was not found with source provider ${sources.join(', ')}: ${sessionId}`);
   }
-  if (sessionMatches.length === 0 && dbMatches.length === 0) {
-    return { fromProviders: sources, toProvider: target, sessionId: sessionId || '', sessionFiles: [], dbRows: [] };
-  }
-
   return {
     fromProviders: sources,
     toProvider: target,
@@ -503,25 +507,6 @@ function formatJsonLine(record, originalLine) {
   return `${leading}${JSON.stringify(record)}${originalLine.endsWith('\r') ? '\r' : ''}`;
 }
 
-function recordSanitizedAction(action, changes) {
-  switch (action) {
-    case ACTION_REMOVE_REASONING:
-      changes.removedResponseItems += 1;
-      break;
-    case ACTION_SANITIZE_REASONING:
-      changes.sanitizedReasoningItems += 1;
-      break;
-    case ACTION_REMOVE_COMPACTION:
-      changes.removedCompactionItems += 1;
-      break;
-    case ACTION_CONVERT_COMPACTION:
-      changes.convertedCompactionItems += 1;
-      break;
-    default:
-      break;
-  }
-}
-
 function createRewriteState() {
   return {
     providerUpdates: 0,
@@ -536,38 +521,26 @@ function createRewriteState() {
 function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
   const line = original.endsWith('\r') ? original.slice(0, -1) : original;
   if (!line.trim()) {
-    return { keep: true, text: original };
+    return original;
   }
 
   let record;
   try {
     record = JSON.parse(line);
   } catch {
-    return { keep: true, text: original };
+    return original;
   }
 
-  let keepRecord = true;
   let recordChanged = false;
   if (record?.type === 'response_item') {
-    if (isRepairableReasoningItem(record.payload)) {
-      changes.removedResponseItems += 1;
-      keepRecord = false;
-    }
-    if (keepRecord && sanitizeEncrypted) {
-      const sanitized = sanitizeResponseItem(record.payload);
-      if (sanitized.action === ACTION_REMOVE_REASONING || sanitized.action === ACTION_REMOVE_COMPACTION) {
-        keepRecord = false;
-      }
-      if (sanitized.action !== ACTION_NONE) {
-        recordSanitizedAction(sanitized.action, changes);
-        if (keepRecord) {
-          record.payload = sanitized.payload;
-          recordChanged = true;
-        }
-      }
+    const rewritten = rewriteResponseItem(record.payload, changes, sanitizeEncrypted);
+    if (rewritten !== record.payload) {
+      if (rewritten === null) return null;
+      record.payload = rewritten;
+      recordChanged = true;
     }
   }
-  if (keepRecord && sanitizeEncrypted && record?.type === 'compacted') {
+  if (sanitizeEncrypted && record?.type === 'compacted') {
     for (const historyKey of REPLAY_HISTORY_KEYS) {
       const history = record.payload?.[historyKey];
       if (!Array.isArray(history)) continue;
@@ -580,15 +553,13 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
       }
       let replacementChanged = false;
       for (const [index, item] of history.entries()) {
-        const sanitized = sanitizeResponseItem(item);
-        if (sanitized.action !== ACTION_NONE) {
-          recordSanitizedAction(sanitized.action, changes);
+        const rewritten = rewriteResponseItem(item, changes, true);
+        if (rewritten !== item) {
           replacementChanged = true;
+          if (rewritten === null) continue;
         }
-        if (sanitized.action !== ACTION_REMOVE_REASONING && sanitized.action !== ACTION_REMOVE_COMPACTION) {
-          replacementHistory.push(sanitized.action === ACTION_NONE ? item : sanitized.payload);
-          if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
-        }
+        replacementHistory.push(rewritten);
+        if (Array.isArray(metadata)) replacementMetadata.push(metadata[index]);
       }
       if (replacementChanged) {
         record.payload[historyKey] = replacementHistory;
@@ -597,7 +568,7 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
       }
     }
   }
-  if (keepRecord && record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
+  if (record?.type === 'session_meta' && record.payload && typeof record.payload === 'object') {
     changes.sawMeta = true;
     if (toProvider && record.payload.model_provider !== toProvider) {
       record.payload.model_provider = toProvider;
@@ -605,18 +576,7 @@ function rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes) {
       recordChanged = true;
     }
   }
-  return {
-    keep: keepRecord,
-    text: keepRecord && recordChanged ? formatJsonLine(record, original) : original,
-  };
-}
-
-function finishRewrite(changes, text) {
-  if (!changes.sawMeta) {
-    fail('Cannot rewrite session without a session_meta record.');
-  }
-  const { sawMeta, ...result } = changes;
-  return { text, ...result };
+  return recordChanged ? formatJsonLine(record, original) : original;
 }
 
 function hasRewriteChanges(changes) {
@@ -625,19 +585,6 @@ function hasRewriteChanges(changes) {
     || changes.sanitizedReasoningItems > 0
     || changes.convertedCompactionItems > 0
     || changes.removedCompactionItems > 0;
-}
-
-function rewriteSessionFile(text, toProvider, { sanitizeEncrypted = false } = {}) {
-  const lines = text.split('\n');
-  const output = [];
-  const changes = createRewriteState();
-  for (const original of lines) {
-    const rewritten = rewriteSessionLine(original, toProvider, sanitizeEncrypted, changes);
-    if (rewritten.keep) {
-      output.push(rewritten.text);
-    }
-  }
-  return finishRewrite(changes, hasRewriteChanges(changes) ? output.join('\n') : text);
 }
 
 function openUniqueTempFile(filePath) {
@@ -662,7 +609,7 @@ function createBufferedWriter(fileDescriptor) {
     if (length === 0) {
       return;
     }
-    fs.writeSync(fileDescriptor, chunks.join(''), null, 'utf8');
+    fs.writeFileSync(fileDescriptor, chunks.join(''), 'utf8');
     chunks = [];
     length = 0;
   };
@@ -700,8 +647,8 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
 
   const writeLine = (line, hasNewline) => {
     const rewritten = rewriteSessionLine(line, toProvider, sanitizeEncrypted, changes);
-    if (rewritten.keep) {
-      output.write(rewritten.text + (hasNewline ? '\n' : ''));
+    if (rewritten !== null) {
+      output.write(rewritten + (hasNewline ? '\n' : ''));
     }
   };
   try {
@@ -717,7 +664,7 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
 
     if (!hasRewriteChanges(changes)) {
       fs.rmSync(temp.path, { force: true });
-      return { changed: false, ...finishRewrite(changes, '') };
+      return { ...changes, changed: false };
     }
     fs.chmodSync(temp.path, currentStat.mode);
     const finalStat = fs.statSync(filePath);
@@ -725,7 +672,7 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
       fail(`Session changed while rewriting: ${filePath}`);
     }
     fs.renameSync(temp.path, filePath);
-    return { changed: true, ...finishRewrite(changes, '') };
+    return { ...changes, changed: true };
   } catch (error) {
     if (sourceFd !== undefined) {
       try { fs.closeSync(sourceFd); } catch { /* Best-effort cleanup. */ }
@@ -736,10 +683,6 @@ function rewriteSessionFileOnDisk(filePath, expected, toProvider, { sanitizeEncr
     fs.rmSync(temp.path, { force: true });
     throw error;
   }
-}
-
-function rewriteSessionProvider(text, toProvider) {
-  return rewriteSessionFile(text, toProvider).text;
 }
 
 function createBackup(inventory, plan, backupRoot) {
@@ -815,15 +758,17 @@ function resetHistoryProjection(inventory, plan) {
   const db = openStateDb(inventory.historyDbPath, false);
   try {
     db.exec('BEGIN IMMEDIATE');
+    const deleteSuffix = HISTORY_TABLES.slice(0, -1).map((table) =>
+      db.prepare(`DELETE FROM ${table} WHERE thread_id = ? AND rollout_ordinal >= ?`));
+    const reopenTurn = db.prepare("UPDATE thread_turns SET rollout_end_ordinal = NULL, rollout_end_byte_offset = NULL, status = 'inProgress' WHERE thread_id = ? AND rollout_end_ordinal >= ?");
+    const deleteCheckpoint = db.prepare('DELETE FROM thread_history_projection_state WHERE thread_id = ?');
     for (const entry of plan.sessionFiles) {
       // Keep inherited history whose durable prefix is no longer in this rollout.
-      for (const table of HISTORY_TABLES.slice(0, -1)) {
-        db.prepare(`DELETE FROM ${table} WHERE thread_id = ? AND rollout_ordinal >= ?`)
-          .run(entry.rolloutId, entry.historyStartOrdinal);
+      for (const statement of deleteSuffix) {
+        statement.run(entry.rolloutId, entry.historyStartOrdinal);
       }
-      db.prepare("UPDATE thread_turns SET rollout_end_ordinal = NULL, rollout_end_byte_offset = NULL, status = 'inProgress' WHERE thread_id = ? AND rollout_end_ordinal >= ?")
-        .run(entry.rolloutId, entry.historyStartOrdinal);
-      db.prepare('DELETE FROM thread_history_projection_state WHERE thread_id = ?').run(entry.rolloutId);
+      reopenTurn.run(entry.rolloutId, entry.historyStartOrdinal);
+      deleteCheckpoint.run(entry.rolloutId);
     }
     db.exec('COMMIT');
     return plan.sessionFiles.length;
@@ -878,40 +823,29 @@ function applySessionPlan(plan) {
   return { changed, removedResponseItems, sanitizedReasoningItems, convertedCompactionItems, removedCompactionItems };
 }
 
-function isSelectedSession(entry, plan) {
-  return !plan.sessionId || entry.id === plan.sessionId;
-}
-
-function remainsInPlan(entry, plan, plannedSessionPaths) {
-  if (!isSelectedSession(entry, plan)) {
-    return false;
-  }
-  const isPlanned = plannedSessionPaths.has(entry.filePath);
-  if (plan.repairOnly) {
-    return isPlanned
-      && (entry.malformedResponseItems > 0 || (plan.repairEncrypted && entry.replayRepairItems > 0));
-  }
-  return plan.fromProviders.some((source) => entry.providers.includes(source))
-    || (isPlanned && plan.sanitizeEncrypted && entry.replayRepairItems > 0);
-}
-
-function remainsInDatabase(row, plan) {
-  return (!plan.sessionId || row.id === plan.sessionId)
-    && plan.fromProviders.includes(row.provider);
-}
-
 function verifyPlan(inventory, plan) {
-  const fresh = scanInventory({ ...inventory, sessionId: plan.sessionId });
-  if (fresh.scanErrors.length > 0 || plan.sessionFiles.some((entry) => !fresh.sessions.some((current) => current.filePath === entry.filePath))) {
+  const fresh = inspectSessionFiles(plan.sessionFiles.map((entry) => entry.filePath), inventory.codexHome);
+  if (fresh.errors.length > 0 || fresh.entries.length !== plan.sessionFiles.length) {
     fail('Verification failed: a rewritten rollout is missing or unreadable.');
   }
-  const plannedSessionPaths = new Set(plan.sessionFiles.map((entry) => entry.filePath));
-  const remainingFiles = fresh.sessions.filter((entry) => remainsInPlan(entry, plan, plannedSessionPaths));
-  const remainingRows = fresh.dbRows.filter((row) => remainsInDatabase(row, plan));
-  if (remainingFiles.length > 0 || remainingRows.length > 0) {
-    fail(`Verification failed: ${remainingFiles.length} JSONL files and ${remainingRows.length} SQLite rows still use source providers.`);
+  for (const [index, entry] of fresh.entries.entries()) {
+    const original = plan.sessionFiles[index];
+    const expectedProviders = plan.repairOnly ? original.providers : [plan.toProvider];
+    if (entry.id !== original.id || entry.providers.length !== expectedProviders.length
+      || entry.providers.some((provider, i) => provider !== expectedProviders[i])) {
+      fail(`Verification failed: session identity or provider changed unexpectedly: ${entry.filePath}`);
+    }
+    if (entry.malformedResponseItems > 0 || (plan.sanitizeEncrypted && entry.replayRepairItems > 0)) {
+      fail(`Verification failed: incompatible replay items remain: ${entry.filePath}`);
+    }
   }
-  return { remainingFiles, remainingRows };
+  if (plan.dbRows.length === 0) return;
+  const rows = new Map(readStateRows(inventory.stateDbPath, plan.sessionId).map((row) => [row.id, row]));
+  for (const row of plan.dbRows) {
+    if (rows.get(row.id)?.provider !== plan.toProvider) {
+      fail(`Verification failed: SQLite provider was not updated: ${row.id}`);
+    }
+  }
 }
 
 function summarize(inventory, plan) {
@@ -976,12 +910,17 @@ function syncProvider(options) {
     return report;
   }
 
-  for (const entry of plan.sessionFiles) {
-    const lockPath = path.join(codexHome, 'thread-writer-locks', `${entry.id}.lock`);
+  const threadIds = new Set([...plan.sessionFiles, ...plan.dbRows].map((entry) => entry.id));
+  for (const id of threadIds) {
+    const lockPath = path.join(codexHome, 'thread-writer-locks', `${id}.lock`);
     if (fs.existsSync(lockPath)) {
-      // Windows denies access while the app owns this thread's writer lock.
+      // Windows byte-range locks allow opening the file but reject reading it.
       const lockFd = fs.openSync(lockPath, 'r');
-      fs.closeSync(lockFd);
+      try {
+        fs.readSync(lockFd, Buffer.alloc(1), 0, 1, 0);
+      } finally {
+        fs.closeSync(lockFd);
+      }
     }
   }
 
@@ -995,10 +934,10 @@ function syncProvider(options) {
   report.sanitizedReasoningItems = sessionResult.sanitizedReasoningItems;
   report.convertedCompactionItems = sessionResult.convertedCompactionItems;
   report.removedCompactionItems = sessionResult.removedCompactionItems;
-  const verified = verifyPlan({ codexHome, stateDbPath }, plan);
+  verifyPlan({ codexHome, stateDbPath }, plan);
   report.verified = true;
-  report.remainingJsonl = verified.remainingFiles.length;
-  report.remainingSqlite = verified.remainingRows.length;
+  report.remainingJsonl = 0;
+  report.remainingSqlite = 0;
   return report;
 }
 
@@ -1031,11 +970,9 @@ function formatInventory(inventory) {
 }
 
 module.exports = {
-  buildPlan,
   formatInventory,
   resolveCodexHome,
   resolveStateDb,
-  rewriteSessionProvider,
   scanInventory,
   syncProvider,
 };

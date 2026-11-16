@@ -9,7 +9,6 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const { DatabaseSync } = require('node:sqlite');
 const {
-  rewriteSessionProvider,
   scanInventory,
   syncProvider,
 } = require('./provider-sync.cjs');
@@ -121,10 +120,95 @@ test('inventory reads active and archived rollouts and SQLite providers', () => 
   }
 });
 
-test('provider rewrite preserves CRLF and malformed lines byte-for-byte', () => {
-  const original = `  ${JSON.stringify({ type: 'session_meta', payload: { id: 'session-crlf', model_provider: 'openai' } })}\r\nnot-json\r\n`;
-  const rewritten = rewriteSessionProvider(original, 'custom');
-  assert.equal(rewritten, `  ${JSON.stringify({ type: 'session_meta', payload: { id: 'session-crlf', model_provider: 'custom' } })}\r\nnot-json\r\n`);
+test('on-disk provider rewrite preserves whitespace, CRLF and malformed lines byte-for-byte', () => {
+  const f = fixture();
+  try {
+    const meta = { type: 'session_meta', payload: { id: 'session-a', model_provider: 'openai' } };
+    fs.writeFileSync(f.sessionPath, `  ${JSON.stringify(meta)}\r\nnot-json\r\n`);
+    syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'custom', apply: true });
+    meta.payload.model_provider = 'custom';
+    assert.equal(fs.readFileSync(f.sessionPath, 'utf8'), `  ${JSON.stringify(meta)}\r\nnot-json\r\n`);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('streaming preserves split UTF-8, multi-buffer records and a final line without a newline', () => {
+  const f = fixture();
+  try {
+    const meta = JSON.stringify({ type: 'session_meta', payload: { id: 'session-a', model_provider: 'openai' } }) + '\r\n';
+    const prefix = '{"type":"event_msg","payload":{"text":"';
+    const padding = 'x'.repeat(1024 * 1024 - Buffer.byteLength(meta + prefix) - 1);
+    const body = prefix + padding + '🙂Ж' + 'x'.repeat(2 * 1024 * 1024) + '"}}\r\n';
+    const tail = 'null\r\n{"type":"response_item","payload":null}\r\nnot-json\r\n \r\n{"type":"event_msg","payload":{"text":"末尾"}}';
+    fs.writeFileSync(f.sessionPath, meta + body + tail);
+    const report = syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'custom', apply: true });
+    assert.equal(report.verified, true);
+    assert.equal(fs.readFileSync(f.sessionPath, 'utf8'), meta.replace('openai', 'custom') + body + tail);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('bulk verification reads unplanned rollouts only during the initial scan', () => {
+  const f = fixture();
+  const open = fs.openSync;
+  let archivedReads = 0;
+  try {
+    fs.openSync = (file, flags, ...args) => {
+      if (file === f.archivedPath && flags === 'r') archivedReads += 1;
+      return open(file, flags, ...args);
+    };
+    const report = syncProvider({ codexHome: f.root, fromProviders: ['openai'], toProvider: 'custom', apply: true });
+    assert.equal(report.verified, true);
+    assert.equal(archivedReads, 1);
+  } finally {
+    fs.openSync = open;
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('bulk verification ignores a new source-provider thread created after planning', () => {
+  const f = fixture();
+  try {
+    const db = new DatabaseSync(f.dbPath);
+    db.exec("CREATE TRIGGER create_new_thread AFTER UPDATE OF model_provider ON threads BEGIN INSERT INTO threads VALUES ('new-thread', 'openai', ''); END");
+    db.close();
+    const report = syncProvider({ codexHome: f.root, fromProviders: ['openai'], toProvider: 'custom', apply: true });
+    assert.equal(report.verified, true);
+    const fresh = new DatabaseSync(f.dbPath, { readOnly: true });
+    assert.equal(fresh.prepare("SELECT model_provider FROM threads WHERE id = 'new-thread'").get().model_provider, 'openai');
+    fresh.close();
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('verification rejects a planned SQLite row that disappears during the update', () => {
+  const f = fixture();
+  try {
+    const db = new DatabaseSync(f.dbPath);
+    db.exec('CREATE TRIGGER remove_updated_thread AFTER UPDATE OF model_provider ON threads BEGIN DELETE FROM threads WHERE id = NEW.id; END');
+    db.close();
+    assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'custom', apply: true }), /Verification failed: SQLite provider/);
+    assert.equal(fs.readdirSync(path.join(f.root, 'backups', 'provider-sync')).length, 1);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('repair-history removes reasoning with only invisible summary and content text', () => {
+  const f = fixture();
+  try {
+    const meta = { type: 'session_meta', payload: { id: 'session-a', model_provider: 'openai' } };
+    const empty = { type: 'response_item', payload: { type: 'reasoning', id: 'rs_blank', summary: [{ text: '\u200b' }], content: [{ text: ' \uFEFF\n' }], encrypted_content: null } };
+    fs.writeFileSync(f.sessionPath, JSON.stringify(meta) + '\n' + JSON.stringify(empty) + '\n');
+    const report = syncProvider({ codexHome: f.root, sessionId: 'session-a', repairHistory: true, apply: true });
+    assert.equal(report.historyItemsRemoved, 1);
+    assert.equal(fs.readFileSync(f.sessionPath, 'utf8'), JSON.stringify(meta) + '\n');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
 });
 
 test('targeted scan falls back when a matching filename belongs to another session', () => {
@@ -242,28 +326,39 @@ test('failed rollout replacement preserves the original file and provider row', 
   }
 });
 
-test('a Windows writer lock prevents changes and backup creation', { skip: process.platform !== 'win32' }, async () => {
-  const f = fixture();
-  const lockPath = path.join(f.root, 'thread-writer-locks', 'session-a.lock');
-  fs.mkdirSync(path.dirname(lockPath));
-  fs.writeFileSync(lockPath, '');
-  const child = spawn('pwsh.exe', ['-NoLogo', '-NoProfile', '-Command',
-    "$lock = [IO.File]::Open($env:PROVIDER_SYNC_TEST_LOCK, 'Open', 'ReadWrite', 'None'); [Console]::WriteLine('locked'); [Console]::Out.Flush(); [Console]::ReadLine() | Out-Null; $lock.Dispose()",
-  ], { env: { ...process.env, PROVIDER_SYNC_TEST_LOCK: lockPath }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  const finished = once(child, 'exit');
-  try {
-    const [ready] = await once(child.stdout, 'data');
-    assert.match(ready.toString(), /locked/);
-    const original = fs.readFileSync(f.sessionPath);
-    assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true }), { code: 'EBUSY' });
-    assert.deepEqual(fs.readFileSync(f.sessionPath), original);
-    assert.equal(fs.existsSync(path.join(f.root, 'backups')), false);
-  } finally {
-    child.stdin.end('\n');
-    await finished;
-    fs.rmSync(f.root, { recursive: true, force: true });
-  }
-});
+for (const lockKind of ['exclusive-open', 'byte-range']) {
+  test(`a Windows ${lockKind} writer lock prevents changes and backup creation`, { skip: process.platform !== 'win32' }, async () => {
+    const f = fixture();
+    const lockPath = path.join(f.root, 'thread-writer-locks', 'session-a.lock');
+    fs.mkdirSync(path.dirname(lockPath));
+    fs.writeFileSync(lockPath, '');
+    const acquireLock = lockKind === 'byte-range'
+      ? "$lock = [IO.File]::Open($env:PROVIDER_SYNC_TEST_LOCK, 'Open', 'ReadWrite', 'ReadWrite'); $lock.Lock(0, 1)"
+      : "$lock = [IO.File]::Open($env:PROVIDER_SYNC_TEST_LOCK, 'Open', 'ReadWrite', 'None')";
+    const child = spawn('pwsh.exe', ['-NoLogo', '-NoProfile', '-Command',
+      acquireLock + "; [Console]::WriteLine('locked'); [Console]::Out.Flush(); [Console]::ReadLine() | Out-Null; $lock.Dispose()",
+    ], { env: { ...process.env, PROVIDER_SYNC_TEST_LOCK: lockPath }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const finished = once(child, 'exit');
+    try {
+      const [ready] = await once(child.stdout, 'data');
+      assert.match(ready.toString(), /locked/);
+      const original = fs.readFileSync(f.sessionPath);
+      assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true }), { code: 'EBUSY' });
+      assert.deepEqual(fs.readFileSync(f.sessionPath), original);
+      assert.equal(fs.existsSync(path.join(f.root, 'backups')), false);
+      fs.writeFileSync(f.sessionPath, original.toString().replace('"model_provider":"openai"', '"model_provider":"codex"'));
+      assert.throws(() => syncProvider({ codexHome: f.root, sessionId: 'session-a', fromProviders: ['openai'], toProvider: 'codex', apply: true }), { code: 'EBUSY' });
+      const db = new DatabaseSync(f.dbPath, { readOnly: true });
+      assert.equal(db.prepare("SELECT model_provider FROM threads WHERE id = 'session-a'").get().model_provider, 'openai');
+      db.close();
+      assert.equal(fs.existsSync(path.join(f.root, 'backups')), false);
+    } finally {
+      child.stdin.end('\n');
+      await finished;
+      fs.rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('backup directory gets a suffix when the timestamp already exists', () => {
   const testFixture = fixture();

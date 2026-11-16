@@ -29,7 +29,7 @@ Apply it after closing Codex, the Codex CLI, and app-server:
 Run-Codex-Provider-Sync.cmd --from openai --to codex --yes
 ```
 
-On Windows, apply also checks access to each selected chat's writer lock before creating backups or changing data. A loaded chat must be unloaded before its rollout can be replaced safely.
+On Windows, apply probes each selected chat's writer lock by reading one byte before creating backups or changing data. Opening the file alone does not detect Codex's byte-range lock. This also covers SQLite-only provider updates. A loaded chat must be unloaded before applying changes.
 
 To test or migrate one thread only:
 
@@ -63,7 +63,9 @@ Backups are created under `<CODEX_HOME>\backups\provider-sync\<timestamp>` befor
 
 The preview reports mixed `session_meta` files, empty-history candidates, all reasoning replay candidates, encrypted replay candidates, and nested plaintext/opaque compaction candidates. The apply report shows how many reasoning items became text messages, readable compactions were converted, and opaque compactions were removed. Every write has a backup and a post-write scan.
 
-Rollout inspection and rewriting use bounded streaming buffers, so large histories do not need to be loaded into memory as one document. A targeted `--session-id` scan uses SQLite's current rollout path first. It leaves older immutable segments of the same chat untouched, including compressed segments. When the index does not resolve the session, it searches matching filenames and then other rollout files. `--status --session-id ID` is also scoped to one chat. For a rotated rollout, the history index is keyed by the rollout ID in its filename, which can differ from the stable chat ID.
+Rollout inspection and rewriting use 1 MiB read blocks and a bounded output queue. Incomplete records are joined once, so memory scales with the largest JSONL record rather than the entire history. A targeted `--session-id` scan uses SQLite's current rollout path first. It leaves older immutable segments of the same chat untouched, including compressed segments. When the index does not resolve the session, it searches matching filenames and then other rollout files. `--status --session-id ID` is also scoped to one chat. For a rotated rollout, the history index is keyed by the rollout ID in its filename, which can differ from the stable chat ID.
+
+Post-write verification reads only the planned rollouts and checks the updated SQLite rows. It rejects missing rows, changed session identities, and remaining replay problems without rescanning unrelated histories or treating concurrently created chats as failed migrations. Bulk history resets reuse prepared SQL statements. Buffered output uses [`fs.writeFileSync`](https://nodejs.org/api/fs.html#fswritefilesyncfile-data-options) on the open temporary descriptor before syncing and replacing the original file.
 
 The tool intentionally fails when selected `.jsonl.zst` rollouts are present because it cannot safely rewrite compressed rollouts without a zstd runtime. Unrelated compressed rollouts do not block a targeted migration. No partial write is started in that case.
 
@@ -73,20 +75,22 @@ Requires Node.js 22.5+ for the built-in `node:sqlite` module. Tests use only Nod
 
 ## Validation on 2026-11-16
 
-An isolated copy of the current official-provider chat was converted `openai -> codex -> openai`. The installed Windows CLI `0.169.0-alpha.11.1` successfully handled `thread/resume`, `thread/read`, and `thread/turns/list` after both conversions. All 72 projected history items were recovered and the projection cursor matched the rewritten rollout size. Ownership fields and user messages were preserved. The source chat and its live databases were not changed. No model turn was submitted to either backend; this validates local resume and history compatibility.
+`npm run test:provider-sync` runs 26 tests covering provider migration, nested replay repair, inherited history, byte-range writer locks, concurrent SQLite changes, UTF-8 split across read blocks, large records, CRLF, and files without a final newline. Tests use the same on-disk rewrite as the CLI.
 
-The local report is `work/provider-sync-validation/report.json`. The regression suite covers the launchers, targeted scans, inherited-history preservation, compaction metadata alignment, and a failed file replacement.
+The installed Windows CLI `0.169.0-alpha.11.1` resumed an isolated official-provider chat after both `openai -> codex -> openai` conversions, preserving all 72 projected history items. The existing chat `01a10c06-f043-78a0-9ce6-c02906685005` was migrated to `openai` and repaired after reproducing `unsupported_persisted_item_context` with summary-only reasoning. Its repaired 106-item context passed an official WebSocket tool round trip ending in `PROBE_OK` and matched the live context by SHA-256. Native projection recovered all 3333 items and 23 turns. A full standalone CLI resume of this large chat was not confirmed; earlier attempts exceeded 120 seconds.
 
-The existing chat `01a10c06-f043-78a0-9ce6-c02906685005` was also migrated from `codex` to `openai`. Its current rollout uses a separate rollout ID. The 3330 items and 22 turns of that rollout were recovered with a projection cursor matching the rewritten file size, and the desktop history reader could read its latest turn. Older compressed segments were left intact. The original rollout and state database are backed up under `C:\Users\lensm\.codex\backups\provider-sync\2026-11-16T19-15-04-770Z`; the correct rollout-keyed history snapshot is in the following backup `2026-11-16T19-16-27-367Z`. The live report is `work/provider-sync-validation/ecs-live-report.json`.
+Original migration backup: `C:\Users\lensm\.codex\backups\provider-sync\2026-11-16T19-15-04-770Z`. Replay repair backup: `2026-11-16T19-49-36-429Z` in the same directory. Detailed local reports are under `work/provider-sync-validation/`: `report.json`, `ecs-live-report.json`, `replay-probe-report.json`, `ecs-context-probe-report.json`, and `ecs-replay-live-report.json`. Backend probes ran separately from the chat and executed only the diagnostic readiness tool.
 
-Full standalone CLI `thread/resume` for this large existing chat did not complete within 120 seconds, despite completing its history projection. Provider metadata and desktop history reads were verified; sending a new model turn was not tested.
+### Local performance comparison
 
-### Rustponses continuation repair
+Three sequential before/after pairs used the same 63,125,423-byte history copy with Node.js `v26.13.0`, comparing the previous implementation at `c609cab` with the streaming refactor. Medians:
 
-The next real turn failed with `unsupported_persisted_item_context` on `previous_response_id`. A small official WebSocket probe reproduced that exact error with summary-only reasoning, then succeeded after converting the same text into an ordinary assistant message. This exposed two omissions in the original cleanup: 1372 summary-only reasoning records remained, and 541 reasoning records in `guardian_history` had not been inspected.
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Peak process RSS | 359.25 MiB | 198.85 MiB |
+| CPU time | 1.219 s | 1.032 s |
+| Elapsed time | 2.064 s | 1.876 s |
 
-After the fix, the repaired chat's 106-item model context passed an official WebSocket tool round trip: a function call, its result, and a final `PROBE_OK` response. The live repaired context matched the tested copy by SHA-256. Native history projection recovered all 3333 items and 23 turns present before this repair. The repair converted 1873 visible reasoning records to messages and removed 40 reasoning records with no visible text. The provider remains `openai`.
+All six runs produced identical 59,816,074-byte files with SHA-256 `a6aa3bacde41d00d77750a5ffa4df53c8fa2afcea81712d2448015bf3d91ecac`, converting 1873 reasoning records and removing 40 empty records. These are local measurements on one history; elapsed time also reflects other work on the machine. The benchmark leaves live chats unchanged. Raw measurements and source hashes are in `work/provider-sync-validation/polish-final-comparison.jsonl` and `polish-report.json`.
 
-The new backup is `C:\Users\lensm\.codex\backups\provider-sync\2026-11-16T19-49-36-429Z`. Reports are `work/provider-sync-validation/replay-probe-report.json`, `ecs-context-probe-report.json`, and `ecs-replay-live-report.json`. The diagnostic backend requests ran separately from the chat and executed only the diagnostic readiness tool; no prompt was appended to the user's chat.
-
-`reference/decompile/*` was absent in this checkout. The relevant upstream references reviewed were [history materialization](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/thread_history_materialization.rs) and [history projection writes](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/thread_history.rs).
+`reference/decompile/*` was absent in this checkout. Upstream references reviewed: [history materialization](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/thread_history_materialization.rs), [history projection writes](https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/local/thread_history.rs), and [writer locks](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/writer_lock.rs).

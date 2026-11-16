@@ -119,49 +119,34 @@ function parseArgs(argv) {
 }
 
 function print(value, json) {
-  if (json) {
+  if (json || !value.mode) {
     console.log(JSON.stringify(value, null, 2));
     return;
   }
-  if (value.mode) {
-    if (value.replayRepairItems) console.log(`Provider replay candidates: ${value.replayRepairItems}`);
-    if (value.historyThreadsReset) console.log(`History projections reset: ${value.historyThreadsReset} (rebuilt when the chat resumes)`);
-    if (value.repairOnly) {
-      console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
-      console.log(`Codex home: ${value.codexHome}`);
-      if (value.sessionId) console.log(`Session: ${value.sessionId}`);
-      if (value.repairEncrypted) {
-        console.log(`Encrypted replay candidates: ${value.encryptedReplayItems}`);
-        console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
-        console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
-      }
-      if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
-      if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
-      if (value.sanitizedReasoningItems) console.log(`Reasoning items converted to messages: ${value.sanitizedReasoningItems}`);
-      if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
-      if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
-      if (value.verified) console.log('Verification: OK');
-      return;
-    }
+  if (value.replayRepairItems) console.log(`Provider replay candidates: ${value.replayRepairItems}`);
+  if (value.historyThreadsReset) console.log(`History projections reset: ${value.historyThreadsReset} (rebuilt when the chat resumes)`);
+  if (value.repairOnly) {
+    console.log(`${value.mode}: ${value.historyRepairs} repairable history item(s)`);
+  } else {
     console.log(`${value.mode}: ${value.jsonlChanges} JSONL file(s), ${value.sqliteChanges} SQLite row(s)`);
-    console.log(`Codex home: ${value.codexHome}`);
+  }
+  console.log(`Codex home: ${value.codexHome}`);
+  if (!value.repairOnly) {
     console.log(`State DB: ${value.stateDbPath}`);
     console.log(`Provider: ${value.fromProviders.join(', ')} -> ${value.toProvider}`);
-    if (value.sessionId) console.log(`Session: ${value.sessionId}`);
     if (value.historyRepairs) console.log(`History repair candidates: ${value.historyRepairs}`);
-    if (value.encryptedReplayItems) console.log(`Encrypted replay candidates: ${value.encryptedReplayItems}`);
-    if (value.plaintextCompactionItems) console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
-    if (value.opaqueCompactionItems) console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
-    if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
-    if (value.sanitizedReasoningItems) console.log(`Reasoning items converted to messages: ${value.sanitizedReasoningItems}`);
-    if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
-    if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
     if (value.mixedSessionMetadata) console.log(`Mixed session_meta files: ${value.mixedSessionMetadata}`);
-    if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
-    if (value.verified) console.log('Verification: OK');
-    return;
   }
-  console.log(JSON.stringify(value, null, 2));
+  if (value.sessionId) console.log(`Session: ${value.sessionId}`);
+  if (value.repairEncrypted || value.encryptedReplayItems) console.log(`Encrypted replay candidates: ${value.encryptedReplayItems}`);
+  if (value.repairEncrypted || value.plaintextCompactionItems) console.log(`Plaintext compaction candidates: ${value.plaintextCompactionItems}`);
+  if (value.repairEncrypted || value.opaqueCompactionItems) console.log(`Opaque compaction candidates: ${value.opaqueCompactionItems}`);
+  if (value.backupDir) console.log(`Backup: ${value.backupDir}`);
+  if (value.historyItemsRemoved) console.log(`History items removed: ${value.historyItemsRemoved}`);
+  if (value.sanitizedReasoningItems) console.log(`Reasoning items converted to messages: ${value.sanitizedReasoningItems}`);
+  if (value.convertedCompactionItems) console.log(`Compaction items converted: ${value.convertedCompactionItems}`);
+  if (value.removedCompactionItems) console.log(`Opaque compaction items removed: ${value.removedCompactionItems}`);
+  if (value.verified) console.log('Verification: OK');
 }
 
 function validateOptions(options) {
